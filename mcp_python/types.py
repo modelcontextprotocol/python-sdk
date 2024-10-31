@@ -1,6 +1,7 @@
 from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, RootModel
+from pydantic.fields import Field
 from pydantic.networks import AnyUrl
 
 """
@@ -141,16 +142,19 @@ class ErrorData(BaseModel):
 
     code: int
     """The error type that occurred."""
+
     message: str
     """
     A short description of the error. The message SHOULD be limited to a concise single
     sentence.
     """
+
     data: Any | None = None
     """
     Additional information about the error. The value of this member is defined by the
     sender (e.g. detailed error information, nested errors etc.).
     """
+
     model_config = ConfigDict(extra="allow")
 
 

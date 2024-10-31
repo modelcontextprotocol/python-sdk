@@ -63,9 +63,13 @@ class Server:
             try:
                 from importlib.metadata import version
 
-                return version(package)
+                v = version(package)
+                if v is not None:
+                    return v
             except Exception:
-                return "unknown"
+                pass
+
+            return "unknown"
 
         return types.InitializationOptions(
             server_name=self.name,
@@ -330,6 +334,11 @@ class Server:
         read_stream: MemoryObjectReceiveStream[JSONRPCMessage | Exception],
         write_stream: MemoryObjectSendStream[JSONRPCMessage],
         initialization_options: types.InitializationOptions,
+        # When True, exceptions are returned as messages to the client.
+        # When False, exceptions are raised, which will cause the server to shut down
+        # but also make tracing exceptions much easier during testing and when using
+        # in-process servers.
+        raise_exceptions: bool = False,
     ):
         with warnings.catch_warnings(record=True) as w:
             async with ServerSession(
@@ -349,6 +358,7 @@ class Server:
                                     f"Dispatching request of type {type(req).__name__}"
                                 )
 
+                                token = None
                                 try:
                                     # Set our global state that can be retrieved via
                                     # app.get_request_context()
@@ -360,12 +370,16 @@ class Server:
                                         )
                                     )
                                     response = await handler(req)
-                                    # Reset the global state after we are done
-                                    request_ctx.reset(token)
                                 except Exception as err:
+                                    if raise_exceptions:
+                                        raise err
                                     response = ErrorData(
                                         code=0, message=str(err), data=None
                                     )
+                                finally:
+                                    # Reset the global state after we are done
+                                    if token is not None:
+                                        request_ctx.reset(token)
 
                                 await message.respond(response)
                             else:
@@ -373,7 +387,7 @@ class Server:
                                     ErrorData(
                                         code=METHOD_NOT_FOUND,
                                         message="Method not found",
-                                    )
+                                    ),
                                 )
 
                             logger.debug("Response sent")

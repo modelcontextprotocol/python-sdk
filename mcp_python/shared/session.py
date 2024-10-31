@@ -87,6 +87,8 @@ class BaseSession(
         write_stream: MemoryObjectSendStream[JSONRPCMessage],
         receive_request_type: type[ReceiveRequestT],
         receive_notification_type: type[ReceiveNotificationT],
+        # If none, reading will never time out
+        read_timeout_seconds: int | float | None = None,
     ) -> None:
         self._read_stream = read_stream
         self._write_stream = write_stream
@@ -94,6 +96,7 @@ class BaseSession(
         self._request_id = 0
         self._receive_request_type = receive_request_type
         self._receive_notification_type = receive_notification_type
+        self._read_timeout_seconds = read_timeout_seconds
 
         self._incoming_message_stream_writer, self._incoming_message_stream_reader = (
             anyio.create_memory_object_stream[
@@ -147,7 +150,13 @@ class BaseSession(
 
         await self._write_stream.send(JSONRPCMessage(jsonrpc_request))
 
-        response_or_error = await response_stream_reader.receive()
+        try:
+            with anyio.fail_after(self._read_timeout_seconds):
+                response_or_error = await response_stream_reader.receive()
+        except TimeoutError:
+            # TODO: make sure this response comes back correctly to the client
+            raise McpError(ErrorData(code=408, message=f"Timed out while waiting for response to {request.__class__.__name__}. Waited {READ_TIMEOUT_SECONDS} seconds."))
+
         if isinstance(response_or_error, JSONRPCError):
             raise McpError(response_or_error.error)
         else:
