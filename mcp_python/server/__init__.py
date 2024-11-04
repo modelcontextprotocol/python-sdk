@@ -18,6 +18,7 @@ from mcp_python.types import (
     ClientNotification,
     ClientRequest,
     CompleteRequest,
+    EmptyResult,
     ErrorData,
     JSONRPCMessage,
     ListPromptsRequest,
@@ -27,6 +28,7 @@ from mcp_python.types import (
     ListToolsRequest,
     ListToolsResult,
     LoggingLevel,
+    PingRequest,
     ProgressNotification,
     Prompt,
     PromptReference,
@@ -52,7 +54,9 @@ request_ctx: contextvars.ContextVar[RequestContext] = contextvars.ContextVar(
 class Server:
     def __init__(self, name: str):
         self.name = name
-        self.request_handlers: dict[type, Callable[..., Awaitable[ServerResult]]] = {}
+        self.request_handlers: dict[type, Callable[..., Awaitable[ServerResult]]] = {
+            PingRequest: _ping_handler,
+        }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         logger.info(f"Initializing server '{name}'")
 
@@ -413,3 +417,7 @@ class Server:
                         logger.info(
                             f"Warning: {warning.category.__name__}: {warning.message}"
                         )
+
+
+async def _ping_handler(request: PingRequest) -> ServerResult:
+    return ServerResult(EmptyResult())
