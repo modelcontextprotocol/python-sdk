@@ -1,10 +1,10 @@
 from contextlib import AbstractAsyncContextManager
 from datetime import timedelta
 from typing import Generic, TypeVar
-import httpx
 
 import anyio
 import anyio.lowlevel
+import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import BaseModel
 

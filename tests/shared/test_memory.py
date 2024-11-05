@@ -3,7 +3,7 @@ from typing_extensions import AsyncGenerator
 
 from mcp_python.client.session import ClientSession
 from mcp_python.server import Server
-from mcp_python.server.memory import (
+from mcp_python.shared.memory import (
     create_connected_server_and_client_session,
 )
 from mcp_python.types import (
