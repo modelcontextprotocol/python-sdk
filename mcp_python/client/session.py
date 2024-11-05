@@ -38,7 +38,13 @@ class ClientSession(
         write_stream: MemoryObjectSendStream[JSONRPCMessage],
         read_timeout_seconds: int | float | None = None,
     ) -> None:
-        super().__init__(read_stream, write_stream, ServerRequest, ServerNotification, read_timeout_seconds=read_timeout_seconds)
+        super().__init__(
+            read_stream,
+            write_stream,
+            ServerRequest,
+            ServerNotification,
+            read_timeout_seconds=read_timeout_seconds,
+        )
 
     async def initialize(self) -> InitializeResult:
         from mcp_python.types import (

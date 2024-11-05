@@ -155,7 +155,17 @@ class BaseSession(
                 response_or_error = await response_stream_reader.receive()
         except TimeoutError:
             # TODO: make sure this response comes back correctly to the client
-            raise McpError(ErrorData(code=408, message=f"Timed out while waiting for response to {request.__class__.__name__}. Waited {READ_TIMEOUT_SECONDS} seconds."))
+            raise McpError(
+                ErrorData(
+                    code=408,
+                    message=(
+                        f"Timed out while waiting for response to "
+                        f"{request.__class__.__name__}. Waited "
+                        f"{self._read_timeout_seconds} seconds."
+                    ),
+                )
+
+            )
 
         if isinstance(response_or_error, JSONRPCError):
             raise McpError(response_or_error.error)
