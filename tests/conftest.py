@@ -15,7 +15,6 @@ TEST_INITIALIZATION_OPTIONS = InitializationOptions(
 def mcp_server() -> Server:
     server = Server(name="test_server")
 
-    # Add a simple resource for testing
     @server.list_resources()
     async def handle_list_resources():
         return [

@@ -154,7 +154,6 @@ class BaseSession(
             with anyio.fail_after(self._read_timeout_seconds):
                 response_or_error = await response_stream_reader.receive()
         except TimeoutError:
-            # TODO: make sure this response comes back correctly to the client
             raise McpError(
                 ErrorData(
                     code=408,

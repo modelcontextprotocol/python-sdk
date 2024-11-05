@@ -3,7 +3,7 @@ In-memory transports
 """
 
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Tuple
+from typing import AsyncGenerator
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -12,23 +12,16 @@ from mcp_python.client.session import ClientSession
 from mcp_python.server import Server
 from mcp_python.types import JSONRPCMessage
 
+MessageStream = tuple[
+    MemoryObjectReceiveStream[JSONRPCMessage | Exception],
+    MemoryObjectSendStream[JSONRPCMessage]
+]
 
 @asynccontextmanager
-async def create_client_server_memory_streams() -> (
-    AsyncGenerator[
-        Tuple[
-            Tuple[
-                MemoryObjectReceiveStream[JSONRPCMessage | Exception],
-                MemoryObjectSendStream[JSONRPCMessage],
-            ],
-            Tuple[
-                MemoryObjectReceiveStream[JSONRPCMessage | Exception],
-                MemoryObjectSendStream[JSONRPCMessage],
-            ],
-        ],
-        None,
-    ]
-):
+async def create_client_server_memory_streams() -> AsyncGenerator[
+    tuple[MessageStream, MessageStream],
+    None
+]:
     """
     Creates a pair of bidirectional memory streams for client-server communication.
 
@@ -44,7 +37,6 @@ async def create_client_server_memory_streams() -> (
         JSONRPCMessage | Exception
     ](1)
 
-    # Return streams grouped by client/server
     client_streams = (server_to_client_receive, client_to_server_send)
     server_streams = (client_to_server_receive, server_to_client_send)
 
@@ -66,10 +58,8 @@ async def create_connected_server_and_client_session(
         client_streams,
         server_streams,
     ):
-        # Unpack the streams
         client_read, client_write = client_streams
         server_read, server_write = server_streams
-        print("stream-1")
 
         # Create a cancel scope for the server task
         async with anyio.create_task_group() as tg:
@@ -79,8 +69,6 @@ async def create_connected_server_and_client_session(
                 server_write,
                 server.create_initialization_options(),
             )
-
-            print("stream2")
 
             try:
                 # Client session could be created here using client_read and

@@ -391,7 +391,7 @@ class Server:
                                     ErrorData(
                                         code=METHOD_NOT_FOUND,
                                         message="Method not found",
-                                    ),
+                                    )
                                 )
 
                             logger.debug("Response sent")
