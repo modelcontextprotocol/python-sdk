@@ -5,7 +5,6 @@ from mcp_python.server import Server
 from mcp_python.server.types import InitializationOptions
 from mcp_python.types import Resource, ServerCapabilities
 
-
 TEST_INITIALIZATION_OPTIONS = InitializationOptions(
     server_name="my_mcp_server",
     server_version="0.1.0",

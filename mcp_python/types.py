@@ -1,7 +1,6 @@
 from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, RootModel
-from pydantic.fields import Field
 from pydantic.networks import AnyUrl
 
 """

@@ -10,8 +10,8 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 
 from mcp_python.client.session import ClientSession
 from mcp_python.server import Server
-from mcp_python.server.session import ServerSession
-from mcp_python.types import ErrorData, JSONRPCMessage
+from mcp_python.types import JSONRPCMessage
+
 
 @asynccontextmanager
 async def create_client_server_memory_streams() -> AsyncGenerator[ Tuple[

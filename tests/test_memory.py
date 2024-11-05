@@ -1,21 +1,13 @@
-from typing_extensions import AsyncGenerator
-import anyio
-from pydantic import HttpUrl
-from pydantic_core import Url
 import pytest
+from typing_extensions import AsyncGenerator
 
 from mcp_python.client.session import ClientSession
 from mcp_python.server import Server
-from mcp_python.server.memory import create_client_server_memory_streams, create_connected_server_and_client_session
-from mcp_python.server.session import ServerSession
-from mcp_python.server.types import InitializationOptions
+from mcp_python.server.memory import (
+    create_connected_server_and_client_session,
+)
 from mcp_python.types import (
-    ClientNotification,
     EmptyResult,
-    InitializedNotification,
-    JSONRPCMessage,
-    Resource,
-    ServerCapabilities,
 )
 
 
