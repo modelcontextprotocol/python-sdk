@@ -1,5 +1,5 @@
+from pydantic import AnyUrl
 import pytest
-from pydantic import HttpUrl
 
 from mcp_python.server import Server
 from mcp_python.server.types import InitializationOptions
@@ -20,7 +20,7 @@ def mcp_server() -> Server:
     async def handle_list_resources():
         return [
             Resource(
-                uri=HttpUrl("memory://test"),
+                uri=AnyUrl("memory://test"),
                 name="Test Resource",
                 description="A test resource"
             )
