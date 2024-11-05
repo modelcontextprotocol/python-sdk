@@ -1,5 +1,5 @@
-from pydantic import AnyUrl
 import pytest
+from pydantic import AnyUrl
 
 from mcp_python.server import Server
 from mcp_python.server.types import InitializationOptions
