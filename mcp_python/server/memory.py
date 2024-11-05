@@ -52,6 +52,8 @@ async def create_client_server_memory_streams() -> AsyncGenerator[
 @asynccontextmanager
 async def create_connected_server_and_client_session(
     server: Server,
+    read_timeout_seconds: int | float | None = None,
+    raise_exceptions: bool = False,
 ) -> AsyncGenerator[ClientSession, None]:
     """Creates a ServerSession that is connected to the `server`."""
     async with create_client_server_memory_streams() as (
@@ -64,10 +66,12 @@ async def create_connected_server_and_client_session(
         # Create a cancel scope for the server task
         async with anyio.create_task_group() as tg:
             tg.start_soon(
-                server.run,
-                server_read,
-                server_write,
-                server.create_initialization_options(),
+                lambda: server.run(
+                    server_read,
+                    server_write,
+                    server.create_initialization_options(),
+                    raise_exceptions=raise_exceptions,
+                )
             )
 
             try:
@@ -75,7 +79,8 @@ async def create_connected_server_and_client_session(
                 # client_write This would allow testing the server with a client
                 # in the same process
                 async with ClientSession(
-                    read_stream=client_read, write_stream=client_write
+                    read_stream=client_read, write_stream=client_write,
+                    read_timeout_seconds=read_timeout_seconds,
                 ) as client_session:
                     await client_session.initialize()
                     yield client_session
