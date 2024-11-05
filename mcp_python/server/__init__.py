@@ -58,7 +58,7 @@ class Server:
             PingRequest: _ping_handler,
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
-        logger.info(f"Initializing server '{name}'")
+        logger.debug(f"Initializing server '{name}'")
 
     def create_initialization_options(self) -> types.InitializationOptions:
         """Create initialization options from this server instance."""
