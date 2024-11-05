@@ -3,6 +3,7 @@ In-memory transports
 """
 
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from typing import AsyncGenerator
 
 import anyio
@@ -52,10 +53,10 @@ async def create_client_server_memory_streams() -> AsyncGenerator[
 @asynccontextmanager
 async def create_connected_server_and_client_session(
     server: Server,
-    read_timeout_seconds: int | float | None = None,
+    read_timeout_seconds: timedelta | None = None,
     raise_exceptions: bool = False,
 ) -> AsyncGenerator[ClientSession, None]:
-    """Creates a ServerSession that is connected to the `server`."""
+    """Creates a ClientSession that is connected to a running MCP server."""
     async with create_client_server_memory_streams() as (
         client_streams,
         server_streams,
@@ -75,9 +76,6 @@ async def create_connected_server_and_client_session(
             )
 
             try:
-                # Client session could be created here using client_read and
-                # client_write This would allow testing the server with a client
-                # in the same process
                 async with ClientSession(
                     read_stream=client_read, write_stream=client_write,
                     read_timeout_seconds=read_timeout_seconds,

@@ -1,5 +1,7 @@
 from contextlib import AbstractAsyncContextManager
+from datetime import timedelta
 from typing import Generic, TypeVar
+import httpx
 
 import anyio
 import anyio.lowlevel
@@ -88,7 +90,7 @@ class BaseSession(
         receive_request_type: type[ReceiveRequestT],
         receive_notification_type: type[ReceiveNotificationT],
         # If none, reading will never time out
-        read_timeout_seconds: int | float | None = None,
+        read_timeout_seconds: timedelta | None = None,
     ) -> None:
         self._read_stream = read_stream
         self._write_stream = write_stream
@@ -151,12 +153,15 @@ class BaseSession(
         await self._write_stream.send(JSONRPCMessage(jsonrpc_request))
 
         try:
-            with anyio.fail_after(self._read_timeout_seconds):
+            with anyio.fail_after(
+                None if self._read_timeout_seconds is None
+                else self._read_timeout_seconds.total_seconds()
+            ):
                 response_or_error = await response_stream_reader.receive()
         except TimeoutError:
             raise McpError(
                 ErrorData(
-                    code=408,
+                    code=httpx.codes.REQUEST_TIMEOUT,
                     message=(
                         f"Timed out while waiting for response to "
                         f"{request.__class__.__name__}. Waited "

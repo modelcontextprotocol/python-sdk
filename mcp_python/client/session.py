@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 
@@ -36,7 +38,7 @@ class ClientSession(
         self,
         read_stream: MemoryObjectReceiveStream[JSONRPCMessage | Exception],
         write_stream: MemoryObjectSendStream[JSONRPCMessage],
-        read_timeout_seconds: int | float | None = None,
+        read_timeout_seconds: timedelta | None = None,
     ) -> None:
         super().__init__(
             read_stream,
