@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-python"
-version = "0.3.1.dev"
+version = "0.5.0dev"
 description = "Model Context Protocol implementation for Python"
 readme = "README.md"
 requires-python = ">=3.10"

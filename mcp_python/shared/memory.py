@@ -77,7 +77,8 @@ async def create_connected_server_and_client_session(
 
             try:
                 async with ClientSession(
-                    read_stream=client_read, write_stream=client_write,
+                    read_stream=client_read,
+                    write_stream=client_write,
                     read_timeout_seconds=read_timeout_seconds,
                 ) as client_session:
                     await client_session.initialize()
