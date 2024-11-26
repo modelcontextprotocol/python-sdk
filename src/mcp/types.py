@@ -201,7 +201,7 @@ class SamplingCapability(BaseModel):
 class ClientCapabilities(BaseModel):
     """Capabilities a client may support."""
 
-    experimental: dict[str, dict[str, Any]] | None = None
+    experimental: dict[str, object] | None = None
     """Experimental, non-standard capabilities that the client supports."""
     sampling: SamplingCapability | None = None
     """Present if the client supports sampling from an LLM."""
@@ -245,7 +245,7 @@ class LoggingCapability(BaseModel):
 class ServerCapabilities(BaseModel):
     """Capabilities that a server may support."""
 
-    experimental: dict[str, dict[str, Any]] | None = None
+    experimental: dict[str, object] | None = None
     """Experimental, non-standard capabilities that the server supports."""
     logging: LoggingCapability | None = None
     """Present if the server supports sending log messages to the client."""

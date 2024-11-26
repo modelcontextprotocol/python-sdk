@@ -111,7 +111,7 @@ class Server:
     def create_initialization_options(
         self,
         notification_options: NotificationOptions | None = None,
-        experimental_capabilities: dict[str, dict[str, Any]] | None = None,
+        experimental_capabilities: dict[str, object] | None = None,
     ) -> InitializationOptions:
         """Create initialization options from this server instance."""
 
@@ -139,7 +139,7 @@ class Server:
     def get_capabilities(
         self,
         notification_options: NotificationOptions,
-        experimental_capabilities: dict[str, dict[str, Any]],
+        experimental_capabilities: dict[str, object],
     ) -> types.ServerCapabilities:
         """Convert existing handlers to a ServerCapabilities object."""
         prompts_capability = None
