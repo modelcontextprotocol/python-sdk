@@ -30,6 +30,10 @@ Usage:
    ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
        # Implementation
 
+   @server.list_resource_templates()
+   async def handle_list_resource_templates() -> list[types.ResourceTemplate]:
+       # Implementation
+
 3. Define notification handlers if needed:
    @server.progress_notification()
    async def handle_progress(
@@ -223,6 +227,21 @@ class Server:
                 )
 
             self.request_handlers[types.ListResourcesRequest] = handler
+            return func
+
+        return decorator
+
+    def list_resource_templates(self):
+        def decorator(func: Callable[[], Awaitable[list[types.ResourceTemplate]]]):
+            logger.debug("Registering handler for ListResourceTemplatesRequest")
+
+            async def handler(_: Any):
+                templates = await func()
+                return types.ServerResult(
+                    types.ListResourceTemplatesResult(resourceTemplates=templates)
+                )
+
+            self.request_handlers[types.ListResourceTemplatesRequest] = handler
             return func
 
         return decorator
