@@ -193,6 +193,7 @@ class BaseSession(
         # Using BaseSession as a context manager should not block on exit (this
         # would be very surprising behavior), so make sure to cancel the tasks
         # in the task group.
+        self._closed = True
         self._task_group.cancel_scope.cancel()
         return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
 
@@ -256,12 +257,21 @@ class BaseSession(
         Emits a notification, which is a one-way message that does not expect
         a response.
         """
-        jsonrpc_notification = JSONRPCNotification(
-            jsonrpc="2.0",
-            **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
-        )
+        # Skip sending notifications if the session is closed
+        if self._closed:
+            return
 
-        await self._write_stream.send(JSONRPCMessage(jsonrpc_notification))
+        try:
+            jsonrpc_notification = JSONRPCNotification(
+                jsonrpc="2.0",
+                **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
+            )
+
+            await self._write_stream.send(JSONRPCMessage(jsonrpc_notification))
+        except Exception:
+            # Ignore notification send errors during session cleanup
+            if not self._closed:
+                raise
 
     async def _send_response(
         self, request_id: RequestId, response: SendResultT | ErrorData
@@ -278,6 +288,19 @@ class BaseSession(
                 ),
             )
             await self._write_stream.send(JSONRPCMessage(jsonrpc_response))
+
+    def _should_validate_notification(self, message_root: JSONRPCNotification) -> bool:
+        """
+        Determines if a notification should be validated.
+        Internal notifications (like cancelled) should be ignored.
+        """
+        try:
+            return (
+                getattr(message_root, "method", None) != "cancelled" and
+                not self._closed
+            )
+        except:
+            return False
 
     async def _receive_loop(self) -> None:
         async with (
