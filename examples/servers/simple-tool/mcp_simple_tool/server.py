@@ -78,7 +78,7 @@ def main(port: int, transport: str) -> int:
                 )
 
         async def handle_messages(request):
-            await sse.handle_post_message(request.scope, request.receive, request._send)
+            return await sse.handle_post_message(request.scope, request.receive)
 
         starlette_app = Starlette(
             debug=True,
