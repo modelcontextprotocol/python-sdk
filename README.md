@@ -135,14 +135,7 @@ async def run():
         await server.run(
             read_stream,
             write_stream,
-            InitializationOptions(
-                server_name="example",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                )
-            )
+            server.create_initialization_options("0.1.0")
         )
 
 if __name__ == "__main__":
