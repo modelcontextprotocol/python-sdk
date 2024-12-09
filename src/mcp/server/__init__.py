@@ -114,6 +114,7 @@ class Server:
 
     def create_initialization_options(
         self,
+        version: str | None = None,
         notification_options: NotificationOptions | None = None,
         experimental_capabilities: dict[str, dict[str, Any]] | None = None,
     ) -> InitializationOptions:
@@ -133,7 +134,7 @@ class Server:
 
         return InitializationOptions(
             server_name=self.name,
-            server_version=pkg_version("mcp"),
+            server_version=version if version else pkg_version("mcp"),
             capabilities=self.get_capabilities(
                 notification_options or NotificationOptions(),
                 experimental_capabilities or {},

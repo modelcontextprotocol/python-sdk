@@ -19,8 +19,9 @@ Example usage:
         async with sse.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:
+            # Pass user visible version string, egs. 0.1.0
             await app.run(
-                streams[0], streams[1], app.create_initialization_options()
+                streams[0], streams[1], app.create_initialization_options("0.1.0")
             )
 
     async def handle_messages(request):
