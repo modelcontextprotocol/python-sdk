@@ -27,3 +27,7 @@ def mcp_server() -> Server:
         ]
 
     return server
+
+@pytest.fixture
+def anyio_backend():
+    return 'asyncio'

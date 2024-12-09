@@ -2,7 +2,8 @@ import anyio
 import pytest
 
 from mcp.client.session import ClientSession
-from mcp.server import NotificationOptions, Server
+from mcp.server import Server
+from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.types import (
