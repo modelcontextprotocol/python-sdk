@@ -135,7 +135,14 @@ async def run():
         await server.run(
             read_stream,
             write_stream,
-            server.create_initialization_options("0.1.0") # user visible version number
+            InitializationOptions(
+                server_name="example",
+                server_version="0.1.0",
+                capabilities=server.get_capabilities(
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={},
+                )
+            )
         )
 
 if __name__ == "__main__":
