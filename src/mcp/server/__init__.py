@@ -439,12 +439,15 @@ class Server:
 
                                 token = None
                                 try:
-                                    # Set our global state that can be retrieved via
-                                    # app.get_request_context()
+                                    progress_token = None
+                                    if req.params.model_dump().get("_meta") is not None:
+                                        meta_dict = req.params.model_dump().get("_meta")
+                                        if "progressToken" in meta_dict:
+                                            progress_token = meta_dict["progressToken"]
                                     token = request_ctx.set(
                                         RequestContext(
                                             message.request_id,
-                                            message.request_meta,
+                                            types.RequestParams.Meta(progressToken=progress_token),
                                             session,
                                         )
                                     )

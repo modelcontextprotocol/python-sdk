@@ -40,6 +40,7 @@ class RequestParams(BaseModel):
         model_config = ConfigDict(extra="allow")
 
     _meta: Meta | None = None
+    model_config = ConfigDict(extra="allow")
 
 
 class NotificationParams(BaseModel):
