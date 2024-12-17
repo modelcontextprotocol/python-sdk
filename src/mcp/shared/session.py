@@ -294,13 +294,10 @@ class BaseSession(
         Determines if a notification should be validated.
         Internal notifications (like notifications/cancelled) should be ignored.
         """
-        try:
-            return (
-                getattr(message_root, "method", None) != "notifications/cancelled" and
-                not self._closed
-            )
-        except:
-            return False
+        return (
+            getattr(message_root, "method", None) != "notifications/cancelled" and
+            not self._closed
+        )
 
     async def _receive_loop(self) -> None:
         async with (
