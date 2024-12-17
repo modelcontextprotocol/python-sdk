@@ -292,11 +292,11 @@ class BaseSession(
     def _should_validate_notification(self, message_root: JSONRPCNotification) -> bool:
         """
         Determines if a notification should be validated.
-        Internal notifications (like cancelled) should be ignored.
+        Internal notifications (like notifications/cancelled) should be ignored.
         """
         try:
             return (
-                getattr(message_root, "method", None) != "cancelled" and
+                getattr(message_root, "method", None) != "notifications/cancelled" and
                 not self._closed
             )
         except:
