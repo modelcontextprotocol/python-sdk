@@ -440,7 +440,7 @@ class Server:
                                 token = None
                                 try:
                                     progress_token = None
-                                    if req.params.model_dump().get("_meta") is not None:
+                                    if req.params is not None and req.params.model_dump().get("_meta") is not None:
                                         meta_dict = req.params.model_dump().get("_meta")
                                         if "progressToken" in meta_dict:
                                             progress_token = meta_dict["progressToken"]
