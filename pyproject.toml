@@ -1,7 +1,6 @@
-
 [project]
 name = "mcp"
-version = "1.1.1.dev0"
+version = "1.2.0.dev0"
 description = "Model Context Protocol SDK"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -34,6 +33,10 @@ dependencies = [
 
 [project.optional-dependencies]
 rich = ["rich>=13.9.4"]
+cli = ["typer>=0.12.4", "python-dotenv>=1.0.0"]
+
+[project.scripts]
+mcp = "mcp.cli:app [cli]"
 
 [tool.uv]
 resolution = "lowest-direct"
