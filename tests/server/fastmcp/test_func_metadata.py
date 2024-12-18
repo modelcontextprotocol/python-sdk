@@ -316,7 +316,11 @@ def test_complex_function_json_schema():
                 "type": "string",
             },
             "my_model_a_with_default": {
-                "$ref": "#/$defs/SomeInputModelA",
+                "allOf": [
+                    {
+                        "$ref": "#/$defs/SomeInputModelA"
+                    }
+                ],
                 "default": {},
             },
             "an_int_with_default": {
