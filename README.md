@@ -71,18 +71,35 @@ Connections between clients and servers are established through transports like 
 
 ## Quick Start
 
-### Creating a Server
+### FastMCP
 
-MCP servers follow a decorator approach to register handlers for MCP primitives like resources, prompts, and tools. The goal is to provide a simple interface for exposing capabilities to LLM clients.
-
-**example_server.py**
+The fastest way to build MCP servers is with FastMCP, which provides a high-level, Pythonic interface:
 
 ```python
-# /// script
-# dependencies = [
-#   "mcp"
-# ]
-# ///
+from fastmcp import FastMCP
+
+mcp = FastMCP("Demo")
+
+@mcp.tool()
+def add(a: int, b: int) -> int:
+    """Add two numbers"""
+    return a + b
+
+@mcp.resource("greeting://{name}")
+def get_greeting(name: str) -> str:
+    """Get a personalized greeting"""
+    return f"Hello, {name}!"
+```
+
+FastMCP handles all the complex protocol details and server management, so you can focus on building great tools. It's designed to be high-level and Pythonic - in most cases, decorating a function is all you need.
+
+For more information about FastMCP, see the [FastMCP documentation](https://github.com/jlowin/fastmcp).
+
+### Low-Level Implementation
+
+For more control, you can use the low-level MCP implementation directly. This gives you full access to the protocol and allows you to customize every aspect of your server:
+
+```python
 from mcp.server import Server, NotificationOptions
 from mcp.server.models import InitializationOptions
 import mcp.server.stdio
