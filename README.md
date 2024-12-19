@@ -76,7 +76,7 @@ Connections between clients and servers are established through transports like 
 The fastest way to build MCP servers is with FastMCP, which provides a high-level, Pythonic interface:
 
 ```python
-from fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("Demo")
 
@@ -93,7 +93,7 @@ def get_greeting(name: str) -> str:
 
 FastMCP handles all the complex protocol details and server management, so you can focus on building great tools. It's designed to be high-level and Pythonic - in most cases, decorating a function is all you need.
 
-For more information about FastMCP, see the [FastMCP documentation](https://github.com/jlowin/fastmcp).
+FastMCP was originally developed by Jeremiah Lowin at [jlowin/fastmcp](https://github.com/jlowin/fastmcp). We are grateful for his contribution in developing this excellent framework that has now been integrated into MCP.
 
 ### Low-Level Implementation
 

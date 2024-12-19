@@ -1,8 +1,8 @@
 # /// script
-# dependencies = ["pydantic-ai-slim[openai]", "asyncpg", "numpy", "pgvector", "fastmcp"]
+# dependencies = ["pydantic-ai-slim[openai]", "asyncpg", "numpy", "pgvector"]
 # ///
 
-# uv pip install 'pydantic-ai-slim[openai]' asyncpg numpy pgvector fastmcp
+# uv pip install 'pydantic-ai-slim[openai]' asyncpg numpy pgvector
 
 """
 Recursive memory system inspired by the human brain's clustering of memories.

@@ -1,5 +1,5 @@
 # /// script
-# dependencies = ["fastmcp"]
+# dependencies = []
 # ///
 
 """
