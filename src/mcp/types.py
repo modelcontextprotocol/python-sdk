@@ -1,6 +1,6 @@
 from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, FileUrl, RootModel
+from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
 from pydantic.networks import AnyUrl
 
 """
@@ -39,14 +39,14 @@ class RequestParams(BaseModel):
 
         model_config = ConfigDict(extra="allow")
 
-    _meta: Meta | None = None
+    meta: Meta | None = Field(alias="_meta", default=None)
 
 
 class NotificationParams(BaseModel):
     class Meta(BaseModel):
         model_config = ConfigDict(extra="allow")
 
-    _meta: Meta | None = None
+    meta: Meta | None = Field(alias="_meta", default=None)
     """
     This parameter name is reserved by MCP to allow clients and servers to attach
     additional metadata to their notifications.
@@ -86,7 +86,7 @@ class Result(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    _meta: dict[str, Any] | None = None
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
     """
     This result property is reserved by the protocol to allow clients and servers to
     attach additional metadata to their responses.

@@ -221,7 +221,7 @@ class BaseSession(
                     )
                     responder = RequestResponder(
                         request_id=message.root.id,
-                        request_meta=validated_request.root.params._meta
+                        request_meta=validated_request.root.params.meta
                         if validated_request.root.params
                         else None,
                         request=validated_request,

@@ -102,9 +102,9 @@ class SseServerTransport:
         self._read_stream_writers[session_id] = read_stream_writer
         logger.debug(f"Created new session with ID: {session_id}")
 
-        sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream(
-            0, dict[str, Any]
-        )
+        sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[
+            dict[str, Any]
+        ](0)
 
         async def sse_writer():
             logger.debug("Starting SSE writer")
