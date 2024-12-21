@@ -1,7 +1,7 @@
 import anyio
 import click
 import mcp.types as types
-from mcp.server import Server
+from mcp.server.lowlevel import Server
 
 
 def create_messages(

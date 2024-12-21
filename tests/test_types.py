@@ -1,3 +1,5 @@
+import pytest
+
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     ClientRequest,
@@ -6,7 +8,8 @@ from mcp.types import (
 )
 
 
-def test_jsonrpc_request():
+@pytest.mark.anyio
+async def test_jsonrpc_request():
     json_data = {
         "jsonrpc": "2.0",
         "id": 1,
