@@ -27,6 +27,9 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 
 import mcp.types as types
 
+import io
+sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
+
 
 @asynccontextmanager
 async def stdio_server(
