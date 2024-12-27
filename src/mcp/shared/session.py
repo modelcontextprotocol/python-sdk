@@ -213,6 +213,8 @@ class BaseSession(
             async for message in self._read_stream:
                 if isinstance(message, Exception):
                     await self._incoming_message_stream_writer.send(message)
+                elif not hasattr(message, "root"):
+                    continue
                 elif isinstance(message.root, JSONRPCRequest):
                     validated_request = self._receive_request_type.model_validate(
                         message.root.model_dump(
