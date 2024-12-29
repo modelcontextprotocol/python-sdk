@@ -69,13 +69,15 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 
 We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python projects:
 
+FastMCP features are currently only available in the 1.2.0 release candidate version, which can be installed with:
+
 ```bash
-uv add "mcp[cli]"
+uv add "mcp[cli]===1.2.0rc1"
 ```
 
 Alternatively:
 ```bash
-pip install mcp
+pip install "mcp==1.2.0.rc1"
 ```
 
 ## Quickstart
