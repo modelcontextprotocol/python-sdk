@@ -87,7 +87,7 @@ def update_claude_config(
         args = ["run"]
 
         # Collect all packages in a set to deduplicate
-        packages = {"fastmcp"}
+        packages = {"mcp"}
         if with_packages:
             packages.update(pkg for pkg in with_packages if pkg)
 
@@ -107,7 +107,7 @@ def update_claude_config(
             file_spec = str(Path(file_spec).resolve())
 
         # Add fastmcp run command
-        args.extend(["fastmcp", "run", file_spec])
+        args.extend(["mcp", "run", file_spec])
 
         server_config = {
             "command": "uv",
