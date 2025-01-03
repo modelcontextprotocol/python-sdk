@@ -975,6 +975,15 @@ class RootsListChangedNotification(Notification):
     params: NotificationParams | None = None
 
 
+class CancelledNotification(Notification):
+    """
+    A notification sent when a request is cancelled.
+    """
+    method: Literal["notifications/cancelled"]
+    params: NotificationParams | None = None
+
+
+
 class ClientRequest(
     RootModel[
         PingRequest
@@ -997,7 +1006,8 @@ class ClientRequest(
 
 class ClientNotification(
     RootModel[
-        ProgressNotification | InitializedNotification | RootsListChangedNotification
+        ProgressNotification | InitializedNotification |
+        RootsListChangedNotification | CancelledNotification
     ]
 ):
     pass
