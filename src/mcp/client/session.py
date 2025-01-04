@@ -6,7 +6,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pydantic import AnyUrl
 
 import mcp.types as types
-from mcp.shared.session import BaseSession
+from mcp.shared.session import BaseSession, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 sampling_function_signature = Callable[
@@ -255,3 +255,17 @@ class ClientSession(
                 )
             )
         )
+
+    async def _received_request(
+        self, responder: RequestResponder["types.ServerRequest", "types.ClientResult"]
+    ) -> None:
+        if isinstance(responder.request.root, types.CreateMessageRequest):
+            print("Received create message request")
+            if self.sampling_callback is None:
+                raise RuntimeError("Sampling callback is not set")
+            response = await self.sampling_callback(responder.request.root.params)
+
+            client_response = types.ClientResult(**response.model_dump())
+
+            print(f"Response: {response.dict()}")
+            await responder.respond(client_response)
