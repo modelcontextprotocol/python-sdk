@@ -15,22 +15,32 @@ uv sync --frozen --all-extras --dev
 
 ## Development Workflow
 
-1. Create a new branch for your changes
-2. Make your changes
-3. Ensure tests pass:
+1. Choose the correct branch for your changes:
+   - For bug fixes to a released version: use the latest release branch (e.g. v1.1.x for 1.1.3)
+   - For new features: use the main branch (which will become the next minor/major version)
+   - If unsure, ask in an issue first
+
+2. Create a new branch from your chosen base branch
+
+3. Make your changes
+
+4. Ensure tests pass:
 ```bash 
 uv run pytest
 ```
-4. Run type checking:
+
+5. Run type checking:
 ```bash
 uv run pyright
 ```
-5. Run linting:
+
+6. Run linting:
 ```bash
 uv run ruff check .
 uv run ruff format .
 ```
-6. Submit a pull request
+
+7. Submit a pull request to the same branch you branched from
 
 ## Code Style
 

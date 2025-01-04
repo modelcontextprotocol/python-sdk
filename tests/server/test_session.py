@@ -18,12 +18,12 @@ from mcp.types import (
 
 @pytest.mark.anyio
 async def test_server_session_initialize():
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream(
-        1, JSONRPCMessage
-    )
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream(
-        1, JSONRPCMessage
-    )
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        JSONRPCMessage
+    ](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        JSONRPCMessage
+    ](1)
 
     async def run_client(client: ClientSession):
         async for message in client_session.incoming_messages:

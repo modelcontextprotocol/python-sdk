@@ -101,8 +101,9 @@ class NotificationOptions:
 
 
 class Server:
-    def __init__(self, name: str):
+    def __init__(self, name: str, version: str | None = None):
         self.name = name
+        self.version = version
         self.request_handlers: dict[
             type, Callable[..., Awaitable[types.ServerResult]]
         ] = {
@@ -133,7 +134,7 @@ class Server:
 
         return InitializationOptions(
             server_name=self.name,
-            server_version=pkg_version("mcp"),
+            server_version=self.version if self.version else pkg_version("mcp"),
             capabilities=self.get_capabilities(
                 notification_options or NotificationOptions(),
                 experimental_capabilities or {},

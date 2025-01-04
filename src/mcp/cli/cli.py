@@ -373,7 +373,7 @@ def install(
         list[str],
         typer.Option(
             "--env-var",
-            "-e",
+            "-v",
             help="Environment variables in KEY=VALUE format",
         ),
     ] = [],

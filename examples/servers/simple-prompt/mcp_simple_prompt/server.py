@@ -90,9 +90,9 @@ def main(port: int, transport: str) -> int:
     if transport == "sse":
         from mcp.server.sse import SseServerTransport
         from starlette.applications import Starlette
-        from starlette.routing import Route
+        from starlette.routing import Mount, Route
 
-        sse = SseServerTransport("/messages")
+        sse = SseServerTransport("/messages/")
 
         async def handle_sse(request):
             async with sse.connect_sse(
@@ -102,14 +102,11 @@ def main(port: int, transport: str) -> int:
                     streams[0], streams[1], app.create_initialization_options()
                 )
 
-        async def handle_messages(request):
-            await sse.handle_post_message(request.scope, request.receive, request._send)
-
         starlette_app = Starlette(
             debug=True,
             routes=[
                 Route("/sse", endpoint=handle_sse),
-                Route("/messages", endpoint=handle_messages, methods=["POST"]),
+                Mount("/messages/", app=sse.handle_post_message),
             ],
         )
 

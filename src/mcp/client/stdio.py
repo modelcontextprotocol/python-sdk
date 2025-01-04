@@ -1,6 +1,7 @@
 import os
 import sys
 from contextlib import asynccontextmanager
+from typing import Literal
 
 import anyio
 import anyio.lowlevel
@@ -65,6 +66,21 @@ class StdioServerParameters(BaseModel):
     If not specified, the result of get_default_environment() will be used.
     """
 
+    encoding: str = "utf-8"
+    """
+    The text encoding used when sending/receiving messages to the server
+
+    defaults to utf-8
+    """
+
+    encoding_error_handler: Literal["strict", "ignore", "replace"] = "strict"
+    """
+    The text encoding error handler.
+
+    See https://docs.python.org/3/library/codecs.html#codec-base-classes for
+    explanations of possible values
+    """
+
 
 @asynccontextmanager
 async def stdio_client(server: StdioServerParameters):
@@ -93,7 +109,11 @@ async def stdio_client(server: StdioServerParameters):
         try:
             async with read_stream_writer:
                 buffer = ""
-                async for chunk in TextReceiveStream(process.stdout):
+                async for chunk in TextReceiveStream(
+                    process.stdout,
+                    encoding=server.encoding,
+                    errors=server.encoding_error_handler,
+                ):
                     lines = (buffer + chunk).split("\n")
                     buffer = lines.pop()
 
@@ -115,7 +135,12 @@ async def stdio_client(server: StdioServerParameters):
             async with write_stream_reader:
                 async for message in write_stream_reader:
                     json = message.model_dump_json(by_alias=True, exclude_none=True)
-                    await process.stdin.send((json + "\n").encode())
+                    await process.stdin.send(
+                        (json + "\n").encode(
+                            encoding=server.encoding,
+                            errors=server.encoding_error_handler,
+                        )
+                    )
         except anyio.ClosedResourceError:
             await anyio.lowlevel.checkpoint()
 

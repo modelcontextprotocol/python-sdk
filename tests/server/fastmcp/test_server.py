@@ -31,6 +31,34 @@ class TestServer:
         assert mcp.name == "FastMCP"
 
     @pytest.mark.anyio
+    async def test_non_ascii_description(self):
+        """Test that FastMCP handles non-ASCII characters in descriptions correctly"""
+        mcp = FastMCP()
+
+        @mcp.tool(
+            description=(
+                "🌟 This tool uses emojis and UTF-8 characters: á é í ó ú ñ 漢字 🎉"
+            )
+        )
+        def hello_world(name: str = "世界") -> str:
+            return f"¡Hola, {name}! 👋"
+
+        async with client_session(mcp._mcp_server) as client:
+            tools = await client.list_tools()
+            assert len(tools.tools) == 1
+            tool = tools.tools[0]
+            assert tool.description is not None
+            assert "🌟" in tool.description
+            assert "漢字" in tool.description
+            assert "🎉" in tool.description
+
+            result = await client.call_tool("hello_world", {})
+            assert len(result.content) == 1
+            content = result.content[0]
+            assert isinstance(content, TextContent)
+            assert "¡Hola, 世界! 👋" == content.text
+
+    @pytest.mark.anyio
     async def test_add_tool_decorator(self):
         mcp = FastMCP()
 
