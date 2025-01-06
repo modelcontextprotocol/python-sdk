@@ -31,7 +31,7 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 
 async def main():
     async with stdio_client(
-        StdioServerParameters(command="uv", args=["run", "mcp-simple-prompt"])
+        StdioServerParameters(command="/Users/username/.nvm/versions/node/v22.11.0/bin/node", args=["/Users/username/.nvm/versions/node/v22.11.0/lib/node_modules/@modelcontextprotocol/server-puppeteer/dist/index.js", "uv", "run", "mcp-simple-prompt"])
     ) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()

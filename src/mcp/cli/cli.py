@@ -239,19 +239,14 @@ def dev(
 
         uv_cmd = _build_uv_command(file_spec, with_editable, with_packages)
 
-        # Get the correct npx command
-        npx_cmd = _get_npx_command()
-        if not npx_cmd:
-            logger.error(
-                "npx not found. Please ensure Node.js and npm are properly installed "
-                "and added to your system PATH."
-            )
-            sys.exit(1)
+        # Use absolute paths for Node executable and server script
+        node_path = "/Users/username/.nvm/versions/node/v22.11.0/bin/node"
+        server_script_path = "/Users/username/.nvm/versions/node/v22.11.0/lib/node_modules/@modelcontextprotocol/server-puppeteer/dist/index.js"
 
         # Run the MCP Inspector command with shell=True on Windows
         shell = sys.platform == "win32"
         process = subprocess.run(
-            [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd,
+            [node_path, server_script_path] + uv_cmd,
             check=True,
             shell=shell,
             env=dict(os.environ.items()),  # Convert to list of tuples for env update
@@ -269,7 +264,7 @@ def dev(
         sys.exit(e.returncode)
     except FileNotFoundError:
         logger.error(
-            "npx not found. Please ensure Node.js and npm are properly installed "
+            "Node executable not found. Please ensure Node.js and npm are properly installed "
             "and added to your system PATH. You may need to restart your terminal "
             "after installation.",
             extra={"file": str(file)},

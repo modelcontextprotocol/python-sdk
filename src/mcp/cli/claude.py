@@ -111,9 +111,13 @@ def update_claude_config(
         # Add fastmcp run command
         args.extend(["mcp", "run", file_spec])
 
+        # Use absolute paths for Node executable and server script
+        node_path = "/Users/username/.nvm/versions/node/v22.11.0/bin/node"
+        server_script_path = "/Users/username/.nvm/versions/node/v22.11.0/lib/node_modules/@modelcontextprotocol/server-puppeteer/dist/index.js"
+
         server_config = {
-            "command": "uv",
-            "args": args,
+            "command": node_path,
+            "args": [server_script_path] + args,
         }
 
         # Add environment variables if specified
