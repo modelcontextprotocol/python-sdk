@@ -6,10 +6,10 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Annotated
 
 try:
     import typer
-    from typing_extensions import Annotated
 except ImportError:
     print("Error: typer is required. Install with 'pip install mcp[cli]'")
     sys.exit(1)

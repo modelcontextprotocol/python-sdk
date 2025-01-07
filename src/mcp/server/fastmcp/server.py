@@ -133,8 +133,7 @@ class FastMCP:
         self._mcp_server.read_resource()(self.read_resource)
         self._mcp_server.list_prompts()(self.list_prompts)
         self._mcp_server.get_prompt()(self.get_prompt)
-        # TODO: This has not been added to MCP yet, see https://github.com/jlowin/fastmcp/issues/10
-        # self._mcp_server.list_resource_templates()(self.list_resource_templates)
+        self._mcp_server.list_resource_templates()(self.list_resource_templates)
 
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""

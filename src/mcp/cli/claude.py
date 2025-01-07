@@ -8,6 +8,8 @@ from mcp.server.fastmcp.utilities.logging import get_logger
 
 logger = get_logger(__name__)
 
+MCP_PACKAGE = "mcp[cli]"
+
 
 def get_claude_config_path() -> Path | None:
     """Get the Claude config directory based on platform."""
@@ -87,7 +89,7 @@ def update_claude_config(
         args = ["run"]
 
         # Collect all packages in a set to deduplicate
-        packages = {"mcp"}
+        packages = {MCP_PACKAGE}
         if with_packages:
             packages.update(pkg for pkg in with_packages if pkg)
 
