@@ -86,9 +86,11 @@ class Settings(BaseSettings):
 
 
 class FastMCP:
-    def __init__(self, name: str | None = None, **settings: Any):
+    def __init__(
+        self, name: str | None = None, instructions: str | None = None, **settings: Any
+    ):
         self.settings = Settings(**settings)
-        self._mcp_server = MCPServer(name=name or "FastMCP")
+        self._mcp_server = MCPServer(name=name or "FastMCP", instructions=instructions)
         self._tool_manager = ToolManager(
             warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
         )
@@ -109,6 +111,10 @@ class FastMCP:
     @property
     def name(self) -> str:
         return self._mcp_server.name
+
+    @property
+    def instructions(self) -> str | None:
+        return self._mcp_server.instructions
 
     def run(self, transport: Literal["stdio", "sse"] = "stdio") -> None:
         """Run the FastMCP server. Note this is a synchronous function.

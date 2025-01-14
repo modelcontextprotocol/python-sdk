@@ -135,6 +135,7 @@ class ServerSession(
                                 name=self._init_options.server_name,
                                 version=self._init_options.server_version,
                             ),
+                            instructions=self._init_options.instructions,
                         )
                     )
                 )

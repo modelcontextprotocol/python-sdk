@@ -27,8 +27,9 @@ if TYPE_CHECKING:
 class TestServer:
     @pytest.mark.anyio
     async def test_create_server(self):
-        mcp = FastMCP()
+        mcp = FastMCP(instructions="Server instructions")
         assert mcp.name == "FastMCP"
+        assert mcp.instructions == "Server instructions"
 
     @pytest.mark.anyio
     async def test_non_ascii_description(self):

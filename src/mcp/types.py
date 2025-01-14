@@ -285,6 +285,8 @@ class InitializeResult(Result):
     """The version of the Model Context Protocol that the server wants to use."""
     capabilities: ServerCapabilities
     serverInfo: Implementation
+    instructions: str | None = None
+    """Instructions describing how to use the server and its features."""
 
 
 class InitializedNotification(Notification):

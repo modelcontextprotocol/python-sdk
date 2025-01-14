@@ -51,6 +51,7 @@ async def test_client_session_initialize():
                     prompts=None,
                 ),
                 serverInfo=Implementation(name="mock-server", version="0.1.0"),
+                instructions="The server instructions.",
             )
         )
 
@@ -92,6 +93,7 @@ async def test_client_session_initialize():
     assert result.protocolVersion == LATEST_PROTOCOL_VERSION
     assert isinstance(result.capabilities, ServerCapabilities)
     assert result.serverInfo == Implementation(name="mock-server", version="0.1.0")
+    assert result.instructions == "The server instructions."
 
     # Check that the client sent the initialized notification
     assert initialized_notification

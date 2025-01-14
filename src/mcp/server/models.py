@@ -14,3 +14,4 @@ class InitializationOptions(BaseModel):
     server_name: str
     server_version: str
     capabilities: ServerCapabilities
+    instructions: str | None = None

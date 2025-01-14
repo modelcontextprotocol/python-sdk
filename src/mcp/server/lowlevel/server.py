@@ -101,9 +101,12 @@ class NotificationOptions:
 
 
 class Server:
-    def __init__(self, name: str, version: str | None = None):
+    def __init__(
+        self, name: str, version: str | None = None, instructions: str | None = None
+    ):
         self.name = name
         self.version = version
+        self.instructions = instructions
         self.request_handlers: dict[
             type, Callable[..., Awaitable[types.ServerResult]]
         ] = {
@@ -139,6 +142,7 @@ class Server:
                 notification_options or NotificationOptions(),
                 experimental_capabilities or {},
             ),
+            instructions=self.instructions,
         )
 
     def get_capabilities(
