@@ -34,7 +34,7 @@ class ResourceManager:
             extra={
                 "uri": resource.uri,
                 "type": type(resource).__name__,
-                "name": resource.name,
+                "resource_name": resource.name,
             },
         )
         existing = self._resources.get(str(resource.uri))
