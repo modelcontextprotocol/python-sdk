@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from enum import Enum
 from typing import Annotated
 
 try:
@@ -34,6 +35,11 @@ app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,  # Show help if no args provided
 )
+
+
+class Transport(str, Enum):
+    STDIO = "stdio"
+    SSE = "sse"
 
 
 def _get_npx_command():
@@ -67,6 +73,7 @@ def _build_uv_command(
     file_spec: str,
     with_editable: Path | None = None,
     with_packages: list[str] | None = None,
+    transport: Transport | None = None,
 ) -> list[str]:
     """Build the uv run command that runs a MCP server through mcp run."""
     cmd = ["uv"]
@@ -81,8 +88,12 @@ def _build_uv_command(
             if pkg:
                 cmd.extend(["--with", pkg])
 
-    # Add mcp run command
-    cmd.extend(["mcp", "run", file_spec])
+    # Add mcp run command with optional transport
+    cmd.extend(["mcp", "run"])
+    if transport:
+        cmd.extend(["--transport", transport])
+
+    cmd.append(file_spec)
     return cmd
 
 
@@ -217,6 +228,14 @@ def dev(
             help="Additional packages to install",
         ),
     ] = [],
+    transport: Annotated[
+        Transport | None,
+        typer.Option(
+            "--transport",
+            "-t",
+            help="Transport protocol to use (stdio or sse)",
+        ),
+    ] = None,
 ) -> None:
     """Run a MCP server with the MCP Inspector."""
     file, server_object = _parse_file_path(file_spec)
@@ -237,7 +256,7 @@ def dev(
         if hasattr(server, "dependencies"):
             with_packages = list(set(with_packages + server.dependencies))
 
-        uv_cmd = _build_uv_command(file_spec, with_editable, with_packages)
+        uv_cmd = _build_uv_command(file_spec, with_editable, with_packages, transport)
 
         # Get the correct npx command
         npx_cmd = _get_npx_command()
@@ -284,7 +303,7 @@ def run(
         help="Python file to run, optionally with :object suffix",
     ),
     transport: Annotated[
-        str | None,
+        Transport | None,
         typer.Option(
             "--transport",
             "-t",
