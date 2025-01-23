@@ -269,11 +269,16 @@ def dev(
 
         # Run the MCP Inspector command with shell=True on Windows
         shell = sys.platform == "win32"
+
+        env = dict(os.environ.items())
+        if transport == Transport.SSE:
+            env["SSE_HOSTPORT"] = "0.0.0.0:8000"
+
         process = subprocess.run(
             [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd,
             check=True,
             shell=shell,
-            env=dict(os.environ.items()),  # Convert to list of tuples for env update
+            env=env,
         )
         sys.exit(process.returncode)
     except subprocess.CalledProcessError as e:
