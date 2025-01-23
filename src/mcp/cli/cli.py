@@ -270,7 +270,7 @@ def dev(
         # Run the MCP Inspector command with shell=True on Windows
         shell = sys.platform == "win32"
 
-        env = dict(os.environ.items())
+        env = dict(os.environ.items()) # Convert to list of tuples for env update
         if transport == Transport.SSE:
             env["SSE_HOSTPORT"] = "0.0.0.0:8000"
 
