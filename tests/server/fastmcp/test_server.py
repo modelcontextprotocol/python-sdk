@@ -581,8 +581,8 @@ class TestContextInjection:
 
         @mcp.tool()
         async def tool_with_resource(ctx: Context) -> str:
-            data = await ctx.read_resource("test://data")
-            return f"Read resource: {data}"
+            r = await ctx.read_resource("test://data")
+            return f"Read resource: {r.content} with mime type {r.mime_type}"
 
         async with client_session(mcp._mcp_server) as client:
             result = await client.call_tool("tool_with_resource", {})

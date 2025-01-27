@@ -74,6 +74,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pydantic import AnyUrl
 
 import mcp.types as types
+from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.server.stdio import stdio_server as stdio_server
@@ -252,25 +253,45 @@ class Server:
         return decorator
 
     def read_resource(self):
-        def decorator(func: Callable[[AnyUrl], Awaitable[str | bytes]]):
+        def decorator(
+            func: Callable[[AnyUrl], Awaitable[str | bytes | ReadResourceContents]],
+        ):
             logger.debug("Registering handler for ReadResourceRequest")
 
             async def handler(req: types.ReadResourceRequest):
                 result = await func(req.params.uri)
-                match result:
-                    case str(s):
-                        content = types.TextResourceContents(
-                            uri=req.params.uri,
-                            text=s,
-                            mimeType="text/plain",
-                        )
-                    case bytes(b):
-                        import base64
 
-                        content = types.BlobResourceContents(
-                            uri=req.params.uri,
-                            blob=base64.urlsafe_b64encode(b).decode(),
-                            mimeType="application/octet-stream",
+                def create_content(data: str | bytes, mime_type: str | None):
+                    match data:
+                        case str() as data:
+                            return types.TextResourceContents(
+                                uri=req.params.uri,
+                                text=data,
+                                mimeType=mime_type or "text/plain",
+                            )
+                        case bytes() as data:
+                            import base64
+
+                            return types.BlobResourceContents(
+                                uri=req.params.uri,
+                                blob=base64.urlsafe_b64encode(data).decode(),
+                                mimeType=mime_type or "application/octet-stream",
+                            )
+
+                match result:
+                    case str() | bytes() as data:
+                        warnings.warn(
+                            "Returning str or bytes from read_resource is deprecated. "
+                            "Use ReadResourceContents instead.",
+                            DeprecationWarning,
+                            stacklevel=2,
+                        )
+                        content = create_content(data, None)
+                    case ReadResourceContents() as contents:
+                        content = create_content(contents.content, contents.mime_type)
+                    case _:
+                        raise ValueError(
+                            f"Unexpected return type from read_resource: {type(result)}"
                         )
 
                 return types.ServerResult(

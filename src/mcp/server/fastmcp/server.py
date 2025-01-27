@@ -20,6 +20,7 @@ from mcp.server.fastmcp.tools import ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.fastmcp.utilities.types import Image
 from mcp.server.lowlevel import Server as MCPServer
+from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.shared.context import RequestContext
@@ -197,14 +198,16 @@ class FastMCP:
             for template in templates
         ]
 
-    async def read_resource(self, uri: AnyUrl | str) -> str | bytes:
+    async def read_resource(self, uri: AnyUrl | str) -> ReadResourceContents:
         """Read a resource by URI."""
+
         resource = await self._resource_manager.get_resource(uri)
         if not resource:
             raise ResourceError(f"Unknown resource: {uri}")
 
         try:
-            return await resource.read()
+            content = await resource.read()
+            return ReadResourceContents(content=content, mime_type=resource.mime_type)
         except Exception as e:
             logger.error(f"Error reading resource {uri}: {e}")
             raise ResourceError(str(e))
@@ -606,7 +609,7 @@ class Context(BaseModel):
             progress_token=progress_token, progress=progress, total=total
         )
 
-    async def read_resource(self, uri: str | AnyUrl) -> str | bytes:
+    async def read_resource(self, uri: str | AnyUrl) -> ReadResourceContents:
         """Read a resource by URI.
 
         Args:

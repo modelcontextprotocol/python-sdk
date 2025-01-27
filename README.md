@@ -218,7 +218,7 @@ async def long_task(files: list[str], ctx: Context) -> str:
     for i, file in enumerate(files):
         ctx.info(f"Processing {file}")
         await ctx.report_progress(i, len(files))
-        data = await ctx.read_resource(f"file://{file}")
+        data, mime_type = await ctx.read_resource(f"file://{file}")
     return "Processing complete"
 ```
 
@@ -436,7 +436,7 @@ async def run():
             tools = await session.list_tools()
 
             # Read a resource
-            resource = await session.read_resource("file://some/path")
+            content, mime_type = await session.read_resource("file://some/path")
 
             # Call a tool
             result = await session.call_tool("tool-name", arguments={"arg1": "value"})
