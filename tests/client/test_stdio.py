@@ -1,12 +1,17 @@
+import shutil
+
 import pytest
 
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
+tee: str = shutil.which("tee")  # type: ignore
+assert tee is not None, "could not find tee command"
+
 
 @pytest.mark.anyio
 async def test_stdio_client():
-    server_parameters = StdioServerParameters(command="/usr/bin/tee")
+    server_parameters = StdioServerParameters(command=tee)
 
     async with stdio_client(server_parameters) as (read_stream, write_stream):
         # Test sending and receiving messages

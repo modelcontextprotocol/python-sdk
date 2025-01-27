@@ -1,11 +1,17 @@
 from datetime import timedelta
+from inspect import iscoroutinefunction
+from typing import Awaitable, Callable
 
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 
 import mcp.types as types
-from mcp.shared.session import BaseSession
+from mcp.shared.session import BaseSession, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+
+sampling_function_signature = Callable[
+    [types.CreateMessageRequestParams], Awaitable[types.CreateMessageResult]
+]
 
 
 class ClientSession(
@@ -17,11 +23,14 @@ class ClientSession(
         types.ServerNotification,
     ]
 ):
+    sampling_callback: sampling_function_signature | None = None
+
     def __init__(
         self,
         read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception],
         write_stream: MemoryObjectSendStream[types.JSONRPCMessage],
         read_timeout_seconds: timedelta | None = None,
+        sampling_callback: sampling_function_signature | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -31,7 +40,21 @@ class ClientSession(
             read_timeout_seconds=read_timeout_seconds,
         )
 
+        # validate sampling_callback
+        # use asserts here because this should be known at compile time
+        if sampling_callback is not None:
+            assert callable(sampling_callback), "sampling_callback must be callable"
+            assert iscoroutinefunction(
+                sampling_callback
+            ), "sampling_callback must be an async function"
+
+        self.sampling_callback = sampling_callback
+
     async def initialize(self) -> types.InitializeResult:
+        sampling = None
+        if self.sampling_callback is not None:
+            sampling = types.SamplingCapability()
+
         result = await self.send_request(
             types.ClientRequest(
                 types.InitializeRequest(
@@ -39,7 +62,7 @@ class ClientSession(
                     params=types.InitializeRequestParams(
                         protocolVersion=types.LATEST_PROTOCOL_VERSION,
                         capabilities=types.ClientCapabilities(
-                            sampling=None,
+                            sampling=sampling,
                             experimental=None,
                             roots=types.RootsCapability(
                                 # TODO: Should this be based on whether we
@@ -232,3 +255,16 @@ class ClientSession(
                 )
             )
         )
+
+    async def _received_request(
+        self, responder: RequestResponder["types.ServerRequest", "types.ClientResult"]
+    ) -> None:
+        if isinstance(responder.request.root, types.CreateMessageRequest):
+            # handle create message request (sampling)
+
+            if self.sampling_callback is None:
+                raise RuntimeError("Sampling callback is not set")
+
+            response = await self.sampling_callback(responder.request.root.params)
+            client_response = types.ClientResult(**response.model_dump())
+            await responder.respond(client_response)
