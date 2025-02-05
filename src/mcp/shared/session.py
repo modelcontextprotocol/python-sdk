@@ -289,12 +289,6 @@ class BaseSession(
             )
             await self._write_stream.send(JSONRPCMessage(jsonrpc_response))
 
-    def _is_cancellation_notification(self, message_root: JSONRPCNotification) -> bool:
-        """
-        Determines if a notification is a cancellation notification.
-        """
-        return getattr(message_root, "method", None) == "notifications/cancelled"
-
     async def _receive_loop(self) -> None:
         async with (
             self._read_stream,
