@@ -46,6 +46,25 @@ class TestResourceTemplate:
         assert template.matches("test://foo") is None
         assert template.matches("other://foo/123") is None
 
+    def test_template_matches_slashes_in_value(self):
+        """Test matching URIs against a template, the value containing slashes."""
+
+        def my_func(path: str) -> dict:
+            return {"path": path}
+
+        template = ResourceTemplate.from_function(
+            fn=my_func,
+            uri_template="test://content/{path}",
+            name="test",
+        )
+
+        # Valid match
+        params = template.matches("test://content/path/with/slashes")
+        assert params == {"path": "path/with/slashes"}
+
+        # No match
+        assert template.matches("test://content/") is None
+
     @pytest.mark.anyio
     async def test_create_resource(self):
         """Test creating a resource from a template."""

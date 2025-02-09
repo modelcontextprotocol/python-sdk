@@ -55,7 +55,7 @@ class ResourceTemplate(BaseModel):
     def matches(self, uri: str) -> dict[str, Any] | None:
         """Check if URI matches template and extract parameters."""
         # Convert template to regex pattern
-        pattern = self.uri_template.replace("{", "(?P<").replace("}", ">[^/]+)")
+        pattern = self.uri_template.replace("{", "(?P<").replace("}", ">.+)")
         match = re.match(f"^{pattern}$", uri)
         if match:
             return match.groupdict()

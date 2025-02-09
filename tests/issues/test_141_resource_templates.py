@@ -58,11 +58,6 @@ async def test_resource_template_edge_cases():
     with pytest.raises(ValueError, match="Unknown resource"):
         await mcp.read_resource("resource://users/123/posts")  # Missing post_id
 
-    with pytest.raises(ValueError, match="Unknown resource"):
-        await mcp.read_resource(
-            "resource://users/123/posts/456/extra"
-        )  # Extra path component
-
 
 @pytest.mark.anyio
 async def test_resource_template_client_interaction():
