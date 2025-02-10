@@ -324,9 +324,9 @@ class BaseSession(
                                 await self._in_flight[cancelled_id].cancel()
                         else:
                             await self._received_notification(notification)
-                            await self._incoming_message_stream_writer.send(
-                                notification
-                            )
+#                            await self._incoming_message_stream_writer.send(
+#                                notification
+#                            )
                     except Exception as e:
                         # For other validation errors, log and continue
                         logging.warning(
