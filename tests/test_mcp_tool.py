@@ -28,7 +28,6 @@ servers_config = {
 }
 
 
-# @pytest.mark.asyncio
 @pytest.mark.anyio
 async def test_mcp():
 
@@ -55,7 +54,6 @@ async def test_mcp():
     await client.cleanup()
 
 
-# @pytest.mark.asyncio
 @pytest.mark.anyio
 async def test_mcp_with_logging():
 
