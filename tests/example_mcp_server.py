@@ -5,7 +5,6 @@
 import logging
 from mcp.server.fastmcp import FastMCP, Context
 import time
-import asyncio
 
 mcp = FastMCP("MCP EXAMPLE SERVER", debug=True, log_level="DEBUG")
 
