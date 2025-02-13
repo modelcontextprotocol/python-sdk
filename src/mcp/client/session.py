@@ -1,5 +1,4 @@
 from datetime import timedelta
-from inspect import iscoroutinefunction
 from typing import Awaitable, Callable
 
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -39,21 +38,12 @@ class ClientSession(
             types.ServerNotification,
             read_timeout_seconds=read_timeout_seconds,
         )
-
-        # validate sampling_callback
-        # use asserts here because this should be known at compile time
-        if sampling_callback is not None:
-            assert callable(sampling_callback), "sampling_callback must be callable"
-            assert iscoroutinefunction(
-                sampling_callback
-            ), "sampling_callback must be an async function"
-
         self.sampling_callback = sampling_callback
 
     async def initialize(self) -> types.InitializeResult:
-        sampling = None
-        if self.sampling_callback is not None:
-            sampling = types.SamplingCapability()
+        sampling = (
+            types.SamplingCapability() if self.sampling_callback is not None else None
+        )
 
         result = await self.send_request(
             types.ClientRequest(
@@ -260,11 +250,7 @@ class ClientSession(
         self, responder: RequestResponder["types.ServerRequest", "types.ClientResult"]
     ) -> None:
         if isinstance(responder.request.root, types.CreateMessageRequest):
-            # handle create message request (sampling)
-
-            if self.sampling_callback is None:
-                raise RuntimeError("Sampling callback is not set")
-
-            response = await self.sampling_callback(responder.request.root.params)
-            client_response = types.ClientResult(**response.model_dump())
-            await responder.respond(client_response)
+            if self.sampling_callback is not None:
+                response = await self.sampling_callback(responder.request.root.params)
+                client_response = types.ClientResult(root=response)
+                await responder.respond(client_response)
