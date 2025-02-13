@@ -8,7 +8,7 @@ import mcp.types as types
 from mcp.shared.session import BaseSession, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
-sampling_function_signature = Callable[
+SamplingFnT = Callable[
     [types.CreateMessageRequestParams], Awaitable[types.CreateMessageResult]
 ]
 
@@ -22,14 +22,14 @@ class ClientSession(
         types.ServerNotification,
     ]
 ):
-    sampling_callback: sampling_function_signature | None = None
+    sampling_callback: SamplingFnT | None = None
 
     def __init__(
         self,
         read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception],
         write_stream: MemoryObjectSendStream[types.JSONRPCMessage],
         read_timeout_seconds: timedelta | None = None,
-        sampling_callback: sampling_function_signature | None = None,
+        sampling_callback: SamplingFnT | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -253,4 +253,5 @@ class ClientSession(
             if self.sampling_callback is not None:
                 response = await self.sampling_callback(responder.request.root.params)
                 client_response = types.ClientResult(root=response)
-                await responder.respond(client_response)
+                with responder:
+                    await responder.respond(client_response)
