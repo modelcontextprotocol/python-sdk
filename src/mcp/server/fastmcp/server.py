@@ -3,8 +3,13 @@
 import inspect
 import json
 import re
+from collections.abc import AsyncIterator
+from contextlib import (
+    AbstractAsyncContextManager,
+    asynccontextmanager,
+)
 from itertools import chain
-from typing import Any, Callable, Literal, Sequence
+from typing import Any, Callable, Generic, Literal, Sequence
 
 import anyio
 import pydantic_core
@@ -19,8 +24,16 @@ from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceMan
 from mcp.server.fastmcp.tools import ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.fastmcp.utilities.types import Image
-from mcp.server.lowlevel import Server as MCPServer
 from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.server.lowlevel.server import (
+    LifespanResultT,
+)
+from mcp.server.lowlevel.server import (
+    Server as MCPServer,
+)
+from mcp.server.lowlevel.server import (
+    lifespan as default_lifespan,
+)
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.shared.context import RequestContext
@@ -50,7 +63,7 @@ from mcp.types import (
 logger = get_logger(__name__)
 
 
-class Settings(BaseSettings):
+class Settings(BaseSettings, Generic[LifespanResultT]):
     """FastMCP server settings.
 
     All settings can be configured via environment variables with the prefix FASTMCP_.
@@ -85,13 +98,36 @@ class Settings(BaseSettings):
         description="List of dependencies to install in the server environment",
     )
 
+    lifespan: (
+        Callable[["FastMCP"], AbstractAsyncContextManager[LifespanResultT]] | None
+    ) = Field(None, description="Lifespan context manager")
+
+
+def lifespan_wrapper(
+    app: "FastMCP",
+    lifespan: Callable[["FastMCP"], AbstractAsyncContextManager[LifespanResultT]],
+) -> Callable[[MCPServer], AbstractAsyncContextManager[object]]:
+    @asynccontextmanager
+    async def wrap(s: MCPServer) -> AsyncIterator[object]:
+        async with lifespan(app) as context:
+            yield context
+
+    return wrap
+
 
 class FastMCP:
     def __init__(
         self, name: str | None = None, instructions: str | None = None, **settings: Any
     ):
         self.settings = Settings(**settings)
-        self._mcp_server = MCPServer(name=name or "FastMCP", instructions=instructions)
+
+        self._mcp_server = MCPServer(
+            name=name or "FastMCP",
+            instructions=instructions,
+            lifespan=lifespan_wrapper(self, self.settings.lifespan)
+            if self.settings.lifespan
+            else default_lifespan,
+        )
         self._tool_manager = ToolManager(
             warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
         )

@@ -128,6 +128,9 @@ The [Model Context Protocol (MCP)](https://modelcontextprotocol.io) lets you bui
 The FastMCP server is your core interface to the MCP protocol. It handles connection management, protocol compliance, and message routing:
 
 ```python
+# Add lifespan support for startup/shutdown with strong typing
+from dataclasses import dataclass
+from typing import AsyncIterator
 from mcp.server.fastmcp import FastMCP
 
 # Create a named server
@@ -135,6 +138,31 @@ mcp = FastMCP("My App")
 
 # Specify dependencies for deployment and development
 mcp = FastMCP("My App", dependencies=["pandas", "numpy"])
+
+@dataclass
+class AppContext:
+    db: Database  # Replace with your actual DB type
+
+@asynccontextmanager
+async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
+    """Manage application lifecycle with type-safe context"""
+    try:
+        # Initialize on startup
+        await db.connect()
+        yield AppContext(db=db)
+    finally:
+        # Cleanup on shutdown
+        await db.disconnect()
+
+# Pass lifespan to server
+mcp = FastMCP("My App", lifespan=app_lifespan)
+
+# Access type-safe lifespan context in tools
+@mcp.tool()
+def query_db(ctx: Context) -> str:
+    """Tool that uses initialized resources"""
+    db = ctx.request_context.lifespan_context["db"]
+    return db.query()
 ```
 
 ### Resources
@@ -334,7 +362,38 @@ def query_data(sql: str) -> str:
 
 ### Low-Level Server
 
-For more control, you can use the low-level server implementation directly. This gives you full access to the protocol and allows you to customize every aspect of your server:
+For more control, you can use the low-level server implementation directly. This gives you full access to the protocol and allows you to customize every aspect of your server, including lifecycle management through the lifespan API:
+
+```python
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
+
+@asynccontextmanager
+async def server_lifespan(server: Server) -> AsyncIterator[dict]:
+    """Manage server startup and shutdown lifecycle."""
+    try:
+        # Initialize resources on startup
+        await db.connect()
+        yield {"db": db}
+    finally:
+        # Clean up on shutdown
+        await db.disconnect()
+
+# Pass lifespan to server
+server = Server("example-server", lifespan=server_lifespan)
+
+# Access lifespan context in handlers
+@server.call_tool()
+async def query_db(name: str, arguments: dict) -> list:
+    ctx = server.request_context
+    db = ctx.lifespan_context["db"]
+    return await db.query(arguments["query"])
+```
+
+The lifespan API provides:
+- A way to initialize resources when the server starts and clean them up when it stops
+- Access to initialized resources through the request context in handlers
+- Type-safe context passing between lifespan and request handlers
 
 ```python
 from mcp.server.lowlevel import Server, NotificationOptions
