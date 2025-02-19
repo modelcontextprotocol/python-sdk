@@ -1,27 +1,49 @@
 from datetime import timedelta
-from typing import Protocol, Any
+from typing import Any, Protocol
 
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl
+from pydantic import AnyUrl, TypeAdapter
 
-from mcp.shared.context import RequestContext
 import mcp.types as types
+from mcp.shared.context import RequestContext
 from mcp.shared.session import BaseSession, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 
 class SamplingFnT(Protocol):
     async def __call__(
-        self, context: RequestContext["ClientSession", Any], params: types.CreateMessageRequestParams
-    ) -> types.CreateMessageResult:
-        ...
+        self,
+        context: RequestContext["ClientSession", Any],
+        params: types.CreateMessageRequestParams,
+    ) -> types.CreateMessageResult | types.ErrorData: ...
 
 
 class ListRootsFnT(Protocol):
     async def __call__(
         self, context: RequestContext["ClientSession", Any]
-    ) -> types.ListRootsResult:
-        ...
+    ) -> types.ListRootsResult |  types.ErrorData: ...    
+
+
+async def _default_sampling_callback(
+    context: RequestContext["ClientSession", Any],
+    params: types.CreateMessageRequestParams,
+) -> types.CreateMessageResult | types.ErrorData:
+    return types.ErrorData(
+        code=types.INVALID_REQUEST,
+        message="Sampling not supported",
+    )
+
+
+async def _default_list_roots_callback(
+    context: RequestContext["ClientSession", Any],
+) -> types.ListRootsResult |  types.ErrorData:
+    return types.ErrorData(
+        code=types.INVALID_REQUEST,
+        message="List roots not supported",
+    )
+
+
+ClientResponse = TypeAdapter(types.ClientResult | types.ErrorData)
 
 
 class ClientSession(
@@ -33,8 +55,6 @@ class ClientSession(
         types.ServerNotification,
     ]
 ):
-    _sampling_callback: SamplingFnT | None = None
-
     def __init__(
         self,
         read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception],
@@ -50,8 +70,8 @@ class ClientSession(
             types.ServerNotification,
             read_timeout_seconds=read_timeout_seconds,
         )
-        self._sampling_callback = sampling_callback
-        self._list_roots_callback = list_roots_callback
+        self._sampling_callback = sampling_callback or _default_sampling_callback
+        self._list_roots_callback = list_roots_callback or _default_list_roots_callback
 
     async def initialize(self) -> types.InitializeResult:
         sampling = (
@@ -278,27 +298,28 @@ class ClientSession(
     async def _received_request(
         self, responder: RequestResponder[types.ServerRequest, types.ClientResult]
     ) -> None:
-
         ctx = RequestContext[ClientSession, Any](
             request_id=responder.request_id,
             meta=responder.request_meta,
             session=self,
             lifespan_context=None,
         )
-        
+
         match responder.request.root:
             case types.CreateMessageRequest(params=params):
-                if self._sampling_callback is not None:
+                with responder:
                     response = await self._sampling_callback(ctx, params)
-                    client_response = types.ClientResult(root=response)
-                    with responder:
-                        await responder.respond(client_response)
+                    client_response = ClientResponse.validate_python(response)
+                    await responder.respond(client_response)
+
             case types.ListRootsRequest():
-                if self._list_roots_callback is not None:
+                with responder:
                     response = await self._list_roots_callback(ctx)
-                    client_response = types.ClientResult(root=response)
-                    with responder:
-                        await responder.respond(client_response)
+                    client_response = ClientResponse.validate_python(response)
+                    await responder.respond(client_response)
+                    
             case types.PingRequest():
                 with responder:
-                    await responder.respond(types.ClientResult(root=types.EmptyResult()))
+                    return await responder.respond(
+                        types.ClientResult(root=types.EmptyResult())
+                    )
