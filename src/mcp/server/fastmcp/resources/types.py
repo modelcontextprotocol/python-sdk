@@ -1,5 +1,6 @@
 """Concrete resource implementations."""
 
+import inspect
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -53,7 +54,9 @@ class FunctionResource(Resource):
     async def read(self) -> str | bytes:
         """Read the resource by calling the wrapped function."""
         try:
-            result = self.fn()
+            result = (
+                await self.fn() if inspect.iscoroutinefunction(self.fn) else self.fn()
+            )
             if isinstance(result, Resource):
                 return await result.read()
             if isinstance(result, bytes):

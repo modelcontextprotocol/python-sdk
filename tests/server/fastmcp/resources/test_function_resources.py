@@ -120,3 +120,19 @@ class TestFunctionResource:
         )
         content = await resource.read()
         assert isinstance(content, str)
+
+    @pytest.mark.anyio
+    async def test_async_read_text(self):
+        """Test reading text from async FunctionResource."""
+
+        async def get_data() -> str:
+            return "Hello, world!"
+
+        resource = FunctionResource(
+            uri=AnyUrl("function://test"),
+            name="test",
+            fn=get_data,
+        )
+        content = await resource.read()
+        assert content == "Hello, world!"
+        assert resource.mime_type == "text/plain"

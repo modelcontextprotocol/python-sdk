@@ -43,7 +43,7 @@ def server_url(server_port: int) -> str:
 
 
 # Test server implementation
-class TestServer(Server):
+class ServerTest(Server):
     def __init__(self):
         super().__init__(SERVER_NAME)
 
@@ -81,7 +81,7 @@ class TestServer(Server):
 def make_server_app() -> Starlette:
     """Create test Starlette app with SSE transport"""
     sse = SseServerTransport("/messages/")
-    server = TestServer()
+    server = ServerTest()
 
     async def handle_sse(request: Request) -> None:
         async with sse.connect_sse(
@@ -164,6 +164,7 @@ async def http_client(server, server_url) -> AsyncGenerator[httpx.AsyncClient, N
 async def test_raw_sse_connection(http_client: httpx.AsyncClient) -> None:
     """Test the SSE connection establishment simply with an HTTP client."""
     async with anyio.create_task_group():
+
         async def connection_test() -> None:
             async with http_client.stream("GET", "/sse") as response:
                 assert response.status_code == 200
@@ -209,7 +210,6 @@ async def initialized_sse_client_session(
         async with ClientSession(*streams) as session:
             await session.initialize()
             yield session
-
 
 
 @pytest.mark.anyio

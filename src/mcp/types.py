@@ -1,7 +1,15 @@
-from typing import Any, Generic, Literal, TypeVar
+from typing import (
+    Annotated,
+    Any,
+    Callable,
+    Generic,
+    Literal,
+    TypeAlias,
+    TypeVar,
+)
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
-from pydantic.networks import AnyUrl
+from pydantic.networks import AnyUrl, UrlConstraints
 
 """
 Model Context Protocol bindings for Python
@@ -25,6 +33,9 @@ LATEST_PROTOCOL_VERSION = "2024-11-05"
 
 ProgressToken = str | int
 Cursor = str
+Role = Literal["user", "assistant"]
+RequestId = str | int
+AnyFunction: TypeAlias = Callable[..., Any]
 
 
 class RequestParams(BaseModel):
@@ -99,9 +110,6 @@ class PaginatedResult(Result):
     An opaque token representing the pagination position after the last returned result.
     If present, there may be more results available.
     """
-
-
-RequestId = str | int
 
 
 class JSONRPCRequest(Request):
@@ -344,10 +352,16 @@ class ListResourcesRequest(PaginatedRequest):
     params: RequestParams | None = None
 
 
+class Annotations(BaseModel):
+    audience: list[Role] | None = None
+    priority: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    model_config = ConfigDict(extra="allow")
+
+
 class Resource(BaseModel):
     """A known resource that the server is capable of reading."""
 
-    uri: AnyUrl
+    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """The URI of this resource."""
     name: str
     """A human-readable name for this resource."""
@@ -355,6 +369,14 @@ class Resource(BaseModel):
     """A description of what this resource represents."""
     mimeType: str | None = None
     """The MIME type of this resource, if known."""
+    size: int | None = None
+    """
+    The size of the raw resource content, in bytes (i.e., before base64 encoding
+    or any tokenization), if known.
+
+    This can be used by Hosts to display file sizes and estimate context window usage.
+    """
+    annotations: Annotations | None = None
     model_config = ConfigDict(extra="allow")
 
 
@@ -375,6 +397,7 @@ class ResourceTemplate(BaseModel):
     The MIME type for all resources that match this template. This should only be
     included if all resources matching this template have the same type.
     """
+    annotations: Annotations | None = None
     model_config = ConfigDict(extra="allow")
 
 
@@ -400,7 +423,7 @@ class ListResourceTemplatesResult(PaginatedResult):
 class ReadResourceRequestParams(RequestParams):
     """Parameters for reading a resource."""
 
-    uri: AnyUrl
+    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """
     The URI of the resource to read. The URI can use any protocol; it is up to the
     server how to interpret it.
@@ -418,7 +441,7 @@ class ReadResourceRequest(Request):
 class ResourceContents(BaseModel):
     """The contents of a specific resource or sub-resource."""
 
-    uri: AnyUrl
+    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """The URI of this resource."""
     mimeType: str | None = None
     """The MIME type of this resource, if known."""
@@ -461,7 +484,7 @@ class ResourceListChangedNotification(Notification):
 class SubscribeRequestParams(RequestParams):
     """Parameters for subscribing to a resource."""
 
-    uri: AnyUrl
+    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """
     The URI of the resource to subscribe to. The URI can use any protocol; it is up to
     the server how to interpret it.
@@ -482,7 +505,7 @@ class SubscribeRequest(Request):
 class UnsubscribeRequestParams(RequestParams):
     """Parameters for unsubscribing from a resource."""
 
-    uri: AnyUrl
+    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """The URI of the resource to unsubscribe from."""
     model_config = ConfigDict(extra="allow")
 
@@ -500,7 +523,7 @@ class UnsubscribeRequest(Request):
 class ResourceUpdatedNotificationParams(NotificationParams):
     """Parameters for resource update notifications."""
 
-    uri: AnyUrl
+    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """
     The URI of the resource that has been updated. This might be a sub-resource of the
     one that the client actually subscribed to.
@@ -578,6 +601,7 @@ class TextContent(BaseModel):
     type: Literal["text"]
     text: str
     """The text content of the message."""
+    annotations: Annotations | None = None
     model_config = ConfigDict(extra="allow")
 
 
@@ -592,10 +616,8 @@ class ImageContent(BaseModel):
     The MIME type of the image. Different providers may support different
     image types.
     """
+    annotations: Annotations | None = None
     model_config = ConfigDict(extra="allow")
-
-
-Role = Literal["user", "assistant"]
 
 
 class SamplingMessage(BaseModel):
@@ -616,6 +638,7 @@ class EmbeddedResource(BaseModel):
 
     type: Literal["resource"]
     resource: TextResourceContents | BlobResourceContents
+    annotations: Annotations | None = None
     model_config = ConfigDict(extra="allow")
 
 
@@ -977,6 +1000,26 @@ class RootsListChangedNotification(Notification):
     params: NotificationParams | None = None
 
 
+class CancelledNotificationParams(NotificationParams):
+    """Parameters for cancellation notifications."""
+
+    requestId: RequestId
+    """The ID of the request to cancel."""
+    reason: str | None = None
+    """An optional string describing the reason for the cancellation."""
+    model_config = ConfigDict(extra="allow")
+
+
+class CancelledNotification(Notification):
+    """
+    This notification can be sent by either side to indicate that it is cancelling a
+    previously-issued request.
+    """
+
+    method: Literal["notifications/cancelled"]
+    params: CancelledNotificationParams
+
+
 class ClientRequest(
     RootModel[
         PingRequest
@@ -999,7 +1042,10 @@ class ClientRequest(
 
 class ClientNotification(
     RootModel[
-        ProgressNotification | InitializedNotification | RootsListChangedNotification
+        CancelledNotification
+        | ProgressNotification
+        | InitializedNotification
+        | RootsListChangedNotification
     ]
 ):
     pass
@@ -1015,7 +1061,8 @@ class ServerRequest(RootModel[PingRequest | CreateMessageRequest | ListRootsRequ
 
 class ServerNotification(
     RootModel[
-        ProgressNotification
+        CancelledNotification
+        | ProgressNotification
         | LoggingMessageNotification
         | ResourceUpdatedNotification
         | ResourceListChangedNotification

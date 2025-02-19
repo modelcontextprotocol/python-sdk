@@ -68,12 +68,15 @@ import contextvars
 import logging
 import warnings
 from collections.abc import Awaitable, Callable
-from typing import Any, Sequence
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
+from typing import Any, AsyncIterator, Generic, Sequence, TypeVar
 
+import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 
 import mcp.types as types
+from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.server.stdio import stdio_server as stdio_server
@@ -83,7 +86,10 @@ from mcp.shared.session import RequestResponder
 
 logger = logging.getLogger(__name__)
 
-request_ctx: contextvars.ContextVar[RequestContext[ServerSession]] = (
+LifespanResultT = TypeVar("LifespanResultT")
+
+# This will be properly typed in each Server instance's context
+request_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any]] = (
     contextvars.ContextVar("request_ctx")
 )
 
@@ -100,13 +106,33 @@ class NotificationOptions:
         self.tools_changed = tools_changed
 
 
-class Server:
+@asynccontextmanager
+async def lifespan(server: "Server") -> AsyncIterator[object]:
+    """Default lifespan context manager that does nothing.
+
+    Args:
+        server: The server instance this lifespan is managing
+
+    Returns:
+        An empty context object
+    """
+    yield {}
+
+
+class Server(Generic[LifespanResultT]):
     def __init__(
-        self, name: str, version: str | None = None, instructions: str | None = None
+        self,
+        name: str,
+        version: str | None = None,
+        instructions: str | None = None,
+        lifespan: Callable[
+            ["Server"], AbstractAsyncContextManager[LifespanResultT]
+        ] = lifespan,
     ):
         self.name = name
         self.version = version
         self.instructions = instructions
+        self.lifespan = lifespan
         self.request_handlers: dict[
             type, Callable[..., Awaitable[types.ServerResult]]
         ] = {
@@ -187,7 +213,7 @@ class Server:
         )
 
     @property
-    def request_context(self) -> RequestContext[ServerSession]:
+    def request_context(self) -> RequestContext[ServerSession, LifespanResultT]:
         """If called outside of a request context, this will raise a LookupError."""
         return request_ctx.get()
 
@@ -252,25 +278,45 @@ class Server:
         return decorator
 
     def read_resource(self):
-        def decorator(func: Callable[[AnyUrl], Awaitable[str | bytes]]):
+        def decorator(
+            func: Callable[[AnyUrl], Awaitable[str | bytes | ReadResourceContents]],
+        ):
             logger.debug("Registering handler for ReadResourceRequest")
 
             async def handler(req: types.ReadResourceRequest):
                 result = await func(req.params.uri)
-                match result:
-                    case str(s):
-                        content = types.TextResourceContents(
-                            uri=req.params.uri,
-                            text=s,
-                            mimeType="text/plain",
-                        )
-                    case bytes(b):
-                        import base64
 
-                        content = types.BlobResourceContents(
-                            uri=req.params.uri,
-                            blob=base64.urlsafe_b64encode(b).decode(),
-                            mimeType="application/octet-stream",
+                def create_content(data: str | bytes, mime_type: str | None):
+                    match data:
+                        case str() as data:
+                            return types.TextResourceContents(
+                                uri=req.params.uri,
+                                text=data,
+                                mimeType=mime_type or "text/plain",
+                            )
+                        case bytes() as data:
+                            import base64
+
+                            return types.BlobResourceContents(
+                                uri=req.params.uri,
+                                blob=base64.urlsafe_b64encode(data).decode(),
+                                mimeType=mime_type or "application/octet-stream",
+                            )
+
+                match result:
+                    case str() | bytes() as data:
+                        warnings.warn(
+                            "Returning str or bytes from read_resource is deprecated. "
+                            "Use ReadResourceContents instead.",
+                            DeprecationWarning,
+                            stacklevel=2,
+                        )
+                        content = create_content(data, None)
+                    case ReadResourceContents() as contents:
+                        content = create_content(contents.content, contents.mime_type)
+                    case _:
+                        raise ValueError(
+                            f"Unexpected return type from read_resource: {type(result)}"
                         )
 
                 return types.ServerResult(
@@ -424,81 +470,109 @@ class Server:
         # in-process servers.
         raise_exceptions: bool = False,
     ):
-        with warnings.catch_warnings(record=True) as w:
-            async with ServerSession(
-                read_stream, write_stream, initialization_options
-            ) as session:
+        async with AsyncExitStack() as stack:
+            lifespan_context = await stack.enter_async_context(self.lifespan(self))
+            session = await stack.enter_async_context(
+                ServerSession(read_stream, write_stream, initialization_options)
+            )
+
+            async with anyio.create_task_group() as tg:
                 async for message in session.incoming_messages:
                     logger.debug(f"Received message: {message}")
 
-                    match message:
-                        case RequestResponder(request=types.ClientRequest(root=req)):
-                            logger.info(
-                                f"Processing request of type {type(req).__name__}"
-                            )
-                            if type(req) in self.request_handlers:
-                                handler = self.request_handlers[type(req)]
-                                logger.debug(
-                                    f"Dispatching request of type {type(req).__name__}"
-                                )
+                    tg.start_soon(
+                        self._handle_message,
+                        message,
+                        session,
+                        lifespan_context,
+                        raise_exceptions,
+                    )
 
-                                token = None
-                                try:
-                                    # Set our global state that can be retrieved via
-                                    # app.get_request_context()
-                                    token = request_ctx.set(
-                                        RequestContext(
-                                            message.request_id,
-                                            message.request_meta,
-                                            session,
-                                        )
-                                    )
-                                    response = await handler(req)
-                                except McpError as err:
-                                    response = err.error
-                                except Exception as err:
-                                    if raise_exceptions:
-                                        raise err
-                                    response = types.ErrorData(
-                                        code=0, message=str(err), data=None
-                                    )
-                                finally:
-                                    # Reset the global state after we are done
-                                    if token is not None:
-                                        request_ctx.reset(token)
-
-                                await message.respond(response)
-                            else:
-                                await message.respond(
-                                    types.ErrorData(
-                                        code=types.METHOD_NOT_FOUND,
-                                        message="Method not found",
-                                    )
-                                )
-
-                            logger.debug("Response sent")
-                        case types.ClientNotification(root=notify):
-                            if type(notify) in self.notification_handlers:
-                                assert type(notify) in self.notification_handlers
-
-                                handler = self.notification_handlers[type(notify)]
-                                logger.debug(
-                                    f"Dispatching notification of type "
-                                    f"{type(notify).__name__}"
-                                )
-
-                                try:
-                                    await handler(notify)
-                                except Exception as err:
-                                    logger.error(
-                                        f"Uncaught exception in notification handler: "
-                                        f"{err}"
-                                    )
-
-                    for warning in w:
-                        logger.info(
-                            f"Warning: {warning.category.__name__}: {warning.message}"
+    async def _handle_message(
+        self,
+        message: RequestResponder[types.ClientRequest, types.ServerResult]
+        | types.ClientNotification
+        | Exception,
+        session: ServerSession,
+        lifespan_context: LifespanResultT,
+        raise_exceptions: bool = False,
+    ):
+        with warnings.catch_warnings(record=True) as w:
+            match message:
+                case (
+                    RequestResponder(request=types.ClientRequest(root=req)) as responder
+                ):
+                    with responder:
+                        await self._handle_request(
+                            message, req, session, lifespan_context, raise_exceptions
                         )
+                case types.ClientNotification(root=notify):
+                    await self._handle_notification(notify)
+
+            for warning in w:
+                logger.info(f"Warning: {warning.category.__name__}: {warning.message}")
+
+    async def _handle_request(
+        self,
+        message: RequestResponder,
+        req: Any,
+        session: ServerSession,
+        lifespan_context: LifespanResultT,
+        raise_exceptions: bool,
+    ):
+        logger.info(f"Processing request of type {type(req).__name__}")
+        if type(req) in self.request_handlers:
+            handler = self.request_handlers[type(req)]
+            logger.debug(f"Dispatching request of type {type(req).__name__}")
+
+            token = None
+            try:
+                # Set our global state that can be retrieved via
+                # app.get_request_context()
+                token = request_ctx.set(
+                    RequestContext(
+                        message.request_id,
+                        message.request_meta,
+                        session,
+                        lifespan_context,
+                    )
+                )
+                response = await handler(req)
+            except McpError as err:
+                response = err.error
+            except Exception as err:
+                if raise_exceptions:
+                    raise err
+                response = types.ErrorData(code=0, message=str(err), data=None)
+            finally:
+                # Reset the global state after we are done
+                if token is not None:
+                    request_ctx.reset(token)
+
+            await message.respond(response)
+        else:
+            await message.respond(
+                types.ErrorData(
+                    code=types.METHOD_NOT_FOUND,
+                    message="Method not found",
+                )
+            )
+
+        logger.debug("Response sent")
+
+    async def _handle_notification(self, notify: Any):
+        if type(notify) in self.notification_handlers:
+            assert type(notify) in self.notification_handlers
+
+            handler = self.notification_handlers[type(notify)]
+            logger.debug(
+                f"Dispatching notification of type " f"{type(notify).__name__}"
+            )
+
+            try:
+                await handler(notify)
+            except Exception as err:
+                logger.error(f"Uncaught exception in notification handler: " f"{err}")
 
 
 async def _ping_handler(request: types.PingRequest) -> types.ServerResult:

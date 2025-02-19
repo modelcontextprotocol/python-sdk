@@ -1,73 +1,114 @@
-# Tool Usage Learnings
+# Development Guidelines
 
-This file is intended to be used by an LLM such as Claude.
+This document contains critical information about working with this codebase. Follow these guidelines precisely.
 
-## UV Package Manager
+## Core Development Rules
 
-- Use `uv run` to run Python tools without activating virtual environments
-- For formatting: `uv run ruff format .`
-- For type checking: `uv run pyright`
-- For upgrading packages:
-  - `uv add --dev package --upgrade-package package` to upgrade a specific package
-  - Don't use `@latest` syntax - it doesn't work
-  - Be careful with `uv pip install` as it may downgrade packages
+1. Package Management
+   - ONLY use uv, NEVER pip
+   - Installation: `uv add package`
+   - Running tools: `uv run tool`
+   - Upgrading: `uv add --dev package --upgrade-package package`
+   - FORBIDDEN: `uv pip install`, `@latest` syntax
 
-## Git and GitHub CLI
+2. Code Quality
+   - Type hints required for all code
+   - Public APIs must have docstrings
+   - Functions must be focused and small
+   - Follow existing patterns exactly
+   - Line length: 88 chars maximum
 
-- When using gh CLI for PRs, always quote title and body:
+3. Testing Requirements
+   - Framework: `uv run pytest`
+   - Async testing: use anyio, not asyncio
+   - Coverage: test edge cases and errors
+   - New features require tests
+   - Bug fixes require regression tests
+
+- For commits fixing bugs or adding features based on user reports add:
   ```bash
-  gh pr create --title "\"my title\"" --body "\"my body\""
+  git commit --trailer "Reported-by:<name>"
   ```
-- For git commits, use double quotes and escape inner quotes:
+  Where `<name>` is the name of the user.
+
+- For commits related to a Github issue, add
   ```bash
-  git commit -am "\"fix: my commit message\""
+  git commit --trailer "Github-Issue:#<number>"
   ```
+- NEVER ever mention a `co-authored-by` or similar aspects. In particular, never
+  mention the tool used to create the commit message or PR.
+
+## Pull Requests
+
+- Create a detailed message of what changed. Focus on the high level description of
+  the problem it tries to solve, and how it is solved. Don't go into the specifics of the
+  code unless it adds clarity.
+
+- Always add `jerome3o-anthropic` and `jspahrsummers` as reviewer.
+
+- NEVER ever mention a `co-authored-by` or similar aspects. In particular, never
+  mention the tool used to create the commit message or PR.
 
 ## Python Tools
 
-### Ruff
-- Handles both formatting and linting
-- For formatting: `uv run ruff format .`
-- For checking: `uv run ruff check .`
-- For auto-fixing: `uv run ruff check . --fix`
-- Common issues:
-  - Line length (default 88 chars)
-  - Import sorting (I001 errors)
-  - Unused imports
-- When line length errors occur:
-  - For strings, use parentheses and line continuation
-  - For function calls, use multiple lines with proper indentation
-  - For imports, split into multiple lines
+## Code Formatting
 
-### Pyright
-- Type checker
-- Run with: `uv run pyright`
-- Version warnings can be ignored if type checking passes
-- Common issues:
-  - Optional types need explicit None checks
-  - String operations need type narrowing
+1. Ruff
+   - Format: `uv run ruff format .`
+   - Check: `uv run ruff check .`
+   - Fix: `uv run ruff check . --fix`
+   - Critical issues:
+     - Line length (88 chars)
+     - Import sorting (I001)
+     - Unused imports
+   - Line wrapping:
+     - Strings: use parentheses
+     - Function calls: multi-line with proper indent
+     - Imports: split into multiple lines
 
-## Pre-commit Hooks
+2. Type Checking
+   - Tool: `uv run pyright`
+   - Requirements:
+     - Explicit None checks for Optional
+     - Type narrowing for strings
+     - Version warnings can be ignored if checks pass
 
-- Configuration in `.pre-commit-config.yaml`
-- Runs automatically on git commit
-- Includes:
-  - Prettier for YAML/JSON formatting
-  - Ruff for Python formatting and linting
-- When updating ruff version:
-  - Check available versions on PyPI
-  - Update `rev` in config to match available version
-  - Add and commit config changes before other changes
+3. Pre-commit
+   - Config: `.pre-commit-config.yaml`
+   - Runs: on git commit
+   - Tools: Prettier (YAML/JSON), Ruff (Python)
+   - Ruff updates:
+     - Check PyPI versions
+     - Update config rev
+     - Commit config first
 
-## Best Practices
+## Error Resolution
 
-1. Always check git status and diff before committing
-2. Run formatters before type checkers
-3. When fixing CI:
-   - Start with formatting issues
-   - Then fix type errors
-   - Then address any remaining linting issues
-4. For type errors:
-   - Get full context around error lines
-   - Consider optional types
-   - Add type narrowing checks when needed
+1. CI Failures
+   - Fix order:
+     1. Formatting
+     2. Type errors
+     3. Linting
+   - Type errors:
+     - Get full line context
+     - Check Optional types
+     - Add type narrowing
+     - Verify function signatures
+
+2. Common Issues
+   - Line length:
+     - Break strings with parentheses
+     - Multi-line function calls
+     - Split imports
+   - Types:
+     - Add None checks
+     - Narrow string types
+     - Match existing patterns
+
+3. Best Practices
+   - Check git status before commits
+   - Run formatters before type checks
+   - Keep changes minimal
+   - Follow existing patterns
+   - Document public APIs
+   - Test thoroughly

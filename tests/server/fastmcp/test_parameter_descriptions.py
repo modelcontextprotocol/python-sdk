@@ -6,7 +6,7 @@ from pydantic import Field
 from mcp.server.fastmcp import FastMCP
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_parameter_descriptions():
     mcp = FastMCP("Test Server")
 

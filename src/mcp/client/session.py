@@ -133,6 +133,17 @@ class ClientSession(
             types.ListResourcesResult,
         )
 
+    async def list_resource_templates(self) -> types.ListResourceTemplatesResult:
+        """Send a resources/templates/list request."""
+        return await self.send_request(
+            types.ClientRequest(
+                types.ListResourceTemplatesRequest(
+                    method="resources/templates/list",
+                )
+            ),
+            types.ListResourceTemplatesResult,
+        )
+
     async def read_resource(self, uri: AnyUrl) -> types.ReadResourceResult:
         """Send a resources/read request."""
         return await self.send_request(
