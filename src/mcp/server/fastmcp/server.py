@@ -34,6 +34,7 @@ from mcp.server.lowlevel.server import (
 from mcp.server.lowlevel.server import (
     lifespan as default_lifespan,
 )
+from mcp.server.session import ServerSession
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.shared.context import RequestContext
@@ -597,7 +598,7 @@ class Context(BaseModel):
     The context is optional - tools that don't need it can omit the parameter.
     """
 
-    _request_context: RequestContext | None
+    _request_context: RequestContext[ServerSession, Any] | None
     _fastmcp: FastMCP | None
 
     def __init__(
