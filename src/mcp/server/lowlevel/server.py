@@ -528,6 +528,7 @@ class Server(Generic[LifespanResultT]):
             token = None
             headers = {}
             try:
+                # TODO: This try/catch and ignoring the type is wrong.
                 headers = message.request.root.headers  # type: ignore
             except Exception:
                 pass
