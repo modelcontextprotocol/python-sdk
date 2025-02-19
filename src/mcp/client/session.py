@@ -1,16 +1,27 @@
 from datetime import timedelta
-from typing import Awaitable, Callable
+from typing import Protocol, Any
 
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 
+from mcp.shared.context import RequestContext
 import mcp.types as types
 from mcp.shared.session import BaseSession, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
-SamplingFnT = Callable[
-    [types.CreateMessageRequestParams], Awaitable[types.CreateMessageResult]
-]
+
+class SamplingFnT(Protocol):
+    async def __call__(
+        self, context: RequestContext["ClientSession", Any], params: types.CreateMessageRequestParams
+    ) -> types.CreateMessageResult:
+        ...
+
+
+class ListRootsFnT(Protocol):
+    async def __call__(
+        self, context: RequestContext["ClientSession", Any]
+    ) -> types.ListRootsResult:
+        ...
 
 
 class ClientSession(
@@ -22,7 +33,7 @@ class ClientSession(
         types.ServerNotification,
     ]
 ):
-    sampling_callback: SamplingFnT | None = None
+    _sampling_callback: SamplingFnT | None = None
 
     def __init__(
         self,
@@ -30,6 +41,7 @@ class ClientSession(
         write_stream: MemoryObjectSendStream[types.JSONRPCMessage],
         read_timeout_seconds: timedelta | None = None,
         sampling_callback: SamplingFnT | None = None,
+        list_roots_callback: ListRootsFnT | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -38,11 +50,22 @@ class ClientSession(
             types.ServerNotification,
             read_timeout_seconds=read_timeout_seconds,
         )
-        self.sampling_callback = sampling_callback
+        self._sampling_callback = sampling_callback
+        self._list_roots_callback = list_roots_callback
 
     async def initialize(self) -> types.InitializeResult:
         sampling = (
-            types.SamplingCapability() if self.sampling_callback is not None else None
+            types.SamplingCapability() if self._sampling_callback is not None else None
+        )
+        roots = (
+            types.RootsCapability(
+                # TODO: Should this be based on whether we
+                # _will_ send notifications, or only whether
+                # they're supported?
+                listChanged=True,
+            )
+            if self._list_roots_callback is not None
+            else None
         )
 
         result = await self.send_request(
@@ -54,12 +77,7 @@ class ClientSession(
                         capabilities=types.ClientCapabilities(
                             sampling=sampling,
                             experimental=None,
-                            roots=types.RootsCapability(
-                                # TODO: Should this be based on whether we
-                                # _will_ send notifications, or only whether
-                                # they're supported?
-                                listChanged=True
-                            ),
+                            roots=roots,
                         ),
                         clientInfo=types.Implementation(name="mcp", version="0.1.0"),
                     ),
@@ -258,11 +276,29 @@ class ClientSession(
         )
 
     async def _received_request(
-        self, responder: RequestResponder["types.ServerRequest", "types.ClientResult"]
+        self, responder: RequestResponder[types.ServerRequest, types.ClientResult]
     ) -> None:
-        if isinstance(responder.request.root, types.CreateMessageRequest):
-            if self.sampling_callback is not None:
-                response = await self.sampling_callback(responder.request.root.params)
-                client_response = types.ClientResult(root=response)
+
+        ctx = RequestContext[ClientSession, Any](
+            request_id=responder.request_id,
+            meta=responder.request_meta,
+            session=self,
+            lifespan_context=None,
+        )
+        
+        match responder.request.root:
+            case types.CreateMessageRequest:
+                if self._sampling_callback is not None:
+                    response = await self._sampling_callback(ctx, responder.request.root.params)
+                    client_response = types.ClientResult(root=response)
+                    with responder:
+                        await responder.respond(client_response)
+            case types.ListRootsRequest:
+                if self._list_roots_callback is not None:
+                    response = await self._list_roots_callback(ctx)
+                    client_response = types.ClientResult(root=response)
+                    with responder:
+                        await responder.respond(client_response)
+            case types.PingRequest:
                 with responder:
-                    await responder.respond(client_response)
+                    await responder.respond(types.ClientResult(root=types.EmptyResult()))
