@@ -287,18 +287,18 @@ class ClientSession(
         )
         
         match responder.request.root:
-            case types.CreateMessageRequest:
+            case types.CreateMessageRequest(params=params):
                 if self._sampling_callback is not None:
-                    response = await self._sampling_callback(ctx, responder.request.root.params)
+                    response = await self._sampling_callback(ctx, params)
                     client_response = types.ClientResult(root=response)
                     with responder:
                         await responder.respond(client_response)
-            case types.ListRootsRequest:
+            case types.ListRootsRequest():
                 if self._list_roots_callback is not None:
                     response = await self._list_roots_callback(ctx)
                     client_response = types.ClientResult(root=response)
                     with responder:
                         await responder.respond(client_response)
-            case types.PingRequest:
+            case types.PingRequest():
                 with responder:
                     await responder.respond(types.ClientResult(root=types.EmptyResult()))
