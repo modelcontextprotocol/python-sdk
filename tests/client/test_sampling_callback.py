@@ -57,7 +57,7 @@ async def test_sampling_callback():
         )
         assert result.isError is False
         assert isinstance(result.content[0], TextContent)
-        assert result.content[0].text == 'true'
+        assert result.content[0].text == "true"
 
     # Test without sampling callback
     async with create_session(server._mcp_server) as client_session:
@@ -67,4 +67,7 @@ async def test_sampling_callback():
         )
         assert result.isError is True
         assert isinstance(result.content[0], TextContent)
-        assert result.content[0].text == 'Error executing tool test_sampling: Sampling not supported'
+        assert (
+            result.content[0].text
+            == "Error executing tool test_sampling: Sampling not supported"
+        )

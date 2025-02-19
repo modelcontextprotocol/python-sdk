@@ -20,19 +20,21 @@ async def test_list_roots_callback():
 
     server = FastMCP("test")
 
-    callback_return = ListRootsResult(roots=[
-        Root(
-            uri=FileUrl("file://users/fake/test"),
-            name="Test Root 1",
-        ),
-        Root(
-            uri=FileUrl("file://users/fake/test/2"),
-            name="Test Root 2",
-        )
-    ])
+    callback_return = ListRootsResult(
+        roots=[
+            Root(
+                uri=FileUrl("file://users/fake/test"),
+                name="Test Root 1",
+            ),
+            Root(
+                uri=FileUrl("file://users/fake/test/2"),
+                name="Test Root 2",
+            ),
+        ]
+    )
 
     async def list_roots_callback(
-        context: RequestContext[ClientSession, None]
+        context: RequestContext[ClientSession, None],
     ) -> ListRootsResult:
         return callback_return
 
@@ -52,7 +54,7 @@ async def test_list_roots_callback():
         )
         assert result.isError is False
         assert isinstance(result.content[0], TextContent)
-        assert result.content[0].text == 'true'
+        assert result.content[0].text == "true"
 
     # Test without list_roots callback
     async with create_session(server._mcp_server) as client_session:
@@ -62,5 +64,7 @@ async def test_list_roots_callback():
         )
         assert result.isError is True
         assert isinstance(result.content[0], TextContent)
-        assert result.content[0].text == 'Error executing tool test_list_roots: List roots not supported'
-
+        assert (
+            result.content[0].text
+            == "Error executing tool test_list_roots: List roots not supported"
+        )
