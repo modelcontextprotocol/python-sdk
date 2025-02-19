@@ -514,7 +514,7 @@ class Server(Generic[LifespanResultT]):
 
     async def _handle_request(
         self,
-        message: RequestResponder,
+        message: RequestResponder[types.ClientRequest, types.ServerResult],
         req: Any,
         session: ServerSession,
         lifespan_context: LifespanResultT,
@@ -526,12 +526,6 @@ class Server(Generic[LifespanResultT]):
             logger.debug(f"Dispatching request of type {type(req).__name__}")
 
             token = None
-            headers = {}
-            try:
-                # TODO: This try/catch and ignoring the type is wrong.
-                headers = message.request.root.headers  # type: ignore
-            except Exception:
-                pass
             try:
                 # Set our global state that can be retrieved via
                 # app.get_request_context()
@@ -541,7 +535,7 @@ class Server(Generic[LifespanResultT]):
                         message.request_meta,
                         session,
                         lifespan_context,
-                        headers,
+                        message.request.root.headers or {},
                     )
                 )
                 response = await handler(req)
