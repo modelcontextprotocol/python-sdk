@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Generic, TypeVar
 
 from mcp.shared.session import BaseSession
@@ -14,3 +14,4 @@ class RequestContext(Generic[SessionT, LifespanContextT]):
     meta: RequestParams.Meta | None
     session: SessionT
     lifespan_context: LifespanContextT
+    headers: dict[str, str] = field(default_factory=dict)

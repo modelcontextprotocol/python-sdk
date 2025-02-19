@@ -526,6 +526,11 @@ class Server(Generic[LifespanResultT]):
             logger.debug(f"Dispatching request of type {type(req).__name__}")
 
             token = None
+            headers = {}
+            try:
+                headers = message.request.root.headers  # type: ignore
+            except Exception:
+                pass
             try:
                 # Set our global state that can be retrieved via
                 # app.get_request_context()
@@ -535,6 +540,7 @@ class Server(Generic[LifespanResultT]):
                         message.request_meta,
                         session,
                         lifespan_context,
+                        headers,
                     )
                 )
                 response = await handler(req)

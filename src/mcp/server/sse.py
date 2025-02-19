@@ -160,7 +160,8 @@ class SseServerTransport:
         logger.debug(f"Received JSON: {json}")
 
         try:
-            message = types.JSONRPCMessage.model_validate(json)
+            message_with_headers = {**json, "headers": dict(request.headers)}
+            message = types.JSONRPCMessage.model_validate(message_with_headers)
             logger.debug(f"Validated client message: {message}")
         except ValidationError as err:
             logger.error(f"Failed to parse message: {err}")

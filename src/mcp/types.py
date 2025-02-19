@@ -118,6 +118,7 @@ class JSONRPCRequest(Request):
     jsonrpc: Literal["2.0"]
     id: RequestId
     params: dict[str, Any] | None = None
+    headers: dict[str, str] | None = None
 
 
 class JSONRPCNotification(Notification):
