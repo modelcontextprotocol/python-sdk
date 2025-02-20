@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -26,8 +27,8 @@ async def test_read_resource_text(temp_file: Path):
     server = Server("test")
 
     @server.read_resource()
-    async def read_resource(uri: AnyUrl) -> ReadResourceContents:
-        return ReadResourceContents(content="Hello World", mime_type="text/plain")
+    async def read_resource(uri: AnyUrl) -> Iterable[ReadResourceContents]:
+        return [ReadResourceContents(content="Hello World", mime_type="text/plain")]
 
     # Get the handler directly from the server
     handler = server.request_handlers[types.ReadResourceRequest]
@@ -54,10 +55,12 @@ async def test_read_resource_binary(temp_file: Path):
     server = Server("test")
 
     @server.read_resource()
-    async def read_resource(uri: AnyUrl) -> ReadResourceContents:
-        return ReadResourceContents(
-            content=b"Hello World", mime_type="application/octet-stream"
-        )
+    async def read_resource(uri: AnyUrl) -> Iterable[ReadResourceContents]:
+        return [
+            ReadResourceContents(
+                content=b"Hello World", mime_type="application/octet-stream"
+            )
+        ]
 
     # Get the handler directly from the server
     handler = server.request_handlers[types.ReadResourceRequest]
@@ -83,11 +86,13 @@ async def test_read_resource_default_mime(temp_file: Path):
     server = Server("test")
 
     @server.read_resource()
-    async def read_resource(uri: AnyUrl) -> ReadResourceContents:
-        return ReadResourceContents(
-            content="Hello World",
-            # No mime_type specified, should default to text/plain
-        )
+    async def read_resource(uri: AnyUrl) -> Iterable[ReadResourceContents]:
+        return [
+            ReadResourceContents(
+                content="Hello World",
+                # No mime_type specified, should default to text/plain
+            )
+        ]
 
     # Get the handler directly from the server
     handler = server.request_handlers[types.ReadResourceRequest]

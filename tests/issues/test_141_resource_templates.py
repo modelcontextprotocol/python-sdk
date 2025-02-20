@@ -51,8 +51,10 @@ async def test_resource_template_edge_cases():
 
     # Verify valid template works
     result = await mcp.read_resource("resource://users/123/posts/456")
-    assert result.content == "Post 456 by user 123"
-    assert result.mime_type == "text/plain"
+    result_list = list(result)
+    assert len(result_list) == 1
+    assert result_list[0].content == "Post 456 by user 123"
+    assert result_list[0].mime_type == "text/plain"
 
     # Verify invalid parameters raise error
     with pytest.raises(ValueError, match="Unknown resource"):

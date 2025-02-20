@@ -67,7 +67,7 @@ messages from the client.
 import contextvars
 import logging
 import warnings
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from typing import Any, AsyncIterator, Generic, Sequence, TypeVar
 
@@ -279,7 +279,9 @@ class Server(Generic[LifespanResultT]):
 
     def read_resource(self):
         def decorator(
-            func: Callable[[AnyUrl], Awaitable[str | bytes | ReadResourceContents]],
+            func: Callable[
+                [AnyUrl], Awaitable[str | bytes | Iterable[ReadResourceContents]]
+            ],
         ):
             logger.debug("Registering handler for ReadResourceRequest")
 
@@ -307,13 +309,22 @@ class Server(Generic[LifespanResultT]):
                     case str() | bytes() as data:
                         warnings.warn(
                             "Returning str or bytes from read_resource is deprecated. "
-                            "Use ReadResourceContents instead.",
+                            "Use Iterable[ReadResourceContents] instead.",
                             DeprecationWarning,
                             stacklevel=2,
                         )
                         content = create_content(data, None)
-                    case ReadResourceContents() as contents:
-                        content = create_content(contents.content, contents.mime_type)
+                    case Iterable() as contents:
+                        contents_list = [
+                            create_content(content_item.content, content_item.mime_type)
+                            for content_item in contents
+                            if isinstance(content_item, ReadResourceContents)
+                        ]
+                        return types.ServerResult(
+                            types.ReadResourceResult(
+                                contents=contents_list,
+                            )
+                        )
                     case _:
                         raise ValueError(
                             f"Unexpected return type from read_resource: {type(result)}"
