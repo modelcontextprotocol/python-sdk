@@ -69,7 +69,7 @@ import logging
 import warnings
 from collections.abc import Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from typing import Any, AsyncIterator, Generic, Sequence, TypeVar
+from typing import Any, AsyncIterator, Generic, TypeVar
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -398,7 +398,7 @@ class Server(Generic[LifespanResultT]):
             func: Callable[
                 ...,
                 Awaitable[
-                    Sequence[
+                    Iterable[
                         types.TextContent | types.ImageContent | types.EmbeddedResource
                     ]
                 ],
