@@ -83,7 +83,7 @@ class StdioServerParameters(BaseModel):
 
 
 @asynccontextmanager
-async def stdio_client(server: StdioServerParameters):
+async def stdio_client(server: StdioServerParameters, errlog=sys.stderr):
     """
     Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
@@ -100,7 +100,7 @@ async def stdio_client(server: StdioServerParameters):
     process = await anyio.open_process(
         [server.command, *server.args],
         env=server.env if server.env is not None else get_default_environment(),
-        stderr=sys.stderr,
+        stderr=errlog,
     )
 
     async def stdout_reader():
