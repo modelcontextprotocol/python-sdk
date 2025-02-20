@@ -6,10 +6,10 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 tee: str = shutil.which("tee")  # type: ignore
-assert tee is not None, "could not find tee command"
 
 
 @pytest.mark.anyio
+@pytest.mark.skipif(tee is None, reason="could not find tee command")
 async def test_stdio_client():
     server_parameters = StdioServerParameters(command=tee)
 
