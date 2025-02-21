@@ -1,4 +1,5 @@
 import anyio
+import pytest
 from pydantic import AnyUrl
 
 from mcp.server.fastmcp import FastMCP
@@ -10,6 +11,7 @@ _sleep_time_seconds = 0.01
 _resource_name = "slow://slow_resource"
 
 
+@pytest.mark.anyio
 async def test_messages_are_executed_concurrently():
     server = FastMCP("test")
 

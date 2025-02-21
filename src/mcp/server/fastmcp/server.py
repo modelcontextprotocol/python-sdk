@@ -3,7 +3,7 @@
 import inspect
 import json
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from contextlib import (
     AbstractAsyncContextManager,
     asynccontextmanager,
@@ -34,6 +34,7 @@ from mcp.server.lowlevel.server import (
 from mcp.server.lowlevel.server import (
     lifespan as default_lifespan,
 )
+from mcp.server.session import ServerSession
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.shared.context import RequestContext
@@ -235,7 +236,7 @@ class FastMCP:
             for template in templates
         ]
 
-    async def read_resource(self, uri: AnyUrl | str) -> ReadResourceContents:
+    async def read_resource(self, uri: AnyUrl | str) -> Iterable[ReadResourceContents]:
         """Read a resource by URI."""
 
         resource = await self._resource_manager.get_resource(uri)
@@ -244,7 +245,7 @@ class FastMCP:
 
         try:
             content = await resource.read()
-            return ReadResourceContents(content=content, mime_type=resource.mime_type)
+            return [ReadResourceContents(content=content, mime_type=resource.mime_type)]
         except Exception as e:
             logger.error(f"Error reading resource {uri}: {e}")
             raise ResourceError(str(e))
@@ -597,7 +598,7 @@ class Context(BaseModel):
     The context is optional - tools that don't need it can omit the parameter.
     """
 
-    _request_context: RequestContext | None
+    _request_context: RequestContext[ServerSession, Any] | None
     _fastmcp: FastMCP | None
 
     def __init__(
@@ -648,7 +649,7 @@ class Context(BaseModel):
             progress_token=progress_token, progress=progress, total=total
         )
 
-    async def read_resource(self, uri: str | AnyUrl) -> ReadResourceContents:
+    async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:
         """Read a resource by URI.
 
         Args:
