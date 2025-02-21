@@ -74,6 +74,7 @@ class Request(BaseModel, Generic[RequestParamsT, MethodT]):
 
     method: MethodT
     params: RequestParamsT
+    headers: dict[str, str] | None = None
     model_config = ConfigDict(extra="allow")
 
 

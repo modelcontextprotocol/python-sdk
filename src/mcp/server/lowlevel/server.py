@@ -525,7 +525,7 @@ class Server(Generic[LifespanResultT]):
 
     async def _handle_request(
         self,
-        message: RequestResponder,
+        message: RequestResponder[types.ClientRequest, types.ServerResult],
         req: Any,
         session: ServerSession,
         lifespan_context: LifespanResultT,
@@ -546,6 +546,7 @@ class Server(Generic[LifespanResultT]):
                         message.request_meta,
                         session,
                         lifespan_context,
+                        message.request.root.headers or {},
                     )
                 )
                 response = await handler(req)
