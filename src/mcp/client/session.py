@@ -222,7 +222,7 @@ class ClientSession(
         self,
         name: str,
         arguments: dict | None = None,
-        request_id: types.ClientInitiatedRequestId | None = None,
+        request_id: types.CustomRequestId | None = None,
     ) -> types.CallToolResult:
         """Send a tools/call request."""
         return await self.send_request(
@@ -252,7 +252,7 @@ class ClientSession(
         self,
         name: str,
         arguments: dict[str, str] | None = None,
-        request_id: types.ClientInitiatedRequestId | None = None,
+        request_id: types.CustomRequestId | None = None,
     ) -> types.GetPromptResult:
         """Send a prompts/get request."""
         return await self.send_request(
