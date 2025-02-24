@@ -219,14 +219,19 @@ class ClientSession(
         )
 
     async def call_tool(
-        self, name: str, arguments: dict | None = None
+        self,
+        name: str,
+        arguments: dict | None = None,
+        request_id: types.ClientInitiatedRequestId | None = None,
     ) -> types.CallToolResult:
         """Send a tools/call request."""
         return await self.send_request(
             types.ClientRequest(
                 types.CallToolRequest(
                     method="tools/call",
-                    params=types.CallToolRequestParams(name=name, arguments=arguments),
+                    params=types.CallToolRequestParams(
+                        name=name, arguments=arguments, request_id=request_id
+                    ),
                 )
             ),
             types.CallToolResult,
@@ -244,14 +249,19 @@ class ClientSession(
         )
 
     async def get_prompt(
-        self, name: str, arguments: dict[str, str] | None = None
+        self,
+        name: str,
+        arguments: dict[str, str] | None = None,
+        request_id: types.ClientInitiatedRequestId | None = None,
     ) -> types.GetPromptResult:
         """Send a prompts/get request."""
         return await self.send_request(
             types.ClientRequest(
                 types.GetPromptRequest(
                     method="prompts/get",
-                    params=types.GetPromptRequestParams(name=name, arguments=arguments),
+                    params=types.GetPromptRequestParams(
+                        name=name, arguments=arguments, request_id=request_id
+                    ),
                 )
             ),
             types.GetPromptResult,
