@@ -21,11 +21,11 @@ from mcp.types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    RequestId,
     RequestParams,
     ServerNotification,
     ServerRequest,
     ServerResult,
-    RequestId,
 )
 
 SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
