@@ -25,6 +25,7 @@ from mcp.types import (
     ServerNotification,
     ServerRequest,
     ServerResult,
+    RequestId,
 )
 
 SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
@@ -35,8 +36,6 @@ ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 ReceiveNotificationT = TypeVar(
     "ReceiveNotificationT", ClientNotification, ServerNotification
 )
-
-RequestId = str | int
 
 
 class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
@@ -208,9 +207,12 @@ class BaseSession(
         Do not use this method to emit notifications! Use send_notification()
         instead.
         """
-
-        request_id = self._request_id
-        self._request_id = request_id + 1
+        params = request.root.params
+        if params is not None and params.request_id is not None:
+            request_id = params.request_id
+        else:
+            request_id = self._request_id
+            self._request_id = request_id + 1
 
         response_stream, response_stream_reader = anyio.create_memory_object_stream[
             JSONRPCResponse | JSONRPCError
@@ -297,9 +299,11 @@ class BaseSession(
 
                     responder = RequestResponder(
                         request_id=message.root.id,
-                        request_meta=validated_request.root.params.meta
-                        if validated_request.root.params
-                        else None,
+                        request_meta=(
+                            validated_request.root.params.meta
+                            if validated_request.root.params
+                            else None
+                        ),
                         request=validated_request,
                         session=self,
                         on_complete=lambda r: self._in_flight.pop(r.request_id, None),

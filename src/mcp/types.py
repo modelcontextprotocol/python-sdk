@@ -34,7 +34,9 @@ LATEST_PROTOCOL_VERSION = "2024-11-05"
 ProgressToken = str | int
 Cursor = str
 Role = Literal["user", "assistant"]
-RequestId = str | int
+ClientInitiatedRequestId = str
+ServerInitiatedRequestId = int
+RequestId = ClientInitiatedRequestId | ServerInitiatedRequestId
 AnyFunction: TypeAlias = Callable[..., Any]
 
 
@@ -51,6 +53,7 @@ class RequestParams(BaseModel):
         model_config = ConfigDict(extra="allow")
 
     meta: Meta | None = Field(alias="_meta", default=None)
+    request_id: ClientInitiatedRequestId | None = Field(default=None)
 
 
 class NotificationParams(BaseModel):
