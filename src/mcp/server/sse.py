@@ -38,7 +38,6 @@ from urllib.parse import quote
 from uuid import UUID, uuid4
 
 import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
 from starlette.requests import Request
@@ -46,6 +45,12 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 import mcp.types as types
+from mcp.server.models import (
+    ReadStream,
+    ReadStreamWriter,
+    WriteStream,
+    WriteStreamReader,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +68,7 @@ class SseServerTransport:
     """
 
     _endpoint: str
-    _read_stream_writers: dict[
-        UUID, MemoryObjectSendStream[types.JSONRPCMessage | Exception]
-    ]
+    _read_stream_writers: dict[UUID, ReadStreamWriter]
 
     def __init__(self, endpoint: str) -> None:
         """
@@ -85,11 +88,11 @@ class SseServerTransport:
             raise ValueError("connect_sse can only handle HTTP requests")
 
         logger.debug("Setting up SSE connection")
-        read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception]
-        read_stream_writer: MemoryObjectSendStream[types.JSONRPCMessage | Exception]
+        read_stream: ReadStream
+        read_stream_writer: ReadStreamWriter
 
-        write_stream: MemoryObjectSendStream[types.JSONRPCMessage]
-        write_stream_reader: MemoryObjectReceiveStream[types.JSONRPCMessage]
+        write_stream: WriteStream
+        write_stream_reader: WriteStreamReader
 
         read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
         write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
