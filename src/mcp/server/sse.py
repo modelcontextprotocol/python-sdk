@@ -45,7 +45,8 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 import mcp.types as types
-from mcp.server.models import (
+from mcp.shared.session import (
+    ParsedMessage,
     ReadStream,
     ReadStreamWriter,
     WriteStream,
@@ -175,4 +176,4 @@ class SseServerTransport:
         logger.debug(f"Sending message to writer: {message}")
         response = Response("Accepted", status_code=202)
         await response(scope, receive, send)
-        await writer.send(message)
+        await writer.send(ParsedMessage(message, raw=request))

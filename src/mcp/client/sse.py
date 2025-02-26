@@ -6,10 +6,16 @@ from urllib.parse import urljoin, urlparse
 import anyio
 import httpx
 from anyio.abc import TaskStatus
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import aconnect_sse
 
 import mcp.types as types
+from mcp.shared.session import (
+    ParsedMessage,
+    ReadStream,
+    ReadStreamWriter,
+    WriteStream,
+    WriteStreamReader,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +37,11 @@ async def sse_client(
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
     """
-    read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception]
-    read_stream_writer: MemoryObjectSendStream[types.JSONRPCMessage | Exception]
+    read_stream: ReadStream
+    read_stream_writer: ReadStreamWriter
 
-    write_stream: MemoryObjectSendStream[types.JSONRPCMessage]
-    write_stream_reader: MemoryObjectReceiveStream[types.JSONRPCMessage]
+    write_stream: WriteStream
+    write_stream_reader: WriteStreamReader
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
@@ -84,8 +90,11 @@ async def sse_client(
 
                                     case "message":
                                         try:
-                                            message = types.JSONRPCMessage.model_validate_json(  # noqa: E501
-                                                sse.data
+                                            message = ParsedMessage(
+                                                types.JSONRPCMessage.model_validate_json(  # noqa: E501
+                                                    sse.data
+                                                ),
+                                                raw=sse,
                                             )
                                             logger.debug(
                                                 f"Received server message: {message}"

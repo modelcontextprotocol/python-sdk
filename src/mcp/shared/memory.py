@@ -11,11 +11,11 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 
 from mcp.client.session import ClientSession, ListRootsFnT, SamplingFnT
 from mcp.server import Server
-from mcp.types import JSONRPCMessage
+from mcp.shared.session import ParsedMessage
 
 MessageStream = tuple[
-    MemoryObjectReceiveStream[JSONRPCMessage | Exception],
-    MemoryObjectSendStream[JSONRPCMessage],
+    MemoryObjectReceiveStream[ParsedMessage | Exception],
+    MemoryObjectSendStream[ParsedMessage],
 ]
 
 
@@ -32,10 +32,10 @@ async def create_client_server_memory_streams() -> (
     """
     # Create streams for both directions
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        JSONRPCMessage | Exception
+        ParsedMessage | Exception
     ](1)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        JSONRPCMessage | Exception
+        ParsedMessage | Exception
     ](1)
 
     client_streams = (server_to_client_receive, client_to_server_send)
@@ -60,12 +60,9 @@ async def create_connected_server_and_client_session(
 ) -> AsyncGenerator[ClientSession, None]:
     """Creates a ClientSession that is connected to a running MCP server."""
     async with create_client_server_memory_streams() as (
-        client_streams,
-        server_streams,
+        (client_read, client_write),
+        (server_read, server_write),
     ):
-        client_read, client_write = client_streams
-        server_read, server_write = server_streams
-
         # Create a cancel scope for the server task
         async with anyio.create_task_group() as tg:
             tg.start_soon(
