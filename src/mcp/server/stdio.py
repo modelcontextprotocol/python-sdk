@@ -67,16 +67,27 @@ async def stdio_server(
                         continue
 
                     await read_stream_writer.send(message)
+        except anyio.BrokenResourceError as ex:
+            print(f"BrokenResourceError(reader): {ex}")
+            pass
         except anyio.ClosedResourceError:
             await anyio.lowlevel.checkpoint()
+        except Exception as ex:
+            print(f"read error: {ex}")
 
     async def stdout_writer():
         try:
             async with write_stream_reader:
                 async for message in write_stream_reader:
-                    json = message.model_dump_json(by_alias=True, exclude_none=True)
-                    await stdout.write(json + "\n")
-                    await stdout.flush()
+                    try:
+                        json = message.model_dump_json(by_alias=True, exclude_none=True)
+                        await stdout.write(json + "\n")
+                        await stdout.flush()
+                    except Exception as ex:
+                        print(f"problem with writer: {ex}")
+        except anyio.BrokenResourceError as ex:
+            print(f"BrokenResourceError(writer): {ex}")
+            pass
         except anyio.ClosedResourceError:
             await anyio.lowlevel.checkpoint()
 
