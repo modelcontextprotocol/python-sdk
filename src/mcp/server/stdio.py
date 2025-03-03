@@ -27,12 +27,12 @@ import anyio.lowlevel
 
 import mcp.types as types
 from mcp.shared.session import (
-    MessageFrame,
     ReadStream,
     ReadStreamWriter,
     WriteStream,
     WriteStreamReader,
 )
+from mcp.types import MessageFrame
 
 
 @asynccontextmanager
@@ -72,7 +72,7 @@ async def stdio_server(
                         await read_stream_writer.send(exc)
                         continue
 
-                    await read_stream_writer.send(MessageFrame(message, raw=line))
+                    await read_stream_writer.send(MessageFrame(root=message, raw=line))
         except anyio.ClosedResourceError:
             await anyio.lowlevel.checkpoint()
 
@@ -80,6 +80,7 @@ async def stdio_server(
         try:
             async with write_stream_reader:
                 async for message in write_stream_reader:
+                    # Extract the inner JSONRPCRequest/JSONRPCResponse from MessageFrame
                     json = message.model_dump_json(by_alias=True, exclude_none=True)
                     await stdout.write(json + "\n")
                     await stdout.flush()

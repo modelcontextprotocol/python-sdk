@@ -10,12 +10,12 @@ from httpx_sse import aconnect_sse
 
 import mcp.types as types
 from mcp.shared.session import (
-    MessageFrame,
     ReadStream,
     ReadStreamWriter,
     WriteStream,
     WriteStreamReader,
 )
+from mcp.types import MessageFrame
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ async def sse_client(
                                     case "message":
                                         try:
                                             message = MessageFrame(
-                                                types.JSONRPCMessage.model_validate_json(  # noqa: E501
+                                                root=types.JSONRPCMessage.model_validate_json(  # noqa: E501
                                                     sse.data
                                                 ),
                                                 raw=sse,

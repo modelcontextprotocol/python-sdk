@@ -11,6 +11,7 @@ from mcp.types import (
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
+    MessageFrame,
     NotificationParams,
 )
 
@@ -64,7 +65,9 @@ async def test_request_id_match() -> None:
             jsonrpc="2.0",
         )
 
-        await client_writer.send(JSONRPCMessage(root=init_req))
+        await client_writer.send(
+            MessageFrame(root=JSONRPCMessage(root=init_req), raw=None)
+        )
         await server_reader.receive()  # Get init response but don't need to check it
 
         # Send initialized notification
@@ -73,21 +76,25 @@ async def test_request_id_match() -> None:
             params=NotificationParams().model_dump(by_alias=True, exclude_none=True),
             jsonrpc="2.0",
         )
-        await client_writer.send(JSONRPCMessage(root=initialized_notification))
+        await client_writer.send(
+            MessageFrame(root=JSONRPCMessage(root=initialized_notification), raw=None)
+        )
 
         # Send ping request with custom ID
         ping_request = JSONRPCRequest(
             id=custom_request_id, method="ping", params={}, jsonrpc="2.0"
         )
 
-        await client_writer.send(JSONRPCMessage(root=ping_request))
+        await client_writer.send(
+            MessageFrame(root=JSONRPCMessage(root=ping_request), raw=None)
+        )
 
         # Read response
         response = await server_reader.receive()
 
         # Verify response ID matches request ID
         assert (
-            response.root.id == custom_request_id
+            response.root.root.id == custom_request_id
         ), "Response ID should match request ID"
 
         # Cancel server task

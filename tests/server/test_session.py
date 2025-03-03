@@ -6,10 +6,10 @@ from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared.session import MessageFrame
 from mcp.types import (
     ClientNotification,
     InitializedNotification,
+    MessageFrame,
     PromptsCapability,
     ResourcesCapability,
     ServerCapabilities,

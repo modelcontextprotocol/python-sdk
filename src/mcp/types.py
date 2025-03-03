@@ -180,6 +180,21 @@ class JSONRPCMessage(
     pass
 
 
+RawT = TypeVar("RawT")
+
+
+class MessageFrame(BaseModel, Generic[RawT]):
+    root: JSONRPCMessage
+    raw: RawT | None = None
+    model_config = ConfigDict(extra="allow")
+
+    def model_dump(self, *args, **kwargs):
+        return self.root.model_dump(*args, **kwargs)
+
+    def model_dump_json(self, *args, **kwargs):
+        return self.root.model_dump_json(*args, **kwargs)
+
+
 class EmptyResult(Result):
     """A response that indicates success but carries no data."""
 

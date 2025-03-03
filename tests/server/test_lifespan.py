@@ -17,6 +17,7 @@ from mcp.types import (
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
+    MessageFrame,
 )
 
 
@@ -64,7 +65,7 @@ async def test_lowlevel_server_lifespan():
                 send_stream2,
                 InitializationOptions(
                     server_name="test",
-                    server_version="0.1.0",
+                    server_version="1.0.0",
                     capabilities=server.get_capabilities(
                         notification_options=NotificationOptions(),
                         experimental_capabilities={},
@@ -82,36 +83,45 @@ async def test_lowlevel_server_lifespan():
             clientInfo=Implementation(name="test-client", version="0.1.0"),
         )
         await send_stream1.send(
-            JSONRPCMessage(
-                root=JSONRPCRequest(
-                    jsonrpc="2.0",
-                    id=1,
-                    method="initialize",
-                    params=TypeAdapter(InitializeRequestParams).dump_python(params),
-                )
+            MessageFrame(
+                root=JSONRPCMessage(
+                    root=JSONRPCRequest(
+                        jsonrpc="2.0",
+                        id=1,
+                        method="initialize",
+                        params=TypeAdapter(InitializeRequestParams).dump_python(params),
+                    )
+                ),
+                raw=None,
             )
         )
         response = await receive_stream2.receive()
 
         # Send initialized notification
         await send_stream1.send(
-            JSONRPCMessage(
-                root=JSONRPCNotification(
-                    jsonrpc="2.0",
-                    method="notifications/initialized",
-                )
+            MessageFrame(
+                root=JSONRPCMessage(
+                    root=JSONRPCNotification(
+                        jsonrpc="2.0",
+                        method="notifications/initialized",
+                    )
+                ),
+                raw=None,
             )
         )
 
         # Call the tool to verify lifespan context
         await send_stream1.send(
-            JSONRPCMessage(
-                root=JSONRPCRequest(
-                    jsonrpc="2.0",
-                    id=2,
-                    method="tools/call",
-                    params={"name": "check_lifespan", "arguments": {}},
-                )
+            MessageFrame(
+                root=JSONRPCMessage(
+                    root=JSONRPCRequest(
+                        jsonrpc="2.0",
+                        id=2,
+                        method="tools/call",
+                        params={"name": "check_lifespan", "arguments": {}},
+                    )
+                ),
+                raw=None,
             )
         )
 
@@ -178,36 +188,45 @@ async def test_fastmcp_server_lifespan():
             clientInfo=Implementation(name="test-client", version="0.1.0"),
         )
         await send_stream1.send(
-            JSONRPCMessage(
-                root=JSONRPCRequest(
-                    jsonrpc="2.0",
-                    id=1,
-                    method="initialize",
-                    params=TypeAdapter(InitializeRequestParams).dump_python(params),
-                )
+            MessageFrame(
+                root=JSONRPCMessage(
+                    root=JSONRPCRequest(
+                        jsonrpc="2.0",
+                        id=1,
+                        method="initialize",
+                        params=TypeAdapter(InitializeRequestParams).dump_python(params),
+                    )
+                ),
+                raw=None,
             )
         )
         response = await receive_stream2.receive()
 
         # Send initialized notification
         await send_stream1.send(
-            JSONRPCMessage(
-                root=JSONRPCNotification(
-                    jsonrpc="2.0",
-                    method="notifications/initialized",
-                )
+            MessageFrame(
+                root=JSONRPCMessage(
+                    root=JSONRPCNotification(
+                        jsonrpc="2.0",
+                        method="notifications/initialized",
+                    )
+                ),
+                raw=None,
             )
         )
 
         # Call the tool to verify lifespan context
         await send_stream1.send(
-            JSONRPCMessage(
-                root=JSONRPCRequest(
-                    jsonrpc="2.0",
-                    id=2,
-                    method="tools/call",
-                    params={"name": "check_lifespan", "arguments": {}},
-                )
+            MessageFrame(
+                root=JSONRPCMessage(
+                    root=JSONRPCRequest(
+                        jsonrpc="2.0",
+                        id=2,
+                        method="tools/call",
+                        params={"name": "check_lifespan", "arguments": {}},
+                    )
+                ),
+                raw=None,
             )
         )
 

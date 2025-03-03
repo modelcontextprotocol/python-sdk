@@ -11,7 +11,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 
 from mcp.client.session import ClientSession, ListRootsFnT, SamplingFnT
 from mcp.server import Server
-from mcp.shared.session import MessageFrame
+from mcp.types import MessageFrame
 
 MessageStream = tuple[
     MemoryObjectReceiveStream[MessageFrame | Exception],

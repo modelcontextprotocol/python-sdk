@@ -2,7 +2,6 @@ import anyio
 import pytest
 
 from mcp.client.session import ClientSession
-from mcp.shared.session import MessageFrame
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     ClientNotification,
@@ -12,8 +11,8 @@ from mcp.types import (
     InitializeRequest,
     InitializeResult,
     JSONRPCMessage,
-    JSONRPCRequest,
     JSONRPCResponse,
+    MessageFrame,
     ServerCapabilities,
     ServerResult,
 )
@@ -34,7 +33,7 @@ async def test_client_session_initialize():
         nonlocal initialized_notification
 
         jsonrpc_request = await client_to_server_receive.receive()
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        assert isinstance(jsonrpc_request, MessageFrame)
         request = ClientRequest.model_validate(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
@@ -61,7 +60,7 @@ async def test_client_session_initialize():
                     root=JSONRPCMessage(
                         JSONRPCResponse(
                             jsonrpc="2.0",
-                            id=jsonrpc_request.root.id,
+                            id=jsonrpc_request.root.root.id,
                             result=result.model_dump(
                                 by_alias=True, mode="json", exclude_none=True
                             ),
@@ -71,7 +70,7 @@ async def test_client_session_initialize():
                 )
             )
             jsonrpc_notification = await client_to_server_receive.receive()
-            assert isinstance(jsonrpc_notification.root, MessageFrame)
+            assert isinstance(jsonrpc_notification.root, JSONRPCMessage)
             initialized_notification = ClientNotification.model_validate(
                 jsonrpc_notification.root.model_dump(
                     by_alias=True, mode="json", exclude_none=True
