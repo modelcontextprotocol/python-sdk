@@ -117,7 +117,7 @@ async def test_lowlevel_server_lifespan():
 
         # Get response and verify
         response = await receive_stream2.receive()
-        assert response.root.result["content"][0]["text"] == "true"
+        assert response.root.root.result["content"][0]["text"] == "true"
 
         # Cancel server task
         tg.cancel_scope.cancel()
@@ -213,7 +213,7 @@ async def test_fastmcp_server_lifespan():
 
         # Get response and verify
         response = await receive_stream2.receive()
-        assert response.root.result["content"][0]["text"] == "true"
+        assert response.root.root.result["content"][0]["text"] == "true"
 
         # Cancel server task
         tg.cancel_scope.cancel()

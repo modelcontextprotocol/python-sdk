@@ -4,6 +4,7 @@ import anyio
 import pytest
 
 from mcp.server.stdio import stdio_server
+from mcp.shared.session import ParsedMessage
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 
@@ -13,8 +14,12 @@ async def test_stdio_server():
     stdout = io.StringIO()
 
     messages = [
-        JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")),
-        JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=2, result={})),
+        ParsedMessage(
+            root=JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping"))
+        ),
+        ParsedMessage(
+            root=JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=2, result={}))
+        ),
     ]
 
     for message in messages:
@@ -35,17 +40,25 @@ async def test_stdio_server():
 
         # Verify received messages
         assert len(received_messages) == 2
-        assert received_messages[0] == JSONRPCMessage(
-            root=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+        assert received_messages[0] == ParsedMessage(
+            root=JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping"))
         )
-        assert received_messages[1] == JSONRPCMessage(
-            root=JSONRPCResponse(jsonrpc="2.0", id=2, result={})
+        assert received_messages[1] == ParsedMessage(
+            root=JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=2, result={}))
         )
 
         # Test sending responses from the server
         responses = [
-            JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=3, method="ping")),
-            JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=4, result={})),
+            ParsedMessage(
+                root=JSONRPCMessage(
+                    root=JSONRPCRequest(jsonrpc="2.0", id=3, method="ping")
+                )
+            ),
+            ParsedMessage(
+                root=JSONRPCMessage(
+                    root=JSONRPCResponse(jsonrpc="2.0", id=4, result={})
+                )
+            ),
         ]
 
         async with write_stream:
@@ -57,12 +70,12 @@ async def test_stdio_server():
     assert len(output_lines) == 2
 
     received_responses = [
-        JSONRPCMessage.model_validate_json(line.strip()) for line in output_lines
+        ParsedMessage.model_validate_json(line.strip()) for line in output_lines
     ]
     assert len(received_responses) == 2
-    assert received_responses[0] == JSONRPCMessage(
-        root=JSONRPCRequest(jsonrpc="2.0", id=3, method="ping")
+    assert received_responses[0] == ParsedMessage(
+        root=JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=3, method="ping"))
     )
-    assert received_responses[1] == JSONRPCMessage(
-        root=JSONRPCResponse(jsonrpc="2.0", id=4, result={})
+    assert received_responses[1] == ParsedMessage(
+        root=JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=4, result={}))
     )

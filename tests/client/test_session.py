@@ -2,6 +2,7 @@ import anyio
 import pytest
 
 from mcp.client.session import ClientSession
+from mcp.shared.session import ParsedMessage
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     ClientNotification,
@@ -11,7 +12,6 @@ from mcp.types import (
     InitializeRequest,
     InitializeResult,
     JSONRPCMessage,
-    JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
     ServerCapabilities,
@@ -22,10 +22,10 @@ from mcp.types import (
 @pytest.mark.anyio
 async def test_client_session_initialize():
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        JSONRPCMessage
+        ParsedMessage[None]
     ](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        JSONRPCMessage
+        ParsedMessage[None]
     ](1)
 
     initialized_notification = None
@@ -57,20 +57,23 @@ async def test_client_session_initialize():
 
         async with server_to_client_send:
             await server_to_client_send.send(
-                JSONRPCMessage(
-                    JSONRPCResponse(
-                        jsonrpc="2.0",
-                        id=jsonrpc_request.root.id,
-                        result=result.model_dump(
-                            by_alias=True, mode="json", exclude_none=True
-                        ),
-                    )
+                ParsedMessage(
+                    root=JSONRPCMessage(
+                        JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=jsonrpc_request.root.id,
+                            result=result.model_dump(
+                                by_alias=True, mode="json", exclude_none=True
+                            ),
+                        )
+                    ),
+                    raw=None,
                 )
             )
             jsonrpc_notification = await client_to_server_receive.receive()
-            assert isinstance(jsonrpc_notification.root, JSONRPCNotification)
+            assert isinstance(jsonrpc_notification.root, ParsedMessage)
             initialized_notification = ClientNotification.model_validate(
-                jsonrpc_notification.model_dump(
+                jsonrpc_notification.root.model_dump(
                     by_alias=True, mode="json", exclude_none=True
                 )
             )
