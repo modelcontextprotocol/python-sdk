@@ -27,7 +27,7 @@ import anyio.lowlevel
 
 import mcp.types as types
 from mcp.shared.session import (
-    ParsedMessage,
+    MessageFrame,
     ReadStream,
     ReadStreamWriter,
     WriteStream,
@@ -72,7 +72,7 @@ async def stdio_server(
                         await read_stream_writer.send(exc)
                         continue
 
-                    await read_stream_writer.send(ParsedMessage(message, raw=line))
+                    await read_stream_writer.send(MessageFrame(message, raw=line))
         except anyio.ClosedResourceError:
             await anyio.lowlevel.checkpoint()
 

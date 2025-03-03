@@ -31,7 +31,7 @@ from mcp.types import (
 RawT = TypeVar("RawT")
 
 
-class ParsedMessage(RootModel[JSONRPCMessage], Generic[RawT]):
+class MessageFrame(RootModel[JSONRPCMessage], Generic[RawT]):
     root: JSONRPCMessage
     raw: RawT | None = None
 
@@ -39,10 +39,10 @@ class ParsedMessage(RootModel[JSONRPCMessage], Generic[RawT]):
         arbitrary_types_allowed = True
 
 
-ReadStream = MemoryObjectReceiveStream[ParsedMessage[RawT] | Exception]
-ReadStreamWriter = MemoryObjectSendStream[ParsedMessage[RawT] | Exception]
-WriteStream = MemoryObjectSendStream[ParsedMessage[RawT]]
-WriteStreamReader = MemoryObjectReceiveStream[ParsedMessage[RawT]]
+ReadStream = MemoryObjectReceiveStream[MessageFrame[RawT] | Exception]
+ReadStreamWriter = MemoryObjectSendStream[MessageFrame[RawT] | Exception]
+WriteStream = MemoryObjectSendStream[MessageFrame[RawT]]
+WriteStreamReader = MemoryObjectReceiveStream[MessageFrame[RawT]]
 
 SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
 SendResultT = TypeVar("SendResultT", ClientResult, ServerResult)
@@ -259,7 +259,7 @@ class BaseSession(
         # TODO: Support progress callbacks
 
         await self._write_stream.send(
-            ParsedMessage(JSONRPCMessage(jsonrpc_request), None)
+            MessageFrame(JSONRPCMessage(jsonrpc_request), None)
         )
 
         try:
@@ -297,7 +297,7 @@ class BaseSession(
         )
 
         await self._write_stream.send(
-            ParsedMessage(JSONRPCMessage(jsonrpc_notification))
+            MessageFrame(JSONRPCMessage(jsonrpc_notification))
         )
 
     async def _send_response(
@@ -305,7 +305,7 @@ class BaseSession(
     ) -> None:
         if isinstance(response, ErrorData):
             jsonrpc_error = JSONRPCError(jsonrpc="2.0", id=request_id, error=response)
-            await self._write_stream.send(ParsedMessage(JSONRPCMessage(jsonrpc_error)))
+            await self._write_stream.send(MessageFrame(JSONRPCMessage(jsonrpc_error)))
         else:
             jsonrpc_response = JSONRPCResponse(
                 jsonrpc="2.0",
@@ -315,7 +315,7 @@ class BaseSession(
                 ),
             )
             await self._write_stream.send(
-                ParsedMessage(JSONRPCMessage(jsonrpc_response))
+                MessageFrame(JSONRPCMessage(jsonrpc_response))
             )
 
     async def _receive_loop(self) -> None:

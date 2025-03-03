@@ -7,7 +7,7 @@ from starlette.websockets import WebSocket
 
 import mcp.types as types
 from mcp.shared.session import (
-    ParsedMessage,
+    MessageFrame,
     ReadStream,
     ReadStreamWriter,
     WriteStream,
@@ -47,7 +47,7 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
                         continue
 
                     await read_stream_writer.send(
-                        ParsedMessage(client_message, raw=message)
+                        MessageFrame(client_message, raw=message)
                     )
         except anyio.ClosedResourceError:
             await websocket.close()

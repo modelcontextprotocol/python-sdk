@@ -10,7 +10,7 @@ from httpx_sse import aconnect_sse
 
 import mcp.types as types
 from mcp.shared.session import (
-    ParsedMessage,
+    MessageFrame,
     ReadStream,
     ReadStreamWriter,
     WriteStream,
@@ -90,7 +90,7 @@ async def sse_client(
 
                                     case "message":
                                         try:
-                                            message = ParsedMessage(
+                                            message = MessageFrame(
                                                 types.JSONRPCMessage.model_validate_json(  # noqa: E501
                                                     sse.data
                                                 ),

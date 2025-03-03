@@ -4,7 +4,7 @@ import anyio
 import pytest
 
 from mcp.server.stdio import stdio_server
-from mcp.shared.session import ParsedMessage
+from mcp.shared.session import MessageFrame
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 
@@ -14,10 +14,10 @@ async def test_stdio_server():
     stdout = io.StringIO()
 
     messages = [
-        ParsedMessage(
+        MessageFrame(
             root=JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping"))
         ),
-        ParsedMessage(
+        MessageFrame(
             root=JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=2, result={}))
         ),
     ]
@@ -40,21 +40,21 @@ async def test_stdio_server():
 
         # Verify received messages
         assert len(received_messages) == 2
-        assert received_messages[0] == ParsedMessage(
+        assert received_messages[0] == MessageFrame(
             root=JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping"))
         )
-        assert received_messages[1] == ParsedMessage(
+        assert received_messages[1] == MessageFrame(
             root=JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=2, result={}))
         )
 
         # Test sending responses from the server
         responses = [
-            ParsedMessage(
+            MessageFrame(
                 root=JSONRPCMessage(
                     root=JSONRPCRequest(jsonrpc="2.0", id=3, method="ping")
                 )
             ),
-            ParsedMessage(
+            MessageFrame(
                 root=JSONRPCMessage(
                     root=JSONRPCResponse(jsonrpc="2.0", id=4, result={})
                 )
@@ -70,12 +70,12 @@ async def test_stdio_server():
     assert len(output_lines) == 2
 
     received_responses = [
-        ParsedMessage.model_validate_json(line.strip()) for line in output_lines
+        MessageFrame.model_validate_json(line.strip()) for line in output_lines
     ]
     assert len(received_responses) == 2
-    assert received_responses[0] == ParsedMessage(
+    assert received_responses[0] == MessageFrame(
         root=JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=3, method="ping"))
     )
-    assert received_responses[1] == ParsedMessage(
+    assert received_responses[1] == MessageFrame(
         root=JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=4, result={}))
     )

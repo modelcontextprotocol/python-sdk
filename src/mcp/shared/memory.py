@@ -11,11 +11,11 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 
 from mcp.client.session import ClientSession, ListRootsFnT, SamplingFnT
 from mcp.server import Server
-from mcp.shared.session import ParsedMessage
+from mcp.shared.session import MessageFrame
 
 MessageStream = tuple[
-    MemoryObjectReceiveStream[ParsedMessage | Exception],
-    MemoryObjectSendStream[ParsedMessage],
+    MemoryObjectReceiveStream[MessageFrame | Exception],
+    MemoryObjectSendStream[MessageFrame],
 ]
 
 
@@ -32,10 +32,10 @@ async def create_client_server_memory_streams() -> (
     """
     # Create streams for both directions
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        ParsedMessage | Exception
+        MessageFrame | Exception
     ](1)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        ParsedMessage | Exception
+        MessageFrame | Exception
     ](1)
 
     client_streams = (server_to_client_receive, client_to_server_send)
