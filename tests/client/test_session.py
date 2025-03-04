@@ -11,6 +11,7 @@ from mcp.types import (
     InitializeRequest,
     InitializeResult,
     JSONRPCMessage,
+    JSONRPCRequest,
     JSONRPCResponse,
     MessageFrame,
     ServerCapabilities,
@@ -55,6 +56,7 @@ async def test_client_session_initialize():
         )
 
         async with server_to_client_send:
+            assert isinstance(jsonrpc_request.root.root, JSONRPCRequest)
             await server_to_client_send.send(
                 MessageFrame(
                     root=JSONRPCMessage(
