@@ -651,7 +651,7 @@ class PromptMessage(BaseModel):
 
 
 class GetPromptResult(Result):
-    """The server's response to a prompt/get a request from the client."""
+    """The server's response to a prompts/get a request from the client."""
 
     description: str | None = None
     """An optional description for the prompt."""
