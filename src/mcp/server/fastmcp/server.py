@@ -37,7 +37,7 @@ from mcp.server.lowlevel.server import (
 from mcp.server.session import ServerSession
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
-from mcp.shared.context import RequestContext
+from mcp.shared.context import LifespanContextT, RequestContext
 from mcp.types import (
     AnyFunction,
     EmbeddedResource,
@@ -564,7 +564,7 @@ def _convert_to_content(
     return [TextContent(type="text", text=result)]
 
 
-class Context(BaseModel):
+class Context(BaseModel, Generic[LifespanContextT]):
     """Context object providing access to MCP capabilities.
 
     This provides a cleaner interface to MCP's RequestContext functionality.
@@ -598,13 +598,13 @@ class Context(BaseModel):
     The context is optional - tools that don't need it can omit the parameter.
     """
 
-    _request_context: RequestContext[ServerSession, Any] | None
+    _request_context: RequestContext[ServerSession, LifespanContextT] | None
     _fastmcp: FastMCP | None
 
     def __init__(
         self,
         *,
-        request_context: RequestContext | None = None,
+        request_context: RequestContext[ServerSession, LifespanContextT] | None = None,
         fastmcp: FastMCP | None = None,
         **kwargs: Any,
     ):
@@ -620,7 +620,7 @@ class Context(BaseModel):
         return self._fastmcp
 
     @property
-    def request_context(self) -> RequestContext:
+    def request_context(self) -> RequestContext[ServerSession, LifespanContextT]:
         """Access to the underlying request context."""
         if self._request_context is None:
             raise ValueError("Context is not available outside of a request")
