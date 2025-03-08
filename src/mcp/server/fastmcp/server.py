@@ -80,6 +80,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # Server settings
     debug: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    reload: bool = False
 
     # HTTP settings
     host: str = "0.0.0.0"
@@ -503,6 +504,7 @@ class FastMCP:
             host=self.settings.host,
             port=self.settings.port,
             log_level=self.settings.log_level.lower(),
+            reload=self.settings.reload,
         )
         server = uvicorn.Server(config)
         await server.serve()
