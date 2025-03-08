@@ -5,11 +5,17 @@ from __future__ import annotations
 import inspect
 import re
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, Field, TypeAdapter, validate_call
+from pydantic import BaseModel, Field, validate_call
 
 from mcp.server.fastmcp.resources.types import FunctionResource, Resource
+from mcp.server.fastmcp.utilities.func_metadata import func_metadata
+
+if TYPE_CHECKING:
+    from mcp.server.fastmcp.server import Context
+    from mcp.server.session import ServerSessionT
+    from mcp.shared.context import LifespanContextT
 
 
 class ResourceTemplate(BaseModel):
@@ -27,6 +33,9 @@ class ResourceTemplate(BaseModel):
     parameters: dict[str, Any] = Field(
         description="JSON schema for function parameters"
     )
+    context_kwarg: str | None = Field(
+        None, description="Name of the kwarg that should receive context"
+    )
 
     @classmethod
     def from_function(
@@ -42,8 +51,24 @@ class ResourceTemplate(BaseModel):
         if func_name == "<lambda>":
             raise ValueError("You must provide a name for lambda functions")
 
-        # Get schema from TypeAdapter - will fail if function isn't properly typed
-        parameters = TypeAdapter(fn).json_schema()
+        # Find context parameter if it exists
+        context_kwarg = None
+        sig = inspect.signature(fn)
+        for param_name, param in sig.parameters.items():
+            if (
+                param.annotation.__name__ == "Context"
+                if hasattr(param.annotation, "__name__")
+                else False
+            ):
+                context_kwarg = param_name
+                break
+
+        # Get schema from func_metadata, excluding context parameter
+        func_arg_metadata = func_metadata(
+            fn,
+            skip_names=[context_kwarg] if context_kwarg is not None else [],
+        )
+        parameters = func_arg_metadata.arg_model.model_json_schema()
 
         # ensure the arguments are properly cast
         fn = validate_call(fn)
@@ -55,6 +80,7 @@ class ResourceTemplate(BaseModel):
             mime_type=mime_type or "text/plain",
             fn=fn,
             parameters=parameters,
+            context_kwarg=context_kwarg,
         )
 
     def matches(self, uri: str) -> dict[str, Any] | None:
@@ -66,9 +92,18 @@ class ResourceTemplate(BaseModel):
             return match.groupdict()
         return None
 
-    async def create_resource(self, uri: str, params: dict[str, Any]) -> Resource:
+    async def create_resource(
+        self,
+        uri: str,
+        params: dict[str, Any],
+        context: Context[ServerSessionT, LifespanContextT] | None = None,
+    ) -> Resource:
         """Create a resource from the template with the given parameters."""
         try:
+            # Add context to params if needed
+            if self.context_kwarg is not None and context is not None:
+                params = {**params, self.context_kwarg: context}
+
             # Call function and check if result is a coroutine
             result = self.fn(**params)
             if inspect.iscoroutine(result):
