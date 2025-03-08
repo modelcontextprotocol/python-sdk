@@ -230,7 +230,8 @@ class FastMCP:
     async def read_resource(self, uri: AnyUrl | str) -> Iterable[ReadResourceContents]:
         """Read a resource by URI."""
 
-        resource = await self._resource_manager.get_resource(uri)
+        context = self.get_context()
+        resource = await self._resource_manager.get_resource(uri, context=context)
         if not resource:
             raise ResourceError(f"Unknown resource: {uri}")
 
@@ -327,6 +328,10 @@ class FastMCP:
         If the URI contains parameters (e.g. "resource://{param}") or the function
         has parameters, it will be registered as a template resource.
 
+        Resources can optionally request a Context object by adding a parameter with the
+        Context type annotation. The context provides access to MCP capabilities like
+        logging, progress reporting, and resource access.
+
         Args:
             uri: URI for the resource (e.g. "resource://my-resource" or "resource://{param}")
             name: Optional name for the resource
@@ -351,6 +356,12 @@ class FastMCP:
             async def get_weather(city: str) -> str:
                 data = await fetch_weather(city)
                 return f"Weather for {city}: {data}"
+
+            @server.resource("resource://{city}/weather")
+            async def get_weather(city: str, ctx: Context) -> str:
+                await ctx.info(f"Getting weather for {city}")
+                data = await fetch_weather(city)
+                return f"Weather for {city}: {data}"
         """
         # Check if user passed function directly instead of calling decorator
         if callable(uri):
@@ -367,7 +378,18 @@ class FastMCP:
             if has_uri_params or has_func_params:
                 # Validate that URI params match function params
                 uri_params = set(re.findall(r"{(\w+)}", uri))
-                func_params = set(inspect.signature(fn).parameters.keys())
+
+                # Get all function params except 'ctx' or any parameter of type Context
+                sig = inspect.signature(fn)
+                func_params = set()
+                for param_name, param in sig.parameters.items():
+                    # Skip context parameters
+                    if param_name == "ctx" or (
+                        hasattr(param.annotation, "__name__")
+                        and param.annotation.__name__ == "Context"
+                    ):
+                        continue
+                    func_params.add(param_name)
 
                 if uri_params != func_params:
                     raise ValueError(

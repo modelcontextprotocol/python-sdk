@@ -186,3 +186,131 @@ class TestResourceTemplate:
         assert isinstance(resource, FunctionResource)
         content = await resource.read()
         assert content == "hello"
+
+    def test_context_parameter_detection(self):
+        """Test that context params are detected in ResourceTemplate.from_function()."""
+        from mcp.server.fastmcp import Context
+
+        def resource_with_context(key: str, ctx: Context) -> str:
+            return f"Key: {key}"
+
+        template = ResourceTemplate.from_function(
+            fn=resource_with_context,
+            uri_template="test://{key}",
+            name="test",
+        )
+        assert template.context_kwarg == "ctx"
+
+        def resource_without_context(key: str) -> str:
+            return f"Key: {key}"
+
+        template = ResourceTemplate.from_function(
+            fn=resource_without_context,
+            uri_template="test://{key}",
+            name="test",
+        )
+        assert template.context_kwarg is None
+
+    @pytest.mark.anyio
+    async def test_context_injection(self):
+        """Test that context is properly injected during resource creation."""
+        from mcp.server.fastmcp import Context, FastMCP
+
+        def resource_with_context(key: str, ctx: Context) -> str:
+            assert isinstance(ctx, Context)
+            return f"Key: {key}"
+
+        template = ResourceTemplate.from_function(
+            fn=resource_with_context,
+            uri_template="test://{key}",
+            name="test",
+        )
+
+        mcp = FastMCP()
+        ctx = mcp.get_context()
+        resource = await template.create_resource(
+            "test://value", {"key": "value"}, context=ctx
+        )
+        assert isinstance(resource, FunctionResource)
+        content = await resource.read()
+        assert content == "Key: value"
+
+    @pytest.mark.anyio
+    async def test_context_injection_async(self):
+        """Test that context is properly injected in async resource functions."""
+        from mcp.server.fastmcp import Context, FastMCP
+
+        async def async_resource(key: str, ctx: Context) -> str:
+            assert isinstance(ctx, Context)
+            return f"Async Key: {key}"
+
+        template = ResourceTemplate.from_function(
+            fn=async_resource,
+            uri_template="test://{key}",
+            name="test",
+        )
+
+        mcp = FastMCP()
+        ctx = mcp.get_context()
+        resource = await template.create_resource(
+            "test://value", {"key": "value"}, context=ctx
+        )
+        assert isinstance(resource, FunctionResource)
+        content = await resource.read()
+        assert content == "Async Key: value"
+
+    @pytest.mark.anyio
+    async def test_context_optional(self):
+        """Test that context is optional when creating resources."""
+        from mcp.server.fastmcp import Context
+
+        def resource_with_optional_context(key: str, ctx: Context | None = None) -> str:
+            return f"Key: {key}"
+
+        template = ResourceTemplate.from_function(
+            fn=resource_with_optional_context,
+            uri_template="test://{key}",
+            name="test",
+        )
+
+        resource = await template.create_resource("test://value", {"key": "value"})
+        assert isinstance(resource, FunctionResource)
+        content = await resource.read()
+        assert content == "Key: value"
+
+    @pytest.mark.anyio
+    async def test_context_error_handling(self):
+        """Test error handling when context injection fails."""
+        from mcp.server.fastmcp import Context, FastMCP
+
+        def resource_with_context(key: str, ctx: Context) -> str:
+            raise ValueError("Test error")
+
+        template = ResourceTemplate.from_function(
+            fn=resource_with_context,
+            uri_template="test://{key}",
+            name="test",
+        )
+
+        mcp = FastMCP()
+        ctx = mcp.get_context()
+        with pytest.raises(ValueError, match="Error creating resource from template"):
+            await template.create_resource(
+                "test://value", {"key": "value"}, context=ctx
+            )
+
+    def test_context_arg_excluded_from_schema(self):
+        """Test that context parameters are excluded from the JSON schema."""
+        from mcp.server.fastmcp import Context
+
+        def resource_with_context(a: str, ctx: Context) -> str:
+            return a
+
+        template = ResourceTemplate.from_function(
+            fn=resource_with_context,
+            uri_template="test://{key}",
+            name="test",
+        )
+
+        assert "ctx" not in json.dumps(template.parameters)
+        assert "Context" not in json.dumps(template.parameters)

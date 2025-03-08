@@ -139,3 +139,104 @@ class TestResourceManager:
         resources = manager.list_resources()
         assert len(resources) == 2
         assert resources == [resource1, resource2]
+
+    @pytest.mark.anyio
+    async def test_context_injection_in_template(self):
+        """Test that context is injected when getting a resource from a template."""
+        from mcp.server.fastmcp import Context, FastMCP
+
+        manager = ResourceManager()
+
+        def resource_with_context(name: str, ctx: Context) -> str:
+            assert isinstance(ctx, Context)
+            return f"Hello, {name}!"
+
+        template = ResourceTemplate.from_function(
+            fn=resource_with_context,
+            uri_template="greet://{name}",
+            name="greeter",
+        )
+        manager._templates[template.uri_template] = template
+
+        mcp = FastMCP()
+        ctx = mcp.get_context()
+
+        resource = await manager.get_resource(AnyUrl("greet://world"), context=ctx)
+        assert isinstance(resource, FunctionResource)
+        content = await resource.read()
+        assert content == "Hello, world!"
+
+    @pytest.mark.anyio
+    async def test_context_injection_in_async_template(self):
+        """Test that context is properly injected in async template functions."""
+        from mcp.server.fastmcp import Context, FastMCP
+
+        manager = ResourceManager()
+
+        async def async_resource(name: str, ctx: Context) -> str:
+            assert isinstance(ctx, Context)
+            return f"Async Hello, {name}!"
+
+        template = ResourceTemplate.from_function(
+            fn=async_resource,
+            uri_template="async-greet://{name}",
+            name="async-greeter",
+        )
+        manager._templates[template.uri_template] = template
+
+        mcp = FastMCP()
+        ctx = mcp.get_context()
+
+        resource = await manager.get_resource(
+            AnyUrl("async-greet://world"), context=ctx
+        )
+        assert isinstance(resource, FunctionResource)
+        content = await resource.read()
+        assert content == "Async Hello, world!"
+
+    @pytest.mark.anyio
+    async def test_optional_context_in_template(self):
+        """Test that context is optional when getting a resource from a template."""
+        from mcp.server.fastmcp import Context
+
+        manager = ResourceManager()
+
+        def resource_with_optional_context(
+            name: str, ctx: Context | None = None
+        ) -> str:
+            return f"Hello, {name}!"
+
+        template = ResourceTemplate.from_function(
+            fn=resource_with_optional_context,
+            uri_template="greet://{name}",
+            name="greeter",
+        )
+        manager._templates[template.uri_template] = template
+
+        resource = await manager.get_resource(AnyUrl("greet://world"))
+        assert isinstance(resource, FunctionResource)
+        content = await resource.read()
+        assert content == "Hello, world!"
+
+    @pytest.mark.anyio
+    async def test_context_error_handling_in_template(self):
+        """Test error handling when context injection fails in a template."""
+        from mcp.server.fastmcp import Context, FastMCP
+
+        manager = ResourceManager()
+
+        def failing_resource(name: str, ctx: Context) -> str:
+            raise ValueError("Test error")
+
+        template = ResourceTemplate.from_function(
+            fn=failing_resource,
+            uri_template="greet://{name}",
+            name="greeter",
+        )
+        manager._templates[template.uri_template] = template
+
+        mcp = FastMCP()
+        ctx = mcp.get_context()
+
+        with pytest.raises(ValueError, match="Error creating resource from template"):
+            await manager.get_resource(AnyUrl("greet://world"), context=ctx)
