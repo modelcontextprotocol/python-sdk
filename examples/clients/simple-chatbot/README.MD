@@ -23,7 +23,7 @@ This example demonstrates how to integrate the Model Context Protocol (MCP) into
    Create a `.env` file in the root directory and add your API key:
 
    ```plaintext
-   LLM_API_KEY=your_api_key_here
+   GROQ_API_KEY=your_api_key_here
    ```
 
 3. **Configure servers:**
