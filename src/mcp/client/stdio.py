@@ -97,9 +97,12 @@ async def stdio_client(server: StdioServerParameters):
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
+    # Merge the server.env with the default environment
+    merged_env = get_default_environment() | (server.env or {})
+
     process = await anyio.open_process(
         [server.command, *server.args],
-        env=server.env if server.env is not None else get_default_environment(),
+        env=merged_env,
         stderr=sys.stderr,
     )
 
