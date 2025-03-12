@@ -1,5 +1,7 @@
 """FastMCP - A more ergonomic interface for MCP servers."""
 
+from __future__ import annotations as _annotations
+
 import inspect
 import json
 import re
@@ -9,7 +11,7 @@ from contextlib import (
     asynccontextmanager,
 )
 from itertools import chain
-from typing import Any, Callable, Generic, Literal, Sequence, TypeVar
+from typing import Any, Callable, Generic, Literal, Sequence
 
 import anyio
 import pydantic_core
@@ -25,16 +27,10 @@ from mcp.server.fastmcp.tools import ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.fastmcp.utilities.types import Image
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.server.lowlevel.server import (
-    LifespanResultT,
-)
-from mcp.server.lowlevel.server import (
-    Server as MCPServer,
-)
-from mcp.server.lowlevel.server import (
-    lifespan as default_lifespan,
-)
-from mcp.server.session import ServerSession
+from mcp.server.lowlevel.server import LifespanResultT
+from mcp.server.lowlevel.server import Server as MCPServer
+from mcp.server.lowlevel.server import lifespan as default_lifespan
+from mcp.server.session import ServerSession, ServerSessionT
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.shared.context import LifespanContextT, RequestContext
@@ -45,21 +41,11 @@ from mcp.types import (
     ImageContent,
     TextContent,
 )
-from mcp.types import (
-    Prompt as MCPPrompt,
-)
-from mcp.types import (
-    PromptArgument as MCPPromptArgument,
-)
-from mcp.types import (
-    Resource as MCPResource,
-)
-from mcp.types import (
-    ResourceTemplate as MCPResourceTemplate,
-)
-from mcp.types import (
-    Tool as MCPTool,
-)
+from mcp.types import Prompt as MCPPrompt
+from mcp.types import PromptArgument as MCPPromptArgument
+from mcp.types import Resource as MCPResource
+from mcp.types import ResourceTemplate as MCPResourceTemplate
+from mcp.types import Tool as MCPTool
 
 logger = get_logger(__name__)
 
@@ -105,11 +91,11 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 
 
 def lifespan_wrapper(
-    app: "FastMCP",
+    app: FastMCP,
     lifespan: Callable[["FastMCP"], AbstractAsyncContextManager[LifespanResultT]],
-) -> Callable[[MCPServer], AbstractAsyncContextManager[object]]:
+) -> Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[object]]:
     @asynccontextmanager
-    async def wrap(s: MCPServer) -> AsyncIterator[object]:
+    async def wrap(s: MCPServer[LifespanResultT]) -> AsyncIterator[object]:
         async with lifespan(app) as context:
             yield context
 
@@ -191,7 +177,7 @@ class FastMCP:
             for info in tools
         ]
 
-    def get_context(self) -> "Context":
+    def get_context(self) -> "Context[ServerSession, object]":
         """
         Returns a Context object. Note that the context will only be valid
         during a request; outside a request, most methods will error.
@@ -562,9 +548,6 @@ def _convert_to_content(
             result = str(result)
 
     return [TextContent(type="text", text=result)]
-
-
-ServerSessionT = TypeVar("ServerSessionT", bound=ServerSession)
 
 
 class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
