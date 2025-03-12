@@ -9,7 +9,7 @@ from contextlib import (
     asynccontextmanager,
 )
 from itertools import chain
-from typing import Any, Callable, Generic, Literal, Sequence
+from typing import Any, Callable, Generic, Literal, Sequence, TypeVar
 
 import anyio
 import pydantic_core
@@ -564,7 +564,10 @@ def _convert_to_content(
     return [TextContent(type="text", text=result)]
 
 
-class Context(BaseModel, Generic[LifespanContextT]):
+ServerSessionT = TypeVar("ServerSessionT", bound=ServerSession)
+
+
+class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
     """Context object providing access to MCP capabilities.
 
     This provides a cleaner interface to MCP's RequestContext functionality.
@@ -598,13 +601,13 @@ class Context(BaseModel, Generic[LifespanContextT]):
     The context is optional - tools that don't need it can omit the parameter.
     """
 
-    _request_context: RequestContext[ServerSession, LifespanContextT] | None
+    _request_context: RequestContext[ServerSessionT, LifespanContextT] | None
     _fastmcp: FastMCP | None
 
     def __init__(
         self,
         *,
-        request_context: RequestContext[ServerSession, LifespanContextT] | None = None,
+        request_context: RequestContext[ServerSessionT, LifespanContextT] | None = None,
         fastmcp: FastMCP | None = None,
         **kwargs: Any,
     ):
@@ -620,7 +623,7 @@ class Context(BaseModel, Generic[LifespanContextT]):
         return self._fastmcp
 
     @property
-    def request_context(self) -> RequestContext[ServerSession, LifespanContextT]:
+    def request_context(self) -> RequestContext[ServerSessionT, LifespanContextT]:
         """Access to the underlying request context."""
         if self._request_context is None:
             raise ValueError("Context is not available outside of a request")
