@@ -4,13 +4,13 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.server.fastmcp.server import ServerSessionT
 from mcp.server.fastmcp.tools.base import Tool
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.shared.context import LifespanContextT
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
+    from mcp.server.session import ServerSessionT
 
 logger = get_logger(__name__)
 
