@@ -64,6 +64,8 @@ notifications. It automatically manages the request context and handles incoming
 messages from the client.
 """
 
+from __future__ import annotations as _annotations
+
 import contextvars
 import logging
 import warnings
@@ -107,7 +109,7 @@ class NotificationOptions:
 
 
 @asynccontextmanager
-async def lifespan(server: "Server") -> AsyncIterator[object]:
+async def lifespan(server: Server[LifespanResultT]) -> AsyncIterator[object]:
     """Default lifespan context manager that does nothing.
 
     Args:
@@ -126,7 +128,7 @@ class Server(Generic[LifespanResultT]):
         version: str | None = None,
         instructions: str | None = None,
         lifespan: Callable[
-            ["Server"], AbstractAsyncContextManager[LifespanResultT]
+            [Server[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]
         ] = lifespan,
     ):
         self.name = name

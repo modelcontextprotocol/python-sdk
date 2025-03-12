@@ -38,7 +38,7 @@ be instantiated directly by users of the MCP framework.
 """
 
 from enum import Enum
-from typing import Any
+from typing import Any, TypeVar
 
 import anyio
 import anyio.lowlevel
@@ -57,6 +57,9 @@ class InitializationState(Enum):
     NotInitialized = 1
     Initializing = 2
     Initialized = 3
+
+
+ServerSessionT = TypeVar("ServerSessionT", bound="ServerSession")
 
 
 class ServerSession(
