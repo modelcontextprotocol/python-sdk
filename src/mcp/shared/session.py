@@ -1,5 +1,4 @@
 import logging
-from contextlib import AbstractAsyncContextManager
 from datetime import timedelta
 from typing import Any, Callable, Generic, TypeVar
 
@@ -61,7 +60,13 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         request_id: RequestId,
         request_meta: RequestParams.Meta | None,
         request: ReceiveRequestT,
-        session: "BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT]",
+        session: """BaseSession[
+            SendRequestT,
+            SendNotificationT,
+            SendResultT,
+            ReceiveRequestT,
+            ReceiveNotificationT
+        ]""",
         on_complete: Callable[["RequestResponder[ReceiveRequestT, SendResultT]"], Any],
     ) -> None:
         self.request_id = request_id
