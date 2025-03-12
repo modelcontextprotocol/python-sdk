@@ -35,6 +35,7 @@ dependencies = [
 [project.optional-dependencies]
 rich = ["rich>=13.9.4"]
 cli = ["typer>=0.12.4", "python-dotenv>=1.0.0"]
+ws = ["websockets>=15.0.1"]
 
 [project.scripts]
 mcp = "mcp.cli:app [cli]"
