@@ -219,7 +219,7 @@ class ClientSession(
         )
 
     async def call_tool(
-        self, name: str, arguments: dict | None = None
+        self, name: str, arguments: dict[str, Any] | None = None
     ) -> types.CallToolResult:
         """Send a tools/call request."""
         return await self.send_request(

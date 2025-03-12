@@ -43,7 +43,7 @@ class ToolManager:
         return tool
 
     async def call_tool(
-        self, name: str, arguments: dict, context: "Context | None" = None
+        self, name: str, arguments: dict[str, Any], context: "Context | None" = None
     ) -> Any:
         """Call a tool by name with arguments."""
         tool = self.get_tool(name)

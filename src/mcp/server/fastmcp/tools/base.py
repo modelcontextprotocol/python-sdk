@@ -68,7 +68,9 @@ class Tool(BaseModel):
             context_kwarg=context_kwarg,
         )
 
-    async def run(self, arguments: dict, context: "Context | None" = None) -> Any:
+    async def run(
+        self, arguments: dict[str, Any], context: "Context | None" = None
+    ) -> Any:
         """Run the tool with arguments."""
         try:
             return await self.fn_metadata.call_fn_with_arg_validation(
