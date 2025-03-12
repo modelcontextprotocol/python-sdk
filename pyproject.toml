@@ -30,6 +30,7 @@ dependencies = [
     "sse-starlette>=1.6.1",
     "pydantic-settings>=2.5.2",
     "uvicorn>=0.23.1",
+    "python-multipart",
 ]
 
 [project.optional-dependencies]
@@ -66,6 +67,9 @@ packages = ["src/mcp"]
 include = ["src/mcp", "tests"]
 venvPath = "."
 venv = ".venv"
+
+[tool.pytest.ini_options]
+markers = ["anyio"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
