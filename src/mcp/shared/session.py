@@ -250,11 +250,14 @@ class BaseSession(
                     ),
                 )
             )
-
-        if isinstance(response_or_error, JSONRPCError):
-            raise McpError(response_or_error.error)
         else:
-            return result_type.model_validate(response_or_error.result)
+            if isinstance(response_or_error, JSONRPCError):
+                raise McpError(response_or_error.error)
+            else:
+                return result_type.model_validate(response_or_error.result)
+        finally:
+            await response_stream.aclose()
+            await response_stream_reader.aclose()
 
     async def send_notification(self, notification: SendNotificationT) -> None:
         """
