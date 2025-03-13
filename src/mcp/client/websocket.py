@@ -15,7 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def websocket_client(url: str) -> AsyncGenerator[
+async def websocket_client(
+    url: str,
+) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[types.JSONRPCMessage | Exception],
         MemoryObjectSendStream[types.JSONRPCMessage],
@@ -59,7 +61,7 @@ async def websocket_client(url: str) -> AsyncGenerator[
 
         async def ws_writer():
             """
-            Reads JSON-RPC messages from write_stream_reader and 
+            Reads JSON-RPC messages from write_stream_reader and
             sends them to the server.
             """
             async with write_stream_reader:

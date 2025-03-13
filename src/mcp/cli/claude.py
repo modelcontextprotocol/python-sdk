@@ -19,7 +19,9 @@ def get_claude_config_path() -> Path | None:
     elif sys.platform == "darwin":
         path = Path(Path.home(), "Library", "Application Support", "Claude")
     elif sys.platform.startswith("linux"):
-        path = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"), "Claude")
+        path = Path(
+            os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"), "Claude"
+        )
     else:
         return None
 
