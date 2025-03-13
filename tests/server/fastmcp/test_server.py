@@ -30,6 +30,21 @@ class TestServer:
         mcp = FastMCP(instructions="Server instructions")
         assert mcp.name == "FastMCP"
         assert mcp.instructions == "Server instructions"
+        
+    @pytest.mark.anyio
+    async def test_url_prefix_setting(self):
+        """Test that url_prefix setting is properly initialized"""
+        # Default empty prefix
+        mcp1 = FastMCP()
+        assert mcp1.settings.url_prefix == ""
+        
+        # Simple prefix
+        mcp2 = FastMCP(url_prefix="/api")
+        assert mcp2.settings.url_prefix == "/api"
+        
+        # Complex prefix
+        mcp3 = FastMCP(url_prefix="/api/v1")
+        assert mcp3.settings.url_prefix == "/api/v1"
 
     @pytest.mark.anyio
     async def test_non_ascii_description(self):
