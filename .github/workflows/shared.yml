@@ -62,5 +62,8 @@ jobs:
         with:
           python-version-file: ".python-version"
 
+      - name: Install the project
+        run: uv sync --frozen --all-extras --dev
+
       - name: Run pytest
-        run: uv run --frozen --all-extras --dev pytest
+        run: uv run --frozen pytest
