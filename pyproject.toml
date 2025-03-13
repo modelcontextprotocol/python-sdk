@@ -94,6 +94,5 @@ xfail_strict = true
 filterwarnings = [
     "error",
     # This should be fixed on Uvicorn's side.
-    "ignore::DeprecationWarning:websockets",
-    "ignore::DeprecationWarning:websockets.server",
+    "ignore::DeprecationWarning:websockets.*",
 ]
