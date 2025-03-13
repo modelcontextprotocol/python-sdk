@@ -1,4 +1,5 @@
 version = 1
+revision = 1
 requires-python = ">=3.10"
 
 [options]
@@ -78,7 +79,7 @@ name = "click"
 version = "8.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "platform_system == 'Windows'" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/45/2b/7ebad1e59a99207d417c0784f7fb67893465eef84b5b47c788324f1b4095/click-8.1.0.tar.gz", hash = "sha256:977c213473c7665d3aa092b41ff12063227751c41d7b17165013e10069cc5cd2", size = 329986 }
 wheels = [
@@ -191,7 +192,7 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "1.4.0.dev0"
+version = "1.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
@@ -241,6 +242,7 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.23.1" },
     { name = "websockets", marker = "extra == 'ws'", specifier = ">=15.0.1" },
 ]
+provides-extras = ["rich", "cli", "ws"]
 
 [package.metadata.requires-dev]
 dev = [

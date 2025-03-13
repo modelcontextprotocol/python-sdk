@@ -3,7 +3,7 @@
 ## Bumping Dependencies
 
 1. Change dependency
-2. Upgrade lock with `uv lock --resolution lowest-direct
+2. Upgrade lock with `uv lock --resolution lowest-direct`
 
 ## Major or Minor Release
 
