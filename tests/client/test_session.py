@@ -1,3 +1,5 @@
+from types import NoneType
+
 import anyio
 import pytest
 
@@ -22,10 +24,10 @@ from mcp.types import (
 @pytest.mark.anyio
 async def test_client_session_initialize():
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        MessageFrame[None]
+        MessageFrame[NoneType]
     ](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        MessageFrame[None]
+        MessageFrame[NoneType]
     ](1)
 
     initialized_notification = None
