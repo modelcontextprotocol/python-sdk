@@ -72,7 +72,9 @@ async def stdio_server(
                         await read_stream_writer.send(exc)
                         continue
 
-                    await read_stream_writer.send(MessageFrame(root=message, raw=line))
+                    await read_stream_writer.send(
+                        MessageFrame(message=message, raw=line)
+                    )
         except anyio.ClosedResourceError:
             await anyio.lowlevel.checkpoint()
 

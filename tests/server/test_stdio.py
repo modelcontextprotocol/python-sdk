@@ -35,25 +35,25 @@ async def test_stdio_server():
 
         # Verify received messages
         assert len(received_messages) == 2
-        assert isinstance(received_messages[0].root, JSONRPCMessage)
-        assert isinstance(received_messages[0].root.root, JSONRPCRequest)
-        assert received_messages[0].root.root.id == 1
-        assert received_messages[0].root.root.method == "ping"
+        assert isinstance(received_messages[0].message, JSONRPCMessage)
+        assert isinstance(received_messages[0].message.root, JSONRPCRequest)
+        assert received_messages[0].message.root.id == 1
+        assert received_messages[0].message.root.method == "ping"
 
-        assert isinstance(received_messages[1].root, JSONRPCMessage)
-        assert isinstance(received_messages[1].root.root, JSONRPCResponse)
-        assert received_messages[1].root.root.id == 2
+        assert isinstance(received_messages[1].message, JSONRPCMessage)
+        assert isinstance(received_messages[1].message.root, JSONRPCResponse)
+        assert received_messages[1].message.root.id == 2
 
         # Test sending responses from the server
         responses = [
             MessageFrame(
-                root=JSONRPCMessage(
+                message=JSONRPCMessage(
                     root=JSONRPCRequest(jsonrpc="2.0", id=3, method="ping")
                 ),
                 raw=None,
             ),
             MessageFrame(
-                root=JSONRPCMessage(
+                message=JSONRPCMessage(
                     root=JSONRPCResponse(jsonrpc="2.0", id=4, result={})
                 ),
                 raw=None,

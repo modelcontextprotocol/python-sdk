@@ -176,4 +176,4 @@ class SseServerTransport:
         logger.debug(f"Sending message to writer: {message}")
         response = Response("Accepted", status_code=202)
         await response(scope, receive, send)
-        await writer.send(MessageFrame(root=message, raw=request))
+        await writer.send(MessageFrame(message=message, raw=request))

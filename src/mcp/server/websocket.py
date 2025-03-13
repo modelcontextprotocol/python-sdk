@@ -47,7 +47,7 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
                         continue
 
                     await read_stream_writer.send(
-                        MessageFrame(root=client_message, raw=message)
+                        MessageFrame(message=client_message, raw=message)
                     )
         except anyio.ClosedResourceError:
             await websocket.close()

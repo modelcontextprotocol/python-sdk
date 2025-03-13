@@ -58,13 +58,13 @@ async def test_client_session_initialize():
         )
 
         async with server_to_client_send:
-            assert isinstance(jsonrpc_request.root.root, JSONRPCRequest)
+            assert isinstance(jsonrpc_request.message.root, JSONRPCRequest)
             await server_to_client_send.send(
                 MessageFrame(
-                    root=JSONRPCMessage(
+                    message=JSONRPCMessage(
                         JSONRPCResponse(
                             jsonrpc="2.0",
-                            id=jsonrpc_request.root.root.id,
+                            id=jsonrpc_request.message.root.id,
                             result=result.model_dump(
                                 by_alias=True, mode="json", exclude_none=True
                             ),
@@ -74,9 +74,9 @@ async def test_client_session_initialize():
                 )
             )
             jsonrpc_notification = await client_to_server_receive.receive()
-            assert isinstance(jsonrpc_notification.root, JSONRPCMessage)
+            assert isinstance(jsonrpc_notification.message, JSONRPCMessage)
             initialized_notification = ClientNotification.model_validate(
-                jsonrpc_notification.root.model_dump(
+                jsonrpc_notification.message.model_dump(
                     by_alias=True, mode="json", exclude_none=True
                 )
             )

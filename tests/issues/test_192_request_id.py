@@ -66,7 +66,7 @@ async def test_request_id_match() -> None:
         )
 
         await client_writer.send(
-            MessageFrame(root=JSONRPCMessage(root=init_req), raw=None)
+            MessageFrame(message=JSONRPCMessage(root=init_req), raw=None)
         )
         await server_reader.receive()  # Get init response but don't need to check it
 
@@ -77,7 +77,9 @@ async def test_request_id_match() -> None:
             jsonrpc="2.0",
         )
         await client_writer.send(
-            MessageFrame(root=JSONRPCMessage(root=initialized_notification), raw=None)
+            MessageFrame(
+                message=JSONRPCMessage(root=initialized_notification), raw=None
+            )
         )
 
         # Send ping request with custom ID
@@ -86,7 +88,7 @@ async def test_request_id_match() -> None:
         )
 
         await client_writer.send(
-            MessageFrame(root=JSONRPCMessage(root=ping_request), raw=None)
+            MessageFrame(message=JSONRPCMessage(root=ping_request), raw=None)
         )
 
         # Read response
@@ -94,7 +96,7 @@ async def test_request_id_match() -> None:
 
         # Verify response ID matches request ID
         assert (
-            response.root.root.id == custom_request_id
+            response.message.root.id == custom_request_id
         ), "Response ID should match request ID"
 
         # Cancel server task

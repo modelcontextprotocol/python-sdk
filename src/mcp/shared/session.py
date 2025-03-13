@@ -249,7 +249,7 @@ class BaseSession(
         # TODO: Support progress callbacks
 
         await self._write_stream.send(
-            MessageFrame(root=JSONRPCMessage(jsonrpc_request), raw=None)
+            MessageFrame(message=JSONRPCMessage(jsonrpc_request), raw=None)
         )
 
         try:
@@ -287,7 +287,7 @@ class BaseSession(
         )
 
         await self._write_stream.send(
-            MessageFrame(root=JSONRPCMessage(jsonrpc_notification), raw=None)
+            MessageFrame(message=JSONRPCMessage(jsonrpc_notification), raw=None)
         )
 
     async def _send_response(
@@ -296,7 +296,7 @@ class BaseSession(
         if isinstance(response, ErrorData):
             jsonrpc_error = JSONRPCError(jsonrpc="2.0", id=request_id, error=response)
             await self._write_stream.send(
-                MessageFrame(root=JSONRPCMessage(jsonrpc_error), raw=None)
+                MessageFrame(message=JSONRPCMessage(jsonrpc_error), raw=None)
             )
         else:
             jsonrpc_response = JSONRPCResponse(
@@ -307,7 +307,7 @@ class BaseSession(
                 ),
             )
             await self._write_stream.send(
-                MessageFrame(root=JSONRPCMessage(jsonrpc_response), raw=None)
+                MessageFrame(message=JSONRPCMessage(jsonrpc_response), raw=None)
             )
 
     async def _receive_loop(self) -> None:
@@ -321,7 +321,7 @@ class BaseSession(
                     await self._incoming_message_stream_writer.send(raw_message)
                     continue
 
-                message = raw_message.root
+                message = raw_message.message
                 if isinstance(message.root, JSONRPCRequest):
                     validated_request = self._receive_request_type.model_validate(
                         message.root.model_dump(

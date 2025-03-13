@@ -58,7 +58,7 @@ async def websocket_client(
                             raw_text
                         )
                         # Create MessageFrame with JSON message as root
-                        message = MessageFrame(root=json_message, raw=raw_text)
+                        message = MessageFrame(message=json_message, raw=raw_text)
                         await read_stream_writer.send(message)
                     except ValidationError as exc:
                         # If JSON parse or model validation fails, send the exception
@@ -72,7 +72,7 @@ async def websocket_client(
             async with write_stream_reader:
                 async for message in write_stream_reader:
                     # Extract the JSON-RPC message from MessageFrame and convert to JSON
-                    msg_dict = message.root.model_dump(
+                    msg_dict = message.message.model_dump(
                         by_alias=True, mode="json", exclude_none=True
                     )
                     await ws.send(json.dumps(msg_dict))
