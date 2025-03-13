@@ -1,4 +1,5 @@
 import logging
+from contextlib import AsyncExitStack
 from datetime import timedelta
 from typing import Any, Callable, Generic, TypeVar
 
@@ -180,12 +181,19 @@ class BaseSession(
         self._read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
 
+        self._exit_stack = AsyncExitStack()
         self._incoming_message_stream_writer, self._incoming_message_stream_reader = (
             anyio.create_memory_object_stream[
                 RequestResponder[ReceiveRequestT, SendResultT]
                 | ReceiveNotificationT
                 | Exception
             ]()
+        )
+        self._exit_stack.push_async_callback(
+            lambda: self._incoming_message_stream_reader.aclose()
+        )
+        self._exit_stack.push_async_callback(
+            lambda: self._incoming_message_stream_writer.aclose()
         )
 
     async def __aenter__(self) -> Self:
@@ -195,6 +203,7 @@ class BaseSession(
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self._exit_stack.aclose()
         # Using BaseSession as a context manager should not block on exit (this
         # would be very surprising behavior), so make sure to cancel the tasks
         # in the task group.
@@ -221,6 +230,9 @@ class BaseSession(
             JSONRPCResponse | JSONRPCError
         ](1)
         self._response_streams[request_id] = response_stream
+
+        self._exit_stack.push_async_callback(lambda: response_stream.aclose())
+        self._exit_stack.push_async_callback(lambda: response_stream_reader.aclose())
 
         jsonrpc_request = JSONRPCRequest(
             jsonrpc="2.0",
@@ -255,9 +267,6 @@ class BaseSession(
                 raise McpError(response_or_error.error)
             else:
                 return result_type.model_validate(response_or_error.result)
-        finally:
-            await response_stream.aclose()
-            await response_stream_reader.aclose()
 
     async def send_notification(self, notification: SendNotificationT) -> None:
         """

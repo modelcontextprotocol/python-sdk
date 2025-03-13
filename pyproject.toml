@@ -67,6 +67,9 @@ packages = ["src/mcp"]
 include = ["src/mcp", "tests"]
 venvPath = "."
 venv = ".venv"
+strict = [
+    "src/mcp/server/fastmcp/tools/base.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
@@ -85,3 +88,10 @@ members = ["examples/servers/*"]
 
 [tool.uv.sources]
 mcp = { workspace = true }
+
+# TODO(Marcelo): This should be enabled!!! There are a lot of resource warnings.
+[tool.pytest.ini_options]
+xfail_strict = true
+filterwarnings = [
+    "error",
+]

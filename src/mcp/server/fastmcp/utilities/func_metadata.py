@@ -102,7 +102,9 @@ class FuncMetadata(BaseModel):
     )
 
 
-def func_metadata(func: Callable, skip_names: Sequence[str] = ()) -> FuncMetadata:
+def func_metadata(
+    func: Callable[..., Any], skip_names: Sequence[str] = ()
+) -> FuncMetadata:
     """Given a function, return metadata including a pydantic model representing its
     signature.
 

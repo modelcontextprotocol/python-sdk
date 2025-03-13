@@ -43,7 +43,9 @@ async def _default_list_roots_callback(
     )
 
 
-ClientResponse = TypeAdapter(types.ClientResult | types.ErrorData)
+ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(
+    types.ClientResult | types.ErrorData
+)
 
 
 class ClientSession(
@@ -219,7 +221,7 @@ class ClientSession(
         )
 
     async def call_tool(
-        self, name: str, arguments: dict | None = None
+        self, name: str, arguments: dict[str, Any] | None = None
     ) -> types.CallToolResult:
         """Send a tools/call request."""
         return await self.send_request(
@@ -258,7 +260,9 @@ class ClientSession(
         )
 
     async def complete(
-        self, ref: types.ResourceReference | types.PromptReference, argument: dict
+        self,
+        ref: types.ResourceReference | types.PromptReference,
+        argument: dict[str, str],
     ) -> types.CompleteResult:
         """Send a completion/complete request."""
         return await self.send_request(

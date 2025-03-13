@@ -18,10 +18,10 @@ if TYPE_CHECKING:
 class Tool(BaseModel):
     """Internal tool registration info."""
 
-    fn: Callable = Field(exclude=True)
+    fn: Callable[..., Any] = Field(exclude=True)
     name: str = Field(description="Name of the tool")
     description: str = Field(description="Description of what the tool does")
-    parameters: dict = Field(description="JSON schema for tool parameters")
+    parameters: dict[str, Any] = Field(description="JSON schema for tool parameters")
     fn_metadata: FuncMetadata = Field(
         description="Metadata about the function including a pydantic model for tool"
         " arguments"
@@ -34,7 +34,7 @@ class Tool(BaseModel):
     @classmethod
     def from_function(
         cls,
-        fn: Callable,
+        fn: Callable[..., Any],
         name: str | None = None,
         description: str | None = None,
         context_kwarg: str | None = None,
