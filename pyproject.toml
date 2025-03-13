@@ -96,5 +96,5 @@ filterwarnings = [
     # This should be fixed on Uvicorn's side.
     "ignore::DeprecationWarning:websockets",
     "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
-    "ignore:Returning str or bytes from read_resource is deprecated. Use Iterable[ReadResourceContents] instead.:mcp.shared.exceptions.McpError"
+    "ignore:Returning str or bytes from read_resource is deprecated. Use Iterable[ReadResourceContents] instead.:DeprecationWarning"
 ]
