@@ -229,6 +229,7 @@ name = "mcp"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
+    { name = "exceptiongroup" },
     { name = "httpx" },
     { name = "httpx-sse" },
     { name = "pydantic" },
@@ -264,6 +265,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
+    { name = "exceptiongroup", specifier = ">=1.2.2" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "httpx-sse", specifier = ">=0.4" },
     { name = "pydantic", specifier = ">=2.7.2,<3.0.0" },
@@ -276,6 +278,7 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.23.1" },
     { name = "websockets", marker = "extra == 'ws'", specifier = ">=15.0.1" },
 ]
+
 provides-extras = ["cli", "rich", "ws"]
 
 [package.metadata.requires-dev]

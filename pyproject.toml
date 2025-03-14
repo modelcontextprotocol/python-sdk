@@ -30,6 +30,7 @@ dependencies = [
     "sse-starlette>=1.6.1",
     "pydantic-settings>=2.5.2",
     "uvicorn>=0.23.1",
+    "exceptiongroup>=1.2.2",
 ]
 
 [project.optional-dependencies]

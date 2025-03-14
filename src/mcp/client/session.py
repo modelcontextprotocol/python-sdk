@@ -43,6 +43,7 @@ async def _default_list_roots_callback(
     )
 
 
+
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(
     types.ClientResult | types.ErrorData
 )
