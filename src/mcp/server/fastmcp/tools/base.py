@@ -1,3 +1,5 @@
+from __future__ import annotations as _annotations
+
 import inspect
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -9,15 +11,17 @@ from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metada
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
+    from mcp.server.session import ServerSessionT
+    from mcp.shared.context import LifespanContextT
 
 
 class Tool(BaseModel):
     """Internal tool registration info."""
 
-    fn: Callable = Field(exclude=True)
+    fn: Callable[..., Any] = Field(exclude=True)
     name: str = Field(description="Name of the tool")
     description: str = Field(description="Description of what the tool does")
-    parameters: dict = Field(description="JSON schema for tool parameters")
+    parameters: dict[str, Any] = Field(description="JSON schema for tool parameters")
     fn_metadata: FuncMetadata = Field(
         description="Metadata about the function including a pydantic model for tool"
         " arguments"
@@ -30,7 +34,7 @@ class Tool(BaseModel):
     @classmethod
     def from_function(
         cls,
-        fn: Callable,
+        fn: Callable[..., Any],
         name: str | None = None,
         description: str | None = None,
         context_kwarg: str | None = None,
@@ -68,7 +72,11 @@ class Tool(BaseModel):
             context_kwarg=context_kwarg,
         )
 
-    async def run(self, arguments: dict, context: "Context | None" = None) -> Any:
+    async def run(
+        self,
+        arguments: dict[str, Any],
+        context: Context[ServerSessionT, LifespanContextT] | None = None,
+    ) -> Any:
         """Run the tool with arguments."""
         try:
             return await self.fn_metadata.call_fn_with_arg_validation(

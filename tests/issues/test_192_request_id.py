@@ -43,7 +43,13 @@ async def test_request_id_match() -> None:
             )
 
     # Start server task
-    async with anyio.create_task_group() as tg:
+    async with (
+        anyio.create_task_group() as tg,
+        client_writer,
+        client_reader,
+        server_writer,
+        server_reader,
+    ):
         tg.start_soon(run_server)
 
         # Send initialize request

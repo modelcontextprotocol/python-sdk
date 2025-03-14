@@ -43,7 +43,10 @@ async def _default_list_roots_callback(
     )
 
 
-ClientResponse = TypeAdapter(types.ClientResult | types.ErrorData)
+
+ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(
+    types.ClientResult | types.ErrorData
+)
 
 
 class ClientSession(
@@ -74,18 +77,12 @@ class ClientSession(
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
 
     async def initialize(self) -> types.InitializeResult:
-        sampling = (
-            types.SamplingCapability() if self._sampling_callback is not None else None
-        )
-        roots = (
-            types.RootsCapability(
-                # TODO: Should this be based on whether we
-                # _will_ send notifications, or only whether
-                # they're supported?
-                listChanged=True,
-            )
-            if self._list_roots_callback is not None
-            else None
+        sampling = types.SamplingCapability()
+        roots = types.RootsCapability(
+            # TODO: Should this be based on whether we
+            # _will_ send notifications, or only whether
+            # they're supported?
+            listChanged=True,
         )
 
         result = await self.send_request(
@@ -219,7 +216,7 @@ class ClientSession(
         )
 
     async def call_tool(
-        self, name: str, arguments: dict | None = None
+        self, name: str, arguments: dict[str, Any] | None = None
     ) -> types.CallToolResult:
         """Send a tools/call request."""
         return await self.send_request(
@@ -258,7 +255,9 @@ class ClientSession(
         )
 
     async def complete(
-        self, ref: types.ResourceReference | types.PromptReference, argument: dict
+        self,
+        ref: types.ResourceReference | types.PromptReference,
+        argument: dict[str, str],
     ) -> types.CompleteResult:
         """Send a completion/complete request."""
         return await self.send_request(

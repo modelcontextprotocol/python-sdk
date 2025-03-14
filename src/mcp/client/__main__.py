@@ -5,10 +5,12 @@ from functools import partial
 from urllib.parse import urlparse
 
 import anyio
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.types import JSONRPCMessage
 
 if not sys.warnoptions:
     import warnings
@@ -29,7 +31,10 @@ async def receive_loop(session: ClientSession):
         logger.info("Received message from server: %s", message)
 
 
-async def run_session(read_stream, write_stream):
+async def run_session(
+    read_stream: MemoryObjectReceiveStream[JSONRPCMessage | Exception],
+    write_stream: MemoryObjectSendStream[JSONRPCMessage],
+):
     async with (
         ClientSession(read_stream, write_stream) as session,
         anyio.create_task_group() as tg,

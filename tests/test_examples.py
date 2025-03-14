@@ -1,6 +1,7 @@
 """Tests for example servers"""
 
 import pytest
+from pytest_examples import CodeExample, EvalExample, find_examples
 
 from mcp.shared.memory import (
     create_connected_server_and_client_session as client_session,
@@ -70,3 +71,17 @@ async def test_desktop(monkeypatch):
         assert isinstance(content.text, str)
         assert "/fake/path/file1.txt" in content.text
         assert "/fake/path/file2.txt" in content.text
+
+
+@pytest.mark.parametrize("example", find_examples("README.md"), ids=str)
+def test_docs_examples(example: CodeExample, eval_example: EvalExample):
+    ruff_ignore: list[str] = ["F841", "I001"]
+
+    eval_example.set_config(
+        ruff_ignore=ruff_ignore, target_version="py310", line_length=88
+    )
+
+    if eval_example.update_examples:  # pragma: no cover
+        eval_example.format(example)
+    else:
+        eval_example.lint(example)

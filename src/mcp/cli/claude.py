@@ -1,6 +1,7 @@
 """Claude app integration utilities."""
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -17,6 +18,10 @@ def get_claude_config_path() -> Path | None:
         path = Path(Path.home(), "AppData", "Roaming", "Claude")
     elif sys.platform == "darwin":
         path = Path(Path.home(), "Library", "Application Support", "Claude")
+    elif sys.platform.startswith("linux"):
+        path = Path(
+            os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"), "Claude"
+        )
     else:
         return None
 

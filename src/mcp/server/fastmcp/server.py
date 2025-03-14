@@ -1,5 +1,7 @@
 """FastMCP - A more ergonomic interface for MCP servers."""
 
+from __future__ import annotations as _annotations
+
 import inspect
 import json
 import re
@@ -25,19 +27,13 @@ from mcp.server.fastmcp.tools import ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.fastmcp.utilities.types import Image
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.server.lowlevel.server import (
-    LifespanResultT,
-)
-from mcp.server.lowlevel.server import (
-    Server as MCPServer,
-)
-from mcp.server.lowlevel.server import (
-    lifespan as default_lifespan,
-)
-from mcp.server.session import ServerSession
+from mcp.server.lowlevel.server import LifespanResultT
+from mcp.server.lowlevel.server import Server as MCPServer
+from mcp.server.lowlevel.server import lifespan as default_lifespan
+from mcp.server.session import ServerSession, ServerSessionT
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
-from mcp.shared.context import RequestContext
+from mcp.shared.context import LifespanContextT, RequestContext
 from mcp.types import (
     AnyFunction,
     EmbeddedResource,
@@ -45,21 +41,11 @@ from mcp.types import (
     ImageContent,
     TextContent,
 )
-from mcp.types import (
-    Prompt as MCPPrompt,
-)
-from mcp.types import (
-    PromptArgument as MCPPromptArgument,
-)
-from mcp.types import (
-    Resource as MCPResource,
-)
-from mcp.types import (
-    ResourceTemplate as MCPResourceTemplate,
-)
-from mcp.types import (
-    Tool as MCPTool,
-)
+from mcp.types import Prompt as MCPPrompt
+from mcp.types import PromptArgument as MCPPromptArgument
+from mcp.types import Resource as MCPResource
+from mcp.types import ResourceTemplate as MCPResourceTemplate
+from mcp.types import Tool as MCPTool
 
 logger = get_logger(__name__)
 
@@ -79,7 +65,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 
     # Server settings
     debug: bool = False
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "ERROR"
 
     # HTTP settings
     host: str = "0.0.0.0"
@@ -105,11 +91,11 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 
 
 def lifespan_wrapper(
-    app: "FastMCP",
+    app: FastMCP,
     lifespan: Callable[["FastMCP"], AbstractAsyncContextManager[LifespanResultT]],
-) -> Callable[[MCPServer], AbstractAsyncContextManager[object]]:
+) -> Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[object]]:
     @asynccontextmanager
-    async def wrap(s: MCPServer) -> AsyncIterator[object]:
+    async def wrap(s: MCPServer[LifespanResultT]) -> AsyncIterator[object]:
         async with lifespan(app) as context:
             yield context
 
@@ -191,7 +177,7 @@ class FastMCP:
             for info in tools
         ]
 
-    def get_context(self) -> "Context":
+    def get_context(self) -> "Context[ServerSession, object]":
         """
         Returns a Context object. Note that the context will only be valid
         during a request; outside a request, most methods will error.
@@ -564,7 +550,7 @@ def _convert_to_content(
     return [TextContent(type="text", text=result)]
 
 
-class Context(BaseModel):
+class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
     """Context object providing access to MCP capabilities.
 
     This provides a cleaner interface to MCP's RequestContext functionality.
@@ -598,13 +584,13 @@ class Context(BaseModel):
     The context is optional - tools that don't need it can omit the parameter.
     """
 
-    _request_context: RequestContext[ServerSession, Any] | None
+    _request_context: RequestContext[ServerSessionT, LifespanContextT] | None
     _fastmcp: FastMCP | None
 
     def __init__(
         self,
         *,
-        request_context: RequestContext | None = None,
+        request_context: RequestContext[ServerSessionT, LifespanContextT] | None = None,
         fastmcp: FastMCP | None = None,
         **kwargs: Any,
     ):
@@ -620,7 +606,7 @@ class Context(BaseModel):
         return self._fastmcp
 
     @property
-    def request_context(self) -> RequestContext:
+    def request_context(self) -> RequestContext[ServerSessionT, LifespanContextT]:
         """Access to the underlying request context."""
         if self._request_context is None:
             raise ValueError("Context is not available outside of a request")
