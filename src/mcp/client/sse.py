@@ -43,7 +43,7 @@ async def sse_client(
     async with anyio.create_task_group() as tg:
         try:
             logger.info(f"Connecting to SSE endpoint: {remove_request_params(url)}")
-            async with httpx.AsyncClient(headers=headers) as client:
+            async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
                 async with aconnect_sse(
                     client,
                     "GET",
