@@ -180,49 +180,6 @@ class JSONRPCMessage(
     pass
 
 
-RawT = TypeVar("RawT")
-
-
-class MessageFrame(BaseModel, Generic[RawT]):
-    """
-    A wrapper around the general message received that contains both the parsed message
-    and the raw message.
-
-    This class serves as an encapsulation for JSON-RPC messages, providing access to
-    both the parsed structure (root) and the original raw data. This design is
-    particularly useful for Server-Sent Events (SSE) consumers who may need to access
-    additional metadata or headers associated with the message.
-
-    The 'root' attribute contains the parsed JSONRPCMessage, which could be a request,
-    notification, response, or error. The 'raw' attribute preserves the original
-    message as received, allowing access to any additional context or metadata that
-    might be lost in parsing.
-
-    This dual representation allows for flexible handling of messages, where consumers
-    can work with the structured data for standard operations, but still have the
-    option to examine or utilize the raw data when needed, such as for debugging,
-    logging, or accessing transport-specific information.
-    """
-
-    message: JSONRPCMessage
-    raw: RawT | None = None
-    model_config = ConfigDict(extra="allow")
-
-    def model_dump(self, *args, **kwargs):
-        """
-        Dumps the model to a dictionary, delegating to the root JSONRPCMessage.
-        This method allows for consistent serialization of the parsed message.
-        """
-        return self.message.model_dump(*args, **kwargs)
-
-    def model_dump_json(self, *args, **kwargs):
-        """
-        Dumps the model to a JSON string, delegating to the root JSONRPCMessage.
-        This method provides a convenient way to serialize the parsed message to JSON.
-        """
-        return self.message.model_dump_json(*args, **kwargs)
-
-
 class EmptyResult(Result):
     """A response that indicates success but carries no data."""
 

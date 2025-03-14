@@ -1,7 +1,7 @@
 import json
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator
+from typing import AsyncGenerator
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -10,7 +10,6 @@ from websockets.asyncio.client import connect as ws_connect
 from websockets.typing import Subprotocol
 
 import mcp.types as types
-from mcp.types import MessageFrame
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +19,8 @@ async def websocket_client(
     url: str,
 ) -> AsyncGenerator[
     tuple[
-        MemoryObjectReceiveStream[MessageFrame[Any] | Exception],
-        MemoryObjectSendStream[MessageFrame[Any]],
+        MemoryObjectReceiveStream[types.JSONRPCMessage | Exception],
+        MemoryObjectSendStream[types.JSONRPCMessage],
     ],
     None,
 ]:
@@ -54,11 +53,7 @@ async def websocket_client(
             async with read_stream_writer:
                 async for raw_text in ws:
                     try:
-                        json_message = types.JSONRPCMessage.model_validate_json(
-                            raw_text
-                        )
-                        # Create MessageFrame with JSON message as root
-                        message = MessageFrame(message=json_message, raw=raw_text)
+                        message = types.JSONRPCMessage.model_validate_json(raw_text)
                         await read_stream_writer.send(message)
                     except ValidationError as exc:
                         # If JSON parse or model validation fails, send the exception
@@ -71,8 +66,8 @@ async def websocket_client(
             """
             async with write_stream_reader:
                 async for message in write_stream_reader:
-                    # Extract the JSON-RPC message from MessageFrame and convert to JSON
-                    msg_dict = message.message.model_dump(
+                    # Convert to a dict, then to JSON
+                    msg_dict = message.model_dump(
                         by_alias=True, mode="json", exclude_none=True
                     )
                     await ws.send(json.dumps(msg_dict))

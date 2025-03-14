@@ -42,15 +42,14 @@ from typing import Any, TypeVar
 
 import anyio
 import anyio.lowlevel
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
 from mcp.shared.session import (
     BaseSession,
-    ReadStream,
     RequestResponder,
-    WriteStream,
 )
 
 
@@ -77,8 +76,8 @@ class ServerSession(
 
     def __init__(
         self,
-        read_stream: ReadStream,
-        write_stream: WriteStream,
+        read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception],
+        write_stream: MemoryObjectSendStream[types.JSONRPCMessage],
         init_options: InitializationOptions,
     ) -> None:
         super().__init__(

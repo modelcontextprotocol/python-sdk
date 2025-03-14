@@ -9,7 +9,7 @@ from mcp.server.session import ServerSession
 from mcp.types import (
     ClientNotification,
     InitializedNotification,
-    MessageFrame,
+    JSONRPCMessage,
     PromptsCapability,
     ResourcesCapability,
     ServerCapabilities,
@@ -19,10 +19,10 @@ from mcp.types import (
 @pytest.mark.anyio
 async def test_server_session_initialize():
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        MessageFrame[None]
+        JSONRPCMessage
     ](1)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        MessageFrame[None]
+        JSONRPCMessage
     ](1)
 
     async def run_client(client: ClientSession):

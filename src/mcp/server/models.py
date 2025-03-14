@@ -5,7 +5,9 @@ and tools.
 
 from pydantic import BaseModel
 
-from mcp.types import ServerCapabilities
+from mcp.types import (
+    ServerCapabilities,
+)
 
 
 class InitializationOptions(BaseModel):

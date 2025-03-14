@@ -1,11 +1,12 @@
 from datetime import timedelta
 from typing import Any, Protocol
 
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl, TypeAdapter
 
 import mcp.types as types
 from mcp.shared.context import RequestContext
-from mcp.shared.session import BaseSession, ReadStream, RequestResponder, WriteStream
+from mcp.shared.session import BaseSession, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 
@@ -58,8 +59,8 @@ class ClientSession(
 ):
     def __init__(
         self,
-        read_stream: ReadStream,
-        write_stream: WriteStream,
+        read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception],
+        write_stream: MemoryObjectSendStream[types.JSONRPCMessage],
         read_timeout_seconds: timedelta | None = None,
         sampling_callback: SamplingFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,

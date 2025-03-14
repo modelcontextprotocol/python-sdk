@@ -38,6 +38,7 @@ from urllib.parse import quote
 from uuid import UUID, uuid4
 
 import anyio
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
 from starlette.requests import Request
@@ -45,13 +46,6 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 import mcp.types as types
-from mcp.shared.session import (
-    ReadStream,
-    ReadStreamWriter,
-    WriteStream,
-    WriteStreamReader,
-)
-from mcp.types import MessageFrame
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +63,9 @@ class SseServerTransport:
     """
 
     _endpoint: str
-    _read_stream_writers: dict[UUID, ReadStreamWriter]
+    _read_stream_writers: dict[
+        UUID, MemoryObjectSendStream[types.JSONRPCMessage | Exception]
+    ]
 
     def __init__(self, endpoint: str) -> None:
         """
@@ -89,11 +85,11 @@ class SseServerTransport:
             raise ValueError("connect_sse can only handle HTTP requests")
 
         logger.debug("Setting up SSE connection")
-        read_stream: ReadStream
-        read_stream_writer: ReadStreamWriter
+        read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception]
+        read_stream_writer: MemoryObjectSendStream[types.JSONRPCMessage | Exception]
 
-        write_stream: WriteStream
-        write_stream_reader: WriteStreamReader
+        write_stream: MemoryObjectSendStream[types.JSONRPCMessage]
+        write_stream_reader: MemoryObjectReceiveStream[types.JSONRPCMessage]
 
         read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
         write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
@@ -176,4 +172,4 @@ class SseServerTransport:
         logger.debug(f"Sending message to writer: {message}")
         response = Response("Accepted", status_code=202)
         await response(scope, receive, send)
-        await writer.send(MessageFrame(message=message, raw=request))
+        await writer.send(message)

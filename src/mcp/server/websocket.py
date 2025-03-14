@@ -2,17 +2,11 @@ import logging
 from contextlib import asynccontextmanager
 
 import anyio
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from starlette.types import Receive, Scope, Send
 from starlette.websockets import WebSocket
 
 import mcp.types as types
-from mcp.shared.session import (
-    ReadStream,
-    ReadStreamWriter,
-    WriteStream,
-    WriteStreamReader,
-)
-from mcp.types import MessageFrame
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +21,11 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
     websocket = WebSocket(scope, receive, send)
     await websocket.accept(subprotocol="mcp")
 
-    read_stream: ReadStream
-    read_stream_writer: ReadStreamWriter
+    read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception]
+    read_stream_writer: MemoryObjectSendStream[types.JSONRPCMessage | Exception]
 
-    write_stream: WriteStream
-    write_stream_reader: WriteStreamReader
+    write_stream: MemoryObjectSendStream[types.JSONRPCMessage]
+    write_stream_reader: MemoryObjectReceiveStream[types.JSONRPCMessage]
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
@@ -46,9 +40,7 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
                         await read_stream_writer.send(exc)
                         continue
 
-                    await read_stream_writer.send(
-                        MessageFrame(message=client_message, raw=message)
-                    )
+                    await read_stream_writer.send(client_message)
         except anyio.ClosedResourceError:
             await websocket.close()
 
