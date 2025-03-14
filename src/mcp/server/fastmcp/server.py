@@ -70,6 +70,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # HTTP settings
     host: str = "0.0.0.0"
     port: int = 8000
+    url_prefix: str = ""
 
     # resource settings
     warn_on_duplicate_resources: bool = True
@@ -464,7 +465,7 @@ class FastMCP:
         from starlette.applications import Starlette
         from starlette.routing import Mount, Route
 
-        sse = SseServerTransport("/messages/")
+        sse = SseServerTransport(f"{self.settings.url_prefix}/messages/")
 
         async def handle_sse(request):
             async with sse.connect_sse(
@@ -479,8 +480,10 @@ class FastMCP:
         starlette_app = Starlette(
             debug=self.settings.debug,
             routes=[
-                Route("/sse", endpoint=handle_sse),
-                Mount("/messages/", app=sse.handle_post_message),
+                Route(f"{self.settings.url_prefix}/sse", endpoint=handle_sse),
+                Mount(
+                    f"{self.settings.url_prefix}/messages/", app=sse.handle_post_message
+                ),
             ],
         )
 
