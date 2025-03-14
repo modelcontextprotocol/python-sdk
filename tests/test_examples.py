@@ -73,12 +73,13 @@ async def test_desktop(monkeypatch):
         assert "/fake/path/file2.txt" in content.text
 
 
-
-@pytest.mark.parametrize('example', find_examples('README.md'), ids=str)
+@pytest.mark.parametrize("example", find_examples("README.md"), ids=str)
 def test_docs_examples(example: CodeExample, eval_example: EvalExample):
-    ruff_ignore: list[str] = ['D', 'Q001', 'F841', 'I001']
+    ruff_ignore: list[str] = ["F841", "I001"]
 
-    eval_example.set_config(ruff_ignore=ruff_ignore, target_version='py310', line_length=88)
+    eval_example.set_config(
+        ruff_ignore=ruff_ignore, target_version="py310", line_length=88
+    )
 
     if eval_example.update_examples:  # pragma: no cover
         eval_example.format(example)
