@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from pydantic_core import ValidationError
 from starlette.types import Receive, Scope, Send
 from starlette.websockets import WebSocket
 
@@ -33,10 +34,10 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
     async def ws_reader():
         try:
             async with read_stream_writer:
-                async for message in websocket.iter_json():
+                async for msg in websocket.iter_text():
                     try:
-                        client_message = types.JSONRPCMessage.model_validate(message)
-                    except Exception as exc:
+                        client_message = types.JSONRPCMessage.model_validate_json(msg)
+                    except ValidationError as exc:
                         await read_stream_writer.send(exc)
                         continue
 
@@ -48,10 +49,8 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
         try:
             async with write_stream_reader:
                 async for message in write_stream_reader:
-                    obj = message.model_dump(
-                        by_alias=True, mode="json", exclude_none=True
-                    )
-                    await websocket.send_json(obj)
+                    obj = message.model_dump_json(by_alias=True, exclude_none=True)
+                    await websocket.send_text(obj)
         except anyio.ClosedResourceError:
             await websocket.close()
 
