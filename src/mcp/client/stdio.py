@@ -83,7 +83,7 @@ class StdioServerParameters(BaseModel):
 
 
 @asynccontextmanager
-async def stdio_client(server: StdioServerParameters):
+async def stdio_client(server: StdioServerParameters, startup_wait_time: float = 0.0):
     """
     Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
@@ -97,11 +97,17 @@ async def stdio_client(server: StdioServerParameters):
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-    process = await anyio.open_process(
-        [server.command, *server.args],
-        env=server.env if server.env is not None else get_default_environment(),
-        stderr=sys.stderr,
-    )
+    try:
+        process = await anyio.open_process(
+            [server.command, *server.args],
+            env=server.env or get_default_environment(),
+            stderr=sys.stderr,
+        )
+    except OSError as exc:
+        raise RuntimeError(
+            f"Failed to spawn process: {server.command} {server.args}. "
+            f"Check that the binary exists and is executable."
+        ) from exc
 
     async def stdout_reader():
         assert process.stdout, "Opened process is missing stdout"
@@ -144,10 +150,21 @@ async def stdio_client(server: StdioServerParameters):
         except anyio.ClosedResourceError:
             await anyio.lowlevel.checkpoint()
 
-    async with (
-        anyio.create_task_group() as tg,
-        process,
-    ):
+    async def watch_process_exit():
+        returncode = await process.wait()
+        if returncode != 0:
+            raise RuntimeError(
+                f"Subprocess exited with code {returncode}. "
+                f"Command: {server.command}, {server.args}"
+            )
+
+    async with anyio.create_task_group() as tg, process:
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
+        tg.start_soon(watch_process_exit)
+
+        if startup_wait_time > 0:
+            with anyio.move_on_after(startup_wait_time):
+                await anyio.sleep_forever()
+
         yield read_stream, write_stream

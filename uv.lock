@@ -1,4 +1,5 @@
 version = 1
+revision = 1
 requires-python = ">=3.10"
 
 [options]
@@ -78,7 +79,7 @@ name = "click"
 version = "8.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "platform_system == 'Windows'" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/45/2b/7ebad1e59a99207d417c0784f7fb67893465eef84b5b47c788324f1b4095/click-8.1.0.tar.gz", hash = "sha256:977c213473c7665d3aa092b41ff12063227751c41d7b17165013e10069cc5cd2", size = 329986 }
 wheels = [
@@ -191,10 +192,11 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "1.3.0.dev0"
+version = "1.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
+    { name = "exceptiongroup" },
     { name = "httpx" },
     { name = "httpx-sse" },
     { name = "pydantic" },
@@ -226,6 +228,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
+    { name = "exceptiongroup", specifier = ">=1.2.2" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "httpx-sse", specifier = ">=0.4" },
     { name = "pydantic", specifier = ">=2.7.2,<3.0.0" },
@@ -237,6 +240,7 @@ requires-dist = [
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.12.4" },
     { name = "uvicorn", specifier = ">=0.23.1" },
 ]
+provides-extras = ["rich", "cli"]
 
 [package.metadata.requires-dev]
 dev = [
