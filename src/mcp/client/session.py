@@ -76,18 +76,12 @@ class ClientSession(
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
 
     async def initialize(self) -> types.InitializeResult:
-        sampling = (
-            types.SamplingCapability() if self._sampling_callback is not None else None
-        )
-        roots = (
-            types.RootsCapability(
-                # TODO: Should this be based on whether we
-                # _will_ send notifications, or only whether
-                # they're supported?
-                listChanged=True,
-            )
-            if self._list_roots_callback is not None
-            else None
+        sampling = types.SamplingCapability()
+        roots = types.RootsCapability(
+            # TODO: Should this be based on whether we
+            # _will_ send notifications, or only whether
+            # they're supported?
+            listChanged=True,
         )
 
         result = await self.send_request(

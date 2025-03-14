@@ -39,6 +39,11 @@ async def websocket_client(
     # Create two in-memory streams:
     # - One for incoming messages (read_stream, written by ws_reader)
     # - One for outgoing messages (write_stream, read by ws_writer)
+    read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception]
+    read_stream_writer: MemoryObjectSendStream[types.JSONRPCMessage | Exception]
+    write_stream: MemoryObjectSendStream[types.JSONRPCMessage]
+    write_stream_reader: MemoryObjectReceiveStream[types.JSONRPCMessage]
+
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 

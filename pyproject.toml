@@ -77,6 +77,7 @@ venvPath = "."
 venv = ".venv"
 strict = [
     "src/mcp/server/fastmcp/tools/base.py",
+    "src/mcp/client/*.py"
 ]
 
 [tool.ruff.lint]
