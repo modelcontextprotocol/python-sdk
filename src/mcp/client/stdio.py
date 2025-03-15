@@ -1,6 +1,7 @@
 import os
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Literal
 
 import anyio
@@ -66,6 +67,9 @@ class StdioServerParameters(BaseModel):
     If not specified, the result of get_default_environment() will be used.
     """
 
+    cwd: str | Path | None = None
+    """The working directory to use when spawning the process."""
+
     encoding: str = "utf-8"
     """
     The text encoding used when sending/receiving messages to the server
@@ -101,6 +105,7 @@ async def stdio_client(server: StdioServerParameters):
         [server.command, *server.args],
         env=server.env if server.env is not None else get_default_environment(),
         stderr=sys.stderr,
+        cwd=server.cwd,
     )
 
     async def stdout_reader():
