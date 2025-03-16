@@ -156,11 +156,11 @@ class SseServerTransport:
             response = Response("Could not find session", status_code=404)
             return await response(scope, receive, send)
 
-        json = await request.json()
-        logger.debug(f"Received JSON: {json}")
+        body = await request.body()
+        logger.debug(f"Received JSON: {body}")
 
         try:
-            message = types.JSONRPCMessage.model_validate(json)
+            message = types.JSONRPCMessage.model_validate_json(body)
             logger.debug(f"Validated client message: {message}")
         except ValidationError as err:
             logger.error(f"Failed to parse message: {err}")
