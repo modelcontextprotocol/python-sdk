@@ -61,16 +61,16 @@ async def sse_client(
             logger.info(f"Connecting to SSE endpoint: {remove_request_params(url)}")
             async with httpx.AsyncClient(headers=headers) as client:
                 async with aconnect_sse(
-                        client,
-                        "GET",
-                        url,
-                        timeout=httpx.Timeout(timeout, read=sse_read_timeout),
+                    client,
+                    "GET",
+                    url,
+                    timeout=httpx.Timeout(timeout, read=sse_read_timeout),
                 ) as event_source:
                     event_source.response.raise_for_status()
                     logger.debug("SSE connection established")
 
                     async def sse_reader(
-                            task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED,
+                        task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED,
                     ):
                         try:
                             async for sse in event_source.aiter_sse():
@@ -85,9 +85,9 @@ async def sse_client(
                                         url_parsed = urlparse(url)
                                         endpoint_parsed = urlparse(endpoint_url)
                                         if (
-                                                url_parsed.netloc != endpoint_parsed.netloc
-                                                or url_parsed.scheme
-                                                != endpoint_parsed.scheme
+                                            url_parsed.netloc != endpoint_parsed.netloc
+                                            or url_parsed.scheme
+                                            != endpoint_parsed.scheme
                                         ):
                                             error_msg = (
                                                 "Endpoint origin does not match "
