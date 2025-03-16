@@ -348,6 +348,8 @@ python server.py
 mcp run server.py
 ```
 
+Note that `mcp run` or `mcp dev` only supports server using FastMCP and not the low-level server variant.
+
 ### Mounting to an Existing ASGI Server
 
 You can mount the SSE server to an existing ASGI server using the `sse_app` method. This allows you to integrate the SSE server with other ASGI applications.
@@ -542,6 +544,8 @@ if __name__ == "__main__":
 
     asyncio.run(run())
 ```
+
+Caution: The `mcp run` and `mcp dev` tool doesn't support low-level server.
 
 ### Writing MCP Clients
 
