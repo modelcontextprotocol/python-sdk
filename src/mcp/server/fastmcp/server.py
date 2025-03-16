@@ -80,6 +80,8 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # prompt settings
     warn_on_duplicate_prompts: bool = True
 
+    show_server_info: bool = True
+
     dependencies: list[str] = Field(
         default_factory=list,
         description="List of dependencies to install in the server environment",
@@ -140,7 +142,7 @@ class FastMCP:
     def instructions(self) -> str | None:
         return self._mcp_server.instructions
 
-    def run(self, transport: Literal["stdio", "sse"] = "stdio", show_server_info = True) -> None:
+    def run(self, transport: Literal["stdio", "sse"] = "stdio") -> None:
         """Run the FastMCP server. Note this is a synchronous function.
 
         Args:
@@ -150,25 +152,26 @@ class FastMCP:
         if transport not in TRANSPORTS.__args__:  # type: ignore
             raise ValueError(f"Unknown transport: {transport}")
 
-        run = lambda: self._run(transport, show_server_info)
+        run = lambda: self._run(transport)
         anyio.run(run)
     
-    async def _run(transport: Literal["stdio", "sse"], show_server_info: bool = True):
-        logger.info(f"Server name: {mcp.name}")
-        logger.info(f"Server: {mcp.settings.host}:{mcp.settings.port}")
-        assets = {
-            'tools': await mcp.list_tools(),
-            'resources': await mcp.list_resources(),
-            'prompts': await mcp.list_prompts(),
-            'resource_templates': await mcp.list_resource_templates()
-        }
-        for asset_type, asset_list in assets.items():
-            if not asset_list:
-                continue
-            logger.info(f"{asset_type}:")
-            for asset in asset_list:
-                logger.info(f"  - {asset.name} - {asset.description}")
-        logger.info("Server running...")
+    async def _run(transport: Literal["stdio", "sse"]):
+        if self.settings.show_server_info:
+            logger.info(f"Server name: {mcp.name}")
+            logger.info(f"Server: {mcp.settings.host}:{mcp.settings.port}")
+            assets = {
+                'tools': await mcp.list_tools(),
+                'resources': await mcp.list_resources(),
+                'prompts': await mcp.list_prompts(),
+                'resource_templates': await mcp.list_resource_templates()
+            }
+            for asset_type, asset_list in assets.items():
+                if not asset_list:
+                    continue
+                logger.info(f"{asset_type}:")
+                for asset in asset_list:
+                    logger.info(f"  - {asset.name} - {asset.description}")
+            logger.info("Server running...")
         if transport == "stdio":
             await self.run_stdio_async()
         else:  # transport == "sse"
