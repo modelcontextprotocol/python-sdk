@@ -65,7 +65,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 
     # Server settings
     debug: bool = False
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "ERROR"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     # HTTP settings
     host: str = "0.0.0.0"
@@ -140,7 +140,7 @@ class FastMCP:
     def instructions(self) -> str | None:
         return self._mcp_server.instructions
 
-    def run(self, transport: Literal["stdio", "sse"] = "stdio") -> None:
+    def run(self, transport: Literal["stdio", "sse"] = "stdio", show_server_info = True) -> None:
         """Run the FastMCP server. Note this is a synchronous function.
 
         Args:
@@ -150,10 +150,29 @@ class FastMCP:
         if transport not in TRANSPORTS.__args__:  # type: ignore
             raise ValueError(f"Unknown transport: {transport}")
 
+        run = lambda: self._run(transport, show_server_info)
+        anyio.run(run)
+    
+    async def _run(transport: Literal["stdio", "sse"], show_server_info: bool = True):
+        logger.info(f"Server name: {mcp.name}")
+        logger.info(f"Server: {mcp.settings.host}:{mcp.settings.port}")
+        assets = {
+            'tools': await mcp.list_tools(),
+            'resources': await mcp.list_resources(),
+            'prompts': await mcp.list_prompts(),
+            'resource_templates': await mcp.list_resource_templates()
+        }
+        for asset_type, asset_list in assets.items():
+            if not asset_list:
+                continue
+            logger.info(f"{asset_type}:")
+            for asset in asset_list:
+                logger.info(f"  - {asset.name} - {asset.description}")
+        logger.info("Server running...")
         if transport == "stdio":
-            anyio.run(self.run_stdio_async)
+            await self.run_stdio_async()
         else:  # transport == "sse"
-            anyio.run(self.run_sse_async)
+            await self.run_sse_async()
 
     def _setup_handlers(self) -> None:
         """Set up core MCP protocol handlers."""
