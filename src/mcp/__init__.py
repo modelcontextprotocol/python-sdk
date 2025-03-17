@@ -1,5 +1,5 @@
 from .client.session import ClientSession
-from .client.stdio import StdioServerParameters, stdio_client
+from .client.stdio import stdio_client
 from .server.session import ServerSession
 from .server.stdio import stdio_server
 from .shared.exceptions import McpError
@@ -101,7 +101,6 @@ __all__ = [
     "ServerResult",
     "ServerSession",
     "SetLevelRequest",
-    "StdioServerParameters",
     "StopReason",
     "SubscribeRequest",
     "Tool",

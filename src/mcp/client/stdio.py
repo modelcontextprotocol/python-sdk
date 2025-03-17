@@ -7,7 +7,6 @@ import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from anyio.streams.text import TextReceiveStream
-from pydantic import BaseModel, Field
 
 import mcp.types as types
 
@@ -52,41 +51,19 @@ def get_default_environment() -> dict[str, str]:
     return env
 
 
-class StdioServerParameters(BaseModel):
-    command: str
-    """The executable to run to start the server."""
-
-    args: list[str] = Field(default_factory=list)
-    """Command line arguments to pass to the executable."""
-
-    env: dict[str, str] | None = None
-    """
-    The environment to use when spawning the process.
-
-    If not specified, the result of get_default_environment() will be used.
-    """
-
-    encoding: str = "utf-8"
-    """
-    The text encoding used when sending/receiving messages to the server
-
-    defaults to utf-8
-    """
-
-    encoding_error_handler: Literal["strict", "ignore", "replace"] = "strict"
-    """
-    The text encoding error handler.
-
-    See https://docs.python.org/3/library/codecs.html#codec-base-classes for
-    explanations of possible values
-    """
-
-
 @asynccontextmanager
-async def stdio_client(server: StdioServerParameters):
+async def stdio_client(
+    command: str,
+    args: list[str] | None = None,
+    env: dict[str, str] | None = None,
+    encoding: str = "utf-8",
+    encoding_error_handler: Literal["strict", "ignore", "replace"] = "strict",
+):
     """
     Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
+
+
     """
     read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[types.JSONRPCMessage | Exception]
@@ -98,8 +75,8 @@ async def stdio_client(server: StdioServerParameters):
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
     process = await anyio.open_process(
-        [server.command, *server.args],
-        env=server.env if server.env is not None else get_default_environment(),
+        [command] + (args or []),
+        env=env if env is not None else get_default_environment(),
         stderr=sys.stderr,
     )
 
@@ -111,8 +88,8 @@ async def stdio_client(server: StdioServerParameters):
                 buffer = ""
                 async for chunk in TextReceiveStream(
                     process.stdout,
-                    encoding=server.encoding,
-                    errors=server.encoding_error_handler,
+                    encoding=encoding,
+                    errors=encoding_error_handler,
                 ):
                     lines = (buffer + chunk).split("\n")
                     buffer = lines.pop()
@@ -137,8 +114,8 @@ async def stdio_client(server: StdioServerParameters):
                     json = message.model_dump_json(by_alias=True, exclude_none=True)
                     await process.stdin.send(
                         (json + "\n").encode(
-                            encoding=server.encoding,
-                            errors=server.encoding_error_handler,
+                            encoding=encoding,
+                            errors=encoding_error_handler,
                         )
                     )
         except anyio.ClosedResourceError:
