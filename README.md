@@ -76,12 +76,8 @@ We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python projec
 uv init my-mcp-project
 cd my-mcp-project
 
-# Create virtual environment and activate it
-uv venv
-source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
-
-# Install MCP with CLI tools and the httpx package
-uv add "mcp[cli]" httpx
+# Install MCP with CLI tools
+uv add "mcp[cli]"
 ```
 
 For pip-based projects:
