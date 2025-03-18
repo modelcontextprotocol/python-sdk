@@ -19,6 +19,7 @@ import uvicorn
 from pydantic import BaseModel, Field
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from starlette.requests import Request
 
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
@@ -62,6 +63,9 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
         env_file=".env",
         extra="ignore",
     )
+
+    # Middleware
+    middleware: Callable[[Request, "Settings"], None] = Field(default=None, description="Middleware for the server")    
 
     # Server settings
     debug: bool = False
@@ -459,6 +463,11 @@ class FastMCP:
                 self._mcp_server.create_initialization_options(),
             )
 
+    def process_middleware(self, request) -> None:
+        """Process the middleware for the request."""
+        if self.settings.middleware:
+            self.settings.middleware(request)
+
     async def run_sse_async(self) -> None:
         """Run the server using SSE transport."""
         from starlette.applications import Starlette
@@ -467,6 +476,7 @@ class FastMCP:
         sse = SseServerTransport("/messages/")
 
         async def handle_sse(request):
+            self.process_middleware(request)
             async with sse.connect_sse(
                 request.scope, request.receive, request._send
             ) as streams:
