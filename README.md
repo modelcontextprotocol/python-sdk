@@ -352,15 +352,23 @@ mcp run server.py
 You can mount the SSE server to an existing ASGI server using the `sse_app` method. This allows you to integrate the SSE server with other ASGI applications.
 
 ```python
-from fastapi import FastAPI
+from starlette.applications import Starlette
+from starlette.routes import Mount, Host
 from mcp.server.fastmcp import FastMCP
 
-app = FastAPI()
+
 mcp = FastMCP("My App")
 
 # Mount the SSE server to the existing ASGI server
-app.mount('/', mcp.sse_app())
+app = Starlette(routes=[
+    Mount('/', app=mcp.sse_app())
+])
+
+# or dynamically mount as host
+app.router.routes.append(Host('mcp.acme.corp', app=mcp.sse_app()))
 ```
+
+For more information on mounting applications in Starlette, see the [Starlette documentation](https://www.starlette.io/routing/#submounting-routes).
 
 ## Examples
 
