@@ -31,6 +31,7 @@
   - [Development Mode](#development-mode)
   - [Claude Desktop Integration](#claude-desktop-integration)
   - [Direct Execution](#direct-execution)
+  - [Mounting to an Existing ASGI Server](#mounting-to-an-existing-asgi-server)
 - [Examples](#examples)
   - [Echo Server](#echo-server)
   - [SQLite Explorer](#sqlite-explorer)
@@ -344,6 +345,21 @@ Run it with:
 python server.py
 # or
 mcp run server.py
+```
+
+### Mounting to an Existing ASGI Server
+
+You can mount the SSE server to an existing ASGI server using the `sse_app` method. This allows you to integrate the SSE server with other ASGI applications.
+
+```python
+from fastapi import FastAPI
+from mcp.server.fastmcp import FastMCP
+
+app = FastAPI()
+mcp = FastMCP("My App")
+
+# Mount the SSE server to the existing ASGI server
+app.mount('/', mcp.sse_app())
 ```
 
 ## Examples
