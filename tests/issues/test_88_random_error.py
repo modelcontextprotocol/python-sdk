@@ -1,8 +1,8 @@
 """Test to reproduce issue #88: Random error thrown on response."""
 
+from collections.abc import Sequence
 from datetime import timedelta
 from pathlib import Path
-from typing import Sequence
 
 import anyio
 import pytest

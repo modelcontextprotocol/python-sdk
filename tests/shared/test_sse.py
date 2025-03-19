@@ -1,7 +1,7 @@
 import multiprocessing
 import socket
 import time
-from typing import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, Generator
 
 import anyio
 import httpx
@@ -139,7 +139,7 @@ def server(server_port: int) -> Generator[None, None, None]:
             attempt += 1
     else:
         raise RuntimeError(
-            "Server failed to start after {} attempts".format(max_attempts)
+            f"Server failed to start after {max_attempts} attempts"
         )
 
     yield

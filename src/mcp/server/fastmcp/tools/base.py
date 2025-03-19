@@ -1,7 +1,8 @@
 from __future__ import annotations as _annotations
 
 import inspect
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
@@ -38,7 +39,7 @@ class Tool(BaseModel):
         name: str | None = None,
         description: str | None = None,
         context_kwarg: str | None = None,
-    ) -> "Tool":
+    ) -> Tool:
         """Create a Tool from a function."""
         func_name = name or fn.__name__
 

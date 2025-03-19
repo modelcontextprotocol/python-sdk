@@ -1,6 +1,5 @@
 import json
 import logging
-from typing import Optional
 
 import pytest
 from pydantic import BaseModel
@@ -296,7 +295,7 @@ class TestContextHandling:
         """Test that context is optional when calling tools."""
         from mcp.server.fastmcp import Context
 
-        def tool_with_context(x: int, ctx: Optional[Context] = None) -> str:
+        def tool_with_context(x: int, ctx: Context | None = None) -> str:
             return str(x)
 
         manager = ToolManager()
