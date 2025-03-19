@@ -5,13 +5,13 @@ from __future__ import annotations as _annotations
 import inspect
 import json
 import re
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from contextlib import (
     AbstractAsyncContextManager,
     asynccontextmanager,
 )
 from itertools import chain
-from typing import Any, Callable, Generic, Literal, Sequence
+from typing import Any, Generic, Literal
 
 import anyio
 import pydantic_core
@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
+from starlette.requests import Request
 from starlette.routing import Mount, Route
 
 from mcp.server.fastmcp.exceptions import ResourceError
@@ -88,13 +89,13 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     )
 
     lifespan: (
-        Callable[["FastMCP"], AbstractAsyncContextManager[LifespanResultT]] | None
+        Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]] | None
     ) = Field(None, description="Lifespan context manager")
 
 
 def lifespan_wrapper(
     app: FastMCP,
-    lifespan: Callable[["FastMCP"], AbstractAsyncContextManager[LifespanResultT]],
+    lifespan: Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]],
 ) -> Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[object]]:
     @asynccontextmanager
     async def wrap(s: MCPServer[LifespanResultT]) -> AsyncIterator[object]:
@@ -179,7 +180,7 @@ class FastMCP:
             for info in tools
         ]
 
-    def get_context(self) -> "Context[ServerSession, object]":
+    def get_context(self) -> Context[ServerSession, object]:
         """
         Returns a Context object. Note that the context will only be valid
         during a request; outside a request, most methods will error.
@@ -478,9 +479,11 @@ class FastMCP:
         """Return an instance of the SSE server app."""
         sse = SseServerTransport("/messages/")
 
-        async def handle_sse(request):
+        async def handle_sse(request: Request) -> None:
             async with sse.connect_sse(
-                request.scope, request.receive, request._send
+                request.scope,
+                request.receive,
+                request._send,  # type: ignore[reportPrivateUsage]
             ) as streams:
                 await self._mcp_server.run(
                     streams[0],
@@ -535,14 +538,14 @@ def _convert_to_content(
     if result is None:
         return []
 
-    if isinstance(result, (TextContent, ImageContent, EmbeddedResource)):
+    if isinstance(result, TextContent | ImageContent | EmbeddedResource):
         return [result]
 
     if isinstance(result, Image):
         return [result.to_image_content()]
 
-    if isinstance(result, (list, tuple)):
-        return list(chain.from_iterable(_convert_to_content(item) for item in result))
+    if isinstance(result, list | tuple):
+        return list(chain.from_iterable(_convert_to_content(item) for item in result))  # type: ignore[reportUnknownVariableType]
 
     if not isinstance(result, str):
         try:
