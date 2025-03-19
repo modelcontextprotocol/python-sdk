@@ -238,7 +238,8 @@ async def fetch_weather(city: str) -> str:
 Prompts are reusable templates that help LLMs interact with your server effectively:
 
 ```python
-from mcp.server.fastmcp import FastMCP, types
+from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.prompts import base
 
 mcp = FastMCP("My App")
 
@@ -249,11 +250,11 @@ def review_code(code: str) -> str:
 
 
 @mcp.prompt()
-def debug_error(error: str) -> list[types.Message]:
+def debug_error(error: str) -> list[base.Message]:
     return [
-        types.UserMessage("I'm seeing this error:"),
-        types.UserMessage(error),
-        types.AssistantMessage("I'll help debug that. What have you tried so far?"),
+        base.UserMessage("I'm seeing this error:"),
+        base.UserMessage(error),
+        base.AssistantMessage("I'll help debug that. What have you tried so far?"),
     ]
 ```
 
