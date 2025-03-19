@@ -16,33 +16,36 @@
 <!-- omit in toc -->
 ## Table of Contents
 
-- [Overview](#overview)
-- [Installation](#installation)
-- [Quickstart](#quickstart)
-- [What is MCP?](#what-is-mcp)
-- [Core Concepts](#core-concepts)
-  - [Server](#server)
-  - [Resources](#resources)
-  - [Tools](#tools)
-  - [Prompts](#prompts)
-  - [Images](#images)
-  - [Context](#context)
-- [Running Your Server](#running-your-server)
-  - [Development Mode](#development-mode)
-  - [Claude Desktop Integration](#claude-desktop-integration)
-  - [Direct Execution](#direct-execution)
-  - [Mounting to an Existing ASGI Server](#mounting-to-an-existing-asgi-server)
-- [Examples](#examples)
-  - [Echo Server](#echo-server)
-  - [SQLite Explorer](#sqlite-explorer)
-- [Advanced Usage](#advanced-usage)
-  - [Low-Level Server](#low-level-server)
-  - [Writing MCP Clients](#writing-mcp-clients)
-  - [MCP Primitives](#mcp-primitives)
-  - [Server Capabilities](#server-capabilities)
-- [Documentation](#documentation)
-- [Contributing](#contributing)
-- [License](#license)
+- [MCP Python SDK](#mcp-python-sdk)
+  - [Overview](#overview)
+  - [Installation](#installation)
+    - [Adding MCP to your python project](#adding-mcp-to-your-python-project)
+    - [Running the standalone MCP development tools](#running-the-standalone-mcp-development-tools)
+  - [Quickstart](#quickstart)
+  - [What is MCP?](#what-is-mcp)
+  - [Core Concepts](#core-concepts)
+    - [Server](#server)
+    - [Resources](#resources)
+    - [Tools](#tools)
+    - [Prompts](#prompts)
+    - [Images](#images)
+    - [Context](#context)
+  - [Running Your Server](#running-your-server)
+    - [Development Mode](#development-mode)
+    - [Claude Desktop Integration](#claude-desktop-integration)
+    - [Direct Execution](#direct-execution)
+    - [Mounting to an Existing ASGI Server](#mounting-to-an-existing-asgi-server)
+  - [Examples](#examples)
+    - [Echo Server](#echo-server)
+    - [SQLite Explorer](#sqlite-explorer)
+  - [Advanced Usage](#advanced-usage)
+    - [Low-Level Server](#low-level-server)
+    - [Writing MCP Clients](#writing-mcp-clients)
+    - [MCP Primitives](#mcp-primitives)
+    - [Server Capabilities](#server-capabilities)
+  - [Documentation](#documentation)
+  - [Contributing](#contributing)
+  - [License](#license)
 
 [pypi-badge]: https://img.shields.io/pypi/v/mcp.svg
 [pypi-url]: https://pypi.org/project/mcp/
@@ -143,8 +146,8 @@ The FastMCP server is your core interface to the MCP protocol. It handles connec
 ```python
 # Add lifespan support for startup/shutdown with strong typing
 from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import AsyncIterator
 
 from fake_database import Database  # Replace with your actual DB type
 
@@ -441,7 +444,7 @@ For more control, you can use the low-level server implementation directly. This
 
 ```python
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from fake_database import Database  # Replace with your actual DB type
 
