@@ -9,7 +9,13 @@ from typing import AsyncGenerator
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
-from mcp.client.session import ClientSession, ListRootsFnT, LoggingFnT, SamplingFnT
+from mcp.client.session import (
+    ClientSession,
+    ListRootsFnT,
+    LoggingFnT,
+    MessageHandlerFnT,
+    SamplingFnT,
+)
 from mcp.server import Server
 from mcp.types import JSONRPCMessage
 
@@ -57,6 +63,7 @@ async def create_connected_server_and_client_session(
     sampling_callback: SamplingFnT | None = None,
     list_roots_callback: ListRootsFnT | None = None,
     logging_callback: LoggingFnT | None = None,
+    message_handler: MessageHandlerFnT | None = None,
     raise_exceptions: bool = False,
 ) -> AsyncGenerator[ClientSession, None]:
     """Creates a ClientSession that is connected to a running MCP server."""
@@ -86,6 +93,7 @@ async def create_connected_server_and_client_session(
                     sampling_callback=sampling_callback,
                     list_roots_callback=list_roots_callback,
                     logging_callback=logging_callback,
+                    message_handler=message_handler,
                 ) as client_session:
                     await client_session.initialize()
                     yield client_session

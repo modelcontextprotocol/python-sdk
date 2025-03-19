@@ -378,4 +378,4 @@ class BaseSession(
         | Exception,
     ) -> None:
         """A generic handler for incoming messages. Overwritten by subclasses."""
-        await anyio.lowlevel.checkpoint()
+        pass

@@ -92,7 +92,7 @@ class ServerSession(
         self._initialization_state = InitializationState.NotInitialized
         self._init_options = init_options
         self._incoming_message_stream_writer, self._incoming_message_stream_reader = (
-            anyio.create_memory_object_stream[ServerRequestResponder]()
+            anyio.create_memory_object_stream[ServerRequestResponder](0)
         )
         self._exit_stack.push_async_callback(
             lambda: self._incoming_message_stream_reader.aclose()
@@ -308,7 +308,7 @@ class ServerSession(
         )
 
     async def _handle_incoming(self, req: ServerRequestResponder) -> None:
-        return await self._incoming_message_stream_writer.send(req)
+        await self._incoming_message_stream_writer.send(req)
 
     @property
     def incoming_messages(
