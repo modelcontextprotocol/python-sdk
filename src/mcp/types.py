@@ -1012,7 +1012,7 @@ class CancelledNotificationParams(NotificationParams):
 
 
 class CancelledNotification(
-    Notification[NotificationParams, Literal["notifications/cancelled"]]
+    Notification[CancelledNotificationParams, Literal["notifications/cancelled"]]
 ):
     """
     This notification can be sent by either side to indicate that it is cancelling a
