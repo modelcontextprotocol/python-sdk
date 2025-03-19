@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-import mcp.server.fastmcp
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
 
@@ -41,6 +40,8 @@ class Tool(BaseModel):
         context_kwarg: str | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
+        from mcp.server.fastmcp import Context
+
         func_name = name or fn.__name__
 
         if func_name == "<lambda>":
@@ -49,11 +50,10 @@ class Tool(BaseModel):
         func_doc = description or fn.__doc__ or ""
         is_async = inspect.iscoroutinefunction(fn)
 
-        # Find context parameter if it exists
         if context_kwarg is None:
             sig = inspect.signature(fn)
             for param_name, param in sig.parameters.items():
-                if param.annotation is mcp.server.fastmcp.Context:
+                if param.annotation is Context:
                     context_kwarg = param_name
                     break
 
