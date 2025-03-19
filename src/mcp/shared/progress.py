@@ -1,6 +1,7 @@
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Generator, Generic
+from typing import Generic
 
 from pydantic import BaseModel
 
