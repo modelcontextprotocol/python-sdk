@@ -294,15 +294,14 @@ def run(
 ) -> None:
     """Run a MCP server.
 
-    The server can be specified in two ways:
-    1. Module approach: server.py - runs the module directly, expecting a server.run()
-       call
-    2. Import approach: server.py:app - imports and runs the specified server object
+    The server can be specified in two ways:\n
+    1. Module approach: server.py - runs the module directly, expecting a server.run() call.\n
+    2. Import approach: server.py:app - imports and runs the specified server object.\n\n
 
     Note: This command runs the server directly. You are responsible for ensuring
-    all dependencies are available. For dependency management, use mcp install
-    or mcp dev instead.
-    """
+    all dependencies are available.\n
+    For dependency management, use `mcp install` or `mcp dev` instead.
+    """  # noqa: E501
     file, server_object = _parse_file_path(file_spec)
 
     logger.debug(

@@ -19,6 +19,8 @@ import uvicorn
 from pydantic import BaseModel, Field
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from starlette.applications import Starlette
+from starlette.routing import Mount, Route
 
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
@@ -483,9 +485,19 @@ class FastMCP:
 
     async def run_sse_async(self) -> None:
         """Run the server using SSE transport."""
-        from starlette.applications import Starlette
-        from starlette.routing import Mount, Route
+        starlette_app = self.sse_app()
 
+        config = uvicorn.Config(
+            starlette_app,
+            host=self.settings.host,
+            port=self.settings.port,
+            log_level=self.settings.log_level.lower(),
+        )
+        server = uvicorn.Server(config)
+        await server.serve()
+
+    def sse_app(self) -> Starlette:
+        """Return an instance of the SSE server app."""
         sse = SseServerTransport("/messages/")
 
         async def handle_sse(request):
@@ -498,22 +510,13 @@ class FastMCP:
                     self._mcp_server.create_initialization_options(),
                 )
 
-        starlette_app = Starlette(
+        return Starlette(
             debug=self.settings.debug,
             routes=[
                 Route("/sse", endpoint=handle_sse),
                 Mount("/messages/", app=sse.handle_post_message),
             ],
         )
-
-        config = uvicorn.Config(
-            starlette_app,
-            host=self.settings.host,
-            port=self.settings.port,
-            log_level=self.settings.log_level.lower(),
-        )
-        server = uvicorn.Server(config)
-        await server.serve()
 
     async def list_prompts(self) -> list[MCPPrompt]:
         """List all available prompts."""
