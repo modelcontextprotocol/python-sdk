@@ -69,9 +69,9 @@ from __future__ import annotations as _annotations
 import contextvars
 import logging
 import warnings
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from typing import Any, AsyncIterator, Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -155,9 +155,7 @@ class Server(Generic[LifespanResultT]):
             try:
                 from importlib.metadata import version
 
-                v = version(package)
-                if v is not None:
-                    return v
+                return version(package)
             except Exception:
                 pass
 
@@ -320,7 +318,6 @@ class Server(Generic[LifespanResultT]):
                         contents_list = [
                             create_content(content_item.content, content_item.mime_type)
                             for content_item in contents
-                            if isinstance(content_item, ReadResourceContents)
                         ]
                         return types.ServerResult(
                             types.ReadResourceResult(
@@ -511,7 +508,8 @@ class Server(Generic[LifespanResultT]):
         raise_exceptions: bool = False,
     ):
         with warnings.catch_warnings(record=True) as w:
-            match message:
+            # TODO(Marcelo): We should be checking if message is Exception here.
+            match message:  # type: ignore[reportMatchNotExhaustive]
                 case (
                     RequestResponder(request=types.ClientRequest(root=req)) as responder
                 ):
@@ -527,7 +525,7 @@ class Server(Generic[LifespanResultT]):
 
     async def _handle_request(
         self,
-        message: RequestResponder,
+        message: RequestResponder[types.ClientRequest, types.ServerResult],
         req: Any,
         session: ServerSession,
         lifespan_context: LifespanResultT,

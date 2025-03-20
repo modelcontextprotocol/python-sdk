@@ -1,7 +1,7 @@
 """Tests for lifespan functionality in both low-level and FastMCP servers."""
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 import anyio
 import pytest

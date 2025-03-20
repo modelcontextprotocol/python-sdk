@@ -76,13 +76,11 @@ packages = ["src/mcp"]
 include = ["src/mcp", "tests"]
 venvPath = "."
 venv = ".venv"
-strict = [
-    "src/mcp/server/fastmcp/tools/base.py",
-    "src/mcp/client/*.py"
-]
+strict = ["src/mcp/**/*.py"]
+exclude = ["src/mcp/types.py"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+select = ["E", "F", "I", "UP"]
 ignore = []
 
 [tool.ruff]

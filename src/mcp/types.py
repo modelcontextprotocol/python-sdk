@@ -1,7 +1,7 @@
+from collections.abc import Callable
 from typing import (
     Annotated,
     Any,
-    Callable,
     Generic,
     Literal,
     TypeAlias,
@@ -89,6 +89,7 @@ class Notification(BaseModel, Generic[NotificationParamsT, MethodT]):
     """Base class for JSON-RPC notifications."""
 
     method: MethodT
+    params: NotificationParamsT
     model_config = ConfigDict(extra="allow")
 
 
@@ -1010,7 +1011,9 @@ class CancelledNotificationParams(NotificationParams):
     model_config = ConfigDict(extra="allow")
 
 
-class CancelledNotification(Notification):
+class CancelledNotification(
+    Notification[CancelledNotificationParams, Literal["notifications/cancelled"]]
+):
     """
     This notification can be sent by either side to indicate that it is cancelling a
     previously-issued request.

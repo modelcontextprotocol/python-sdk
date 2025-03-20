@@ -1,4 +1,4 @@
-from typing import List, Literal
+from typing import Literal
 
 import pytest
 
@@ -15,7 +15,7 @@ from mcp.types import (
 
 class LoggingCollector:
     def __init__(self):
-        self.log_messages: List[LoggingMessageNotificationParams] = []
+        self.log_messages: list[LoggingMessageNotificationParams] = []
 
     async def __call__(self, params: LoggingMessageNotificationParams) -> None:
         self.log_messages.append(params)

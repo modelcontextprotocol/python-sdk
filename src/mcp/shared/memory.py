@@ -2,9 +2,10 @@
 In-memory transports
 """
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import timedelta
-from typing import AsyncGenerator
+from typing import Any
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -58,7 +59,7 @@ async def create_client_server_memory_streams() -> (
 
 @asynccontextmanager
 async def create_connected_server_and_client_session(
-    server: Server,
+    server: Server[Any],
     read_timeout_seconds: timedelta | None = None,
     sampling_callback: SamplingFnT | None = None,
     list_roots_callback: ListRootsFnT | None = None,
