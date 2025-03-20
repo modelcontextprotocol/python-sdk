@@ -80,7 +80,7 @@ class FuncMetadata(BaseModel):
         dicts (JSON objects) as JSON strings, which can be pre-parsed here.
         """
         new_data = data.copy()  # Shallow copy
-        for field_name, field_info in self.arg_model.model_fields.items():
+        for field_name, _field_info in self.arg_model.model_fields.items():
             if field_name not in data.keys():
                 continue
             if isinstance(data[field_name], str):
@@ -102,7 +102,9 @@ class FuncMetadata(BaseModel):
     )
 
 
-def func_metadata(func: Callable, skip_names: Sequence[str] = ()) -> FuncMetadata:
+def func_metadata(
+    func: Callable[..., Any], skip_names: Sequence[str] = ()
+) -> FuncMetadata:
     """Given a function, return metadata including a pydantic model representing its
     signature.
 
@@ -175,7 +177,9 @@ def func_metadata(func: Callable, skip_names: Sequence[str] = ()) -> FuncMetadat
 
 
 def _get_typed_annotation(annotation: Any, globalns: dict[str, Any]) -> Any:
-    def try_eval_type(value, globalns, localns):
+    def try_eval_type(
+        value: Any, globalns: dict[str, Any], localns: dict[str, Any]
+    ) -> tuple[Any, bool]:
         try:
             return eval_type_backport(value, globalns, localns), True
         except NameError:

@@ -20,7 +20,10 @@ async def test_progress_token_zero_first_call():
     mock_meta.progressToken = 0  # This is the key test case - token is 0
 
     request_context = RequestContext(
-        request_id="test-request", session=mock_session, meta=mock_meta
+        request_id="test-request",
+        session=mock_session,
+        meta=mock_meta,
+        lifespan_context=None,
     )
 
     # Create context with our mocks

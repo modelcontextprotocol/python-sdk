@@ -1,23 +1,27 @@
+from __future__ import annotations as _annotations
+
 import inspect
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-import mcp.server.fastmcp
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
+    from mcp.server.session import ServerSessionT
+    from mcp.shared.context import LifespanContextT
 
 
 class Tool(BaseModel):
     """Internal tool registration info."""
 
-    fn: Callable = Field(exclude=True)
+    fn: Callable[..., Any] = Field(exclude=True)
     name: str = Field(description="Name of the tool")
     description: str = Field(description="Description of what the tool does")
-    parameters: dict = Field(description="JSON schema for tool parameters")
+    parameters: dict[str, Any] = Field(description="JSON schema for tool parameters")
     fn_metadata: FuncMetadata = Field(
         description="Metadata about the function including a pydantic model for tool"
         " arguments"
@@ -30,12 +34,14 @@ class Tool(BaseModel):
     @classmethod
     def from_function(
         cls,
-        fn: Callable,
+        fn: Callable[..., Any],
         name: str | None = None,
         description: str | None = None,
         context_kwarg: str | None = None,
-    ) -> "Tool":
+    ) -> Tool:
         """Create a Tool from a function."""
+        from mcp.server.fastmcp import Context
+
         func_name = name or fn.__name__
 
         if func_name == "<lambda>":
@@ -44,11 +50,10 @@ class Tool(BaseModel):
         func_doc = description or fn.__doc__ or ""
         is_async = inspect.iscoroutinefunction(fn)
 
-        # Find context parameter if it exists
         if context_kwarg is None:
             sig = inspect.signature(fn)
             for param_name, param in sig.parameters.items():
-                if param.annotation is mcp.server.fastmcp.Context:
+                if param.annotation is Context:
                     context_kwarg = param_name
                     break
 
@@ -68,7 +73,11 @@ class Tool(BaseModel):
             context_kwarg=context_kwarg,
         )
 
-    async def run(self, arguments: dict, context: "Context | None" = None) -> Any:
+    async def run(
+        self,
+        arguments: dict[str, Any],
+        context: Context[ServerSessionT, LifespanContextT] | None = None,
+    ) -> Any:
         """Run the tool with arguments."""
         try:
             return await self.fn_metadata.call_fn_with_arg_validation(

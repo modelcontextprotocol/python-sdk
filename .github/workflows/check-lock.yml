@@ -1,0 +1,25 @@
+name: Check uv.lock
+
+on:
+  pull_request:
+    paths:
+      - "pyproject.toml"
+      - "uv.lock"
+  push:
+    paths:
+      - "pyproject.toml"
+      - "uv.lock"
+
+jobs:
+  check-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Check uv.lock is up to date
+        run: uv lock --check

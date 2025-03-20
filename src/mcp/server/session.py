@@ -38,7 +38,7 @@ be instantiated directly by users of the MCP framework.
 """
 
 from enum import Enum
-from typing import Any
+from typing import Any, TypeVar
 
 import anyio
 import anyio.lowlevel
@@ -57,6 +57,9 @@ class InitializationState(Enum):
     NotInitialized = 1
     Initializing = 2
     Initialized = 3
+
+
+ServerSessionT = TypeVar("ServerSessionT", bound="ServerSession")
 
 
 class ServerSession(
@@ -126,19 +129,20 @@ class ServerSession(
             case types.InitializeRequest(params=params):
                 self._initialization_state = InitializationState.Initializing
                 self._client_params = params
-                await responder.respond(
-                    types.ServerResult(
-                        types.InitializeResult(
-                            protocolVersion=types.LATEST_PROTOCOL_VERSION,
-                            capabilities=self._init_options.capabilities,
-                            serverInfo=types.Implementation(
-                                name=self._init_options.server_name,
-                                version=self._init_options.server_version,
-                            ),
-                            instructions=self._init_options.instructions,
+                with responder:
+                    await responder.respond(
+                        types.ServerResult(
+                            types.InitializeResult(
+                                protocolVersion=types.LATEST_PROTOCOL_VERSION,
+                                capabilities=self._init_options.capabilities,
+                                serverInfo=types.Implementation(
+                                    name=self._init_options.server_name,
+                                    version=self._init_options.server_version,
+                                ),
+                                instructions=self._init_options.instructions,
+                            )
                         )
                     )
-                )
             case _:
                 if self._initialization_state != InitializationState.Initialized:
                     raise RuntimeError(

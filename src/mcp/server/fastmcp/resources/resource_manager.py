@@ -1,6 +1,7 @@
 """Resource manager functionality."""
 
-from typing import Callable
+from collections.abc import Callable
+from typing import Any
 
 from pydantic import AnyUrl
 
@@ -47,7 +48,7 @@ class ResourceManager:
 
     def add_template(
         self,
-        fn: Callable,
+        fn: Callable[..., Any],
         uri_template: str,
         name: str | None = None,
         description: str | None = None,

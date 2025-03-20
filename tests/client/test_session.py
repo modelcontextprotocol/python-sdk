@@ -83,6 +83,10 @@ async def test_client_session_initialize():
     async with (
         ClientSession(server_to_client_receive, client_to_server_send) as session,
         anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
     ):
         tg.start_soon(mock_server)
         tg.start_soon(listen_session)

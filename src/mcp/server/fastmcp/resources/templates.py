@@ -1,8 +1,11 @@
 """Resource template functionality."""
 
+from __future__ import annotations
+
 import inspect
 import re
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
@@ -20,18 +23,20 @@ class ResourceTemplate(BaseModel):
     mime_type: str = Field(
         default="text/plain", description="MIME type of the resource content"
     )
-    fn: Callable = Field(exclude=True)
-    parameters: dict = Field(description="JSON schema for function parameters")
+    fn: Callable[..., Any] = Field(exclude=True)
+    parameters: dict[str, Any] = Field(
+        description="JSON schema for function parameters"
+    )
 
     @classmethod
     def from_function(
         cls,
-        fn: Callable,
+        fn: Callable[..., Any],
         uri_template: str,
         name: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
-    ) -> "ResourceTemplate":
+    ) -> ResourceTemplate:
         """Create a template from a function."""
         func_name = name or fn.__name__
         if func_name == "<lambda>":

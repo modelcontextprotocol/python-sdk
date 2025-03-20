@@ -1,6 +1,6 @@
 import base64
 from pathlib import Path
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import AnyUrl
@@ -114,7 +114,7 @@ def image_tool_fn(path: str) -> Image:
     return Image(path)
 
 
-def mixed_content_tool_fn() -> list[Union[TextContent, ImageContent]]:
+def mixed_content_tool_fn() -> list[TextContent | ImageContent]:
     return [
         TextContent(type="text", text="Hello"),
         ImageContent(type="image", data="abc", mimeType="image/png"),
@@ -581,8 +581,11 @@ class TestContextInjection:
 
         @mcp.tool()
         async def tool_with_resource(ctx: Context) -> str:
-            data = await ctx.read_resource("test://data")
-            return f"Read resource: {data}"
+            r_iter = await ctx.read_resource("test://data")
+            r_list = list(r_iter)
+            assert len(r_list) == 1
+            r = r_list[0]
+            return f"Read resource: {r.content} with mime type {r.mime_type}"
 
         async with client_session(mcp._mcp_server) as client:
             result = await client.call_tool("tool_with_resource", {})

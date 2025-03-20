@@ -1,4 +1,5 @@
 import pytest
+from pydantic import AnyUrl
 from typing_extensions import AsyncGenerator
 
 from mcp.client.session import ClientSession
@@ -8,7 +9,25 @@ from mcp.shared.memory import (
 )
 from mcp.types import (
     EmptyResult,
+    Resource,
 )
+
+
+@pytest.fixture
+def mcp_server() -> Server:
+    server = Server(name="test_server")
+
+    @server.list_resources()
+    async def handle_list_resources():
+        return [
+            Resource(
+                uri=AnyUrl("memory://test"),
+                name="Test Resource",
+                description="A test resource",
+            )
+        ]
+
+    return server
 
 
 @pytest.fixture

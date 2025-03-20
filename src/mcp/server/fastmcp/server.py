@@ -1,10 +1,17 @@
 """FastMCP - A more ergonomic interface for MCP servers."""
 
+from __future__ import annotations as _annotations
+
 import inspect
 import json
 import re
+from collections.abc import AsyncIterator, Callable, Iterable, Sequence
+from contextlib import (
+    AbstractAsyncContextManager,
+    asynccontextmanager,
+)
 from itertools import chain
-from typing import Any, Callable, Literal, Sequence
+from typing import Any, Generic, Literal
 
 import anyio
 import pydantic_core
@@ -12,6 +19,9 @@ import uvicorn
 from pydantic import BaseModel, Field
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.routing import Mount, Route
 
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
@@ -19,36 +29,31 @@ from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceMan
 from mcp.server.fastmcp.tools import ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.fastmcp.utilities.types import Image
-from mcp.server.lowlevel import Server as MCPServer
+from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.server.lowlevel.server import LifespanResultT
+from mcp.server.lowlevel.server import Server as MCPServer
+from mcp.server.lowlevel.server import lifespan as default_lifespan
+from mcp.server.session import ServerSession, ServerSessionT
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
-from mcp.shared.context import RequestContext
+from mcp.shared.context import LifespanContextT, RequestContext
 from mcp.types import (
+    AnyFunction,
     EmbeddedResource,
     GetPromptResult,
     ImageContent,
     TextContent,
 )
-from mcp.types import (
-    Prompt as MCPPrompt,
-)
-from mcp.types import (
-    PromptArgument as MCPPromptArgument,
-)
-from mcp.types import (
-    Resource as MCPResource,
-)
-from mcp.types import (
-    ResourceTemplate as MCPResourceTemplate,
-)
-from mcp.types import (
-    Tool as MCPTool,
-)
+from mcp.types import Prompt as MCPPrompt
+from mcp.types import PromptArgument as MCPPromptArgument
+from mcp.types import Resource as MCPResource
+from mcp.types import ResourceTemplate as MCPResourceTemplate
+from mcp.types import Tool as MCPTool
 
 logger = get_logger(__name__)
 
 
-class Settings(BaseSettings):
+class Settings(BaseSettings, Generic[LifespanResultT]):
     """FastMCP server settings.
 
     All settings can be configured via environment variables with the prefix FASTMCP_.
@@ -63,7 +68,7 @@ class Settings(BaseSettings):
 
     # Server settings
     debug: bool = False
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "ERROR"
 
     # HTTP settings
     host: str = "0.0.0.0"
@@ -83,13 +88,36 @@ class Settings(BaseSettings):
         description="List of dependencies to install in the server environment",
     )
 
+    lifespan: (
+        Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]] | None
+    ) = Field(None, description="Lifespan context manager")
+
+
+def lifespan_wrapper(
+    app: FastMCP,
+    lifespan: Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]],
+) -> Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[object]]:
+    @asynccontextmanager
+    async def wrap(s: MCPServer[LifespanResultT]) -> AsyncIterator[object]:
+        async with lifespan(app) as context:
+            yield context
+
+    return wrap
+
 
 class FastMCP:
     def __init__(
         self, name: str | None = None, instructions: str | None = None, **settings: Any
     ):
         self.settings = Settings(**settings)
-        self._mcp_server = MCPServer(name=name or "FastMCP", instructions=instructions)
+
+        self._mcp_server = MCPServer(
+            name=name or "FastMCP",
+            instructions=instructions,
+            lifespan=lifespan_wrapper(self, self.settings.lifespan)
+            if self.settings.lifespan
+            else default_lifespan,
+        )
         self._tool_manager = ToolManager(
             warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
         )
@@ -152,7 +180,7 @@ class FastMCP:
             for info in tools
         ]
 
-    def get_context(self) -> "Context":
+    def get_context(self) -> Context[ServerSession, object]:
         """
         Returns a Context object. Note that the context will only be valid
         during a request; outside a request, most methods will error.
@@ -164,7 +192,7 @@ class FastMCP:
         return Context(request_context=request_context, fastmcp=self)
 
     async def call_tool(
-        self, name: str, arguments: dict
+        self, name: str, arguments: dict[str, Any]
     ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
         """Call a tool by name with arguments."""
         context = self.get_context()
@@ -197,21 +225,23 @@ class FastMCP:
             for template in templates
         ]
 
-    async def read_resource(self, uri: AnyUrl | str) -> str | bytes:
+    async def read_resource(self, uri: AnyUrl | str) -> Iterable[ReadResourceContents]:
         """Read a resource by URI."""
+
         resource = await self._resource_manager.get_resource(uri)
         if not resource:
             raise ResourceError(f"Unknown resource: {uri}")
 
         try:
-            return await resource.read()
+            content = await resource.read()
+            return [ReadResourceContents(content=content, mime_type=resource.mime_type)]
         except Exception as e:
             logger.error(f"Error reading resource {uri}: {e}")
             raise ResourceError(str(e))
 
     def add_tool(
         self,
-        fn: Callable,
+        fn: AnyFunction,
         name: str | None = None,
         description: str | None = None,
     ) -> None:
@@ -227,7 +257,9 @@ class FastMCP:
         """
         self._tool_manager.add_tool(fn, name=name, description=description)
 
-    def tool(self, name: str | None = None, description: str | None = None) -> Callable:
+    def tool(
+        self, name: str | None = None, description: str | None = None
+    ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
 
         Tools can optionally request a Context object by adding a parameter with the
@@ -260,7 +292,7 @@ class FastMCP:
                 "Did you forget to call it? Use @tool() instead of @tool"
             )
 
-        def decorator(fn: Callable) -> Callable:
+        def decorator(fn: AnyFunction) -> AnyFunction:
             self.add_tool(fn, name=name, description=description)
             return fn
 
@@ -281,7 +313,7 @@ class FastMCP:
         name: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
-    ) -> Callable:
+    ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a function as a resource.
 
         The function will be called when the resource is read to generate its content.
@@ -325,7 +357,7 @@ class FastMCP:
                 "Did you forget to call it? Use @resource('uri') instead of @resource"
             )
 
-        def decorator(fn: Callable) -> Callable:
+        def decorator(fn: AnyFunction) -> AnyFunction:
             # Check if this should be a template
             has_uri_params = "{" in uri and "}" in uri
             has_func_params = bool(inspect.signature(fn).parameters)
@@ -373,7 +405,7 @@ class FastMCP:
 
     def prompt(
         self, name: str | None = None, description: str | None = None
-    ) -> Callable:
+    ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a prompt.
 
         Args:
@@ -414,7 +446,7 @@ class FastMCP:
                 "Did you forget to call it? Use @prompt() instead of @prompt"
             )
 
-        def decorator(func: Callable) -> Callable:
+        def decorator(func: AnyFunction) -> AnyFunction:
             prompt = Prompt.from_function(func, name=name, description=description)
             self.add_prompt(prompt)
             return func
@@ -432,28 +464,7 @@ class FastMCP:
 
     async def run_sse_async(self) -> None:
         """Run the server using SSE transport."""
-        from starlette.applications import Starlette
-        from starlette.routing import Mount, Route
-
-        sse = SseServerTransport("/messages/")
-
-        async def handle_sse(request):
-            async with sse.connect_sse(
-                request.scope, request.receive, request._send
-            ) as streams:
-                await self._mcp_server.run(
-                    streams[0],
-                    streams[1],
-                    self._mcp_server.create_initialization_options(),
-                )
-
-        starlette_app = Starlette(
-            debug=self.settings.debug,
-            routes=[
-                Route("/sse", endpoint=handle_sse),
-                Mount("/messages/", app=sse.handle_post_message),
-            ],
-        )
+        starlette_app = self.sse_app()
 
         config = uvicorn.Config(
             starlette_app,
@@ -463,6 +474,30 @@ class FastMCP:
         )
         server = uvicorn.Server(config)
         await server.serve()
+
+    def sse_app(self) -> Starlette:
+        """Return an instance of the SSE server app."""
+        sse = SseServerTransport("/messages/")
+
+        async def handle_sse(request: Request) -> None:
+            async with sse.connect_sse(
+                request.scope,
+                request.receive,
+                request._send,  # type: ignore[reportPrivateUsage]
+            ) as streams:
+                await self._mcp_server.run(
+                    streams[0],
+                    streams[1],
+                    self._mcp_server.create_initialization_options(),
+                )
+
+        return Starlette(
+            debug=self.settings.debug,
+            routes=[
+                Route("/sse", endpoint=handle_sse),
+                Mount("/messages/", app=sse.handle_post_message),
+            ],
+        )
 
     async def list_prompts(self) -> list[MCPPrompt]:
         """List all available prompts."""
@@ -503,14 +538,14 @@ def _convert_to_content(
     if result is None:
         return []
 
-    if isinstance(result, (TextContent, ImageContent, EmbeddedResource)):
+    if isinstance(result, TextContent | ImageContent | EmbeddedResource):
         return [result]
 
     if isinstance(result, Image):
         return [result.to_image_content()]
 
-    if isinstance(result, (list, tuple)):
-        return list(chain.from_iterable(_convert_to_content(item) for item in result))
+    if isinstance(result, list | tuple):
+        return list(chain.from_iterable(_convert_to_content(item) for item in result))  # type: ignore[reportUnknownVariableType]
 
     if not isinstance(result, str):
         try:
@@ -521,7 +556,7 @@ def _convert_to_content(
     return [TextContent(type="text", text=result)]
 
 
-class Context(BaseModel):
+class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
     """Context object providing access to MCP capabilities.
 
     This provides a cleaner interface to MCP's RequestContext functionality.
@@ -555,13 +590,13 @@ class Context(BaseModel):
     The context is optional - tools that don't need it can omit the parameter.
     """
 
-    _request_context: RequestContext | None
+    _request_context: RequestContext[ServerSessionT, LifespanContextT] | None
     _fastmcp: FastMCP | None
 
     def __init__(
         self,
         *,
-        request_context: RequestContext | None = None,
+        request_context: RequestContext[ServerSessionT, LifespanContextT] | None = None,
         fastmcp: FastMCP | None = None,
         **kwargs: Any,
     ):
@@ -577,7 +612,7 @@ class Context(BaseModel):
         return self._fastmcp
 
     @property
-    def request_context(self) -> RequestContext:
+    def request_context(self) -> RequestContext[ServerSessionT, LifespanContextT]:
         """Access to the underlying request context."""
         if self._request_context is None:
             raise ValueError("Context is not available outside of a request")
@@ -606,7 +641,7 @@ class Context(BaseModel):
             progress_token=progress_token, progress=progress, total=total
         )
 
-    async def read_resource(self, uri: str | AnyUrl) -> str | bytes:
+    async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:
         """Read a resource by URI.
 
         Args:

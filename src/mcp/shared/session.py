@@ -1,15 +1,20 @@
-from contextlib import AbstractAsyncContextManager
+import logging
+from collections.abc import Callable
+from contextlib import AsyncExitStack
 from datetime import timedelta
-from typing import Generic, TypeVar
+from types import TracebackType
+from typing import Any, Generic, TypeVar
 
 import anyio
 import anyio.lowlevel
 import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import BaseModel
+from typing_extensions import Self
 
 from mcp.shared.exceptions import McpError
 from mcp.types import (
+    CancelledNotification,
     ClientNotification,
     ClientRequest,
     ClientResult,
@@ -38,30 +43,111 @@ RequestId = str | int
 
 
 class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
+    """Handles responding to MCP requests and manages request lifecycle.
+
+    This class MUST be used as a context manager to ensure proper cleanup and
+    cancellation handling:
+
+    Example:
+        with request_responder as resp:
+            await resp.respond(result)
+
+    The context manager ensures:
+    1. Proper cancellation scope setup and cleanup
+    2. Request completion tracking
+    3. Cleanup of in-flight requests
+    """
+
     def __init__(
         self,
         request_id: RequestId,
         request_meta: RequestParams.Meta | None,
         request: ReceiveRequestT,
-        session: "BaseSession",
+        session: """BaseSession[
+            SendRequestT,
+            SendNotificationT,
+            SendResultT,
+            ReceiveRequestT,
+            ReceiveNotificationT
+        ]""",
+        on_complete: Callable[["RequestResponder[ReceiveRequestT, SendResultT]"], Any],
     ) -> None:
         self.request_id = request_id
         self.request_meta = request_meta
         self.request = request
         self._session = session
-        self._responded = False
+        self._completed = False
+        self._cancel_scope = anyio.CancelScope()
+        self._on_complete = on_complete
+        self._entered = False  # Track if we're in a context manager
+
+    def __enter__(self) -> "RequestResponder[ReceiveRequestT, SendResultT]":
+        """Enter the context manager, enabling request cancellation tracking."""
+        self._entered = True
+        self._cancel_scope = anyio.CancelScope()
+        self._cancel_scope.__enter__()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Exit the context manager, performing cleanup and notifying completion."""
+        try:
+            if self._completed:
+                self._on_complete(self)
+        finally:
+            self._entered = False
+            if not self._cancel_scope:
+                raise RuntimeError("No active cancel scope")
+            self._cancel_scope.__exit__(exc_type, exc_val, exc_tb)
 
     async def respond(self, response: SendResultT | ErrorData) -> None:
-        assert not self._responded, "Request already responded to"
-        self._responded = True
+        """Send a response for this request.
 
-        await self._session._send_response(
-            request_id=self.request_id, response=response
+        Must be called within a context manager block.
+        Raises:
+            RuntimeError: If not used within a context manager
+            AssertionError: If request was already responded to
+        """
+        if not self._entered:
+            raise RuntimeError("RequestResponder must be used as a context manager")
+        assert not self._completed, "Request already responded to"
+
+        if not self.cancelled:
+            self._completed = True
+
+            await self._session._send_response(  # type: ignore[reportPrivateUsage]
+                request_id=self.request_id, response=response
+            )
+
+    async def cancel(self) -> None:
+        """Cancel this request and mark it as completed."""
+        if not self._entered:
+            raise RuntimeError("RequestResponder must be used as a context manager")
+        if not self._cancel_scope:
+            raise RuntimeError("No active cancel scope")
+
+        self._cancel_scope.cancel()
+        self._completed = True  # Mark as completed so it's removed from in_flight
+        # Send an error response to indicate cancellation
+        await self._session._send_response(  # type: ignore[reportPrivateUsage]
+            request_id=self.request_id,
+            response=ErrorData(code=0, message="Request cancelled", data=None),
         )
+
+    @property
+    def in_flight(self) -> bool:
+        return not self._completed and not self.cancelled
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancel_scope.cancel_called
 
 
 class BaseSession(
-    AbstractAsyncContextManager,
     Generic[
         SendRequestT,
         SendNotificationT,
@@ -82,6 +168,7 @@ class BaseSession(
         RequestId, MemoryObjectSendStream[JSONRPCResponse | JSONRPCError]
     ]
     _request_id: int
+    _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
 
     def __init__(
         self,
@@ -99,7 +186,9 @@ class BaseSession(
         self._receive_request_type = receive_request_type
         self._receive_notification_type = receive_notification_type
         self._read_timeout_seconds = read_timeout_seconds
+        self._in_flight = {}
 
+        self._exit_stack = AsyncExitStack()
         self._incoming_message_stream_writer, self._incoming_message_stream_reader = (
             anyio.create_memory_object_stream[
                 RequestResponder[ReceiveRequestT, SendResultT]
@@ -107,14 +196,26 @@ class BaseSession(
                 | Exception
             ]()
         )
+        self._exit_stack.push_async_callback(
+            lambda: self._incoming_message_stream_reader.aclose()
+        )
+        self._exit_stack.push_async_callback(
+            lambda: self._incoming_message_stream_writer.aclose()
+        )
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> Self:
         self._task_group = anyio.create_task_group()
         await self._task_group.__aenter__()
         self._task_group.start_soon(self._receive_loop)
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
+        await self._exit_stack.aclose()
         # Using BaseSession as a context manager should not block on exit (this
         # would be very surprising behavior), so make sure to cancel the tasks
         # in the task group.
@@ -141,6 +242,9 @@ class BaseSession(
             JSONRPCResponse | JSONRPCError
         ](1)
         self._response_streams[request_id] = response_stream
+
+        self._exit_stack.push_async_callback(lambda: response_stream.aclose())
+        self._exit_stack.push_async_callback(lambda: response_stream_reader.aclose())
 
         jsonrpc_request = JSONRPCRequest(
             jsonrpc="2.0",
@@ -219,6 +323,7 @@ class BaseSession(
                             by_alias=True, mode="json", exclude_none=True
                         )
                     )
+
                     responder = RequestResponder(
                         request_id=message.root.id,
                         request_meta=validated_request.root.params.meta
@@ -226,20 +331,37 @@ class BaseSession(
                         else None,
                         request=validated_request,
                         session=self,
+                        on_complete=lambda r: self._in_flight.pop(r.request_id, None),
                     )
 
+                    self._in_flight[responder.request_id] = responder
                     await self._received_request(responder)
-                    if not responder._responded:
+                    if not responder._completed:  # type: ignore[reportPrivateUsage]
                         await self._incoming_message_stream_writer.send(responder)
-                elif isinstance(message.root, JSONRPCNotification):
-                    notification = self._receive_notification_type.model_validate(
-                        message.root.model_dump(
-                            by_alias=True, mode="json", exclude_none=True
-                        )
-                    )
 
-                    await self._received_notification(notification)
-                    await self._incoming_message_stream_writer.send(notification)
+                elif isinstance(message.root, JSONRPCNotification):
+                    try:
+                        notification = self._receive_notification_type.model_validate(
+                            message.root.model_dump(
+                                by_alias=True, mode="json", exclude_none=True
+                            )
+                        )
+                        # Handle cancellation notifications
+                        if isinstance(notification.root, CancelledNotification):
+                            cancelled_id = notification.root.params.requestId
+                            if cancelled_id in self._in_flight:
+                                await self._in_flight[cancelled_id].cancel()
+                        else:
+                            await self._received_notification(notification)
+                            await self._incoming_message_stream_writer.send(
+                                notification
+                            )
+                    except Exception as e:
+                        # For other validation errors, log and continue
+                        logging.warning(
+                            f"Failed to validate notification: {e}. "
+                            f"Message was: {message.root}"
+                        )
                 else:  # Response or error
                     stream = self._response_streams.pop(message.root.id, None)
                     if stream:

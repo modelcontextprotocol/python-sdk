@@ -1,7 +1,15 @@
-from typing import Annotated, Any, Generic, Literal, TypeVar
+from collections.abc import Callable
+from typing import (
+    Annotated,
+    Any,
+    Generic,
+    Literal,
+    TypeAlias,
+    TypeVar,
+)
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
-from pydantic.networks import AnyUrl
+from pydantic.networks import AnyUrl, UrlConstraints
 
 """
 Model Context Protocol bindings for Python
@@ -27,6 +35,7 @@ ProgressToken = str | int
 Cursor = str
 Role = Literal["user", "assistant"]
 RequestId = str | int
+AnyFunction: TypeAlias = Callable[..., Any]
 
 
 class RequestParams(BaseModel):
@@ -80,6 +89,7 @@ class Notification(BaseModel, Generic[NotificationParamsT, MethodT]):
     """Base class for JSON-RPC notifications."""
 
     method: MethodT
+    params: NotificationParamsT
     model_config = ConfigDict(extra="allow")
 
 
@@ -352,7 +362,7 @@ class Annotations(BaseModel):
 class Resource(BaseModel):
     """A known resource that the server is capable of reading."""
 
-    uri: AnyUrl
+    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """The URI of this resource."""
     name: str
     """A human-readable name for this resource."""
@@ -414,7 +424,7 @@ class ListResourceTemplatesResult(PaginatedResult):
 class ReadResourceRequestParams(RequestParams):
     """Parameters for reading a resource."""
 
-    uri: AnyUrl
+    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """
     The URI of the resource to read. The URI can use any protocol; it is up to the
     server how to interpret it.
@@ -432,7 +442,7 @@ class ReadResourceRequest(Request):
 class ResourceContents(BaseModel):
     """The contents of a specific resource or sub-resource."""
 
-    uri: AnyUrl
+    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """The URI of this resource."""
     mimeType: str | None = None
     """The MIME type of this resource, if known."""
@@ -475,7 +485,7 @@ class ResourceListChangedNotification(Notification):
 class SubscribeRequestParams(RequestParams):
     """Parameters for subscribing to a resource."""
 
-    uri: AnyUrl
+    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """
     The URI of the resource to subscribe to. The URI can use any protocol; it is up to
     the server how to interpret it.
@@ -496,7 +506,7 @@ class SubscribeRequest(Request):
 class UnsubscribeRequestParams(RequestParams):
     """Parameters for unsubscribing from a resource."""
 
-    uri: AnyUrl
+    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """The URI of the resource to unsubscribe from."""
     model_config = ConfigDict(extra="allow")
 
@@ -514,7 +524,7 @@ class UnsubscribeRequest(Request):
 class ResourceUpdatedNotificationParams(NotificationParams):
     """Parameters for resource update notifications."""
 
-    uri: AnyUrl
+    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """
     The URI of the resource that has been updated. This might be a sub-resource of the
     one that the client actually subscribed to.
@@ -1001,7 +1011,9 @@ class CancelledNotificationParams(NotificationParams):
     model_config = ConfigDict(extra="allow")
 
 
-class CancelledNotification(Notification):
+class CancelledNotification(
+    Notification[CancelledNotificationParams, Literal["notifications/cancelled"]]
+):
     """
     This notification can be sent by either side to indicate that it is cancelling a
     previously-issued request.
