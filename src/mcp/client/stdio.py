@@ -2,7 +2,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TextIO
 
 import anyio
 import anyio.lowlevel
@@ -87,7 +87,7 @@ class StdioServerParameters(BaseModel):
 
 
 @asynccontextmanager
-async def stdio_client(server: StdioServerParameters, errlog=sys.stderr):
+async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stderr):
     """
     Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
