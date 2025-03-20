@@ -24,6 +24,13 @@ class ListRootsFnT(Protocol):
     ) -> types.ListRootsResult | types.ErrorData: ...
 
 
+class LoggingFnT(Protocol):
+    async def __call__(
+        self,
+        params: types.LoggingMessageNotificationParams,
+    ) -> None: ...
+
+
 async def _default_sampling_callback(
     context: RequestContext["ClientSession", Any],
     params: types.CreateMessageRequestParams,
@@ -43,7 +50,15 @@ async def _default_list_roots_callback(
     )
 
 
-ClientResponse = TypeAdapter(types.ClientResult | types.ErrorData)
+async def _default_logging_callback(
+    params: types.LoggingMessageNotificationParams,
+) -> None:
+    pass
+
+
+ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(
+    types.ClientResult | types.ErrorData
+)
 
 
 class ClientSession(
@@ -62,6 +77,7 @@ class ClientSession(
         read_timeout_seconds: timedelta | None = None,
         sampling_callback: SamplingFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
+        logging_callback: LoggingFnT | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -72,20 +88,15 @@ class ClientSession(
         )
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
+        self._logging_callback = logging_callback or _default_logging_callback
 
     async def initialize(self) -> types.InitializeResult:
-        sampling = (
-            types.SamplingCapability() if self._sampling_callback is not None else None
-        )
-        roots = (
-            types.RootsCapability(
-                # TODO: Should this be based on whether we
-                # _will_ send notifications, or only whether
-                # they're supported?
-                listChanged=True,
-            )
-            if self._list_roots_callback is not None
-            else None
+        sampling = types.SamplingCapability()
+        roots = types.RootsCapability(
+            # TODO: Should this be based on whether we
+            # _will_ send notifications, or only whether
+            # they're supported?
+            listChanged=True,
         )
 
         result = await self.send_request(
@@ -219,7 +230,7 @@ class ClientSession(
         )
 
     async def call_tool(
-        self, name: str, arguments: dict | None = None
+        self, name: str, arguments: dict[str, Any] | None = None
     ) -> types.CallToolResult:
         """Send a tools/call request."""
         return await self.send_request(
@@ -258,7 +269,9 @@ class ClientSession(
         )
 
     async def complete(
-        self, ref: types.ResourceReference | types.PromptReference, argument: dict
+        self,
+        ref: types.ResourceReference | types.PromptReference,
+        argument: dict[str, str],
     ) -> types.CompleteResult:
         """Send a completion/complete request."""
         return await self.send_request(
@@ -323,3 +336,13 @@ class ClientSession(
                     return await responder.respond(
                         types.ClientResult(root=types.EmptyResult())
                     )
+
+    async def _received_notification(
+        self, notification: types.ServerNotification
+    ) -> None:
+        """Handle notifications from the server."""
+        match notification.root:
+            case types.LoggingMessageNotification(params=params):
+                await self._logging_callback(params)
+            case _:
+                pass

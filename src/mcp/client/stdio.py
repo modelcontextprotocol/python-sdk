@@ -1,7 +1,8 @@
 import os
 import sys
 from contextlib import asynccontextmanager
-from typing import Literal
+from pathlib import Path
+from typing import Literal, TextIO
 
 import anyio
 import anyio.lowlevel
@@ -66,6 +67,9 @@ class StdioServerParameters(BaseModel):
     If not specified, the result of get_default_environment() will be used.
     """
 
+    cwd: str | Path | None = None
+    """The working directory to use when spawning the process."""
+
     encoding: str = "utf-8"
     """
     The text encoding used when sending/receiving messages to the server
@@ -83,7 +87,7 @@ class StdioServerParameters(BaseModel):
 
 
 @asynccontextmanager
-async def stdio_client(server: StdioServerParameters):
+async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stderr):
     """
     Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
@@ -100,7 +104,8 @@ async def stdio_client(server: StdioServerParameters):
     process = await anyio.open_process(
         [server.command, *server.args],
         env=server.env if server.env is not None else get_default_environment(),
-        stderr=sys.stderr,
+        stderr=errlog,
+        cwd=server.cwd,
     )
 
     async def stdout_reader():

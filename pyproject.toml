@@ -1,6 +1,6 @@
 [project]
 name = "mcp"
-version = "1.4.0.dev0"
+dynamic = ["version"]
 description = "Model Context Protocol SDK"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,6 +35,7 @@ dependencies = [
 [project.optional-dependencies]
 rich = ["rich>=13.9.4"]
 cli = ["typer>=0.12.4", "python-dotenv>=1.0.0"]
+ws = ["websockets>=15.0.1"]
 
 [project.scripts]
 mcp = "mcp.cli:app [cli]"
@@ -48,11 +49,20 @@ dev-dependencies = [
     "trio>=0.26.2",
     "pytest-flakefinder>=1.1.0",
     "pytest-xdist>=3.6.1",
+    "pytest-examples>=0.0.14",
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "uv-dynamic-versioning"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
 
 [project.urls]
 Homepage = "https://modelcontextprotocol.io"
@@ -66,9 +76,11 @@ packages = ["src/mcp"]
 include = ["src/mcp", "tests"]
 venvPath = "."
 venv = ".venv"
+strict = ["src/mcp/**/*.py"]
+exclude = ["src/mcp/types.py"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+select = ["E", "F", "I", "UP"]
 ignore = []
 
 [tool.ruff]
@@ -84,3 +96,13 @@ members = ["examples/servers/*"]
 
 [tool.uv.sources]
 mcp = { workspace = true }
+
+[tool.pytest.ini_options]
+xfail_strict = true
+filterwarnings = [
+    "error",
+    # This should be fixed on Uvicorn's side.
+    "ignore::DeprecationWarning:websockets",
+    "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
+    "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel"
+]

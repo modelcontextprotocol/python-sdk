@@ -4,18 +4,16 @@ import time
 from collections.abc import AsyncGenerator, Generator
 
 import anyio
-import httpx
 import pytest
 import uvicorn
 from pydantic import AnyUrl
 from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.routing import Mount, Route
+from starlette.routing import WebSocketRoute
 
 from mcp.client.session import ClientSession
-from mcp.client.sse import sse_client
+from mcp.client.websocket import websocket_client
 from mcp.server import Server
-from mcp.server.sse import SseServerTransport
+from mcp.server.websocket import websocket_server
 from mcp.shared.exceptions import McpError
 from mcp.types import (
     EmptyResult,
@@ -27,7 +25,7 @@ from mcp.types import (
     Tool,
 )
 
-SERVER_NAME = "test_server_for_SSE"
+SERVER_NAME = "test_server_for_WS"
 
 
 @pytest.fixture
@@ -39,7 +37,7 @@ def server_port() -> int:
 
 @pytest.fixture
 def server_url(server_port: int) -> str:
-    return f"http://127.0.0.1:{server_port}"
+    return f"ws://127.0.0.1:{server_port}"
 
 
 # Test server implementation
@@ -79,13 +77,12 @@ class ServerTest(Server):
 
 # Test fixtures
 def make_server_app() -> Starlette:
-    """Create test Starlette app with SSE transport"""
-    sse = SseServerTransport("/messages/")
+    """Create test Starlette app with WebSocket transport"""
     server = ServerTest()
 
-    async def handle_sse(request: Request) -> None:
-        async with sse.connect_sse(
-            request.scope, request.receive, request._send
+    async def handle_ws(websocket):
+        async with websocket_server(
+            websocket.scope, websocket.receive, websocket.send
         ) as streams:
             await server.run(
                 streams[0], streams[1], server.create_initialization_options()
@@ -93,8 +90,7 @@ def make_server_app() -> Starlette:
 
     app = Starlette(
         routes=[
-            Route("/sse", endpoint=handle_sse),
-            Mount("/messages/", app=sse.handle_post_message),
+            WebSocketRoute("/ws", endpoint=handle_ws),
         ]
     )
 
@@ -153,44 +149,29 @@ def server(server_port: int) -> Generator[None, None, None]:
 
 
 @pytest.fixture()
-async def http_client(server, server_url) -> AsyncGenerator[httpx.AsyncClient, None]:
-    """Create test client"""
-    async with httpx.AsyncClient(base_url=server_url) as client:
-        yield client
+async def initialized_ws_client_session(
+    server, server_url: str
+) -> AsyncGenerator[ClientSession, None]:
+    """Create and initialize a WebSocket client session"""
+    async with websocket_client(server_url + "/ws") as streams:
+        async with ClientSession(*streams) as session:
+            # Test initialization
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == SERVER_NAME
+
+            # Test ping
+            ping_result = await session.send_ping()
+            assert isinstance(ping_result, EmptyResult)
+
+            yield session
 
 
 # Tests
 @pytest.mark.anyio
-async def test_raw_sse_connection(http_client: httpx.AsyncClient) -> None:
-    """Test the SSE connection establishment simply with an HTTP client."""
-    async with anyio.create_task_group():
-
-        async def connection_test() -> None:
-            async with http_client.stream("GET", "/sse") as response:
-                assert response.status_code == 200
-                assert (
-                    response.headers["content-type"]
-                    == "text/event-stream; charset=utf-8"
-                )
-
-                line_number = 0
-                async for line in response.aiter_lines():
-                    if line_number == 0:
-                        assert line == "event: endpoint"
-                    elif line_number == 1:
-                        assert line.startswith("data: /messages/?session_id=")
-                    else:
-                        return
-                    line_number += 1
-
-        # Add timeout to prevent test from hanging if it fails
-        with anyio.fail_after(3):
-            await connection_test()
-
-
-@pytest.mark.anyio
-async def test_sse_client_basic_connection(server: None, server_url: str) -> None:
-    async with sse_client(server_url + "/sse") as streams:
+async def test_ws_client_basic_connection(server: None, server_url: str) -> None:
+    """Test the WebSocket connection establishment"""
+    async with websocket_client(server_url + "/ws") as streams:
         async with ClientSession(*streams) as session:
             # Test initialization
             result = await session.initialize()
@@ -202,53 +183,48 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
             assert isinstance(ping_result, EmptyResult)
 
 
-@pytest.fixture
-async def initialized_sse_client_session(
-    server, server_url: str
-) -> AsyncGenerator[ClientSession, None]:
-    async with sse_client(server_url + "/sse", sse_read_timeout=0.5) as streams:
-        async with ClientSession(*streams) as session:
-            await session.initialize()
-            yield session
+@pytest.mark.anyio
+async def test_ws_client_happy_request_and_response(
+    initialized_ws_client_session: ClientSession,
+) -> None:
+    """Test a successful request and response via WebSocket"""
+    result = await initialized_ws_client_session.read_resource(
+        AnyUrl("foobar://example")
+    )
+    assert isinstance(result, ReadResourceResult)
+    assert isinstance(result.contents, list)
+    assert len(result.contents) > 0
+    assert isinstance(result.contents[0], TextResourceContents)
+    assert result.contents[0].text == "Read example"
 
 
 @pytest.mark.anyio
-async def test_sse_client_happy_request_and_response(
-    initialized_sse_client_session: ClientSession,
+async def test_ws_client_exception_handling(
+    initialized_ws_client_session: ClientSession,
 ) -> None:
-    session = initialized_sse_client_session
-    response = await session.read_resource(uri=AnyUrl("foobar://should-work"))
-    assert len(response.contents) == 1
-    assert isinstance(response.contents[0], TextResourceContents)
-    assert response.contents[0].text == "Read should-work"
+    """Test exception handling in WebSocket communication"""
+    with pytest.raises(McpError) as exc_info:
+        await initialized_ws_client_session.read_resource(AnyUrl("unknown://example"))
+    assert exc_info.value.error.code == 404
 
 
 @pytest.mark.anyio
-async def test_sse_client_exception_handling(
-    initialized_sse_client_session: ClientSession,
+async def test_ws_client_timeout(
+    initialized_ws_client_session: ClientSession,
 ) -> None:
-    session = initialized_sse_client_session
-    with pytest.raises(McpError, match="OOPS! no resource with that URI was found"):
-        await session.read_resource(uri=AnyUrl("xxx://will-not-work"))
+    """Test timeout handling in WebSocket communication"""
+    # Set a very short timeout to trigger a timeout exception
+    with pytest.raises(TimeoutError):
+        with anyio.fail_after(0.1):  # 100ms timeout
+            await initialized_ws_client_session.read_resource(AnyUrl("slow://example"))
 
-
-@pytest.mark.anyio
-@pytest.mark.skip(
-    "this test highlights a possible bug in SSE read timeout exception handling"
-)
-async def test_sse_client_timeout(
-    initialized_sse_client_session: ClientSession,
-) -> None:
-    session = initialized_sse_client_session
-
-    # sanity check that normal, fast responses are working
-    response = await session.read_resource(uri=AnyUrl("foobar://1"))
-    assert isinstance(response, ReadResourceResult)
-
-    with anyio.move_on_after(3):
-        with pytest.raises(McpError, match="Read timed out"):
-            response = await session.read_resource(uri=AnyUrl("slow://2"))
-            # we should receive an error here
-        return
-
-    pytest.fail("the client should have timed out and returned an error already")
+    # Now test that we can still use the session after a timeout
+    with anyio.fail_after(5):  # Longer timeout to allow completion
+        result = await initialized_ws_client_session.read_resource(
+            AnyUrl("foobar://example")
+        )
+        assert isinstance(result, ReadResourceResult)
+        assert isinstance(result.contents, list)
+        assert len(result.contents) > 0
+        assert isinstance(result.contents[0], TextResourceContents)
+        assert result.contents[0].text == "Read example"

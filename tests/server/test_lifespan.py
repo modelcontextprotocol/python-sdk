@@ -1,7 +1,7 @@
 """Tests for lifespan functionality in both low-level and FastMCP servers."""
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 import anyio
 import pytest
@@ -25,7 +25,7 @@ async def test_lowlevel_server_lifespan():
     """Test that lifespan works in low-level server."""
 
     @asynccontextmanager
-    async def test_lifespan(server: Server) -> AsyncIterator[dict]:
+    async def test_lifespan(server: Server) -> AsyncIterator[dict[str, bool]]:
         """Test lifespan context that tracks startup/shutdown."""
         context = {"started": False, "shutdown": False}
         try:
@@ -50,7 +50,13 @@ async def test_lowlevel_server_lifespan():
         return [{"type": "text", "text": "true"}]
 
     # Run server in background task
-    async with anyio.create_task_group() as tg:
+    async with (
+        anyio.create_task_group() as tg,
+        send_stream1,
+        receive_stream1,
+        send_stream2,
+        receive_stream2,
+    ):
 
         async def run_server():
             await server.run(
@@ -147,7 +153,13 @@ async def test_fastmcp_server_lifespan():
         return True
 
     # Run server in background task
-    async with anyio.create_task_group() as tg:
+    async with (
+        anyio.create_task_group() as tg,
+        send_stream1,
+        receive_stream1,
+        send_stream2,
+        receive_stream2,
+    ):
 
         async def run_server():
             await server._mcp_server.run(

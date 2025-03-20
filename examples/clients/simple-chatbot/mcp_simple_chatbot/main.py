@@ -23,7 +23,7 @@ class Configuration:
     def __init__(self) -> None:
         """Initialize configuration with environment variables."""
         self.load_env()
-        self.api_key = os.getenv("GROQ_API_KEY")
+        self.api_key = os.getenv("LLM_API_KEY")
 
     @staticmethod
     def load_env() -> None:

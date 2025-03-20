@@ -1,13 +1,16 @@
 import logging
-from contextlib import AbstractAsyncContextManager
+from collections.abc import Callable
+from contextlib import AsyncExitStack
 from datetime import timedelta
-from typing import Any, Callable, Generic, TypeVar
+from types import TracebackType
+from typing import Any, Generic, TypeVar
 
 import anyio
 import anyio.lowlevel
 import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import BaseModel
+from typing_extensions import Self
 
 from mcp.shared.exceptions import McpError
 from mcp.types import (
@@ -60,7 +63,13 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         request_id: RequestId,
         request_meta: RequestParams.Meta | None,
         request: ReceiveRequestT,
-        session: "BaseSession",
+        session: """BaseSession[
+            SendRequestT,
+            SendNotificationT,
+            SendResultT,
+            ReceiveRequestT,
+            ReceiveNotificationT
+        ]""",
         on_complete: Callable[["RequestResponder[ReceiveRequestT, SendResultT]"], Any],
     ) -> None:
         self.request_id = request_id
@@ -79,7 +88,12 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         self._cancel_scope.__enter__()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Exit the context manager, performing cleanup and notifying completion."""
         try:
             if self._completed:
@@ -105,7 +119,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         if not self.cancelled:
             self._completed = True
 
-            await self._session._send_response(
+            await self._session._send_response(  # type: ignore[reportPrivateUsage]
                 request_id=self.request_id, response=response
             )
 
@@ -119,7 +133,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         self._cancel_scope.cancel()
         self._completed = True  # Mark as completed so it's removed from in_flight
         # Send an error response to indicate cancellation
-        await self._session._send_response(
+        await self._session._send_response(  # type: ignore[reportPrivateUsage]
             request_id=self.request_id,
             response=ErrorData(code=0, message="Request cancelled", data=None),
         )
@@ -130,11 +144,10 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
 
     @property
     def cancelled(self) -> bool:
-        return self._cancel_scope is not None and self._cancel_scope.cancel_called
+        return self._cancel_scope.cancel_called
 
 
 class BaseSession(
-    AbstractAsyncContextManager,
     Generic[
         SendRequestT,
         SendNotificationT,
@@ -175,6 +188,7 @@ class BaseSession(
         self._read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
 
+        self._exit_stack = AsyncExitStack()
         self._incoming_message_stream_writer, self._incoming_message_stream_reader = (
             anyio.create_memory_object_stream[
                 RequestResponder[ReceiveRequestT, SendResultT]
@@ -182,14 +196,26 @@ class BaseSession(
                 | Exception
             ]()
         )
+        self._exit_stack.push_async_callback(
+            lambda: self._incoming_message_stream_reader.aclose()
+        )
+        self._exit_stack.push_async_callback(
+            lambda: self._incoming_message_stream_writer.aclose()
+        )
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> Self:
         self._task_group = anyio.create_task_group()
         await self._task_group.__aenter__()
         self._task_group.start_soon(self._receive_loop)
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
+        await self._exit_stack.aclose()
         # Using BaseSession as a context manager should not block on exit (this
         # would be very surprising behavior), so make sure to cancel the tasks
         # in the task group.
@@ -216,6 +242,9 @@ class BaseSession(
             JSONRPCResponse | JSONRPCError
         ](1)
         self._response_streams[request_id] = response_stream
+
+        self._exit_stack.push_async_callback(lambda: response_stream.aclose())
+        self._exit_stack.push_async_callback(lambda: response_stream_reader.aclose())
 
         jsonrpc_request = JSONRPCRequest(
             jsonrpc="2.0",
@@ -307,7 +336,7 @@ class BaseSession(
 
                     self._in_flight[responder.request_id] = responder
                     await self._received_request(responder)
-                    if not responder._completed:
+                    if not responder._completed:  # type: ignore[reportPrivateUsage]
                         await self._incoming_message_stream_writer.send(responder)
 
                 elif isinstance(message.root, JSONRPCNotification):

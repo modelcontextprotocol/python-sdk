@@ -1,7 +1,7 @@
+from collections.abc import Callable
 from typing import (
     Annotated,
     Any,
-    Callable,
     Generic,
     Literal,
     TypeAlias,
@@ -42,7 +42,7 @@ class RequestParams(BaseModel):
     class Meta(BaseModel):
         progressToken: ProgressToken | None = None
         """
-        If specified, the caller is requesting out-of-band progress notifications for
+        If specified, the caller requests out-of-band progress notifications for
         this request (as represented by notifications/progress). The value of this
         parameter is an opaque token that will be attached to any subsequent
         notifications. The receiver is not obligated to provide these notifications.
@@ -89,6 +89,7 @@ class Notification(BaseModel, Generic[NotificationParamsT, MethodT]):
     """Base class for JSON-RPC notifications."""
 
     method: MethodT
+    params: NotificationParamsT
     model_config = ConfigDict(extra="allow")
 
 
@@ -781,7 +782,7 @@ class ModelHint(BaseModel):
 
 class ModelPreferences(BaseModel):
     """
-    The server's preferences for model selection, requested of the client during
+    The server's preferences for model selection, requested by the client during
     sampling.
 
     Because LLMs can vary along multiple dimensions, choosing the "best" model is
@@ -1010,9 +1011,11 @@ class CancelledNotificationParams(NotificationParams):
     model_config = ConfigDict(extra="allow")
 
 
-class CancelledNotification(Notification):
+class CancelledNotification(
+    Notification[CancelledNotificationParams, Literal["notifications/cancelled"]]
+):
     """
-    This notification can be sent by either side to indicate that it is cancelling a
+    This notification can be sent by either side to indicate that it is canceling a
     previously-issued request.
     """
 

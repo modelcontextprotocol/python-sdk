@@ -98,6 +98,10 @@ async def sse_client(
                                             continue
 
                                         await read_stream_writer.send(message)
+                                    case _:
+                                        logger.warning(
+                                            f"Unknown SSE event: {sse.event}"
+                                        )
                         except Exception as exc:
                             logger.error(f"Error in sse_reader: {exc}")
                             await read_stream_writer.send(exc)
