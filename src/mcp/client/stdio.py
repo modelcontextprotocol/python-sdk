@@ -103,7 +103,11 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
 
     process = await anyio.open_process(
         [server.command, *server.args],
-        env=server.env if server.env is not None else get_default_environment(),
+        env=(
+            {**get_default_environment(), **server.env}
+            if server.env is not None
+            else get_default_environment()
+        ),
         stderr=errlog,
         cwd=server.cwd,
     )
