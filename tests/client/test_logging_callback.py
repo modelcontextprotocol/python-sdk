@@ -1,11 +1,12 @@
 from typing import Literal
 
-import anyio
 import pytest
 
+import mcp.types as types
 from mcp.shared.memory import (
     create_connected_server_and_client_session as create_session,
 )
+from mcp.shared.session import RequestResponder
 from mcp.types import (
     LoggingMessageNotificationParams,
     TextContent,
@@ -46,40 +47,37 @@ async def test_logging_callback():
         )
         return True
 
-    async with anyio.create_task_group() as tg:
-        async with create_session(
-            server._mcp_server, logging_callback=logging_collector
-        ) as client_session:
+    # Create a message handler to catch exceptions
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult]
+        | types.ServerNotification
+        | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
 
-            async def listen_session():
-                try:
-                    async for message in client_session.incoming_messages:
-                        if isinstance(message, Exception):
-                            raise message
-                except anyio.EndOfStream:
-                    pass
+    async with create_session(
+        server._mcp_server,
+        logging_callback=logging_collector,
+        message_handler=message_handler,
+    ) as client_session:
+        # First verify our test tool works
+        result = await client_session.call_tool("test_tool", {})
+        assert result.isError is False
+        assert isinstance(result.content[0], TextContent)
+        assert result.content[0].text == "true"
 
-            tg.start_soon(listen_session)
-
-            # First verify our test tool works
-            result = await client_session.call_tool("test_tool", {})
-            assert result.isError is False
-            assert isinstance(result.content[0], TextContent)
-            assert result.content[0].text == "true"
-
-            # Now send a log message via our tool
-            log_result = await client_session.call_tool(
-                "test_tool_with_log",
-                {
-                    "message": "Test log message",
-                    "level": "info",
-                    "logger": "test_logger",
-                },
-            )
-            assert log_result.isError is False
-            assert len(logging_collector.log_messages) == 1
-            assert logging_collector.log_messages[
-                0
-            ] == LoggingMessageNotificationParams(
-                level="info", logger="test_logger", data="Test log message"
-            )
+        # Now send a log message via our tool
+        log_result = await client_session.call_tool(
+            "test_tool_with_log",
+            {
+                "message": "Test log message",
+                "level": "info",
+                "logger": "test_logger",
+            },
+        )
+        assert log_result.isError is False
+        assert len(logging_collector.log_messages) == 1
+        assert logging_collector.log_messages[0] == LoggingMessageNotificationParams(
+            level="info", logger="test_logger", data="Test log message"
+        )

@@ -1,11 +1,13 @@
 import anyio
 import pytest
 
+import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
+from mcp.shared.session import RequestResponder
 from mcp.types import (
     ClientNotification,
     InitializedNotification,
@@ -25,10 +27,14 @@ async def test_server_session_initialize():
         JSONRPCMessage
     ](1)
 
-    async def run_client(client: ClientSession):
-        async for message in client_session.incoming_messages:
-            if isinstance(message, Exception):
-                raise message
+    # Create a message handler to catch exceptions
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult]
+        | types.ServerNotification
+        | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
 
     received_initialized = False
 
@@ -57,11 +63,12 @@ async def test_server_session_initialize():
     try:
         async with (
             ClientSession(
-                server_to_client_receive, client_to_server_send
+                server_to_client_receive,
+                client_to_server_send,
+                message_handler=message_handler,
             ) as client_session,
             anyio.create_task_group() as tg,
         ):
-            tg.start_soon(run_client, client_session)
             tg.start_soon(run_server)
 
             await client_session.initialize()

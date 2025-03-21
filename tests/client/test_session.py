@@ -1,7 +1,9 @@
 import anyio
 import pytest
 
+import mcp.types as types
 from mcp.client.session import ClientSession
+from mcp.shared.session import RequestResponder
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     ClientNotification,
@@ -75,13 +77,21 @@ async def test_client_session_initialize():
                 )
             )
 
-    async def listen_session():
-        async for message in session.incoming_messages:
-            if isinstance(message, Exception):
-                raise message
+    # Create a message handler to catch exceptions
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult]
+        | types.ServerNotification
+        | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
 
     async with (
-        ClientSession(server_to_client_receive, client_to_server_send) as session,
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=message_handler,
+        ) as session,
         anyio.create_task_group() as tg,
         client_to_server_send,
         client_to_server_receive,
@@ -89,7 +99,6 @@ async def test_client_session_initialize():
         server_to_client_receive,
     ):
         tg.start_soon(mock_server)
-        tg.start_soon(listen_session)
         result = await session.initialize()
 
     # Assert the result
