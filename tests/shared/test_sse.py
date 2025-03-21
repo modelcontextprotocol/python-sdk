@@ -138,9 +138,7 @@ def server(server_port: int) -> Generator[None, None, None]:
             time.sleep(0.1)
             attempt += 1
     else:
-        raise RuntimeError(
-            f"Server failed to start after {max_attempts} attempts"
-        )
+        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
 
     yield
 
