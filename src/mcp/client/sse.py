@@ -10,6 +10,8 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from httpx_sse import aconnect_sse
 
 import mcp.types as types
+from mcp.client.auth import http as auth_http
+from mcp.client.auth.oauth import AuthSession, OAuthClient
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,7 @@ async def sse_client(
     headers: dict[str, Any] | None = None,
     timeout: float = 5,
     sse_read_timeout: float = 60 * 5,
+    auth: AuthSession | OAuthClient | None = None,
 ):
     """
     Client transport for SSE.
@@ -43,7 +46,33 @@ async def sse_client(
     async with anyio.create_task_group() as tg:
         try:
             logger.info(f"Connecting to SSE endpoint: {remove_request_params(url)}")
-            async with httpx.AsyncClient(headers=headers) as client:
+
+            # Set up headers and auth if needed
+            if headers is None:
+                headers = {}
+
+            if auth is not None:
+                await auth_http.add_auth_headers(headers, auth)
+
+            # Set up event hooks for auth if auth is provided
+            event_hooks = {}
+            if auth is not None:
+                # Create a response hook for authentication
+                async def auth_hook(response):
+                    if isinstance(auth, AuthSession):
+                        return await auth_http.auth_response_hook(
+                            response, auth_session=auth
+                        )
+                    else:
+                        return await auth_http.auth_response_hook(
+                            response, oauth_client=auth
+                        )
+
+                event_hooks["response"] = [auth_hook]
+
+            async with httpx.AsyncClient(
+                headers=headers, event_hooks=event_hooks
+            ) as client:
                 async with aconnect_sse(
                     client,
                     "GET",
@@ -121,6 +150,7 @@ async def sse_client(
                                             exclude_none=True,
                                         ),
                                     )
+                                    # Handle 401 responses through the auth hook
                                     response.raise_for_status()
                                     logger.debug(
                                         "Client message sent successfully: "
