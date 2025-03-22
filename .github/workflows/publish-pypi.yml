@@ -14,14 +14,11 @@ jobs:
 
     - name: Install uv
       uses: astral-sh/setup-uv@v3
-
-    - name: "Set up Python"
-      uses: actions/setup-python@v5
       with:
-        python-version-file: ".python-version"
+        enable-cache: true
 
-    - name: Install the project
-      run: uv sync --frozen --all-extras --dev
+    - name: Set up Python 3.12
+      run: uv python install 3.12
 
     - name: Build
       run: uv build
