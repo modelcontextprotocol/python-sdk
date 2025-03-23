@@ -104,9 +104,10 @@ class FuncMetadata(BaseModel):
                 try:
                     # Validate parsed value
                     TypeAdapter(_field_info.annotation).validate_python(pre_parsed)
-                    new_data[field_name] = pre_parsed
                 except ValidationError:
                     continue  # Parsed value is invalid - skip
+                
+                new_data[field_name] = pre_parsed
         assert new_data.keys() == data.keys()
         return new_data
 
