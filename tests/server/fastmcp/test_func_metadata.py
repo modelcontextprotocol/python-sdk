@@ -59,6 +59,7 @@ def complex_arguments_fn(
     must_be_none_with_default: None = None,
     an_int_with_equals_field: int = Field(1, ge=0),
     int_annotated_with_default: Annotated[int, Field(description="hey")] = 5,
+    num_annotated_with_str: str = "",
 ) -> str:
     _ = (
         an_int,
@@ -81,6 +82,7 @@ def complex_arguments_fn(
         must_be_none_with_default,
         an_int_with_equals_field,
         int_annotated_with_default,
+        num_annotated_with_str,
     )
     return "ok!"
 
@@ -107,6 +109,7 @@ async def test_complex_function_runtime_arg_validation_non_json():
             "my_model_a": {},
             "my_model_a_forward_ref": {},
             "my_model_b": {"how_many_shrimp": 5, "ok": {"x": 1}, "y": None},
+            "num_annotated_with_str": "5",
         },
         arguments_to_pass_directly=None,
     )
@@ -380,6 +383,11 @@ def test_complex_function_json_schema():
                 "description": "hey",
                 "title": "Int Annotated With Default",
                 "type": "integer",
+            },
+            "num_annotated_with_str": {
+                "default": "",
+                "title": "Num Annotated With Str",
+                "type": "string",
             },
         },
         "required": [

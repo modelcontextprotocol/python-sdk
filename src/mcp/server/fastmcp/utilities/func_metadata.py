@@ -7,7 +7,15 @@ from typing import (
     ForwardRef,
 )
 
-from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, create_model
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    WithJsonSchema,
+    create_model,
+)
 from pydantic._internal._typing_extra import eval_type_backport
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
@@ -93,7 +101,12 @@ class FuncMetadata(BaseModel):
                     # Should really be parsed as '"hello"' in Python - but if we parse
                     # it as JSON it'll turn into just 'hello'. So we skip it.
                     continue
-                new_data[field_name] = pre_parsed
+                try:
+                    # Validate parsed value
+                    TypeAdapter(_field_info.annotation).validate_python(pre_parsed)
+                    new_data[field_name] = pre_parsed
+                except ValidationError:
+                    continue  # Parsed value is invalid - skip
         assert new_data.keys() == data.keys()
         return new_data
 
