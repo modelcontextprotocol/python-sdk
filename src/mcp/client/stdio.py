@@ -159,4 +159,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     ):
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
-        yield read_stream, write_stream
+        try:
+            yield read_stream, write_stream
+        finally:
+            process.terminate()
