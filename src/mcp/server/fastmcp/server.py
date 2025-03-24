@@ -75,6 +75,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     port: int = 8000
     sse_path: str = "/sse"
     message_path: str = "/messages/"
+    transport_message_path: str = "messages/"
 
     # resource settings
     warn_on_duplicate_resources: bool = True
@@ -479,7 +480,7 @@ class FastMCP:
 
     def sse_app(self) -> Starlette:
         """Return an instance of the SSE server app."""
-        sse = SseServerTransport(self.settings.message_path)
+        sse = SseServerTransport(self.settings.transport_message_path)
 
         async def handle_sse(request: Request) -> None:
             async with sse.connect_sse(
