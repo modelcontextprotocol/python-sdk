@@ -24,7 +24,7 @@ def configure_logging(
     Args:
         level: the log level to use
     """
-    handlers = []
+    handlers: list[logging.Handler] = []
     try:
         from rich.console import Console
         from rich.logging import RichHandler

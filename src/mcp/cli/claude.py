@@ -4,6 +4,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from mcp.server.fastmcp.utilities.logging import get_logger
 
@@ -116,10 +117,7 @@ def update_claude_config(
         # Add fastmcp run command
         args.extend(["mcp", "run", file_spec])
 
-        server_config = {
-            "command": "uv",
-            "args": args,
-        }
+        server_config: dict[str, Any] = {"command": "uv", "args": args}
 
         # Add environment variables if specified
         if env_vars:

@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Any, Protocol
 
+import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl, TypeAdapter
 
@@ -24,6 +25,30 @@ class ListRootsFnT(Protocol):
     ) -> types.ListRootsResult | types.ErrorData: ...
 
 
+class LoggingFnT(Protocol):
+    async def __call__(
+        self,
+        params: types.LoggingMessageNotificationParams,
+    ) -> None: ...
+
+
+class MessageHandlerFnT(Protocol):
+    async def __call__(
+        self,
+        message: RequestResponder[types.ServerRequest, types.ClientResult]
+        | types.ServerNotification
+        | Exception,
+    ) -> None: ...
+
+
+async def _default_message_handler(
+    message: RequestResponder[types.ServerRequest, types.ClientResult]
+    | types.ServerNotification
+    | Exception,
+) -> None:
+    await anyio.lowlevel.checkpoint()
+
+
 async def _default_sampling_callback(
     context: RequestContext["ClientSession", Any],
     params: types.CreateMessageRequestParams,
@@ -41,6 +66,12 @@ async def _default_list_roots_callback(
         code=types.INVALID_REQUEST,
         message="List roots not supported",
     )
+
+
+async def _default_logging_callback(
+    params: types.LoggingMessageNotificationParams,
+) -> None:
+    pass
 
 
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(
@@ -64,6 +95,8 @@ class ClientSession(
         read_timeout_seconds: timedelta | None = None,
         sampling_callback: SamplingFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
+        logging_callback: LoggingFnT | None = None,
+        message_handler: MessageHandlerFnT | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -74,6 +107,8 @@ class ClientSession(
         )
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
+        self._logging_callback = logging_callback or _default_logging_callback
+        self._message_handler = message_handler or _default_message_handler
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability()
@@ -321,3 +356,23 @@ class ClientSession(
                     return await responder.respond(
                         types.ClientResult(root=types.EmptyResult())
                     )
+
+    async def _handle_incoming(
+        self,
+        req: RequestResponder[types.ServerRequest, types.ClientResult]
+        | types.ServerNotification
+        | Exception,
+    ) -> None:
+        """Handle incoming messages by forwarding to the message handler."""
+        await self._message_handler(req)
+
+    async def _received_notification(
+        self, notification: types.ServerNotification
+    ) -> None:
+        """Handle notifications from the server."""
+        # Process specific notification types
+        match notification.root:
+            case types.LoggingMessageNotification(params=params):
+                await self._logging_callback(params)
+            case _:
+                pass

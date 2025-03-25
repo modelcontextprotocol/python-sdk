@@ -42,7 +42,10 @@ mcp = "mcp.cli:app [cli]"
 
 [tool.uv]
 resolution = "lowest-direct"
-dev-dependencies = [
+default-groups = ["dev", "docs"]
+
+[dependency-groups]
+dev = [
     "pyright>=1.1.391",
     "pytest>=8.3.4",
     "ruff>=0.8.5",
@@ -51,6 +54,13 @@ dev-dependencies = [
     "pytest-xdist>=3.6.1",
     "pytest-examples>=0.0.14",
 ]
+docs = [
+    "mkdocs>=1.6.1",
+    "mkdocs-glightbox>=0.4.0",
+    "mkdocs-material[imaging]>=9.5.45",
+    "mkdocstrings-python>=1.12.2",
+]
+
 
 [build-system]
 requires = ["hatchling", "uv-dynamic-versioning"]
@@ -76,13 +86,11 @@ packages = ["src/mcp"]
 include = ["src/mcp", "tests"]
 venvPath = "."
 venv = ".venv"
-strict = [
-    "src/mcp/server/fastmcp/tools/base.py",
-    "src/mcp/client/*.py"
-]
+strict = ["src/mcp/**/*.py"]
+exclude = ["src/mcp/types.py"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+select = ["E", "F", "I", "UP"]
 ignore = []
 
 [tool.ruff]

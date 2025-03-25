@@ -1,6 +1,6 @@
 import base64
 from pathlib import Path
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import AnyUrl
@@ -114,7 +114,7 @@ def image_tool_fn(path: str) -> Image:
     return Image(path)
 
 
-def mixed_content_tool_fn() -> list[Union[TextContent, ImageContent]]:
+def mixed_content_tool_fn() -> list[TextContent | ImageContent]:
     return [
         TextContent(type="text", text="Hello"),
         ImageContent(type="image", data="abc", mimeType="image/png"),

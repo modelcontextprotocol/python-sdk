@@ -5,13 +5,13 @@ from __future__ import annotations as _annotations
 import inspect
 import json
 import re
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from contextlib import (
     AbstractAsyncContextManager,
     asynccontextmanager,
 )
 from itertools import chain
-from typing import Any, Callable, Generic, Literal, Sequence
+from typing import Any, Generic, Literal
 
 import anyio
 import pydantic_core
@@ -19,6 +19,9 @@ import uvicorn
 from pydantic import BaseModel, Field
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.routing import Mount, Route
 
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
@@ -65,11 +68,13 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 
     # Server settings
     debug: bool = False
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "ERROR"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     # HTTP settings
     host: str = "0.0.0.0"
     port: int = 8000
+    sse_path: str = "/sse"
+    message_path: str = "/messages/"
 
     # resource settings
     warn_on_duplicate_resources: bool = True
@@ -86,13 +91,13 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     )
 
     lifespan: (
-        Callable[["FastMCP"], AbstractAsyncContextManager[LifespanResultT]] | None
+        Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]] | None
     ) = Field(None, description="Lifespan context manager")
 
 
 def lifespan_wrapper(
     app: FastMCP,
-    lifespan: Callable[["FastMCP"], AbstractAsyncContextManager[LifespanResultT]],
+    lifespan: Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]],
 ) -> Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[object]]:
     @asynccontextmanager
     async def wrap(s: MCPServer[LifespanResultT]) -> AsyncIterator[object]:
@@ -177,7 +182,7 @@ class FastMCP:
             for info in tools
         ]
 
-    def get_context(self) -> "Context[ServerSession, object]":
+    def get_context(self) -> Context[ServerSession, object]:
         """
         Returns a Context object. Note that the context will only be valid
         during a request; outside a request, most methods will error.
@@ -461,28 +466,7 @@ class FastMCP:
 
     async def run_sse_async(self) -> None:
         """Run the server using SSE transport."""
-        from starlette.applications import Starlette
-        from starlette.routing import Mount, Route
-
-        sse = SseServerTransport("/messages/")
-
-        async def handle_sse(request):
-            async with sse.connect_sse(
-                request.scope, request.receive, request._send
-            ) as streams:
-                await self._mcp_server.run(
-                    streams[0],
-                    streams[1],
-                    self._mcp_server.create_initialization_options(),
-                )
-
-        starlette_app = Starlette(
-            debug=self.settings.debug,
-            routes=[
-                Route("/sse", endpoint=handle_sse),
-                Mount("/messages/", app=sse.handle_post_message),
-            ],
-        )
+        starlette_app = self.sse_app()
 
         config = uvicorn.Config(
             starlette_app,
@@ -492,6 +476,30 @@ class FastMCP:
         )
         server = uvicorn.Server(config)
         await server.serve()
+
+    def sse_app(self) -> Starlette:
+        """Return an instance of the SSE server app."""
+        sse = SseServerTransport(self.settings.message_path)
+
+        async def handle_sse(request: Request) -> None:
+            async with sse.connect_sse(
+                request.scope,
+                request.receive,
+                request._send,  # type: ignore[reportPrivateUsage]
+            ) as streams:
+                await self._mcp_server.run(
+                    streams[0],
+                    streams[1],
+                    self._mcp_server.create_initialization_options(),
+                )
+
+        return Starlette(
+            debug=self.settings.debug,
+            routes=[
+                Route(self.settings.sse_path, endpoint=handle_sse),
+                Mount(self.settings.message_path, app=sse.handle_post_message),
+            ],
+        )
 
     async def list_prompts(self) -> list[MCPPrompt]:
         """List all available prompts."""
@@ -532,14 +540,14 @@ def _convert_to_content(
     if result is None:
         return []
 
-    if isinstance(result, (TextContent, ImageContent, EmbeddedResource)):
+    if isinstance(result, TextContent | ImageContent | EmbeddedResource):
         return [result]
 
     if isinstance(result, Image):
         return [result.to_image_content()]
 
-    if isinstance(result, (list, tuple)):
-        return list(chain.from_iterable(_convert_to_content(item) for item in result))
+    if isinstance(result, list | tuple):
+        return list(chain.from_iterable(_convert_to_content(item) for item in result))  # type: ignore[reportUnknownVariableType]
 
     if not isinstance(result, str):
         try:
@@ -644,9 +652,9 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         Returns:
             The resource content as either text or bytes
         """
-        assert (
-            self._fastmcp is not None
-        ), "Context is not available outside of a request"
+        assert self._fastmcp is not None, (
+            "Context is not available outside of a request"
+        )
         return await self._fastmcp.read_resource(uri)
 
     async def log(

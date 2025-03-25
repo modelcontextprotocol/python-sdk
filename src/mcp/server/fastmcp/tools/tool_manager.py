@@ -32,7 +32,7 @@ class ToolManager:
 
     def add_tool(
         self,
-        fn: Callable,
+        fn: Callable[..., Any],
         name: str | None = None,
         description: str | None = None,
     ) -> Tool:

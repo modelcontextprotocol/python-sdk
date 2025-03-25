@@ -16,32 +16,36 @@
 <!-- omit in toc -->
 ## Table of Contents
 
-- [Overview](#overview)
-- [Installation](#installation)
-- [Quickstart](#quickstart)
-- [What is MCP?](#what-is-mcp)
-- [Core Concepts](#core-concepts)
-  - [Server](#server)
-  - [Resources](#resources)
-  - [Tools](#tools)
-  - [Prompts](#prompts)
-  - [Images](#images)
-  - [Context](#context)
-- [Running Your Server](#running-your-server)
-  - [Development Mode](#development-mode)
-  - [Claude Desktop Integration](#claude-desktop-integration)
-  - [Direct Execution](#direct-execution)
-- [Examples](#examples)
-  - [Echo Server](#echo-server)
-  - [SQLite Explorer](#sqlite-explorer)
-- [Advanced Usage](#advanced-usage)
-  - [Low-Level Server](#low-level-server)
-  - [Writing MCP Clients](#writing-mcp-clients)
-  - [MCP Primitives](#mcp-primitives)
-  - [Server Capabilities](#server-capabilities)
-- [Documentation](#documentation)
-- [Contributing](#contributing)
-- [License](#license)
+- [MCP Python SDK](#mcp-python-sdk)
+  - [Overview](#overview)
+  - [Installation](#installation)
+    - [Adding MCP to your python project](#adding-mcp-to-your-python-project)
+    - [Running the standalone MCP development tools](#running-the-standalone-mcp-development-tools)
+  - [Quickstart](#quickstart)
+  - [What is MCP?](#what-is-mcp)
+  - [Core Concepts](#core-concepts)
+    - [Server](#server)
+    - [Resources](#resources)
+    - [Tools](#tools)
+    - [Prompts](#prompts)
+    - [Images](#images)
+    - [Context](#context)
+  - [Running Your Server](#running-your-server)
+    - [Development Mode](#development-mode)
+    - [Claude Desktop Integration](#claude-desktop-integration)
+    - [Direct Execution](#direct-execution)
+    - [Mounting to an Existing ASGI Server](#mounting-to-an-existing-asgi-server)
+  - [Examples](#examples)
+    - [Echo Server](#echo-server)
+    - [SQLite Explorer](#sqlite-explorer)
+  - [Advanced Usage](#advanced-usage)
+    - [Low-Level Server](#low-level-server)
+    - [Writing MCP Clients](#writing-mcp-clients)
+    - [MCP Primitives](#mcp-primitives)
+    - [Server Capabilities](#server-capabilities)
+  - [Documentation](#documentation)
+  - [Contributing](#contributing)
+  - [License](#license)
 
 [pypi-badge]: https://img.shields.io/pypi/v/mcp.svg
 [pypi-url]: https://pypi.org/project/mcp/
@@ -153,8 +157,8 @@ The FastMCP server is your core interface to the MCP protocol. It handles connec
 ```python
 # Add lifespan support for startup/shutdown with strong typing
 from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import AsyncIterator
 
 from fake_database import Database  # Replace with your actual DB type
 
@@ -248,7 +252,8 @@ async def fetch_weather(city: str) -> str:
 Prompts are reusable templates that help LLMs interact with your server effectively:
 
 ```python
-from mcp.server.fastmcp import FastMCP, types
+from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.prompts import base
 
 mcp = FastMCP("My App")
 
@@ -259,11 +264,11 @@ def review_code(code: str) -> str:
 
 
 @mcp.prompt()
-def debug_error(error: str) -> list[types.Message]:
+def debug_error(error: str) -> list[base.Message]:
     return [
-        types.UserMessage("I'm seeing this error:"),
-        types.UserMessage(error),
-        types.AssistantMessage("I'll help debug that. What have you tried so far?"),
+        base.UserMessage("I'm seeing this error:"),
+        base.UserMessage(error),
+        base.AssistantMessage("I'll help debug that. What have you tried so far?"),
     ]
 ```
 
@@ -357,6 +362,31 @@ python server.py
 mcp run server.py
 ```
 
+### Mounting to an Existing ASGI Server
+
+You can mount the SSE server to an existing ASGI server using the `sse_app` method. This allows you to integrate the SSE server with other ASGI applications.
+
+```python
+from starlette.applications import Starlette
+from starlette.routes import Mount, Host
+from mcp.server.fastmcp import FastMCP
+
+
+mcp = FastMCP("My App")
+
+# Mount the SSE server to the existing ASGI server
+app = Starlette(
+    routes=[
+        Mount('/', app=mcp.sse_app()),
+    ]
+)
+
+# or dynamically mount as host
+app.router.routes.append(Host('mcp.acme.corp', app=mcp.sse_app()))
+```
+
+For more information on mounting applications in Starlette, see the [Starlette documentation](https://www.starlette.io/routing/#submounting-routes).
+
 ## Examples
 
 ### Echo Server
@@ -426,7 +456,7 @@ For more control, you can use the low-level server implementation directly. This
 
 ```python
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from fake_database import Database  # Replace with your actual DB type
 

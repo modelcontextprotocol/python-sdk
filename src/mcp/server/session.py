@@ -61,6 +61,12 @@ class InitializationState(Enum):
 
 ServerSessionT = TypeVar("ServerSessionT", bound="ServerSession")
 
+ServerRequestResponder = (
+    RequestResponder[types.ClientRequest, types.ServerResult]
+    | types.ClientNotification
+    | Exception
+)
+
 
 class ServerSession(
     BaseSession[
@@ -85,6 +91,15 @@ class ServerSession(
         )
         self._initialization_state = InitializationState.NotInitialized
         self._init_options = init_options
+        self._incoming_message_stream_writer, self._incoming_message_stream_reader = (
+            anyio.create_memory_object_stream[ServerRequestResponder](0)
+        )
+        self._exit_stack.push_async_callback(
+            lambda: self._incoming_message_stream_reader.aclose()
+        )
+        self._exit_stack.push_async_callback(
+            lambda: self._incoming_message_stream_writer.aclose()
+        )
 
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
@@ -291,3 +306,12 @@ class ServerSession(
                 )
             )
         )
+
+    async def _handle_incoming(self, req: ServerRequestResponder) -> None:
+        await self._incoming_message_stream_writer.send(req)
+
+    @property
+    def incoming_messages(
+        self,
+    ) -> MemoryObjectReceiveStream[ServerRequestResponder]:
+        return self._incoming_message_stream_reader

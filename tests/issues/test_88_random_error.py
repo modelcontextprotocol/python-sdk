@@ -1,11 +1,12 @@
 """Test to reproduce issue #88: Random error thrown on response."""
 
+from collections.abc import Sequence
 from datetime import timedelta
 from pathlib import Path
-from typing import Sequence
 
 import anyio
 import pytest
+from anyio.abc import TaskStatus
 
 from mcp.client.session import ClientSession
 from mcp.server.lowlevel import Server
@@ -54,15 +55,21 @@ async def test_notification_validation_error(tmp_path: Path):
             return [TextContent(type="text", text=f"fast {request_count}")]
         return [TextContent(type="text", text=f"unknown {request_count}")]
 
-    async def server_handler(read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            server.create_initialization_options(),
-            raise_exceptions=True,
-        )
+    async def server_handler(
+        read_stream,
+        write_stream,
+        task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED,
+    ):
+        with anyio.CancelScope() as scope:
+            task_status.started(scope)  # type: ignore
+            await server.run(
+                read_stream,
+                write_stream,
+                server.create_initialization_options(),
+                raise_exceptions=True,
+            )
 
-    async def client(read_stream, write_stream):
+    async def client(read_stream, write_stream, scope):
         # Use a timeout that's:
         # - Long enough for fast operations (>10ms)
         # - Short enough for slow operations (<200ms)
@@ -90,22 +97,13 @@ async def test_notification_validation_error(tmp_path: Path):
             # proving server is still responsive
             result = await session.call_tool("fast")
             assert result.content == [TextContent(type="text", text="fast 3")]
+        scope.cancel()
 
     # Run server and client in separate task groups to avoid cancellation
     server_writer, server_reader = anyio.create_memory_object_stream(1)
     client_writer, client_reader = anyio.create_memory_object_stream(1)
 
-    server_ready = anyio.Event()
-
-    async def wrapped_server_handler(read_stream, write_stream):
-        server_ready.set()
-        await server_handler(read_stream, write_stream)
-
     async with anyio.create_task_group() as tg:
-        tg.start_soon(wrapped_server_handler, server_reader, client_writer)
-        # Wait for server to start and initialize
-        with anyio.fail_after(1):  # Timeout after 1 second
-            await server_ready.wait()
+        scope = await tg.start(server_handler, server_reader, client_writer)
         # Run client in a separate task to avoid cancellation
-        async with anyio.create_task_group() as client_tg:
-            client_tg.start_soon(client, client_reader, server_writer)
+        tg.start_soon(client, client_reader, server_writer, scope)

@@ -1,7 +1,9 @@
 import logging
+from collections.abc import Callable
 from contextlib import AsyncExitStack
 from datetime import timedelta
-from typing import Any, Callable, Generic, TypeVar
+from types import TracebackType
+from typing import Any, Generic, TypeVar
 
 import anyio
 import anyio.lowlevel
@@ -86,7 +88,12 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         self._cancel_scope.__enter__()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Exit the context manager, performing cleanup and notifying completion."""
         try:
             if self._completed:
@@ -112,7 +119,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         if not self.cancelled:
             self._completed = True
 
-            await self._session._send_response(
+            await self._session._send_response(  # type: ignore[reportPrivateUsage]
                 request_id=self.request_id, response=response
             )
 
@@ -126,7 +133,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         self._cancel_scope.cancel()
         self._completed = True  # Mark as completed so it's removed from in_flight
         # Send an error response to indicate cancellation
-        await self._session._send_response(
+        await self._session._send_response(  # type: ignore[reportPrivateUsage]
             request_id=self.request_id,
             response=ErrorData(code=0, message="Request cancelled", data=None),
         )
@@ -137,7 +144,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
 
     @property
     def cancelled(self) -> bool:
-        return self._cancel_scope is not None and self._cancel_scope.cancel_called
+        return self._cancel_scope.cancel_called
 
 
 class BaseSession(
@@ -182,19 +189,6 @@ class BaseSession(
         self._in_flight = {}
 
         self._exit_stack = AsyncExitStack()
-        self._incoming_message_stream_writer, self._incoming_message_stream_reader = (
-            anyio.create_memory_object_stream[
-                RequestResponder[ReceiveRequestT, SendResultT]
-                | ReceiveNotificationT
-                | Exception
-            ]()
-        )
-        self._exit_stack.push_async_callback(
-            lambda: self._incoming_message_stream_reader.aclose()
-        )
-        self._exit_stack.push_async_callback(
-            lambda: self._incoming_message_stream_writer.aclose()
-        )
 
     async def __aenter__(self) -> Self:
         self._task_group = anyio.create_task_group()
@@ -202,7 +196,12 @@ class BaseSession(
         self._task_group.start_soon(self._receive_loop)
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
         await self._exit_stack.aclose()
         # Using BaseSession as a context manager should not block on exit (this
         # would be very surprising behavior), so make sure to cancel the tasks
@@ -300,11 +299,10 @@ class BaseSession(
         async with (
             self._read_stream,
             self._write_stream,
-            self._incoming_message_stream_writer,
         ):
             async for message in self._read_stream:
                 if isinstance(message, Exception):
-                    await self._incoming_message_stream_writer.send(message)
+                    await self._handle_incoming(message)
                 elif isinstance(message.root, JSONRPCRequest):
                     validated_request = self._receive_request_type.model_validate(
                         message.root.model_dump(
@@ -324,8 +322,9 @@ class BaseSession(
 
                     self._in_flight[responder.request_id] = responder
                     await self._received_request(responder)
-                    if not responder._completed:
-                        await self._incoming_message_stream_writer.send(responder)
+
+                    if not responder._completed:  # type: ignore[reportPrivateUsage]
+                        await self._handle_incoming(responder)
 
                 elif isinstance(message.root, JSONRPCNotification):
                     try:
@@ -341,9 +340,7 @@ class BaseSession(
                                 await self._in_flight[cancelled_id].cancel()
                         else:
                             await self._received_notification(notification)
-                            await self._incoming_message_stream_writer.send(
-                                notification
-                            )
+                            await self._handle_incoming(notification)
                     except Exception as e:
                         # For other validation errors, log and continue
                         logging.warning(
@@ -355,7 +352,7 @@ class BaseSession(
                     if stream:
                         await stream.send(message.root)
                     else:
-                        await self._incoming_message_stream_writer.send(
+                        await self._handle_incoming(
                             RuntimeError(
                                 "Received response with an unknown "
                                 f"request ID: {message}"
@@ -387,12 +384,11 @@ class BaseSession(
         processed.
         """
 
-    @property
-    def incoming_messages(
+    async def _handle_incoming(
         self,
-    ) -> MemoryObjectReceiveStream[
-        RequestResponder[ReceiveRequestT, SendResultT]
+        req: RequestResponder[ReceiveRequestT, SendResultT]
         | ReceiveNotificationT
-        | Exception
-    ]:
-        return self._incoming_message_stream_reader
+        | Exception,
+    ) -> None:
+        """A generic handler for incoming messages. Overwritten by subclasses."""
+        pass
