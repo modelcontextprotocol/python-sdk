@@ -18,22 +18,22 @@ theme:
   palette:
     - media: "(prefers-color-scheme)"
       scheme: default
-      primary: pink
-      accent: pink
+      primary: black
+      accent: black
       toggle:
         icon: material/lightbulb
         name: "Switch to light mode"
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: pink
-      accent: pink
+      primary: black
+      accent: black
       toggle:
         icon: material/lightbulb-outline
         name: "Switch to dark mode"
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: pink
-      accent: pink
+      primary: white
+      accent: white
       toggle:
         icon: material/lightbulb-auto-outline
         name: "Switch to system preference"
