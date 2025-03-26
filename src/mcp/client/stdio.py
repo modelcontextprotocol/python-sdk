@@ -220,7 +220,7 @@ async def _create_platform_compatible_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: int | TextIO = subprocess.PIPE,
+    errlog: TextIO = sys.stderr,
     cwd: Path | str | None = None,
 ):
     """
