@@ -190,7 +190,7 @@ def _get_executable_command(command: str) -> str:
         command: Base command (e.g., 'uvx', 'npx')
 
     Returns:
-        List[str]: Platform-appropriate command
+        str: Platform-appropriate command
     """
 
     try:
