@@ -168,10 +168,14 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         try:
             yield read_stream, write_stream
         finally:
-            # Clean up process
+            # Clean up process to prevent any dangling orphaned processes
             try:
                 process.terminate()
                 if sys.platform == "win32":
+                    # On Windows, terminating a process with process.terminate() doesn't 
+                    # always guarantee immediate process termination. 
+                    # So we give it 2s to exit, or we call process.kill() 
+                    # which sends a SIGKILL equivalent signal.
                     try:
                         with anyio.fail_after(2.0):
                             await process.wait()
@@ -199,20 +203,21 @@ def _get_executable_command(command: str) -> str:
         else:
             # For Windows, we need more sophisticated path resolution
             # First check if command exists in PATH as-is
-            command_path = shutil.which(command)
-            if command_path:
+            if command_path:= shutil.which(command):
                 return command_path
 
             # Check for Windows-specific extensions
             for ext in [".cmd", ".bat", ".exe", ".ps1"]:
                 ext_version = f"{command}{ext}"
-                ext_path = shutil.which(ext_version)
-                if ext_path:
+                if ext_path:= shutil.which(ext_version):
                     return ext_path
 
             # For regular commands or if we couldn't find special versions
             return command
     except Exception:
+        # If anything goes wrong, just return the original command
+        # shutil.which() could raise exceptions if there are permission 
+        # issues accessing directories in PATH
         return command
 
 
@@ -245,12 +250,13 @@ async def _create_platform_compatible_process(
 
             return process
         except Exception:
-            # Don't raise, let's try to create the process using the default method
-            process = None
-
-    # Default method for creating the process
-    process = await anyio.open_process(
-        [command, *args], env=env, stderr=errlog, cwd=cwd
-    )
+            # Don't raise, let's try to create the process without creation flags   
+            process = await anyio.open_process(
+                [command, *args], env=env, stderr=errlog, cwd=cwd
+            )
+    else:
+        process = await anyio.open_process(
+            [command, *args], env=env, stderr=errlog, cwd=cwd
+        )
 
     return process
