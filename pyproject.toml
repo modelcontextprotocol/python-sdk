@@ -87,7 +87,6 @@ include = ["src/mcp", "tests"]
 venvPath = "."
 venv = ".venv"
 strict = ["src/mcp/**/*.py"]
-exclude = ["src/mcp/types.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
