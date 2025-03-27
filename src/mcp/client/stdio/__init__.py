@@ -12,7 +12,11 @@ from pydantic import BaseModel, Field
 
 import mcp.types as types
 
-from .win32 import create_windows_process, get_windows_executable_command
+from .win32 import (
+    create_windows_process,
+    get_windows_executable_command,
+    terminate_windows_process,
+)
 
 # Environment variables to inherit by default
 DEFAULT_INHERITED_ENV_VARS = (
@@ -169,21 +173,10 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             yield read_stream, write_stream
         finally:
             # Clean up process to prevent any dangling orphaned processes
-            try:
+            if sys.platform == "win32":
+                terminate_windows_process(process)
+            else:
                 process.terminate()
-                if sys.platform == "win32":
-                    # On Windows, terminating a process with process.terminate() doesn't
-                    # always guarantee immediate process termination.
-                    # So we give it 2s to exit, or we call process.kill()
-                    # which sends a SIGKILL equivalent signal.
-                    try:
-                        with anyio.fail_after(2.0):
-                            await process.wait()
-                    except TimeoutError:
-                        # Force kill if it doesn't terminate
-                        process.kill()
-            except Exception:
-                pass
 
 
 def _get_executable_command(command: str) -> str:
