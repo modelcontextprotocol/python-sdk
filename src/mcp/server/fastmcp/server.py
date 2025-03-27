@@ -68,7 +68,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 
     # Server settings
     debug: bool = False
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "ERROR"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     # HTTP settings
     host: str = "0.0.0.0"

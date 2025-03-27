@@ -357,7 +357,7 @@ You can mount the SSE server to an existing ASGI server using the `sse_app` meth
 
 ```python
 from starlette.applications import Starlette
-from starlette.routes import Mount, Host
+from starlette.routing import Mount, Host
 from mcp.server.fastmcp import FastMCP
 
 

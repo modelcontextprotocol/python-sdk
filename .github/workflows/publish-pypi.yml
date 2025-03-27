@@ -14,14 +14,11 @@ jobs:
 
     - name: Install uv
       uses: astral-sh/setup-uv@v3
-
-    - name: "Set up Python"
-      uses: actions/setup-python@v5
       with:
-        python-version-file: ".python-version"
+        enable-cache: true
 
-    - name: Install the project
-      run: uv sync --frozen --all-extras --dev
+    - name: Set up Python 3.12
+      run: uv python install 3.12
 
     - name: Build
       run: uv build
@@ -53,3 +50,28 @@ jobs:
 
     - name: Publish package distributions to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
+
+  docs-publish:
+    runs-on: ubuntu-latest
+    needs: ["pypi-publish"]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Git Credentials
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+      - name: "Set up Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+      - run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV
+      - uses: actions/cache@v4
+        with:
+          key: mkdocs-material-${{ env.cache_id }}
+          path: .cache
+          restore-keys: |
+            mkdocs-material-
+      - run: uv sync --frozen --group docs
+      - run: uv run --no-sync mkdocs gh-deploy --force
