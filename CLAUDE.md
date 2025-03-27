@@ -19,7 +19,7 @@ This document contains critical information about working with this codebase. Fo
    - Line length: 88 chars maximum
 
 3. Testing Requirements
-   - Framework: `uv run pytest`
+   - Framework: `uv run --frozen pytest`
    - Async testing: use anyio, not asyncio
    - Coverage: test edge cases and errors
    - New features require tests
@@ -54,9 +54,9 @@ This document contains critical information about working with this codebase. Fo
 ## Code Formatting
 
 1. Ruff
-   - Format: `uv run ruff format .`
-   - Check: `uv run ruff check .`
-   - Fix: `uv run ruff check . --fix`
+   - Format: `uv run --frozen ruff format .`
+   - Check: `uv run --frozen ruff check .`
+   - Fix: `uv run --frozen ruff check . --fix`
    - Critical issues:
      - Line length (88 chars)
      - Import sorting (I001)
@@ -67,7 +67,7 @@ This document contains critical information about working with this codebase. Fo
      - Imports: split into multiple lines
 
 2. Type Checking
-   - Tool: `uv run pyright`
+   - Tool: `uv run --frozen pyright`
    - Requirements:
      - Explicit None checks for Optional
      - Type narrowing for strings
@@ -104,6 +104,10 @@ This document contains critical information about working with this codebase. Fo
      - Add None checks
      - Narrow string types
      - Match existing patterns
+   - Pytest:
+     - If the tests aren't finding the anyio pytest mark, try adding PYTEST_DISABLE_PLUGIN_AUTOLOAD=""
+       to the start of the pytest run command eg:
+       `PYTEST_DISABLE_PLUGIN_AUTOLOAD="" uv run --frozen pytest`
 
 3. Best Practices
    - Check git status before commits
