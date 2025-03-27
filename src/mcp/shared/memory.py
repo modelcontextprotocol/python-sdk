@@ -59,7 +59,7 @@ async def create_client_server_memory_streams() -> (
 
 @asynccontextmanager
 async def create_connected_server_and_client_session(
-    server: Server[Any],
+    server: Server[Any, Any],
     read_timeout_seconds: timedelta | None = None,
     sampling_callback: SamplingFnT | None = None,
     list_roots_callback: ListRootsFnT | None = None,
