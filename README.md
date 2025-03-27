@@ -152,6 +152,7 @@ from dataclasses import dataclass
 from fake_database import Database  # Replace with your actual DB type
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSessionT
 
 # Create a named server
 mcp = FastMCP("My App")
@@ -183,7 +184,7 @@ mcp = FastMCP("My App", lifespan=app_lifespan)
 
 # Access type-safe lifespan context in tools
 @mcp.tool()
-def query_db(ctx: Context) -> str:
+def query_db(ctx: Context[ServerSessionT, AppContext]) -> str:
     """Tool that uses initialized resources"""
     db = ctx.request_context.lifespan_context["db"]
     return db.query()
