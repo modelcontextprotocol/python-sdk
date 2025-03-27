@@ -1,6 +1,4 @@
 import os
-import shutil
-import subprocess
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,6 +11,8 @@ from anyio.streams.text import TextReceiveStream
 from pydantic import BaseModel, Field
 
 import mcp.types as types
+
+from .win32 import create_windows_process, get_windows_executable_command
 
 # Environment variables to inherit by default
 DEFAULT_INHERITED_ENV_VARS = (
@@ -115,7 +115,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             else get_default_environment()
         ),
         errlog=errlog,
-        cwd=server.cwd
+        cwd=server.cwd,
     )
 
     async def stdout_reader():
@@ -172,9 +172,9 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             try:
                 process.terminate()
                 if sys.platform == "win32":
-                    # On Windows, terminating a process with process.terminate() doesn't 
-                    # always guarantee immediate process termination. 
-                    # So we give it 2s to exit, or we call process.kill() 
+                    # On Windows, terminating a process with process.terminate() doesn't
+                    # always guarantee immediate process termination.
+                    # So we give it 2s to exit, or we call process.kill()
                     # which sends a SIGKILL equivalent signal.
                     try:
                         with anyio.fail_after(2.0):
@@ -196,28 +196,9 @@ def _get_executable_command(command: str) -> str:
     Returns:
         str: Platform-appropriate command
     """
-
-    try:
-        if sys.platform != "win32":
-            return command
-        else:
-            # For Windows, we need more sophisticated path resolution
-            # First check if command exists in PATH as-is
-            if command_path:= shutil.which(command):
-                return command_path
-
-            # Check for Windows-specific extensions
-            for ext in [".cmd", ".bat", ".exe", ".ps1"]:
-                ext_version = f"{command}{ext}"
-                if ext_path:= shutil.which(ext_version):
-                    return ext_path
-
-            # For regular commands or if we couldn't find special versions
-            return command
-    except Exception:
-        # If anything goes wrong, just return the original command
-        # shutil.which() could raise exceptions if there are permission 
-        # issues accessing directories in PATH
+    if sys.platform == "win32":
+        return get_windows_executable_command(command)
+    else:
         return command
 
 
@@ -232,28 +213,8 @@ async def _create_platform_compatible_process(
     Creates a subprocess in a platform-compatible way.
     Returns a process handle.
     """
-
-    process = None
-
     if sys.platform == "win32":
-        try:
-            process = await anyio.open_process(
-                [command, *args],
-                env=env,
-                # Ensure we don't create console windows for each process
-                creationflags=subprocess.CREATE_NO_WINDOW  # type: ignore
-                if hasattr(subprocess, "CREATE_NO_WINDOW")
-                else 0,
-                stderr=errlog,
-                cwd=cwd,
-            )
-
-            return process
-        except Exception:
-            # Don't raise, let's try to create the process without creation flags   
-            process = await anyio.open_process(
-                [command, *args], env=env, stderr=errlog, cwd=cwd
-            )
+        process = await create_windows_process(command, args, env, errlog, cwd)
     else:
         process = await anyio.open_process(
             [command, *args], env=env, stderr=errlog, cwd=cwd
