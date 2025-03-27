@@ -174,7 +174,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         finally:
             # Clean up process to prevent any dangling orphaned processes
             if sys.platform == "win32":
-                terminate_windows_process(process)
+                await terminate_windows_process(process)
             else:
                 process.terminate()
 
