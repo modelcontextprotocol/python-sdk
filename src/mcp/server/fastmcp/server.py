@@ -85,6 +85,8 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # prompt settings
     warn_on_duplicate_prompts: bool = True
 
+    show_server_info: bool = True
+
     dependencies: list[str] = Field(
         default_factory=list,
         description="List of dependencies to install in the server environment",
@@ -155,10 +157,57 @@ class FastMCP:
         if transport not in TRANSPORTS.__args__:  # type: ignore
             raise ValueError(f"Unknown transport: {transport}")
 
+        async def run(): await self._run(transport)
+        anyio.run(run)
+    
+    async def _run(self, transport: Literal["stdio", "sse"]):
+        if self.settings.show_server_info:
+            server_info = await self.get_server_info()
+            logger.debug(f"Server name: {server_info.name}")
+            logger.debug(f"Server: {server_info.host}:{server_info.port}")
+            for asset_type, asset_list in server_info.assets.items():
+                if not asset_list:
+                    continue
+                logger.debug(f"{asset_type}:")
+                for asset in asset_list:
+                    logger.debug(f"  - {asset.name} - {asset.description}")
+            logger.debug("Server running...")
         if transport == "stdio":
-            anyio.run(self.run_stdio_async)
+            await self.run_stdio_async()
         else:  # transport == "sse"
-            anyio.run(self.run_sse_async)
+            await self.run_sse_async()
+
+    async def get_server_info(self):
+        """
+        Asynchronously retrieves and returns server information.
+
+        This method gathers details about the server, including its name, host, port,
+        instructions, and various assets such as tools, resources, prompts, and resource templates.
+
+        Returns:
+            dict: A dictionary containing the server's information:
+                - name (str): The name of the server.
+                - host (str): The host address of the server.
+                - port (int): The port number the server is running on.
+                - instructions (str): Instructions or guidelines related to the server.
+                - assets (dict): A dictionary of server assets:
+                    - tools (list): A list of tools available on the server.
+                    - resources (list): A list of resources available on the server.
+                    - prompts (list): A list of prompts available on the server.
+                    - resource_templates (list): A list of resource templates available on the server.
+        """
+        return {
+            'name': self.name,
+            'host': self.settings.host,
+            'port': self.settings.port,
+            'instructions': self.instructions,
+            'assets': {
+                'tools': await self.list_tools(),
+                'resources': await self.list_resources(),
+                'prompts': await self.list_prompts(),
+                'resource_templates': await self.list_resource_templates()
+            }
+        }
 
     def _setup_handlers(self) -> None:
         """Set up core MCP protocol handlers."""
