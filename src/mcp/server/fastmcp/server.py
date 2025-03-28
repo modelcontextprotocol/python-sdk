@@ -166,6 +166,7 @@ class FastMCP:
             server_info = await self.get_server_info()
             logger.debug(f"Server name: {server_info.name}")
             logger.debug(f"Server: {server_info.host}:{server_info.port}")
+            logger.debug(f"Instructions: {server_info.instructions}")
             for asset_type, asset_list in server_info.assets.items():
                 if not asset_list:
                     continue
@@ -192,12 +193,10 @@ class FastMCP:
             host=self.settings.host,
             port=self.settings.port,
             instructions=self.instructions,
-            assets=ServerInfo.ServerInfoAssets(
-                tools=await self.list_tools(),
-                resources=await self.list_resources(),
-                prompts=await self.list_prompts(),
-                resource_templates=await self.list_resource_templates()
-            )
+            tools=await self.list_tools() or [],
+            resources=await self.list_resources() or [],
+            prompts=await self.list_prompts() or [],
+            resource_templates=await self.list_resource_templates() or []
         )
 
     def _setup_handlers(self) -> None:

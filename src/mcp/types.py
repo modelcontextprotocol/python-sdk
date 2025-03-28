@@ -1129,18 +1129,25 @@ class ServerResult(
 ):
     pass
 
-class ServerInfo(BaseModel):
-    class ServerInfoAssets(BaseModel):
-        tools: list[Tool]
-        prompts: list[Prompt]
-        resources: list[Resource]
-        resource_templates: list[ResourceTemplate]
-    
+class ServerInfo(BaseModel):   
     name: str
     host: str
     port: int
     instructions: str | None
-    assets: ServerInfoAssets
+    tools: list[Tool]
+    prompts: list[Prompt]
+    resources: list[Resource]
+    resource_templates: list[ResourceTemplate]
+
+    @property
+    def assets(self) -> dict[str, list[Tool] | list[Prompt] | list[Resource] | list[ResourceTemplate]]:
+        assets_dict = {
+            "tools": self.tools,
+            "prompts": self.prompts,
+            "resources": self.resources,
+            "resource_templates": self.resource_templates
+        }
+        return assets_dict
 
 
     
