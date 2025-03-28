@@ -185,17 +185,7 @@ class FastMCP:
         This method gathers details about the server, including its name, host, port,
         instructions, and various assets such as tools, resources, prompts, and resource templates.
 
-        Returns:
-            dict: A dictionary containing the server's information:
-                - name (str): The name of the server.
-                - host (str): The host address of the server.
-                - port (int): The port number the server is running on.
-                - instructions (str): Instructions or guidelines related to the server.
-                - assets (dict): A dictionary of server assets:
-                    - tools (list): A list of tools available on the server.
-                    - resources (list): A list of resources available on the server.
-                    - prompts (list): A list of prompts available on the server.
-                    - resource_templates (list): A list of resource templates available on the server.
+        Returns: ServerInfo
         """
         return ServerInfo(
             name=self.name,
