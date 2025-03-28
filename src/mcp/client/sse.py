@@ -1,8 +1,8 @@
 import logging
+import re
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import urljoin, urlparse
-import re
 
 import anyio
 import httpx
