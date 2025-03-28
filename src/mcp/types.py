@@ -1140,7 +1140,9 @@ class ServerInfo(BaseModel):
     resource_templates: list[ResourceTemplate]
 
     @property
-    def assets(self) -> dict[str, list[Tool] | list[Prompt] | list[Resource] | list[ResourceTemplate]]:
+    def assets(self) -> dict[
+        str, list[Tool] | list[Prompt] | list[Resource] | list[ResourceTemplate]
+    ]:
         assets_dict = {
             "tools": self.tools,
             "prompts": self.prompts,

@@ -184,7 +184,8 @@ class FastMCP:
         Asynchronously retrieves and returns server information.
 
         This method gathers details about the server, including its name, host, port,
-        instructions, and various assets such as tools, resources, prompts, and resource templates.
+        instructions, and various assets such as tools, resources, 
+        prompts, and resource templates.
 
         Returns: ServerInfo
         """
