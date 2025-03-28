@@ -42,6 +42,7 @@ from mcp.types import (
     EmbeddedResource,
     GetPromptResult,
     ImageContent,
+    ServerInfo,
     TextContent,
 )
 from mcp.types import Prompt as MCPPrompt
@@ -49,7 +50,6 @@ from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
 from mcp.types import ResourceTemplate as MCPResourceTemplate
 from mcp.types import Tool as MCPTool
-from mcp.types import ServerInfo
 
 logger = get_logger(__name__)
 
