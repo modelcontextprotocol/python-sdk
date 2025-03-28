@@ -1128,3 +1128,19 @@ class ServerResult(
     ]
 ):
     pass
+
+class ServerInfo(BaseModel):
+    class ServerInfoAssets(BaseModel):
+        tools: list[Tool]
+        prompts: list[Prompt]
+        resources: list[Resource]
+        resource_templates: list[ResourceTemplate]
+    
+    name: str
+    host: str
+    port: int
+    instructions: str | None
+    assets: ServerInfoAssets
+
+
+    

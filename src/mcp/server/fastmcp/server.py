@@ -49,6 +49,7 @@ from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
 from mcp.types import ResourceTemplate as MCPResourceTemplate
 from mcp.types import Tool as MCPTool
+from mcp.types import ServerInfo
 
 logger = get_logger(__name__)
 
@@ -177,7 +178,7 @@ class FastMCP:
         else:  # transport == "sse"
             await self.run_sse_async()
 
-    async def get_server_info(self):
+    async def get_server_info(self) -> ServerInfo:
         """
         Asynchronously retrieves and returns server information.
 
@@ -196,18 +197,18 @@ class FastMCP:
                     - prompts (list): A list of prompts available on the server.
                     - resource_templates (list): A list of resource templates available on the server.
         """
-        return {
-            'name': self.name,
-            'host': self.settings.host,
-            'port': self.settings.port,
-            'instructions': self.instructions,
-            'assets': {
-                'tools': await self.list_tools(),
-                'resources': await self.list_resources(),
-                'prompts': await self.list_prompts(),
-                'resource_templates': await self.list_resource_templates()
-            }
-        }
+        return ServerInfo(
+            name=self.name,
+            host=self.settings.host,
+            port=self.settings.port,
+            instructions=self.instructions,
+            assets=ServerInfo.ServerInfoAssets(
+                tools=await self.list_tools(),
+                resources=await self.list_resources(),
+                prompts=await self.list_prompts(),
+                resource_templates=await self.list_resource_templates()
+            )
+        )
 
     def _setup_handlers(self) -> None:
         """Set up core MCP protocol handlers."""
