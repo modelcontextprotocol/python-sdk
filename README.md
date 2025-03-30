@@ -81,7 +81,7 @@ uv add "mcp[cli]"
 
 Alternatively, for projects using pip for dependencies:
 ```bash
-pip install mcp
+pip install "mcp[cli]"
 ```
 
 ### Running the standalone MCP development tools
