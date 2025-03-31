@@ -1,6 +1,7 @@
 import shutil
 
 import pytest
+from anyio import fail_after
 
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
@@ -41,3 +42,18 @@ async def test_stdio_client():
         assert read_messages[1] == JSONRPCMessage(
             root=JSONRPCResponse(jsonrpc="2.0", id=2, result={})
         )
+
+
+@pytest.mark.anyio
+async def test_stdio_client_bad_path():
+    """Check that the connection doesn't hang if process errors."""
+    server_parameters = StdioServerParameters(
+        command="uv", args=["run", "non-existent-file.py"]
+    )
+
+    try:
+        with fail_after(1):
+            async with stdio_client(server_parameters) as (read_stream, write_stream):
+                pass
+    except TimeoutError:
+        pytest.fail("The connection hung.")
