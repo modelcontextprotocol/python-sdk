@@ -11,6 +11,7 @@ from mcp.client.stdio import (
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 tee: str = shutil.which("tee")  # type: ignore
+uv: str = shutil.which("uv")  # type: ignore
 
 
 @pytest.mark.anyio
@@ -49,6 +50,7 @@ async def test_stdio_client():
 
 
 @pytest.mark.anyio
+@pytest.mark.skipif(uv is None, reason="could not find uv command")
 async def test_stdio_client_bad_path():
     """Check that the connection doesn't hang if process errors."""
     server_parameters = StdioServerParameters(
