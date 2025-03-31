@@ -5,6 +5,7 @@ strict: true
 repo_name: modelcontextprotocol/python-sdk
 repo_url: https://github.com/modelcontextprotocol/python-sdk
 edit_uri: edit/main/docs/
+site_url: https://modelcontextprotocol.github.io/python-sdk
 
 # TODO(Marcelo): Add Anthropic copyright?
 # copyright: © Model Context Protocol 2025 to present
