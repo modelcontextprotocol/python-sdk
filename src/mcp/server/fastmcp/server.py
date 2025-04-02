@@ -5,7 +5,7 @@ from __future__ import annotations as _annotations
 import inspect
 import json
 import re
-from collections.abc import AsyncIterator, Callable, Iterable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import (
     AbstractAsyncContextManager,
     asynccontextmanager,
@@ -19,10 +19,23 @@ import uvicorn
 from pydantic import BaseModel, Field
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sse_starlette import EventSourceResponse
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.requests import Request
-from starlette.routing import Mount, Route
+from starlette.responses import Response
+from starlette.routing import Mount, Route, request_response  # type: ignore
 
+from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
+from mcp.server.auth.middleware.bearer_auth import (
+    BearerAuthBackend,
+    RequireAuthMiddleware,
+)
+from mcp.server.auth.provider import OAuthServerProvider
+from mcp.server.auth.settings import (
+    AuthSettings,
+)
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
@@ -63,6 +76,8 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     model_config = SettingsConfigDict(
         env_prefix="FASTMCP_",
         env_file=".env",
+        env_nested_delimiter="__",
+        nested_model_default_partial_update=True,
         extra="ignore",
     )
 
@@ -94,6 +109,8 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
         Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]] | None
     ) = Field(None, description="Lifespan context manager")
 
+    auth: AuthSettings | None = None
+
 
 def lifespan_wrapper(
     app: FastMCP,
@@ -109,7 +126,11 @@ def lifespan_wrapper(
 
 class FastMCP:
     def __init__(
-        self, name: str | None = None, instructions: str | None = None, **settings: Any
+        self,
+        name: str | None = None,
+        instructions: str | None = None,
+        auth_provider: OAuthServerProvider[Any, Any, Any] | None = None,
+        **settings: Any,
     ):
         self.settings = Settings(**settings)
 
@@ -129,6 +150,13 @@ class FastMCP:
         self._prompt_manager = PromptManager(
             warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts
         )
+        if (self.settings.auth is not None) != (auth_provider is not None):
+            raise ValueError(
+                "settings.auth must be specified if and only if auth_provider "
+                "is specified"
+            )
+        self._auth_provider = auth_provider
+        self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
 
         # Set up MCP protocol handlers
@@ -455,6 +483,29 @@ class FastMCP:
 
         return decorator
 
+    def custom_route(
+        self,
+        path: str,
+        methods: list[str],
+        name: str | None = None,
+        include_in_schema: bool = True,
+    ):
+        def decorator(
+            func: Callable[[Request], Awaitable[Response]],
+        ) -> Callable[[Request], Awaitable[Response]]:
+            self._custom_starlette_routes.append(
+                Route(
+                    path,
+                    endpoint=func,
+                    methods=methods,
+                    name=name,
+                    include_in_schema=include_in_schema,
+                )
+            )
+            return func
+
+        return decorator
+
     async def run_stdio_async(self) -> None:
         """Run the server using stdio transport."""
         async with stdio_server() as (read_stream, write_stream):
@@ -465,11 +516,8 @@ class FastMCP:
             )
 
     async def run_sse_async(self) -> None:
-        """Run the server using SSE transport."""
-        starlette_app = self.sse_app()
-
         config = uvicorn.Config(
-            starlette_app,
+            app=self.sse_app(),
             host=self.settings.host,
             port=self.settings.port,
             log_level=self.settings.log_level.lower(),
@@ -478,10 +526,16 @@ class FastMCP:
         await server.serve()
 
     def sse_app(self) -> Starlette:
-        """Return an instance of the SSE server app."""
+        from starlette.middleware import Middleware
+        from starlette.routing import Mount, Route
+
+        # Set up auth context and dependencies
+
         sse = SseServerTransport(self.settings.message_path)
 
-        async def handle_sse(request: Request) -> None:
+        async def handle_sse(request: Request) -> EventSourceResponse:
+            # Add client ID from auth context into request context if available
+
             async with sse.connect_sse(
                 request.scope,
                 request.receive,
@@ -492,13 +546,63 @@ class FastMCP:
                     streams[1],
                     self._mcp_server.create_initialization_options(),
                 )
+                return streams[2]
 
+        # Create routes
+        routes: list[Route | Mount] = []
+        middleware: list[Middleware] = []
+        required_scopes = []
+
+        # Add auth endpoints if auth provider is configured
+        if self._auth_provider:
+            assert self.settings.auth
+            from mcp.server.auth.routes import create_auth_routes
+
+            required_scopes = self.settings.auth.required_scopes or []
+
+            middleware = [
+                # extract auth info from request (but do not require it)
+                Middleware(
+                    AuthenticationMiddleware,
+                    backend=BearerAuthBackend(
+                        provider=self._auth_provider,
+                    ),
+                ),
+                # Add the auth context middleware to store
+                # authenticated user in a contextvar
+                Middleware(AuthContextMiddleware),
+            ]
+            routes.extend(
+                create_auth_routes(
+                    provider=self._auth_provider,
+                    issuer_url=self.settings.auth.issuer_url,
+                    service_documentation_url=self.settings.auth.service_documentation_url,
+                    client_registration_options=self.settings.auth.client_registration_options,
+                    revocation_options=self.settings.auth.revocation_options,
+                )
+            )
+
+        routes.append(
+            Route(
+                self.settings.sse_path,
+                endpoint=RequireAuthMiddleware(
+                    request_response(handle_sse), required_scopes
+                ),
+                methods=["GET"],
+            )
+        )
+        routes.append(
+            Mount(
+                self.settings.message_path,
+                app=RequireAuthMiddleware(sse.handle_post_message, required_scopes),
+            )
+        )
+        # mount these routes last, so they have the lowest route matching precedence
+        routes.extend(self._custom_starlette_routes)
+
+        # Create Starlette app with routes and middleware
         return Starlette(
-            debug=self.settings.debug,
-            routes=[
-                Route(self.settings.sse_path, endpoint=handle_sse),
-                Mount(self.settings.message_path, app=sse.handle_post_message),
-            ],
+            debug=self.settings.debug, routes=routes, middleware=middleware
         )
 
     async def list_prompts(self) -> list[MCPPrompt]:
