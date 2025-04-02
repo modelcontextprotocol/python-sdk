@@ -95,8 +95,11 @@ async def streamable_client(
                                         *headers,
                                     ),
                                 )
+                                content_type = response.headers.get("content-type")
                                 logger.debug(
-                                    f"response {url=} content-type={response.headers.get("content-type")} body={response.text}"
+                                    f"response {url=} "
+                                    f"content-type={content_type} "
+                                    f"body={response.text}"
                                 )
 
                                 response.raise_for_status()
