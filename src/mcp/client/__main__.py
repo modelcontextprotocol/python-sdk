@@ -78,13 +78,12 @@ def cli():
     )
     parser.add_argument(
         "--disable-ssl-verification",
-        nargs="+",
-        default=[],
+        action='store_true',
         help="Disable SSL verification when using HTTPS. SSL verification is enabled by default.",
     )
 
     args = parser.parse_args()
-    anyio.run(partial(main, args.command_or_url, args.args, args.env, args.disable_ssl_verification if len(args.disable_ssl_verification) > 0 else False), backend="trio")
+    anyio.run(partial(main, args.command_or_url, args.args, args.env, args.disable_ssl_verification), backend="trio")
 
 
 if __name__ == "__main__":
