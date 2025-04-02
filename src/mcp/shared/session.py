@@ -377,7 +377,11 @@ class BaseSession(
         """
 
     async def send_progress_notification(
-        self, progress_token: str | int, progress: float, total: float | None = None
+        self,
+        progress_token: str | int,
+        progress: float,
+        total: float | None = None,
+        message: str | None = None,
     ) -> None:
         """
         Sends a progress notification for a request that is currently being
