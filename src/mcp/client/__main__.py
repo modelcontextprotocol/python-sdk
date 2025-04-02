@@ -47,7 +47,12 @@ async def run_session(
         logger.info("Initialized")
 
 
-async def main(command_or_url: str, args: list[str], env: list[tuple[str, str]], verify_ssl: bool):
+async def main(
+    command_or_url: str,
+    args: list[str],
+    env: list[tuple[str, str]],
+    verify_ssl: bool,
+):
     env_dict = dict(env)
 
     if urlparse(command_or_url).scheme in ("http", "https"):
@@ -85,7 +90,13 @@ def cli():
 
     args = parser.parse_args()
     anyio.run(
-        partial(main, args.command_or_url, args.args, args.env, not args.disable_ssl_verification),
+        partial(
+            main,
+            args.command_or_url,
+            args.args,
+            args.env,
+            not args.disable_ssl_verification,
+        ),
         backend="trio",
     )
 
