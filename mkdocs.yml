@@ -1,0 +1,120 @@
+site_name: MCP Server
+site_description: MCP Server
+strict: true
+
+repo_name: modelcontextprotocol/python-sdk
+repo_url: https://github.com/modelcontextprotocol/python-sdk
+edit_uri: edit/main/docs/
+site_url: https://modelcontextprotocol.github.io/python-sdk
+
+# TODO(Marcelo): Add Anthropic copyright?
+# copyright: © Model Context Protocol 2025 to present
+
+nav:
+  - Home: index.md
+  - API Reference: api.md
+
+theme:
+  name: "material"
+  palette:
+    - media: "(prefers-color-scheme)"
+      scheme: default
+      primary: black
+      accent: black
+      toggle:
+        icon: material/lightbulb
+        name: "Switch to light mode"
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: black
+      toggle:
+        icon: material/lightbulb-outline
+        name: "Switch to dark mode"
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: white
+      accent: white
+      toggle:
+        icon: material/lightbulb-auto-outline
+        name: "Switch to system preference"
+  features:
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.annotate
+    - content.code.copy
+    - content.code.select
+    - navigation.path
+    - navigation.indexes
+    - navigation.sections
+    - navigation.tracking
+    - toc.follow
+  # logo: "img/logo-white.svg"
+  # TODO(Marcelo): Add a favicon.
+  # favicon: "favicon.ico"
+
+# https://www.mkdocs.org/user-guide/configuration/#validation
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+markdown_extensions:
+  - tables
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.caret
+  - pymdownx.critic
+  - pymdownx.mark
+  - pymdownx.superfences
+  - pymdownx.snippets
+  - pymdownx.tilde
+  - pymdownx.inlinehilite
+  - pymdownx.highlight:
+      pygments_lang_class: true
+  - pymdownx.extra:
+      pymdownx.superfences:
+        custom_fences:
+          - name: mermaid
+            class: mermaid
+            format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+      options:
+        custom_icons:
+          - docs/.overrides/.icons
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - sane_lists # this means you can start a list from any number
+
+watch:
+  - src/mcp
+
+plugins:
+  - search
+  - social
+  - glightbox
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src/mcp]
+          options:
+            relative_crossrefs: true
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: true
+            signature_crossrefs: true
+            group_by_category: false
+            # 3 because docs are in pages with an H2 just above them
+            heading_level: 3
+          import:
+            - url: https://docs.python.org/3/objects.inv
+            - url: https://docs.pydantic.dev/latest/objects.inv
+            - url: https://typing-extensions.readthedocs.io/en/latest/objects.inv

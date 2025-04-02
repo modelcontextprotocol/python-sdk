@@ -5,7 +5,7 @@ from typing import Generic
 
 from pydantic import BaseModel
 
-from mcp.shared.context import RequestContext
+from mcp.shared.context import LifespanContextT, RequestContext
 from mcp.shared.session import (
     BaseSession,
     ReceiveNotificationT,
@@ -60,7 +60,8 @@ def progress(
             SendResultT,
             ReceiveRequestT,
             ReceiveNotificationT,
-        ]
+        ],
+        LifespanContextT,
     ],
     total: float | None = None,
 ) -> Generator[

@@ -2,7 +2,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TextIO
 
 import anyio
 import anyio.lowlevel
@@ -11,6 +11,12 @@ from anyio.streams.text import TextReceiveStream
 from pydantic import BaseModel, Field
 
 import mcp.types as types
+
+from .win32 import (
+    create_windows_process,
+    get_windows_executable_command,
+    terminate_windows_process,
+)
 
 # Environment variables to inherit by default
 DEFAULT_INHERITED_ENV_VARS = (
@@ -87,7 +93,7 @@ class StdioServerParameters(BaseModel):
 
 
 @asynccontextmanager
-async def stdio_client(server: StdioServerParameters):
+async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stderr):
     """
     Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
@@ -101,10 +107,18 @@ async def stdio_client(server: StdioServerParameters):
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-    process = await anyio.open_process(
-        [server.command, *server.args],
-        env=server.env if server.env is not None else get_default_environment(),
-        stderr=sys.stderr,
+    command = _get_executable_command(server.command)
+
+    # Open process with stderr piped for capture
+    process = await _create_platform_compatible_process(
+        command=command,
+        args=server.args,
+        env=(
+            {**get_default_environment(), **server.env}
+            if server.env is not None
+            else get_default_environment()
+        ),
+        errlog=errlog,
         cwd=server.cwd,
     )
 
@@ -155,4 +169,48 @@ async def stdio_client(server: StdioServerParameters):
     ):
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
-        yield read_stream, write_stream
+        try:
+            yield read_stream, write_stream
+        finally:
+            # Clean up process to prevent any dangling orphaned processes
+            if sys.platform == "win32":
+                await terminate_windows_process(process)
+            else:
+                process.terminate()
+
+
+def _get_executable_command(command: str) -> str:
+    """
+    Get the correct executable command normalized for the current platform.
+
+    Args:
+        command: Base command (e.g., 'uvx', 'npx')
+
+    Returns:
+        str: Platform-appropriate command
+    """
+    if sys.platform == "win32":
+        return get_windows_executable_command(command)
+    else:
+        return command
+
+
+async def _create_platform_compatible_process(
+    command: str,
+    args: list[str],
+    env: dict[str, str] | None = None,
+    errlog: TextIO = sys.stderr,
+    cwd: Path | str | None = None,
+):
+    """
+    Creates a subprocess in a platform-compatible way.
+    Returns a process handle.
+    """
+    if sys.platform == "win32":
+        process = await create_windows_process(command, args, env, errlog, cwd)
+    else:
+        process = await anyio.open_process(
+            [command, *args], env=env, stderr=errlog, cwd=cwd
+        )
+
+    return process
