@@ -47,12 +47,12 @@ async def run_session(
         logger.info("Initialized")
 
 
-async def main(command_or_url: str, args: list[str], env: list[tuple[str, str]]):
+async def main(command_or_url: str, args: list[str], env: list[tuple[str, str]], disable_ssl_verification: bool):
     env_dict = dict(env)
 
     if urlparse(command_or_url).scheme in ("http", "https"):
         # Use SSE client for HTTP(S) URLs
-        async with sse_client(command_or_url) as streams:
+        async with sse_client(command_or_url, verify_ssl=not disable_ssl_verification) as streams:
             await run_session(*streams)
     else:
         # Use stdio client for commands
@@ -76,9 +76,15 @@ def cli():
         help="Environment variables to set. Can be used multiple times.",
         default=[],
     )
+    parser.add_argument(
+        "--disable-ssl-verification",
+        nargs="+",
+        default=[],
+        help="Disable SSL verification when using HTTPS. SSL verification is enabled by default.",
+    )
 
     args = parser.parse_args()
-    anyio.run(partial(main, args.command_or_url, args.args, args.env), backend="trio")
+    anyio.run(partial(main, args.command_or_url, args.args, args.env, args.disable_ssl_verification if len(args.disable_ssl_verification) > 0 else False), backend="trio")
 
 
 if __name__ == "__main__":

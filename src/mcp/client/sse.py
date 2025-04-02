@@ -24,6 +24,7 @@ async def sse_client(
     headers: dict[str, Any] | None = None,
     timeout: float = 5,
     sse_read_timeout: float = 60 * 5,
+    verify_ssl: bool = True,
 ):
     """
     Client transport for SSE.
@@ -43,7 +44,7 @@ async def sse_client(
     async with anyio.create_task_group() as tg:
         try:
             logger.info(f"Connecting to SSE endpoint: {remove_request_params(url)}")
-            async with httpx.AsyncClient(headers=headers) as client:
+            async with httpx.AsyncClient(headers=headers, verify=verify_ssl) as client:
                 async with aconnect_sse(
                     client,
                     "GET",
