@@ -282,13 +282,9 @@ class ChatSession:
 
     async def cleanup_servers(self) -> None:
         """Clean up all servers properly."""
-        cleanup_tasks = []
-        for server in self.servers:
-            cleanup_tasks.append(asyncio.create_task(server.cleanup()))
-
-        if cleanup_tasks:
+        for server in reversed(self.servers):
             try:
-                await asyncio.gather(*cleanup_tasks, return_exceptions=True)
+                await server.cleanup()
             except Exception as e:
                 logging.warning(f"Warning during final cleanup: {e}")
 
