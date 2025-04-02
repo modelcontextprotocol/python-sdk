@@ -98,9 +98,11 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 def lifespan_wrapper(
     app: FastMCP,
     lifespan: Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]],
-) -> Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[object]]:
+) -> Callable[
+    [MCPServer[LifespanResultT, Request]], AbstractAsyncContextManager[object]
+]:
     @asynccontextmanager
-    async def wrap(s: MCPServer[LifespanResultT]) -> AsyncIterator[object]:
+    async def wrap(s: MCPServer[LifespanResultT, Request]) -> AsyncIterator[object]:
         async with lifespan(app) as context:
             yield context
 
@@ -491,6 +493,7 @@ class FastMCP:
                     streams[0],
                     streams[1],
                     self._mcp_server.create_initialization_options(),
+                    request=request,
                 )
 
         return Starlette(
@@ -592,13 +595,14 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
     The context is optional - tools that don't need it can omit the parameter.
     """
 
-    _request_context: RequestContext[ServerSessionT, LifespanContextT] | None
+    _request_context: RequestContext[ServerSessionT, LifespanContextT, Request] | None
     _fastmcp: FastMCP | None
 
     def __init__(
         self,
         *,
-        request_context: RequestContext[ServerSessionT, LifespanContextT] | None = None,
+        request_context: RequestContext[ServerSessionT, LifespanContextT, Request]
+        | None = None,
         fastmcp: FastMCP | None = None,
         **kwargs: Any,
     ):
@@ -614,7 +618,9 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         return self._fastmcp
 
     @property
-    def request_context(self) -> RequestContext[ServerSessionT, LifespanContextT]:
+    def request_context(
+        self,
+    ) -> RequestContext[ServerSessionT, LifespanContextT, Request]:
         """Access to the underlying request context."""
         if self._request_context is None:
             raise ValueError("Context is not available outside of a request")
