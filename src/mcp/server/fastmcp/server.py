@@ -381,7 +381,7 @@ class FastMCP:
 
                 # Get all function params except 'ctx' or any parameter of type Context
                 sig = inspect.signature(fn)
-                func_params = set()
+                func_params: set[str] = set()
                 for param_name, param in sig.parameters.items():
                     # Skip context parameters
                     if param_name == "ctx" or (
