@@ -1,11 +1,17 @@
 import shutil
 
 import pytest
+from anyio import fail_after
 
-from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.client.stdio import (
+    ProcessTerminatedEarlyError,
+    StdioServerParameters,
+    stdio_client,
+)
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 tee: str = shutil.which("tee")  # type: ignore
+uv: str = shutil.which("uv")  # type: ignore
 
 
 @pytest.mark.anyio
@@ -41,3 +47,30 @@ async def test_stdio_client():
         assert read_messages[1] == JSONRPCMessage(
             root=JSONRPCResponse(jsonrpc="2.0", id=2, result={})
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.skipif(uv is None, reason="could not find uv command")
+async def test_stdio_client_bad_path():
+    """Check that the connection doesn't hang if process errors."""
+    server_parameters = StdioServerParameters(
+        command="uv", args=["run", "non-existent-file.py"]
+    )
+
+    with pytest.raises(ProcessTerminatedEarlyError):
+        try:
+            with fail_after(1):
+                async with stdio_client(server_parameters) as (
+                    read_stream,
+                    _,
+                ):
+                    # Try waiting for read_stream so that we don't exit before the
+                    #  process fails.
+                    async with read_stream:
+                        async for message in read_stream:
+                            if isinstance(message, Exception):
+                                raise message
+
+                    pass
+        except TimeoutError:
+            pytest.fail("The connection hung.")

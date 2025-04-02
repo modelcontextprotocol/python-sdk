@@ -6,6 +6,7 @@ from typing import Literal, TextIO
 
 import anyio
 import anyio.lowlevel
+from anyio.abc import Process
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from anyio.streams.text import TextReceiveStream
 from pydantic import BaseModel, Field
@@ -36,6 +37,10 @@ DEFAULT_INHERITED_ENV_VARS = (
     if sys.platform == "win32"
     else ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"]
 )
+
+
+class ProcessTerminatedEarlyError(Exception):
+    """Raised when a process terminates unexpectedly."""
 
 
 def get_default_environment() -> dict[str, str]:
@@ -110,7 +115,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     command = _get_executable_command(server.command)
 
     # Open process with stderr piped for capture
-    process = await _create_platform_compatible_process(
+    process: Process = await _create_platform_compatible_process(
         command=command,
         args=server.args,
         env=(
@@ -163,20 +168,36 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         except anyio.ClosedResourceError:
             await anyio.lowlevel.checkpoint()
 
+    process_error: str | None = None
+
     async with (
         anyio.create_task_group() as tg,
         process,
     ):
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
+        # tg.start_soon(monitor_process, tg.cancel_scope)
         try:
             yield read_stream, write_stream
         finally:
-            # Clean up process to prevent any dangling orphaned processes
-            if sys.platform == "win32":
-                await terminate_windows_process(process)
+            await read_stream.aclose()
+            await write_stream.aclose()
+            await read_stream_writer.aclose()
+            await write_stream_reader.aclose()
+
+            if process.returncode is not None and process.returncode != 0:
+                process_error = f"Process exited with code {process.returncode}."
             else:
-                process.terminate()
+                # Clean up process to prevent any dangling orphaned processes
+                if sys.platform == "win32":
+                    await terminate_windows_process(process)
+                else:
+                    process.terminate()
+
+    if process_error:
+        # Raise outside the task group so that the error is not wrapped in an
+        #  ExceptionGroup
+        raise ProcessTerminatedEarlyError(process_error)
 
 
 def _get_executable_command(command: str) -> str:
