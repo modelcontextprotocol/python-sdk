@@ -14,6 +14,8 @@ from mcp.server.fastmcp.utilities.func_metadata import func_metadata
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
+    from mcp.server.session import ServerSessionT
+    from mcp.shared.context import LifespanContextT
 
 
 class ResourceTemplate(BaseModel):
@@ -43,6 +45,7 @@ class ResourceTemplate(BaseModel):
         name: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
+        context_kwarg: str | None = None,
     ) -> ResourceTemplate:
         """Create a template from a function."""
         func_name = name or fn.__name__
@@ -50,16 +53,14 @@ class ResourceTemplate(BaseModel):
             raise ValueError("You must provide a name for lambda functions")
 
         # Find context parameter if it exists
-        context_kwarg = None
-        sig = inspect.signature(fn)
-        for param_name, param in sig.parameters.items():
-            if (
-                param.annotation.__name__ == "Context"
-                if hasattr(param.annotation, "__name__")
-                else False
-            ):
-                context_kwarg = param_name
-                break
+        if context_kwarg is None:
+            from mcp.server.fastmcp.server import Context
+
+            sig = inspect.signature(fn)
+            for param_name, param in sig.parameters.items():
+                if param.annotation is Context:
+                    context_kwarg = param_name
+                    break
 
         # Get schema from func_metadata, excluding context parameter
         func_arg_metadata = func_metadata(
@@ -91,7 +92,10 @@ class ResourceTemplate(BaseModel):
         return None
 
     async def create_resource(
-        self, uri: str, params: dict[str, Any], context: Context | None = None
+        self,
+        uri: str,
+        params: dict[str, Any],
+        context: Context[ServerSessionT, LifespanContextT] | None = None,
     ) -> Resource:
         """Create a resource from the template with the given parameters."""
         try:

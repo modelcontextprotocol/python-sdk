@@ -11,6 +11,8 @@ from mcp.server.fastmcp.utilities.logging import get_logger
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
+    from mcp.server.session import ServerSessionT
+    from mcp.shared.context import LifespanContextT
 
 logger = get_logger(__name__)
 
@@ -69,7 +71,9 @@ class ResourceManager:
         return template
 
     async def get_resource(
-        self, uri: AnyUrl | str, context: "Context | None" = None
+        self,
+        uri: AnyUrl | str,
+        context: "Context[ServerSessionT, LifespanContextT] | None" = None,
     ) -> Resource | None:
         """Get resource by URI, checking concrete resources first, then templates."""
         uri_str = str(uri)
