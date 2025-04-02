@@ -97,6 +97,7 @@ class ClientSession(
         list_roots_callback: ListRootsFnT | None = None,
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
+        supported_protocol_versions: tuple[str | int, ...] | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -109,6 +110,9 @@ class ClientSession(
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
+        self._supported_protocol_versions = (
+            supported_protocol_versions or SUPPORTED_PROTOCOL_VERSIONS
+        )
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability()
@@ -137,7 +141,7 @@ class ClientSession(
             types.InitializeResult,
         )
 
-        if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
+        if result.protocolVersion not in self._supported_protocol_versions:
             raise RuntimeError(
                 "Unsupported protocol version from the server: "
                 f"{result.protocolVersion}"
