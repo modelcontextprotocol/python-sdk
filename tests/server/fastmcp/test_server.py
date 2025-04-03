@@ -465,6 +465,46 @@ class TestServerResourceTemplates:
         result = await resource.read()
         assert result == "Data for test"
 
+    @pytest.mark.anyio
+    async def test_context_injection_in_resource(self):
+        """Test that context is properly injected in resource functions."""
+        mcp = FastMCP()
+        context_was_injected = False
+
+        @mcp.resource("resource://{name}/data")
+        def get_data_with_context(name: str, ctx: Context) -> str:
+            nonlocal context_was_injected
+            assert isinstance(ctx, Context)
+            context_was_injected = True
+            return f"Data for {name} with context"
+
+        assert len(mcp._resource_manager._templates) == 1
+
+        result = list(await mcp.read_resource("resource://test/data"))
+        assert len(result) == 1
+        assert result[0].content == "Data for test with context"
+        assert context_was_injected
+
+    @pytest.mark.anyio
+    async def test_context_injection_in_async_resource(self):
+        """Test that context is properly injected in async resource functions."""
+        mcp = FastMCP()
+        context_was_injected = False
+
+        @mcp.resource("resource://{name}/async-data")
+        async def get_async_data_with_context(name: str, ctx: Context) -> str:
+            nonlocal context_was_injected
+            assert isinstance(ctx, Context)
+            context_was_injected = True
+            return f"Async data for {name} with context"
+
+        assert len(mcp._resource_manager._templates) == 1
+
+        result = list(await mcp.read_resource("resource://test/async-data"))
+        assert len(result) == 1
+        assert result[0].content == "Async data for test with context"
+        assert context_was_injected
+
 
 class TestContextInjection:
     """Test context injection in tools."""
