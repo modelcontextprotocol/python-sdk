@@ -29,7 +29,7 @@ async def streamable_client(
     Client transport for streamable HTTP, with fallback to SSE.
     """
     if await _is_old_sse_server(url, timeout):
-        async with sse_client(url) as (read_stream, write_stream):
+        async with sse_client(url, headers=headers) as (read_stream, write_stream):
             yield read_stream, write_stream
         return
 
