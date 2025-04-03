@@ -1,5 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
+from typing import Any
 
 import anyio
 import httpx
@@ -21,6 +22,7 @@ SUPPORTED_PROTOCOL_VERSIONS: tuple[str, ...] = (
 @asynccontextmanager
 async def streamable_client(
     url: str,
+    headers: dict[str, Any] | None = None,
     timeout: float = 5,
 ):
     """
@@ -45,7 +47,7 @@ async def streamable_client(
         for item in items:
             await read_stream_writer.send(item)
 
-    headers: tuple[tuple[str, str], ...] = ()
+    session_headers = headers.copy() if headers else {}
 
     async with anyio.create_task_group() as tg:
         try:
@@ -92,7 +94,7 @@ async def streamable_client(
                                     headers=(
                                         ("accept", "application/json"),
                                         ("accept", "text/event-stream"),
-                                        *headers,
+                                        *session_headers.items(),
                                     ),
                                 )
                                 content_type = response.headers.get("content-type")
@@ -105,7 +107,7 @@ async def streamable_client(
                                 response.raise_for_status()
                                 match response.headers.get("mcp-session-id"):
                                     case str() as session_id:
-                                        headers = (("mcp-session-id", session_id),)
+                                        session_headers["mcp-session-id"] = session_id
                                     case _:
                                         pass
 
