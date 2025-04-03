@@ -2,7 +2,7 @@ from __future__ import annotations as _annotations
 
 import inspect
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, get_origin
 
 from pydantic import BaseModel, Field
 
@@ -53,7 +53,9 @@ class Tool(BaseModel):
         if context_kwarg is None:
             sig = inspect.signature(fn)
             for param_name, param in sig.parameters.items():
-                if param.annotation is Context:
+                if get_origin(param.annotation) is not None:
+                    continue
+                if issubclass(param.annotation, Context):
                     context_kwarg = param_name
                     break
 

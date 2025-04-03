@@ -242,6 +242,8 @@ class TestContextHandling:
         """Test that context parameters are properly detected in
         Tool.from_function()."""
         from mcp.server.fastmcp import Context
+        from mcp.server.session import ServerSessionT
+        from mcp.shared.context import LifespanContextT
 
         def tool_with_context(x: int, ctx: Context) -> str:
             return str(x)
@@ -255,6 +257,14 @@ class TestContextHandling:
 
         tool = manager.add_tool(tool_without_context)
         assert tool.context_kwarg is None
+
+        def tool_with_specialized_context(
+            x: int, ctx: Context[ServerSessionT, LifespanContextT]
+        ) -> str:
+            return str(x)
+
+        tool = manager.add_tool(tool_with_specialized_context)
+        assert tool.context_kwarg == "ctx"
 
     @pytest.mark.anyio
     async def test_context_injection(self):
