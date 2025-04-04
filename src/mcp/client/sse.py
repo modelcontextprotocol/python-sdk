@@ -62,7 +62,8 @@ async def sse_client(
                                 match sse.event:
                                     case "endpoint":
                                         uri_base = url.rsplit("/sse", 1)[0]
-                                        endpoint_url = urljoin(uri_base + "/", sse.data.lstrip("/"))
+                                        endpoint_url = urljoin(uri_base + "/", 
+                                                               sse.data.lstrip("/"))
                                         logger.info(
                                             f"Received endpoint URL: {endpoint_url}"
                                         )
