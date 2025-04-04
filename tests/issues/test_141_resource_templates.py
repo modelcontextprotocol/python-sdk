@@ -21,33 +21,84 @@ async def test_resource_template_edge_cases():
     def get_user_post(user_id: str, post_id: str) -> str:
         return f"Post {post_id} by user {user_id}"
 
-    # Test case 2: Template with optional parameter (should fail)
-    with pytest.raises(ValueError, match="Mismatch between URI parameters"):
-
-        @mcp.resource("resource://users/{user_id}/profile")
-        def get_user_profile(user_id: str, optional_param: str | None = None) -> str:
-            return f"Profile for user {user_id}"
+    # Test case 2: Template with valid optional parameters
+    # using form-style query expansion
+    @mcp.resource("resource://users/{user_id}/profile{?format,fields}")
+    def get_user_profile(
+        user_id: str, format: str = "json", fields: str = "basic"
+    ) -> str:
+        return f"Profile for user {user_id} in {format} format with fields: {fields}"
 
     # Test case 3: Template with mismatched parameters
-    with pytest.raises(ValueError, match="Mismatch between URI parameters"):
+    with pytest.raises(
+        ValueError,
+        match="Mismatch between URI path parameters .* and "
+        "required function parameters .*",
+    ):
 
         @mcp.resource("resource://users/{user_id}/profile")
         def get_user_profile_mismatch(different_param: str) -> str:
             return f"Profile for user {different_param}"
 
-    # Test case 4: Template with extra function parameters
-    with pytest.raises(ValueError, match="Mismatch between URI parameters"):
+    # Test case 4: Template with extra required function parameters
+    with pytest.raises(
+        ValueError,
+        match="Mismatch between URI path parameters .* and "
+        "required function parameters .*",
+    ):
 
         @mcp.resource("resource://users/{user_id}/profile")
         def get_user_profile_extra(user_id: str, extra_param: str) -> str:
             return f"Profile for user {user_id}"
 
     # Test case 5: Template with missing function parameters
-    with pytest.raises(ValueError, match="Mismatch between URI parameters"):
+    with pytest.raises(
+        ValueError,
+        match="Mismatch between URI path parameters .* and "
+        "required function parameters .*",
+    ):
 
         @mcp.resource("resource://users/{user_id}/profile/{section}")
         def get_user_profile_missing(user_id: str) -> str:
             return f"Profile for user {user_id}"
+
+    # Test case 6: Invalid query parameter in template (not optional in function)
+    with pytest.raises(
+        ValueError,
+        match="Mismatch between URI path parameters .* and "
+        "required function parameters .*",
+    ):
+
+        @mcp.resource("resource://users/{user_id}/profile{?required_param}")
+        def get_user_profile_invalid_query(user_id: str, required_param: str) -> str:
+            return f"Profile for user {user_id}"
+
+    # Test case 7: Make sure the resource with form-style query parameters works
+    async with client_session(mcp._mcp_server) as client:
+        result = await client.read_resource(AnyUrl("resource://users/123/profile"))
+        assert isinstance(result.contents[0], TextResourceContents)
+        assert (
+            result.contents[0].text
+            == "Profile for user 123 in json format with fields: basic"
+        )
+
+        result = await client.read_resource(
+            AnyUrl("resource://users/123/profile?format=xml")
+        )
+        assert isinstance(result.contents[0], TextResourceContents)
+        assert (
+            result.contents[0].text
+            == "Profile for user 123 in xml format with fields: basic"
+        )
+
+        result = await client.read_resource(
+            AnyUrl("resource://users/123/profile?format=xml&fields=detailed")
+        )
+        assert isinstance(result.contents[0], TextResourceContents)
+        assert (
+            result.contents[0].text
+            == "Profile for user 123 in xml format with fields: detailed"
+        )
 
     # Verify valid template works
     result = await mcp.read_resource("resource://users/123/posts/456")

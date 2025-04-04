@@ -348,6 +348,56 @@ class TestServerResources:
                 == base64.b64encode(b"Binary file data").decode()
             )
 
+    @pytest.mark.anyio
+    async def test_resource_with_form_style_query(self):
+        """Test that resources with form-style query expansion work correctly"""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://{category}/{id}{?filter,sort,limit}")
+        def get_item(
+            category: str,
+            id: str,
+            filter: str = "all",
+            sort: str = "name",
+            limit: int = 10,
+        ) -> str:
+            return (
+                f"Item {id} in {category}, filtered by {filter}, sorted by {sort}, "
+                f"limited to {limit}"
+            )
+
+        async with client_session(mcp._mcp_server) as client:
+            # Test with default values
+            result = await client.read_resource(AnyUrl("resource://electronics/1234"))
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert (
+                result.contents[0].text
+                == "Item 1234 in electronics, filtered by all, sorted by name, "
+                "limited to 10"
+            )
+
+            # Test with query parameters
+            result = await client.read_resource(
+                AnyUrl("resource://electronics/1234?filter=new&sort=price&limit=20")
+            )
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert (
+                result.contents[0].text
+                == "Item 1234 in electronics, filtered by new, sorted by price, "
+                "limited to 20"
+            )
+
+            # Test with partial query parameters
+            result = await client.read_resource(
+                AnyUrl("resource://electronics/1234?filter=used")
+            )
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert (
+                result.contents[0].text
+                == "Item 1234 in electronics, filtered by used, sorted by name, "
+                "limited to 10"
+            )
+
 
 class TestServerResourceTemplates:
     @pytest.mark.anyio
@@ -356,7 +406,11 @@ class TestServerResourceTemplates:
         parameters don't match"""
         mcp = FastMCP()
 
-        with pytest.raises(ValueError, match="Mismatch between URI parameters"):
+        with pytest.raises(
+            ValueError,
+            match="Mismatch between URI path parameters .* and "
+            "required function parameters .*",
+        ):
 
             @mcp.resource("resource://data")
             def get_data_fn(param: str) -> str:
@@ -367,7 +421,11 @@ class TestServerResourceTemplates:
         """Test that a resource with URI parameters is automatically a template"""
         mcp = FastMCP()
 
-        with pytest.raises(ValueError, match="Mismatch between URI parameters"):
+        with pytest.raises(
+            ValueError,
+            match="Mismatch between URI path parameters .* and "
+            "required function parameters .*",
+        ):
 
             @mcp.resource("resource://{param}")
             def get_data() -> str:
@@ -397,11 +455,52 @@ class TestServerResourceTemplates:
             assert result.contents[0].text == "Data for test"
 
     @pytest.mark.anyio
+    async def test_resource_with_optional_params(self):
+        """Test that resources with optional parameters work correctly"""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://{name}/data")
+        def get_data_with_options(
+            name: str, format: str = "text", limit: int = 10
+        ) -> str:
+            return f"Data for {name} in {format} format with limit {limit}"
+
+        async with client_session(mcp._mcp_server) as client:
+            # Test with default values
+            result = await client.read_resource(AnyUrl("resource://test/data"))
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert (
+                result.contents[0].text == "Data for test in text format with limit 10"
+            )
+
+            # Test with query parameters
+            result = await client.read_resource(
+                AnyUrl("resource://test/data?format=json&limit=20")
+            )
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert (
+                result.contents[0].text == "Data for test in json format with limit 20"
+            )
+
+            # Test with partial query parameters
+            result = await client.read_resource(
+                AnyUrl("resource://test/data?format=xml")
+            )
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert (
+                result.contents[0].text == "Data for test in xml format with limit 10"
+            )
+
+    @pytest.mark.anyio
     async def test_resource_mismatched_params(self):
         """Test that mismatched parameters raise an error"""
         mcp = FastMCP()
 
-        with pytest.raises(ValueError, match="Mismatch between URI parameters"):
+        with pytest.raises(
+            ValueError,
+            match="Mismatch between URI path parameters .* and "
+            "required function parameters .*",
+        ):
 
             @mcp.resource("resource://{name}/data")
             def get_data(user: str) -> str:
@@ -428,7 +527,11 @@ class TestServerResourceTemplates:
         """Test that mismatched parameters raise an error"""
         mcp = FastMCP()
 
-        with pytest.raises(ValueError, match="Mismatch between URI parameters"):
+        with pytest.raises(
+            ValueError,
+            match="Mismatch between URI path parameters .* and "
+            "required function parameters .*",
+        ):
 
             @mcp.resource("resource://{org}/{repo}/data")
             def get_data_mismatched(org: str, repo_2: str) -> str:
