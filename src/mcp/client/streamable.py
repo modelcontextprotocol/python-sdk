@@ -28,7 +28,7 @@ async def streamable_client(
     """
     Client transport for streamable HTTP, with fallback to SSE.
     """
-    if await _is_old_sse_server(url, timeout):
+    if await _is_old_sse_server(url, headers=headers, timeout=timeout):
         async with sse_client(url, headers=headers) as (read_stream, write_stream):
             yield read_stream, write_stream
         return
@@ -148,7 +148,11 @@ _maybe_list_adapter: TypeAdapter[types.JSONRPCMessage | list[types.JSONRPCMessag
 )
 
 
-async def _is_old_sse_server(url: str, timeout: float) -> bool:
+async def _is_old_sse_server(
+    url: str,
+    headers: dict[str, Any] | None,
+    timeout: float,
+) -> bool:
     """
     Test whether this is an old SSE MCP server.
 
@@ -176,6 +180,7 @@ async def _is_old_sse_server(url: str, timeout: float) -> bool:
             headers=(
                 ("accept", "application/json"),
                 ("accept", "text/event-stream"),
+                *(headers or {}).items(),
             ),
         )
         if 400 <= response.status_code < 500:
