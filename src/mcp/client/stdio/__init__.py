@@ -18,6 +18,13 @@ from .win32 import (
     terminate_windows_process,
 )
 
+__all__ = [
+    "ProcessTerminatedEarlyError",
+    "StdioServerParameters",
+    "stdio_client",
+    "get_default_environment",
+]
+
 # Environment variables to inherit by default
 DEFAULT_INHERITED_ENV_VARS = (
     [
@@ -36,6 +43,13 @@ DEFAULT_INHERITED_ENV_VARS = (
     if sys.platform == "win32"
     else ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"]
 )
+
+
+class ProcessTerminatedEarlyError(Exception):
+    """Raised when a process terminates unexpectedly."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
 
 
 def get_default_environment() -> dict[str, str]:
@@ -163,20 +177,60 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         except anyio.ClosedResourceError:
             await anyio.lowlevel.checkpoint()
 
+    process_error: str | None = None
+
     async with (
         anyio.create_task_group() as tg,
         process,
     ):
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
+
+        # Add a task to monitor the process and detect early termination
+        async def monitor_process():
+            nonlocal process_error
+            try:
+                await process.wait()
+                # Only consider it an error if the process exits with a non-zero code
+                # during normal operation (not when we explicitly terminate it)
+                if process.returncode != 0 and not tg.cancel_scope.cancel_called:
+                    process_error = f"Process exited with code {process.returncode}."
+                    # Cancel the task group to stop other tasks
+                    tg.cancel_scope.cancel()
+            except anyio.get_cancelled_exc_class():
+                # Task was cancelled, which is expected when we're done
+                pass
+
+        tg.start_soon(monitor_process)
+
         try:
             yield read_stream, write_stream
         finally:
+            # Set a flag to indicate we're explicitly terminating the process
+            # This prevents the monitor_process from treating our termination
+            # as an error when we explicitly terminate it
+            tg.cancel_scope.cancel()
+
+            # Close all streams to prevent resource leaks
+            await read_stream.aclose()
+            await write_stream.aclose()
+            await read_stream_writer.aclose()
+            await write_stream_reader.aclose()
+
             # Clean up process to prevent any dangling orphaned processes
-            if sys.platform == "win32":
-                await terminate_windows_process(process)
-            else:
-                process.terminate()
+            try:
+                if sys.platform == "win32":
+                    await terminate_windows_process(process)
+                else:
+                    process.terminate()
+            except ProcessLookupError:
+                # Process has already exited, which is fine
+                pass
+
+    if process_error:
+        # Raise outside the task group so that the error is not wrapped in an
+        # ExceptionGroup
+        raise ProcessTerminatedEarlyError(process_error)
 
 
 def _get_executable_command(command: str) -> str:
