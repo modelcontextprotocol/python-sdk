@@ -97,7 +97,11 @@ class TestResourceTemplate:
         def invalid_func(key: str, value: str) -> str:
             return f"{key}-{value}"
 
-        with pytest.raises(ValueError, match="Mismatch between URI path parameters"):
+        with pytest.raises(
+            ValueError,
+            match="Mismatch between URI path parameters .* and "
+            "required function parameters .*",
+        ):
             ResourceTemplate.from_function(
                 fn=invalid_func,
                 uri_template="test://{key}",
