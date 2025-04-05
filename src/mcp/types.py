@@ -338,7 +338,7 @@ class ProgressNotificationParams(NotificationParams):
     """
     total: float | None = None
     """
-    Message related to progress. This should provide relevant human readble 
+    Message related to progress. This should provide relevant human readable 
     progress information.
     """
     message: str | None = None
