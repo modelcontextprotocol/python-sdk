@@ -76,8 +76,6 @@ class ResourceTemplate(BaseModel):
             )  # Remove the leading '?' and split
 
         # Validate path parameters match required function parameters
-        print(f"path_params: {path_params}")
-        print(f"required_params: {required_params}")
         if path_params != required_params:
             raise ValueError(
                 f"Mismatch between URI path parameters {path_params} "
