@@ -4,7 +4,6 @@ from __future__ import annotations as _annotations
 
 import inspect
 import json
-import re
 from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from contextlib import (
     AbstractAsyncContextManager,
@@ -327,6 +326,15 @@ class FastMCP:
         If the URI contains parameters (e.g. "resource://{param}") or the function
         has parameters, it will be registered as a template resource.
 
+        Function parameters in the path are required,
+        while parameters with default values
+        can be optionally provided as query parameters using RFC 6570 form-style query
+        expansion syntax: {?param1,param2,...}
+
+        Examples:
+        - resource://{category}/{id}{?filter,sort,limit}
+        - resource://{user_id}/profile{?format,fields}
+
         Args:
             uri: URI for the resource (e.g. "resource://my-resource" or "resource://{param}")
             name: Optional name for the resource
@@ -347,6 +355,19 @@ class FastMCP:
             def get_weather(city: str) -> str:
                 return f"Weather for {city}"
 
+            @server.resource("resource://{city}/weather{?units}")
+            def get_weather_with_options(city: str, units: str = "metric") -> str:
+                # Can be called with resource://paris/weather?units=imperial
+                return f"Weather for {city} in {units} units"
+
+            @server.resource("resource://{category}/{id}
+            {?filter,sort,limit}")
+            def get_item(category: str, id: str, filter: str = "all", sort: str = "name"
+            , limit: int = 10) -> str:
+                # Can be called with resource://electronics/1234?filter=new&sort=price&limit=20
+                return f"Item {id} in {category}, filtered by {filter}, sorted by {sort}
+                , limited to {limit}"
+
             @server.resource("resource://{city}/weather")
             async def get_weather(city: str) -> str:
                 data = await fetch_weather(city)
@@ -365,16 +386,6 @@ class FastMCP:
             has_func_params = bool(inspect.signature(fn).parameters)
 
             if has_uri_params or has_func_params:
-                # Validate that URI params match function params
-                uri_params = set(re.findall(r"{(\w+)}", uri))
-                func_params = set(inspect.signature(fn).parameters.keys())
-
-                if uri_params != func_params:
-                    raise ValueError(
-                        f"Mismatch between URI parameters {uri_params} "
-                        f"and function parameters {func_params}"
-                    )
-
                 # Register as template
                 self._resource_manager.add_template(
                     fn=fn,
