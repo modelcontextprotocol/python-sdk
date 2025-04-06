@@ -22,6 +22,7 @@ from mcp.types import (
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import Context
+    from mcp.server.session import ServerSession
 
 
 class TestServer:
@@ -475,6 +476,32 @@ class TestContextInjection:
         mcp = FastMCP()
 
         def tool_with_context(x: int, ctx: Context) -> str:
+            return f"Request {ctx.request_id}: {x}"
+
+        tool = mcp._tool_manager.add_tool(tool_with_context)
+        assert tool.context_kwarg == "ctx"
+
+    @pytest.mark.anyio
+    async def test_context_detection_forward_ref(self):
+        """
+        Test that context parameters are properly detected with forward references.
+        """
+        mcp = FastMCP()
+
+        def tool_with_context(x: int, ctx: "Context") -> str:
+            return f"Request {ctx.request_id}: {x}"
+
+        tool = mcp._tool_manager.add_tool(tool_with_context)
+        assert tool.context_kwarg == "ctx"
+
+    @pytest.mark.anyio
+    async def test_context_detection_generic_alias(self):
+        """Test that context parameters are properly detected with generic alias."""
+        mcp = FastMCP()
+
+        class AppContext: ...
+
+        def tool_with_context(x: int, ctx: Context["ServerSession", AppContext]) -> str:
             return f"Request {ctx.request_id}: {x}"
 
         tool = mcp._tool_manager.add_tool(tool_with_context)

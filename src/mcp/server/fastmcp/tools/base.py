@@ -2,7 +2,7 @@ from __future__ import annotations as _annotations
 
 import inspect
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, get_type_hints
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +13,18 @@ if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
     from mcp.server.session import ServerSessionT
     from mcp.shared.context import LifespanContextT
+
+
+def _is_context_type(annotation: type[Any]) -> bool:
+    from mcp.server.fastmcp import Context
+
+    if annotation is Context:
+        return True
+    if (
+        generic_metadata := getattr(annotation, "__pydantic_generic_metadata__", None)
+    ) is not None:
+        return _is_context_type(generic_metadata["origin"])
+    return False
 
 
 class Tool(BaseModel):
@@ -40,8 +52,6 @@ class Tool(BaseModel):
         context_kwarg: str | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
-        from mcp.server.fastmcp import Context
-
         func_name = name or fn.__name__
 
         if func_name == "<lambda>":
@@ -51,9 +61,11 @@ class Tool(BaseModel):
         is_async = inspect.iscoroutinefunction(fn)
 
         if context_kwarg is None:
-            sig = inspect.signature(fn)
-            for param_name, param in sig.parameters.items():
-                if param.annotation is Context:
+            type_hints = get_type_hints(fn)
+            for param_name, param_type in type_hints.items():
+                if param_name == "return":
+                    continue
+                if _is_context_type(param_type):
                     context_kwarg = param_name
                     break
 
