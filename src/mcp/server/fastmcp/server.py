@@ -29,6 +29,7 @@ from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceMan
 from mcp.server.fastmcp.tools import ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.fastmcp.utilities.types import Image
+from mcp.server.fastmcp.middlewares.cors_middleware import CORSMiddleware
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.lowlevel.server import Server as MCPServer
@@ -49,7 +50,6 @@ from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
 from mcp.types import ResourceTemplate as MCPResourceTemplate
 from mcp.types import Tool as MCPTool
-
 logger = get_logger(__name__)
 
 
@@ -75,6 +75,11 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     port: int = 8000
     sse_path: str = "/sse"
     message_path: str = "/messages/"
+    cors_enabled: bool = False
+    cors_allow_origins: list[str] = ["*"]
+    cors_allow_methods: list[str] = ["GET", "POST", "OPTIONS"]
+    cors_allow_headers: list[str] = ["*"]
+    cors_max_age: str = "3600"
 
     # resource settings
     warn_on_duplicate_resources: bool = True
@@ -467,7 +472,13 @@ class FastMCP:
     async def run_sse_async(self) -> None:
         """Run the server using SSE transport."""
         starlette_app = self.sse_app()
-
+        starlette_app.add_middleware(
+            CORSMiddleware,
+            allow_origins=self.settings.cors_allow_origins,
+            allow_methods=self.settings.cors_allow_methods,
+            allow_headers=self.settings.cors_allow_headers,
+            max_age=self.settings.cors_max_age,
+        )
         config = uvicorn.Config(
             starlette_app,
             host=self.settings.host,
