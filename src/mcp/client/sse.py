@@ -62,20 +62,22 @@ async def sse_client(
                                 logger.debug(f"Received SSE event: {sse.event}")
                                 match sse.event:
                                     case "endpoint":
+                                        url_parsed = urlparse(url)
+
                                         base_path = re.search(
-                                            r"https?://[^/]+/(.+)/sse$", url
+                                            r"https?://[^/]+/(.+?)(?:/mcp)?/sse$", url
                                         )
                                         base_path = (
                                             base_path.group(1) if base_path else ""
                                         )
                                         endpoint_url = urljoin(
-                                            url, base_path + sse.data
+                                            url_parsed.scheme + "://" + url_parsed.netloc,
+                                            base_path + sse.data
                                         )
                                         logger.info(
                                             f"Received endpoint URL: {endpoint_url}"
                                         )
 
-                                        url_parsed = urlparse(url)
                                         endpoint_parsed = urlparse(endpoint_url)
                                         if (
                                             url_parsed.netloc != endpoint_parsed.netloc
