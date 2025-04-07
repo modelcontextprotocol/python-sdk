@@ -70,7 +70,5 @@ async def test_stdio_client_bad_path():
                         async for message in read_stream:
                             if isinstance(message, Exception):
                                 raise message
-
-                    pass
         except TimeoutError:
             pytest.fail("The connection hung.")

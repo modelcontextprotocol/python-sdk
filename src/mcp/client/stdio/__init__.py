@@ -127,7 +127,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         cwd=server.cwd,
     )
 
-    async def stdout_reader():
+    async def stdout_reader(done_event: anyio.Event):
         assert process.stdout, "Opened process is missing stdout"
 
         try:
@@ -151,6 +151,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                         await read_stream_writer.send(message)
         except anyio.ClosedResourceError:
             await anyio.lowlevel.checkpoint()
+        done_event.set()
 
     async def stdin_writer():
         assert process.stdin, "Opened process is missing stdin"
@@ -174,21 +175,30 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         anyio.create_task_group() as tg,
         process,
     ):
-        tg.start_soon(stdout_reader)
+        stdout_done_event = anyio.Event()
+        tg.start_soon(stdout_reader, stdout_done_event)
         tg.start_soon(stdin_writer)
-        # tg.start_soon(monitor_process, tg.cancel_scope)
         try:
             yield read_stream, write_stream
+            if stdout_done_event.is_set():
+                # The stdout reader exited before the calling code stopped listening
+                #  (e.g. because of process error)
+                # Give the process a chance to exit if it was the reason for crashing
+                #  so we can get exit code
+                with anyio.move_on_after(0.1) as scope:
+                    await process.wait()
+                    process_error = f"Process exited with code {process.returncode}."
+                if scope.cancelled_caught:
+                    process_error = (
+                        "Stdout reader exited (process did not exit immediately)."
+                    )
         finally:
             await read_stream.aclose()
             await write_stream.aclose()
             await read_stream_writer.aclose()
             await write_stream_reader.aclose()
-
-            if process.returncode is not None and process.returncode != 0:
-                process_error = f"Process exited with code {process.returncode}."
-            else:
-                # Clean up process to prevent any dangling orphaned processes
+            # Clean up process to prevent any dangling orphaned processes
+            if process.returncode is None:
                 if sys.platform == "win32":
                     await terminate_windows_process(process)
                 else:
