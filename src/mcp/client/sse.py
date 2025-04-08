@@ -71,7 +71,7 @@ async def sse_client(
                                             base_path.group(1) if base_path else ""
                                         )
                                         endpoint_url = urljoin(
-                                            url_parsed.scheme + "://" + url_parsed.netloc,
+                                            url_parsed.scheme + "://" + url_parsed.netloc,  # noqa: E501
                                             base_path + sse.data
                                         )
                                         logger.info(
