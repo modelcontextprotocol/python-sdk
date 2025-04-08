@@ -29,7 +29,7 @@ for reference.
   not separate types in the schema.
 """
 
-LATEST_PROTOCOL_VERSION = "2024-11-05"
+LATEST_PROTOCOL_VERSION = "2025-03-26"
 
 ProgressToken = str | int
 Cursor = str
@@ -131,6 +131,12 @@ class JSONRPCNotification(Notification[dict[str, Any] | None, str]):
     params: dict[str, Any] | None = None
 
 
+class JSONRPCBatchRequest(RootModel[list[JSONRPCRequest | JSONRPCNotification]]):
+    """A JSON-RPC batch request"""
+
+    pass
+
+
 class JSONRPCResponse(BaseModel):
     """A successful (non-error) response to a request."""
 
@@ -178,8 +184,21 @@ class JSONRPCError(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class JSONRPCBatchResponse(RootModel[list[JSONRPCResponse | JSONRPCError]]):
+    """A JSON-RPC batch response"""
+
+    pass
+
+
 class JSONRPCMessage(
-    RootModel[JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCError]
+    RootModel[
+        JSONRPCRequest
+        | JSONRPCNotification
+        | JSONRPCBatchRequest
+        | JSONRPCResponse
+        | JSONRPCError
+        | JSONRPCBatchResponse
+    ]
 ):
     pass
 
@@ -254,6 +273,12 @@ class LoggingCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class CompletionCapability(BaseModel):
+    """Capability for completion operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+
 class ServerCapabilities(BaseModel):
     """Capabilities that a server may support."""
 
@@ -261,6 +286,8 @@ class ServerCapabilities(BaseModel):
     """Experimental, non-standard capabilities that the server supports."""
     logging: LoggingCapability | None = None
     """Present if the server supports sending log messages to the client."""
+    completions: CompletionCapability | None = None
+    """Present if the server supports argument autocompletion suggestions."""
     prompts: PromptsCapability | None = None
     """Present if the server offers any prompt templates."""
     resources: ResourcesCapability | None = None
@@ -338,6 +365,8 @@ class ProgressNotificationParams(NotificationParams):
     """
     total: float | None = None
     """Total number of items to process (or total progress required), if known."""
+    message: str | None = None
+    """An optional message describing the current progress."""
     model_config = ConfigDict(extra="allow")
 
 
@@ -646,11 +675,25 @@ class ImageContent(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class AudioContent(BaseModel):
+    """Audio provided to or from an LLM."""
+
+    type: Literal["audio"]
+    data: str
+    """The base64-encoded audio data."""
+    mimeType: str
+    """
+    The MIME type of the audio. Different providers may support different audio
+    types.
+    """
+    annotations: Annotations | None = None
+
+
 class SamplingMessage(BaseModel):
     """Describes a message issued to or received from an LLM API."""
 
     role: Role
-    content: TextContent | ImageContent
+    content: TextContent | ImageContent | AudioContent
     model_config = ConfigDict(extra="allow")
 
 
@@ -672,7 +715,7 @@ class PromptMessage(BaseModel):
     """Describes a message returned as part of a prompt."""
 
     role: Role
-    content: TextContent | ImageContent | EmbeddedResource
+    content: TextContent | ImageContent | AudioContent | EmbeddedResource
     model_config = ConfigDict(extra="allow")
 
 
@@ -705,15 +748,77 @@ class ListToolsRequest(PaginatedRequest[RequestParams | None, Literal["tools/lis
     params: RequestParams | None = None
 
 
+class ToolAnnotations(BaseModel):
+    """
+    Additional properties describing a Tool to clients.
+
+    NOTE: all properties in ToolAnnotations are **hints**.
+    They are not guaranteed to provide a faithful description of
+    tool behavior (including descriptive properties like `title`).
+
+    Clients should never make tool use decisions based on ToolAnnotations
+    received from untrusted servers.
+    """
+
+    title: str | None = None
+    """A human-readable title for the tool."""
+
+    readOnlyHint: bool | None = None
+    """
+    If true, the tool does not modify its environment.
+
+    Default: false
+    """
+
+    destructiveHint: bool | None = None
+    """
+    If true, the tool may perform destructive updates to its environment.
+    If false, the tool performs only additive updates.
+
+    (This property is meaningful only when `readOnlyHint == false`)
+
+    Default: true
+    """
+
+    idempotentHint: bool | None = None
+    """
+    If true, calling the tool repeatedly with the same arguments
+    will have no additional effect on the its environment.
+
+    (This property is meaningful only when `readOnlyHint == false`)
+
+    Default: false
+    """
+
+    openWorldHint: bool | None = None
+    """
+    If true, this tool may interact with an "open world" of external
+    entities. If false, the tool's domain of interaction is closed.
+    For example, the world of a web search tool is open, whereas that
+    of a memory tool is not.
+
+    Default: true
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+
 class Tool(BaseModel):
     """Definition for a tool the client can call."""
 
     name: str
     """The name of the tool."""
     description: str | None = None
-    """A human-readable description of the tool."""
+    """
+    A human-readable description of the tool.
+
+    This can be used by clients to improve the LLM's understanding of available
+    tools. It can be thought of like a "hint" to the model.
+    """
     inputSchema: dict[str, Any]
     """A JSON Schema object defining the expected parameters for the tool."""
+    annotations: ToolAnnotations | None = None
+    """Optional additional tool information."""
     model_config = ConfigDict(extra="allow")
 
 
@@ -741,7 +846,7 @@ class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
 class CallToolResult(Result):
     """The server's response to a tool call."""
 
-    content: list[TextContent | ImageContent | EmbeddedResource]
+    content: list[TextContent | ImageContent | AudioContent | EmbeddedResource]
     isError: bool = False
 
 
