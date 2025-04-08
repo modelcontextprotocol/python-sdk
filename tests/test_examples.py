@@ -68,5 +68,5 @@ async def test_desktop(monkeypatch):
         content = result.contents[0]
         assert isinstance(content, TextResourceContents)
         assert isinstance(content.text, str)
-        assert "/fake/path/file1.txt" in content.text
-        assert "/fake/path/file2.txt" in content.text
+        assert "/fake/path/file1.txt" in content.text.replace('\\\\','/')
+        assert "/fake/path/file2.txt" in content.text.replace('\\\\','/')
