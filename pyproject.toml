@@ -36,6 +36,7 @@ dependencies = [
 rich = ["rich>=13.9.4"]
 cli = ["typer>=0.12.4", "python-dotenv>=1.0.0"]
 ws = ["websockets>=15.0.1"]
+redis = ["redis>=4.5.0"]
 
 [project.scripts]
 mcp = "mcp.cli:app [cli]"
@@ -57,7 +58,7 @@ dev = [
 docs = [
     "mkdocs>=1.6.1",
     "mkdocs-glightbox>=0.4.0",
-    "mkdocs-material[imaging]>=9.5.45",
+    "mkdocs-material[imaging]>=9.5.18",
     "mkdocstrings-python>=1.12.2",
 ]
 

@@ -46,6 +46,7 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 import mcp.types as types
+from mcp.server.message_queue import InMemoryMessageQueue, MessageQueue
 
 logger = logging.getLogger(__name__)
 
@@ -63,19 +64,21 @@ class SseServerTransport:
     """
 
     _endpoint: str
-    _read_stream_writers: dict[
-        UUID, MemoryObjectSendStream[types.JSONRPCMessage | Exception]
-    ]
+    _message_queue: MessageQueue
 
-    def __init__(self, endpoint: str) -> None:
+    def __init__(self, endpoint: str, message_queue: MessageQueue | None = None) -> None:
         """
         Creates a new SSE server transport, which will direct the client to POST
         messages to the relative or absolute URL given.
+        
+        Args:
+            endpoint: The endpoint URL for SSE connections
+            message_queue: Optional message queue to use. If None, creates an InMemoryMessageQueue.
         """
 
         super().__init__()
         self._endpoint = endpoint
-        self._read_stream_writers = {}
+        self._message_queue = message_queue or InMemoryMessageQueue()
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
 
     @asynccontextmanager
@@ -96,12 +99,28 @@ class SseServerTransport:
 
         session_id = uuid4()
         session_uri = f"{quote(self._endpoint)}?session_id={session_id.hex}"
-        self._read_stream_writers[session_id] = read_stream_writer
+        await self._message_queue.register_session(session_id)
         logger.debug(f"Created new session with ID: {session_id}")
 
         sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[
             dict[str, Any]
         ](0)
+
+        message_polling_active = True
+        async def poll_queue():
+            """Background task to poll for messages in the queue"""
+            logger.debug(f"Starting queue polling for session {session_id}")
+            try:
+                while message_polling_active:
+                    message = await self._message_queue.get_message(session_id)
+                    if message:
+                        logger.debug(f"Got message from queue for session {session_id}")
+                        await read_stream_writer.send(message)
+                    await anyio.sleep(0.01)
+            except Exception as e:
+                logger.error(f"Error in queue polling for session {session_id}: {e}")
+            finally:
+                logger.debug(f"Stopped queue polling for session {session_id}")
 
         async def sse_writer():
             logger.debug("Starting SSE writer")
@@ -126,9 +145,14 @@ class SseServerTransport:
             )
             logger.debug("Starting SSE response task")
             tg.start_soon(response, scope, receive, send)
+            tg.start_soon(poll_queue)
 
-            logger.debug("Yielding read and write streams")
-            yield (read_stream, write_stream)
+            try:
+                logger.debug("Yielding read and write streams")
+                yield (read_stream, write_stream)
+            finally:
+                message_polling_active = False
+                await self._message_queue.unregister_session(session_id)
 
     async def handle_post_message(
         self, scope: Scope, receive: Receive, send: Send
@@ -150,8 +174,7 @@ class SseServerTransport:
             response = Response("Invalid session ID", status_code=400)
             return await response(scope, receive, send)
 
-        writer = self._read_stream_writers.get(session_id)
-        if not writer:
+        if not await self._message_queue.session_exists(session_id):
             logger.warning(f"Could not find session for ID: {session_id}")
             response = Response("Could not find session", status_code=404)
             return await response(scope, receive, send)
@@ -166,10 +189,10 @@ class SseServerTransport:
             logger.error(f"Failed to parse message: {err}")
             response = Response("Could not parse message", status_code=400)
             await response(scope, receive, send)
-            await writer.send(err)
+            await self._message_queue.add_message(session_id, err)
             return
 
-        logger.debug(f"Sending message to writer: {message}")
+        logger.debug(f"Adding message to queue for session {session_id}: {message}")
         response = Response("Accepted", status_code=202)
         await response(scope, receive, send)
-        await writer.send(message)
+        await self._message_queue.add_message(session_id, message)
