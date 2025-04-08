@@ -1,7 +1,8 @@
 """
 Message Queue Module for MCP Server
 
-This module implements queue interfaces for handling messages between clients and servers.
+This module implements queue interfaces for handling
+messages between clients and servers.
 """
 
 from mcp.server.message_queue.base import InMemoryMessageQueue, MessageQueue

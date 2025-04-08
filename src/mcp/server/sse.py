@@ -66,14 +66,16 @@ class SseServerTransport:
     _endpoint: str
     _message_queue: MessageQueue
 
-    def __init__(self, endpoint: str, message_queue: MessageQueue | None = None) -> None:
+    def __init__(
+        self, endpoint: str, message_queue: MessageQueue | None = None
+    ) -> None:
         """
         Creates a new SSE server transport, which will direct the client to POST
         messages to the relative or absolute URL given.
-        
+
         Args:
             endpoint: The endpoint URL for SSE connections
-            message_queue: Optional message queue to use. If None, creates an InMemoryMessageQueue.
+            message_queue: Optional message queue to use
         """
 
         super().__init__()
@@ -107,6 +109,7 @@ class SseServerTransport:
         ](0)
 
         message_polling_active = True
+
         async def poll_queue():
             """Background task to poll for messages in the queue"""
             logger.debug(f"Starting queue polling for session {session_id}")

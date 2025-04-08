@@ -75,7 +75,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     port: int = 8000
     sse_path: str = "/sse"
     message_path: str = "/messages/"
-    
+
     # SSE message queue settings
     message_queue: Literal["memory", "redis"] = "memory"
     redis_url: str = "redis://localhost:6379/0"
@@ -488,20 +488,25 @@ class FastMCP:
         if self.settings.message_queue == "redis":
             try:
                 from mcp.server.message_queue import RedisMessageQueue
+
                 message_queue = RedisMessageQueue(
-                    redis_url=self.settings.redis_url, 
-                    prefix=self.settings.redis_prefix
+                    redis_url=self.settings.redis_url, prefix=self.settings.redis_prefix
                 )
                 logger.info(f"Using Redis message queue at {self.settings.redis_url}")
             except ImportError:
-                logger.error("Redis message queue requested but 'redis' package not installed. ")
+                logger.error(
+                    "Redis message queue requested but 'redis' package not installed. "
+                )
                 raise
         else:
             from mcp.server.message_queue import InMemoryMessageQueue
+
             message_queue = InMemoryMessageQueue()
             logger.info("Using in-memory message queue")
-            
-        sse = SseServerTransport(self.settings.message_path, message_queue=message_queue)
+
+        sse = SseServerTransport(
+            self.settings.message_path, message_queue=message_queue
+        )
 
         async def handle_sse(request: Request) -> None:
             async with sse.connect_sse(
