@@ -50,7 +50,9 @@ async def websocket_client(
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
     # Connect using websockets, requesting the "mcp" subprotocol
-    async with ws_connect(url, subprotocols=[Subprotocol("mcp")], additional_headers=headers) as ws:
+    async with ws_connect(
+        url, subprotocols=[Subprotocol("mcp")], additional_headers=headers
+    ) as ws:
 
         async def ws_reader():
             """
