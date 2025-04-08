@@ -347,7 +347,9 @@ class BaseSession(
                             f"Failed to validate notification: {e}. "
                             f"Message was: {message.root}"
                         )
-                else:  # Response or error
+                elif isinstance(message.root, JSONRPCError) or isinstance(
+                    message.root, JSONRPCResponse
+                ):
                     stream = self._response_streams.pop(message.root.id, None)
                     if stream:
                         await stream.send(message.root)
@@ -358,6 +360,11 @@ class BaseSession(
                                 f"request ID: {message}"
                             )
                         )
+                else:
+                    # Couldn't be anything else.
+                    raise NotImplementedError(
+                        "Unhandled JSONRPCMessage type, message: " f"{message}"
+                    )
 
     async def _received_request(
         self, responder: RequestResponder[ReceiveRequestT, SendResultT]
