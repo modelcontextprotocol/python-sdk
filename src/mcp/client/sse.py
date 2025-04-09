@@ -1,5 +1,4 @@
 import logging
-import re
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -62,21 +61,12 @@ async def sse_client(
                                 logger.debug(f"Received SSE event: {sse.event}")
                                 match sse.event:
                                     case "endpoint":
-                                        url_parsed = urlparse(url)
-
-                                        base_path = re.search(
-                                            r"https?://[^/]+/(.+?)(?:/mcp)?/sse$", url
-                                        )
-                                        base_path = (
-                                            base_path.group(1) if base_path else ""
-                                        )
-                                        endpoint_url = urljoin(
-                                            url_parsed.scheme + "://" + url_parsed.netloc,  # noqa: E501
-                                            base_path + sse.data
-                                        )
+                                        endpoint_url = urljoin(url, sse.data)
                                         logger.info(
                                             f"Received endpoint URL: {endpoint_url}"
                                         )
+                                        
+                                        url_parsed = urlparse(url)
 
                                         endpoint_parsed = urlparse(endpoint_url)
                                         if (
