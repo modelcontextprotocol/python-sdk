@@ -37,6 +37,7 @@ from typing import Any
 from urllib.parse import quote
 from uuid import UUID, uuid4
 
+import re
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
@@ -95,7 +96,11 @@ class SseServerTransport:
         write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
         session_id = uuid4()
-        session_uri = f"{quote(self._endpoint)}?session_id={session_id.hex}"
+        request_path = scope["path"]
+        match = re.match(r"^/([^/]+(?:/mcp)?)/sse$", request_path)
+        mount_prefix = match.group(1) if match else ""
+        session_uri = f"/{quote(mount_prefix)}{quote(self._endpoint)}?session_id={session_id.hex}"
+
         self._read_stream_writers[session_id] = read_stream_writer
         logger.debug(f"Created new session with ID: {session_id}")
 
