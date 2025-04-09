@@ -94,6 +94,7 @@ class SseServerTransport:
         read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
         write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
+        session_id = uuid4()
         request_path = scope["path"]
         match = re.match(r"^/([^/]+(?:/mcp)?)/sse$", request_path)
         mount_prefix = match.group(1) if match else ""
