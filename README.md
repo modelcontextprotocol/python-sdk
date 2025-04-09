@@ -176,7 +176,6 @@ mcp = FastMCP("My App")
 mcp = FastMCP("My App", dependencies=["pandas", "numpy"])
 
 
-
 @dataclass
 class AppContext:
     db: Database
@@ -398,13 +397,15 @@ For more information on mounting applications in Starlette, see the [Starlette d
 By default, the SSE server uses an in-memory message queue for incoming POST messages. For production deployments or distributed scenarios, you can use Redis:
 
 ```python
+from mcp.server.fastmcp import FastMCP
+
 mcp = FastMCP(
-    "My App", 
+    "My App",
     settings={
         "message_queue": "redis",
         "redis_url": "redis://localhost:6379/0",
-        "redis_prefix": "mcp:queue:"
-    }
+        "redis_prefix": "mcp:queue:",
+    },
 )
 ```
 
