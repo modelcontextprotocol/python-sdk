@@ -5,7 +5,7 @@ from uuid import UUID
 import mcp.types as types
 
 try:
-    import redis.asyncio as redis
+    import redis.asyncio as redis  # type: ignore[import]
 except ImportError:
     raise ImportError(
         "Redis support requires the 'redis' package. "
@@ -31,7 +31,7 @@ class RedisMessageQueue:
             redis_url: Redis connection string
             prefix: Key prefix for Redis keys to avoid collisions
         """
-        self._redis = redis.Redis.from_url(redis_url, decode_responses=True)
+        self._redis = redis.Redis.from_url(redis_url, decode_responses=True)  # type: ignore[attr-defined]
         self._prefix = prefix
         self._active_sessions_key = f"{prefix}active_sessions"
         logger.debug(f"Initialized Redis message queue with URL: {redis_url}")
@@ -63,7 +63,7 @@ class RedisMessageQueue:
             data = message.model_dump_json(by_alias=True, exclude_none=True)
 
         # Push to the right side of the list (queue)
-        await self._redis.rpush(self._session_queue_key(session_id), data)
+        await self._redis.rpush(self._session_queue_key(session_id), data)  # type: ignore[attr-defined]
         logger.debug(f"Added message to Redis queue for session {session_id}")
         return True
 
@@ -77,25 +77,28 @@ class RedisMessageQueue:
 
         # Pop from the left side of the list (queue)
         # Use BLPOP with timeout to avoid busy waiting
-        result = await self._redis.blpop([self._session_queue_key(session_id)], timeout)
+        result = await self._redis.blpop([self._session_queue_key(session_id)], timeout)  # type: ignore[attr-defined]
 
         if not result:
             return None
 
         # result is a tuple of (key, value)
-        _, data = result
+        _, data = result  # type: ignore[misc]
 
         # Deserialize the message
-        json_data = json.loads(data)
+        json_data = json.loads(data)  # type: ignore[arg-type]
 
         # Check if it's an exception
-        if isinstance(json_data, dict) and json_data.get("_exception"):
-            # Reconstitute a generic exception
-            return Exception(f"{json_data['type']}: {json_data['message']}")
+        if isinstance(json_data, dict):
+            exception_dict: dict[str, object] = json_data
+            if exception_dict.get("_exception", False):
+                return Exception(
+                    f"{exception_dict['type']}: {exception_dict['message']}"
+                )
 
         # Regular message
         try:
-            return types.JSONRPCMessage.model_validate_json(data)
+            return types.JSONRPCMessage.model_validate_json(data)  # type: ignore[arg-type]
         except Exception as e:
             logger.error(f"Failed to deserialize message: {e}")
             return None
@@ -103,19 +106,21 @@ class RedisMessageQueue:
     async def register_session(self, session_id: UUID) -> None:
         """Register a new session with the queue."""
         # Add session ID to the set of active sessions
-        await self._redis.sadd(self._active_sessions_key, session_id.hex)
+        await self._redis.sadd(self._active_sessions_key, session_id.hex)  # type: ignore[attr-defined]
         logger.debug(f"Registered session {session_id} in Redis")
 
     async def unregister_session(self, session_id: UUID) -> None:
         """Unregister a session when it's closed."""
         # Remove session ID from active sessions
-        await self._redis.srem(self._active_sessions_key, session_id.hex)
+        await self._redis.srem(self._active_sessions_key, session_id.hex)  # type: ignore[attr-defined]
         # Delete the session's message queue
-        await self._redis.delete(self._session_queue_key(session_id))
+        await self._redis.delete(self._session_queue_key(session_id))  # type: ignore[attr-defined]
         logger.debug(f"Unregistered session {session_id} from Redis")
 
     async def session_exists(self, session_id: UUID) -> bool:
         """Check if a session exists."""
-        return bool(
-            await self._redis.sismember(self._active_sessions_key, session_id.hex)
+        # Explicitly annotate the result as bool to help the type checker
+        result = bool(
+            await self._redis.sismember(self._active_sessions_key, session_id.hex)  # type: ignore[attr-defined]
         )
+        return result
