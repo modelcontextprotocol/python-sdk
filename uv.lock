@@ -504,6 +504,7 @@ wheels = [
 
 [[package]]
 name = "mcp"
+version = "1.6.1.dev15+23665db"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
