@@ -2,7 +2,7 @@ import anyio
 import pytest
 
 import mcp.types as types
-from mcp.client.session import _DEFAULT_CLIENT_INFO, ClientSession
+from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
@@ -238,4 +238,4 @@ async def test_client_session_default_client_info():
         await session.initialize()
 
     # Assert that the default client info was sent
-    assert received_client_info == _DEFAULT_CLIENT_INFO
+    assert received_client_info == DEFAULT_CLIENT_INFO

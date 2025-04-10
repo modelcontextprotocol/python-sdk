@@ -10,7 +10,7 @@ from mcp.shared.context import RequestContext
 from mcp.shared.session import BaseSession, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
-_DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
+DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
 
 class SamplingFnT(Protocol):
@@ -108,7 +108,7 @@ class ClientSession(
             types.ServerNotification,
             read_timeout_seconds=read_timeout_seconds,
         )
-        self._client_info = client_info or _DEFAULT_CLIENT_INFO
+        self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
