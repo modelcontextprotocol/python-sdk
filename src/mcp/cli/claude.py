@@ -2,6 +2,8 @@
 
 import json
 import os
+import platform
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -11,6 +13,30 @@ from mcp.server.fastmcp.utilities.logging import get_logger
 logger = get_logger(__name__)
 
 MCP_PACKAGE = "mcp[cli]"
+
+
+def find_uv_path() -> str | None:
+    """Find the full path to the 'uv' executable across platforms"""
+
+    system = platform.system()
+
+    if system == "Windows":
+        try:
+            result = subprocess.run(
+                ["where", "uv"], capture_output=True, text=True, check=True
+            )
+            paths = result.stdout.strip().split("\n")
+            return paths[0] if paths else None
+        except subprocess.CalledProcessError:
+            return None
+    else:
+        try:
+            result = subprocess.run(
+                ["which", "uv"], capture_output=True, text=True, check=True
+            )
+            return result.stdout.strip()
+        except subprocess.CalledProcessError:
+            return None
 
 
 def get_claude_config_path() -> Path | None:
@@ -117,7 +143,15 @@ def update_claude_config(
         # Add fastmcp run command
         args.extend(["mcp", "run", file_spec])
 
-        server_config: dict[str, Any] = {"command": "uv", "args": args}
+        uv_path = find_uv_path()
+        if uv_path:
+            server_config: dict[str, Any] = {"command": uv_path, "args": args}
+            logger.debug(f"Using full path to uv: {uv_path}")
+        else:
+            server_config: dict[str, Any] = {"command": "uv", "args": args}
+            logger.warning(
+                "Could not determine full path to uv executable, using without path"
+            )
 
         # Add environment variables if specified
         if env_vars:
