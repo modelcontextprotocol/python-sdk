@@ -10,8 +10,8 @@ from mcp.shared.context import RequestContext
 from mcp.shared.session import BaseSession, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
-
 _DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
+
 
 class SamplingFnT(Protocol):
     async def __call__(
