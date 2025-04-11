@@ -322,8 +322,7 @@ class ChatSession:
                                 total = result["total"]
                                 percentage = (progress / total) * 100
                                 logging.info(
-                                    f"Progress: {progress}/{total} "
-                                    f"({percentage:.1f}%)"
+                                    f"Progress: {progress}/{total} ({percentage:.1f}%)"
                                 )
 
                             return f"Tool execution result: {result}"

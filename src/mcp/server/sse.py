@@ -128,7 +128,7 @@ class SseServerTransport:
             tg.start_soon(response, scope, receive, send)
 
             logger.debug("Yielding read and write streams")
-            yield (read_stream, write_stream)
+            yield (read_stream, write_stream, response)
 
     async def handle_post_message(
         self, scope: Scope, receive: Receive, send: Send

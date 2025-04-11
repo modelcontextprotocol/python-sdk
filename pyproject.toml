@@ -46,7 +46,7 @@ default-groups = ["dev", "docs"]
 
 [dependency-groups]
 dev = [
-    "pyright>=1.1.391",
+    "pyright>=1.1.396",
     "pytest>=8.3.4",
     "ruff>=0.8.5",
     "trio>=0.26.2",
@@ -110,8 +110,12 @@ mcp = { workspace = true }
 xfail_strict = true
 filterwarnings = [
     "error",
+    # this is a long-standing issue with fastmcp, which is just now being exercised by tests
+    "ignore:Unclosed:ResourceWarning",
     # This should be fixed on Uvicorn's side.
     "ignore::DeprecationWarning:websockets",
     "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
-    "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel"
+    "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel",
+    # this is a problem in starlette
+    "ignore:Please use `import python_multipart` instead.:PendingDeprecationWarning",
 ]
