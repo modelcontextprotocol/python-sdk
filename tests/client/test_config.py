@@ -48,3 +48,28 @@ def test_command_execution(mock_config_path: Path):
 
     assert result.returncode == 0
     assert "usage" in result.stdout.lower()
+
+
+def test_absolute_uv_path(mock_config_path: Path):
+    """Test that the absolute path to uv is used when available."""
+    # Mock the shutil.which function to return a fake path
+    mock_uv_path = "/usr/local/bin/uv"
+    
+    with patch("mcp.cli.claude.get_uv_path", return_value=mock_uv_path):
+        # Setup
+        server_name = "test_server"
+        file_spec = "test_server.py:app"
+
+        # Update config
+        success = update_claude_config(file_spec=file_spec, server_name=server_name)
+        assert success
+
+        # Read the generated config
+        config_file = mock_config_path / "claude_desktop_config.json"
+        config = json.loads(config_file.read_text())
+
+        # Verify the command is the absolute path
+        server_config = config["mcpServers"][server_name]
+        command = server_config["command"]
+        
+        assert command == mock_uv_path

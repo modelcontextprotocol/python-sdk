@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,16 @@ def get_claude_config_path() -> Path | None:
         return path
     return None
 
+def get_uv_path() -> str:
+    """Get the full path to the uv executable."""
+    uv_path = shutil.which("uv")
+    if not uv_path:
+        logger.error(
+            "uv executable not found in PATH, falling back to 'uv'. "
+            "Please ensure uv is installed and in your PATH"
+        )
+        return "uv"  # Fall back to just "uv" if not found
+    return uv_path
 
 def update_claude_config(
     file_spec: str,
@@ -54,6 +65,7 @@ def update_claude_config(
             Claude Desktop may not be installed or properly set up.
     """
     config_dir = get_claude_config_path()
+    uv_path = get_uv_path()
     if not config_dir:
         raise RuntimeError(
             "Claude Desktop config directory not found. Please ensure Claude Desktop"
@@ -117,7 +129,7 @@ def update_claude_config(
         # Add fastmcp run command
         args.extend(["mcp", "run", file_spec])
 
-        server_config: dict[str, Any] = {"command": "uv", "args": args}
+        server_config: dict[str, Any] = {"command": uv_path, "args": args}
 
         # Add environment variables if specified
         if env_vars:
