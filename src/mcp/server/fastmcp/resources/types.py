@@ -11,7 +11,7 @@ import anyio.to_thread
 import httpx
 import pydantic.json
 import pydantic_core
-from pydantic import Field, ValidationInfo
+from pydantic import AnyUrl, Field, ValidationInfo, validate_call
 
 from mcp.server.fastmcp.resources.base import Resource
 
@@ -70,6 +70,31 @@ class FunctionResource(Resource):
                 return str(result)
         except Exception as e:
             raise ValueError(f"Error reading resource {self.uri}: {e}")
+
+    @classmethod
+    def from_function(
+        cls,
+        fn: Callable[..., Any],
+        uri: str,
+        name: str | None = None,
+        description: str | None = None,
+        mime_type: str | None = None,
+    ):
+        """Create a template from a function."""
+        func_name = name or fn.__name__
+        if func_name == "<lambda>":
+            raise ValueError("You must provide a name for lambda functions")
+
+        # ensure the arguments are properly cast
+        fn = validate_call(fn)
+
+        return cls(
+            uri=AnyUrl(uri),
+            name=name,
+            description=description or fn.__doc__ or "",
+            mime_type=mime_type or "text/plain",
+            fn=fn,
+        )
 
 
 class FileResource(Resource):
