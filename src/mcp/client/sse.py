@@ -65,8 +65,9 @@ async def sse_client(
                                         logger.info(
                                             f"Received endpoint URL: {endpoint_url}"
                                         )
-
+                                        
                                         url_parsed = urlparse(url)
+
                                         endpoint_parsed = urlparse(endpoint_url)
                                         if (
                                             url_parsed.netloc != endpoint_parsed.netloc
