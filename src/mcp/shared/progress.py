@@ -42,12 +42,13 @@ class ProgressContext(
     progress_token: ProgressToken
     total: float | None
     current: float = field(default=0.0, init=False)
+    message: str | None
 
     async def progress(self, amount: float) -> None:
         self.current += amount
 
         await self.session.send_progress_notification(
-            self.progress_token, self.current, total=self.total
+            self.progress_token, self.current, total=self.total, message=self.message
         )
 
 
@@ -77,7 +78,7 @@ def progress(
     if ctx.meta is None or ctx.meta.progressToken is None:
         raise ValueError("No progress token provided")
 
-    progress_ctx = ProgressContext(ctx.session, ctx.meta.progressToken, total)
+    progress_ctx = ProgressContext(ctx.session, ctx.meta.progressToken, total, None)
     try:
         yield progress_ctx
     finally:
