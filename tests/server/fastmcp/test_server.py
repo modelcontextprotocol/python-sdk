@@ -555,6 +555,43 @@ class TestContextInjection:
                 )
 
     @pytest.mark.anyio
+    async def test_context_logging_any_type(self):
+        """Test that context logging methods can handle different types of messages."""
+        from unittest.mock import patch
+
+        import mcp.server.session
+
+        mcp = FastMCP()
+
+        async def logging_tool(ctx: Context) -> str:
+            # Test with different data types
+            await ctx.debug(42)  # integer
+            await ctx.info(["list", "of", "items"])  # list
+            await ctx.warning({"key": "value"})  # dictionary
+            await ctx.error(3.14)  # float
+            return "Logged messages of different types"
+
+        mcp.add_tool(logging_tool)
+
+        with patch("mcp.server.session.ServerSession.send_log_message") as mock_log:
+            async with client_session(mcp._mcp_server) as client:
+                result = await client.call_tool("logging_tool", {})
+                assert len(result.content) == 1
+                content = result.content[0]
+                assert isinstance(content, TextContent)
+                assert "Logged messages of different types" in content.text
+
+                assert mock_log.call_count == 4
+                mock_log.assert_any_call(level="debug", data=42, logger=None)
+                mock_log.assert_any_call(
+                    level="info", data=["list", "of", "items"], logger=None
+                )
+                mock_log.assert_any_call(
+                    level="warning", data={"key": "value"}, logger=None
+                )
+                mock_log.assert_any_call(level="error", data=3.14, logger=None)
+
+    @pytest.mark.anyio
     async def test_optional_context(self):
         """Test that context is optional."""
         mcp = FastMCP()
