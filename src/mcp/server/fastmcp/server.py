@@ -42,6 +42,7 @@ from mcp.types import (
     EmbeddedResource,
     GetPromptResult,
     ImageContent,
+    ServerInfo,
     TextContent,
 )
 from mcp.types import Prompt as MCPPrompt
@@ -84,6 +85,8 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 
     # prompt settings
     warn_on_duplicate_prompts: bool = True
+
+    show_server_info: bool = True
 
     dependencies: list[str] = Field(
         default_factory=list,
@@ -155,10 +158,47 @@ class FastMCP:
         if transport not in TRANSPORTS.__args__:  # type: ignore
             raise ValueError(f"Unknown transport: {transport}")
 
+        async def run(): await self._run(transport)
+        anyio.run(run)
+    
+    async def _run(self, transport: Literal["stdio", "sse"]):
+        if self.settings.show_server_info:
+            server_info = await self.get_server_info()
+            logger.debug(f"Server name: {server_info.name}")
+            logger.debug(f"Server: {server_info.host}:{server_info.port}")
+            logger.debug(f"Instructions: {server_info.instructions}")
+            for asset_type, asset_list in server_info.assets.items():
+                if not asset_list:
+                    continue
+                logger.debug(f"{asset_type}:")
+                for asset in asset_list:
+                    logger.debug(f"  - {asset.name} - {asset.description}")
+            logger.debug("Server running...")
         if transport == "stdio":
-            anyio.run(self.run_stdio_async)
+            await self.run_stdio_async()
         else:  # transport == "sse"
-            anyio.run(self.run_sse_async)
+            await self.run_sse_async()
+
+    async def get_server_info(self) -> ServerInfo:
+        """
+        Asynchronously retrieves and returns server information.
+
+        This method gathers details about the server, including its name, host, port,
+        instructions, and various assets such as tools, resources, 
+        prompts, and resource templates.
+
+        Returns: ServerInfo
+        """
+        return ServerInfo(
+            name=self.name,
+            host=self.settings.host,
+            port=self.settings.port,
+            instructions=self.instructions,
+            tools=await self.list_tools() or [],
+            resources=await self.list_resources() or [],
+            prompts=await self.list_prompts() or [],
+            resource_templates=await self.list_resource_templates() or []
+        )
 
     def _setup_handlers(self) -> None:
         """Set up core MCP protocol handlers."""
