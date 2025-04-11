@@ -87,6 +87,13 @@ If you haven't created a uv-managed project yet, create one:
    ```bash
    uv add "mcp[cli]"
    ```
+   
+   For optional features, you can add extras:
+   
+   ```bash
+   # For Redis support in message queue
+   uv add "mcp[redis]"
+   ```
 
 Alternatively, for projects using pip for dependencies:
 ```bash
@@ -384,6 +391,29 @@ app.router.routes.append(Host('mcp.acme.corp', app=mcp.sse_app()))
 ```
 
 For more information on mounting applications in Starlette, see the [Starlette documentation](https://www.starlette.io/routing/#submounting-routes).
+
+#### Message Queue Options
+
+By default, the SSE server uses an in-memory message queue for incoming POST messages. For production deployments or distributed scenarios, you can use Redis:
+
+```python
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP(
+    "My App",
+    settings={
+        "message_queue": "redis",
+        "redis_url": "redis://localhost:6379/0",
+        "redis_prefix": "mcp:queue:",
+    },
+)
+```
+
+To use Redis, add the Redis dependency:
+
+```bash
+uv add "mcp[redis]"
+```
 
 ## Examples
 
