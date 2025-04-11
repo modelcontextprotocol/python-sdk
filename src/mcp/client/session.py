@@ -16,14 +16,14 @@ DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 class SamplingFnT(Protocol):
     async def __call__(
         self,
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext["ClientSession", Any, Any],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.ErrorData: ...
 
 
 class ListRootsFnT(Protocol):
     async def __call__(
-        self, context: RequestContext["ClientSession", Any]
+        self, context: RequestContext["ClientSession", Any, Any]
     ) -> types.ListRootsResult | types.ErrorData: ...
 
 
@@ -52,7 +52,7 @@ async def _default_message_handler(
 
 
 async def _default_sampling_callback(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext["ClientSession", Any, Any],
     params: types.CreateMessageRequestParams,
 ) -> types.CreateMessageResult | types.ErrorData:
     return types.ErrorData(
@@ -62,7 +62,7 @@ async def _default_sampling_callback(
 
 
 async def _default_list_roots_callback(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext["ClientSession", Any, Any],
 ) -> types.ListRootsResult | types.ErrorData:
     return types.ErrorData(
         code=types.INVALID_REQUEST,
@@ -335,7 +335,7 @@ class ClientSession(
     async def _received_request(
         self, responder: RequestResponder[types.ServerRequest, types.ClientResult]
     ) -> None:
-        ctx = RequestContext[ClientSession, Any](
+        ctx = RequestContext[ClientSession, Any, Any](
             request_id=responder.request_id,
             meta=responder.request_meta,
             session=self,
