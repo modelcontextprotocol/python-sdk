@@ -172,12 +172,17 @@ class FastMCP:
 
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""
+        from mcp.types import ToolAnnotations
+
         tools = self._tool_manager.list_tools()
         return [
             MCPTool(
                 name=info.name,
                 description=info.description,
                 inputSchema=info.parameters,
+                annotations=ToolAnnotations.model_validate(info.annotations)
+                if info.annotations
+                else None,
             )
             for info in tools
         ]
@@ -246,6 +251,7 @@ class FastMCP:
         fn: AnyFunction,
         name: str | None = None,
         description: str | None = None,
+        annotations: dict[str, Any] | None = None,
     ) -> None:
         """Add a tool to the server.
 
@@ -256,11 +262,17 @@ class FastMCP:
             fn: The function to register as a tool
             name: Optional name for the tool (defaults to function name)
             description: Optional description of what the tool does
+            annotations: Optional annotations providing additional tool information
         """
-        self._tool_manager.add_tool(fn, name=name, description=description)
+        self._tool_manager.add_tool(
+            fn, name=name, description=description, annotations=annotations
+        )
 
     def tool(
-        self, name: str | None = None, description: str | None = None
+        self,
+        name: str | None = None,
+        description: str | None = None,
+        annotations: dict[str, Any] | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
 
@@ -271,6 +283,7 @@ class FastMCP:
         Args:
             name: Optional name for the tool (defaults to function name)
             description: Optional description of what the tool does
+            annotations: Optional annotations providing additional tool information
 
         Example:
             @server.tool()
@@ -295,7 +308,9 @@ class FastMCP:
             )
 
         def decorator(fn: AnyFunction) -> AnyFunction:
-            self.add_tool(fn, name=name, description=description)
+            self.add_tool(
+                fn, name=name, description=description, annotations=annotations
+            )
             return fn
 
         return decorator

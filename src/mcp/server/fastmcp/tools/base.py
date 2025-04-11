@@ -30,6 +30,9 @@ class Tool(BaseModel):
     context_kwarg: str | None = Field(
         None, description="Name of the kwarg that should receive context"
     )
+    annotations: dict[str, Any] | None = Field(
+        None, description="Optional annotations for the tool"
+    )
 
     @classmethod
     def from_function(
@@ -38,6 +41,7 @@ class Tool(BaseModel):
         name: str | None = None,
         description: str | None = None,
         context_kwarg: str | None = None,
+        annotations: dict[str, Any] | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
         from mcp.server.fastmcp import Context
@@ -73,6 +77,7 @@ class Tool(BaseModel):
             fn_metadata=func_arg_metadata,
             is_async=is_async,
             context_kwarg=context_kwarg,
+            annotations=annotations,
         )
 
     async def run(
