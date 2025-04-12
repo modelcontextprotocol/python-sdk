@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import TextIO
 
 import anyio
-from anyio.abc import Process
 
 
 def get_windows_executable_command(command: str) -> str:
@@ -86,24 +85,3 @@ async def create_windows_process(
             [command, *args], env=env, stderr=errlog, cwd=cwd
         )
         return process
-
-
-async def terminate_windows_process(process: Process):
-    """
-    Terminate a Windows process.
-
-    Note: On Windows, terminating a process with process.terminate() doesn't
-    always guarantee immediate process termination.
-    So we give it 2s to exit, or we call process.kill()
-    which sends a SIGKILL equivalent signal.
-
-    Args:
-        process: The process to terminate
-    """
-    try:
-        process.terminate()
-        with anyio.fail_after(2.0):
-            await process.wait()
-    except TimeoutError:
-        # Force kill if it doesn't terminate
-        process.kill()
