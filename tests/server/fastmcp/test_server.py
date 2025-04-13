@@ -347,6 +347,20 @@ class TestServerResources:
                 result.contents[0].blob
                 == base64.b64encode(b"Binary file data").decode()
             )
+            
+    @pytest.mark.anyio
+    async def test_resource_docstring_description(self):
+        """Test that resource decorator uses function docstring as description."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://docstring-test")
+        def get_data() -> str:
+            """This is a docstring description for a resource."""
+            return "Data"
+
+        resources = await mcp.list_resources()
+        assert len(resources) == 1
+        assert resources[0].description == "This is a docstring description for a resource."
 
 
 class TestServerResourceTemplates:

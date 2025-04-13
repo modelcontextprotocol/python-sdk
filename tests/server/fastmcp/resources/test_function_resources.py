@@ -136,3 +136,18 @@ class TestFunctionResource:
         content = await resource.read()
         assert content == "Hello, world!"
         assert resource.mime_type == "text/plain"
+        
+    def test_docstring_as_description(self):
+        """Test that function docstring is used as description when not provided."""
+
+        def my_func() -> str:
+            """This is a docstring description."""
+            return "test content"
+
+        resource = FunctionResource(
+            uri=AnyUrl("fn://test"),
+            name="test",
+            description=None,  # No explicit description
+            fn=my_func,
+        )
+        assert resource.description == "This is a docstring description."
