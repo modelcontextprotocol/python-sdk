@@ -40,6 +40,8 @@ async def sse_client(
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
+    errors: list[Exception] = []
+
     async with anyio.create_task_group() as tg:
         try:
             logger.info(f"Connecting to SSE endpoint: {remove_request_params(url)}")
@@ -104,7 +106,7 @@ async def sse_client(
                                         )
                         except Exception as exc:
                             logger.error(f"Error in sse_reader: {exc}")
-                            await read_stream_writer.send(exc)
+                            raise
                         finally:
                             await read_stream_writer.aclose()
 
@@ -141,6 +143,12 @@ async def sse_client(
                         yield read_stream, write_stream
                     finally:
                         tg.cancel_scope.cancel()
+        except* ValueError as eg:
+            errors.extend(eg.exceptions)
+        except* Exception as eg:
+            errors.extend(eg.exceptions)
         finally:
             await read_stream_writer.aclose()
             await write_stream.aclose()
+    if errors:
+        raise Exception("TaskGroup failed with: " + " ".join([str(e) for e in errors]))
