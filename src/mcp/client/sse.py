@@ -7,7 +7,7 @@ import anyio
 import httpx
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from exceptiongroup import ExceptionGroup, catch
+from exceptiongroup import BaseExceptionGroup, catch
 from httpx_sse import aconnect_sse
 
 import mcp.types as types
@@ -19,13 +19,10 @@ def remove_request_params(url: str) -> str:
     return urljoin(url, urlparse(url).path)
 
 
-def handle_exception(exc: Exception) -> str:
+def handle_exception(exc: BaseExceptionGroup[Exception]) -> str:
     """Handle ExceptionGroup and Exceptions for Client transport for SSE"""
-    if isinstance(exc, ExceptionGroup):
-        messages = "; ".join(str(e) for e in exc.exceptions)
-        raise Exception(f"TaskGroup failed with: {messages}") from None
-    else:
-        raise Exception(f"TaskGroup failed with: {exc}") from None
+    messages = "; ".join(str(e) for e in exc.exceptions)
+    raise Exception(f"TaskGroup failed with: {messages}") from None
 
 @asynccontextmanager
 async def sse_client(
@@ -50,7 +47,7 @@ async def sse_client(
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
     with catch({
-        Exception: handle_exception,
+        Exception: handle_exception
     }):
         async with anyio.create_task_group() as tg:
             try:
