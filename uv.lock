@@ -559,12 +559,10 @@ cli = [
 ]
 redis = [
     { name = "redis" },
+    { name = "types-redis" },
 ]
 rich = [
     { name = "rich" },
-]
-types-redis = [
-    { name = "types-redis" },
 ]
 ws = [
     { name = "websockets" },
@@ -600,7 +598,7 @@ requires-dist = [
     { name = "sse-starlette", specifier = ">=1.6.1" },
     { name = "starlette", specifier = ">=0.27" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.12.4" },
-    { name = "types-redis", marker = "extra == 'types-redis'", specifier = ">=4.6.0.20241004" },
+    { name = "types-redis", marker = "extra == 'redis'", specifier = ">=4.6.0.20241004" },
     { name = "uvicorn", specifier = ">=0.23.1" },
     { name = "websockets", marker = "extra == 'ws'", specifier = ">=15.0.1" },
 ]
