@@ -1,63 +1,46 @@
 import logging
-from typing import Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable, Callable, Awaitable
 from uuid import UUID
+from contextlib import asynccontextmanager
 
 import mcp.types as types
 
 logger = logging.getLogger(__name__)
 
+MessageCallback = Callable[[types.JSONRPCMessage | Exception], Awaitable[None]]
+
 
 @runtime_checkable
 class MessageQueue(Protocol):
-    """Abstract interface for an SSE message queue.
+    """Abstract interface for SSE messaging.
 
-    This interface allows messages to be queued and processed by any SSE server instance
-    enabling multiple servers to handle requests for the same session.
+    This interface allows messages to be published to sessions and callbacks to be
+    registered for message handling, enabling multiple servers to handle requests.
     """
 
-    async def add_message(
+    async def publish_message(
         self, session_id: UUID, message: types.JSONRPCMessage | Exception
     ) -> bool:
-        """Add a message to the queue for the specified session.
+        """Publish a message for the specified session.
 
         Args:
             session_id: The UUID of the session this message is for
-            message: The message to queue
+            message: The message to publish
 
         Returns:
-            bool: True if message was accepted, False if session not found
+            bool: True if message was published, False if session not found
         """
         ...
 
-    async def get_message(
-        self, session_id: UUID, timeout: float = 0.1
-    ) -> types.JSONRPCMessage | Exception | None:
-        """Get the next message for the specified session.
-
+    @asynccontextmanager
+    async def active_for_request(self, session_id: UUID, callback: MessageCallback):
+        """Request-scoped context manager that ensures the listener is active.
+        
         Args:
-            session_id: The UUID of the session to get messages for
-            timeout: Maximum time to wait for a message, in seconds
-
-        Returns:
-            The next message or None if no message is available
+            session_id: The UUID of the session to activate
+            callback: Async callback function to handle messages for this session
         """
-        ...
-
-    async def register_session(self, session_id: UUID) -> None:
-        """Register a new session with the queue.
-
-        Args:
-            session_id: The UUID of the new session to register
-        """
-        ...
-
-    async def unregister_session(self, session_id: UUID) -> None:
-        """Unregister a session when it's closed.
-
-        Args:
-            session_id: The UUID of the session to unregister
-        """
-        ...
+        yield
 
     async def session_exists(self, session_id: UUID) -> bool:
         """Check if a session exists.
@@ -74,57 +57,44 @@ class MessageQueue(Protocol):
 class InMemoryMessageQueue:
     """Default in-memory implementation of the MessageQueue interface.
 
-    This implementation keeps messages in memory for
-    each session until they're retrieved.
+    This implementation immediately calls registered callbacks when messages are received.
     """
 
     def __init__(self) -> None:
-        self._message_queues: dict[UUID, list[types.JSONRPCMessage | Exception]] = {}
+        self._callbacks: dict[UUID, MessageCallback] = {}
         self._active_sessions: set[UUID] = set()
 
-    async def add_message(
+    async def publish_message(
         self, session_id: UUID, message: types.JSONRPCMessage | Exception
     ) -> bool:
-        """Add a message to the queue for the specified session."""
-        if session_id not in self._active_sessions:
+        """Publish a message for the specified session."""
+        if not await self.session_exists(session_id):
             logger.warning(f"Message received for unknown session {session_id}")
             return False
 
-        if session_id not in self._message_queues:
-            self._message_queues[session_id] = []
-
-        self._message_queues[session_id].append(message)
-        logger.debug(f"Added message to queue for session {session_id}")
+        # Call the callback directly if registered
+        if session_id in self._callbacks:
+            await self._callbacks[session_id](message)
+            logger.debug(f"Called callback for session {session_id}")
+        else:
+            logger.warning(f"No callback registered for session {session_id}")
+            
         return True
 
-    async def get_message(
-        self, session_id: UUID, timeout: float = 0.1
-    ) -> types.JSONRPCMessage | Exception | None:
-        """Get the next message for the specified session."""
-        if session_id not in self._active_sessions:
-            return None
-
-        queue = self._message_queues.get(session_id, [])
-        if not queue:
-            return None
-
-        message = queue.pop(0)
-        if not queue:  # Clean up empty queue
-            del self._message_queues[session_id]
-
-        return message
-
-    async def register_session(self, session_id: UUID) -> None:
-        """Register a new session with the queue."""
+    @asynccontextmanager
+    async def active_for_request(self, session_id: UUID, callback: MessageCallback):
+        """Request-scoped context manager that ensures the listener is active."""
         self._active_sessions.add(session_id)
-        logger.debug(f"Registered session {session_id}")
-
-    async def unregister_session(self, session_id: UUID) -> None:
-        """Unregister a session when it's closed."""
-        self._active_sessions.discard(session_id)
-        if session_id in self._message_queues:
-            del self._message_queues[session_id]
-        logger.debug(f"Unregistered session {session_id}")
+        self._callbacks[session_id] = callback
+        logger.debug(f"Registered session {session_id} with callback")
+        
+        try:
+            yield
+        finally:
+            self._active_sessions.discard(session_id)
+            if session_id in self._callbacks:
+                del self._callbacks[session_id]
+            logger.debug(f"Unregistered session {session_id}")
 
     async def session_exists(self, session_id: UUID) -> bool:
         """Check if a session exists."""

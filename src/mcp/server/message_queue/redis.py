@@ -2,10 +2,17 @@ import json
 import logging
 from uuid import UUID
 
+import anyio
+from anyio import CapacityLimiter
 import mcp.types as types
+from mcp.server.message_queue.base import MessageCallback
+from typing import Any, cast
+from anyio import from_thread
+from contextlib import asynccontextmanager
+
 
 try:
-    import redis.asyncio as redis  # type: ignore[import]
+    import redis.asyncio as redis
 except ImportError:
     raise ImportError(
         "Redis support requires the 'redis' package. "
@@ -16,42 +23,102 @@ logger = logging.getLogger(__name__)
 
 
 class RedisMessageQueue:
-    """Redis implementation of the MessageQueue interface.
+    """Redis implementation of the MessageQueue interface using pubsub.
 
-    This implementation uses Redis lists to store messages for each session.
-    Redis provides persistence and allows multiple servers to share the same queue.
+    This implementation uses Redis pubsub for real-time message distribution across
+    multiple servers handling the same sessions.
     """
 
     def __init__(
-        self, redis_url: str = "redis://localhost:6379/0", prefix: str = "mcp:queue:"
+        self, redis_url: str = "redis://localhost:6379/0", prefix: str = "mcp:pubsub:"
     ) -> None:
         """Initialize Redis message queue.
 
         Args:
             redis_url: Redis connection string
-            prefix: Key prefix for Redis keys to avoid collisions
+            prefix: Key prefix for Redis channels to avoid collisions
         """
-        self._redis = redis.Redis.from_url(redis_url, decode_responses=True)  # type: ignore[attr-defined]
+        self._redis = redis.from_url(redis_url, decode_responses=True) # type: ignore
+        self._pubsub = self._redis.pubsub(ignore_subscribe_messages=True) # type: ignore
         self._prefix = prefix
         self._active_sessions_key = f"{prefix}active_sessions"
+        self._callbacks: dict[UUID, MessageCallback] = {}
+        self._limiter = CapacityLimiter(1)
         logger.debug(f"Initialized Redis message queue with URL: {redis_url}")
 
-    def _session_queue_key(self, session_id: UUID) -> str:
-        """Get the Redis key for a session's message queue."""
+    def _session_channel(self, session_id: UUID) -> str:
+        """Get the Redis channel for a session."""
         return f"{self._prefix}session:{session_id.hex}"
 
-    async def add_message(
+    @asynccontextmanager
+    async def active_for_request(self, session_id: UUID, callback: MessageCallback):
+        """Request-scoped context manager that ensures the listener task is running."""
+
+        await self._redis.sadd(self._active_sessions_key, session_id.hex)
+        self._callbacks[session_id] = callback
+        channel = self._session_channel(session_id)
+        await self._pubsub.subscribe(channel) # type: ignore
+        
+        logger.debug(f"Registered session {session_id} in Redis with callback")
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(self._listen_for_messages)
+            try:
+                yield
+            finally:
+                tg.cancel_scope.cancel()
+                await self._pubsub.unsubscribe(channel) # type: ignore
+                await self._redis.srem(self._active_sessions_key, session_id.hex)
+                del self._callbacks[session_id]
+                logger.debug(f"Unregistered session {session_id} from Redis")
+
+    async def _listen_for_messages(self) -> None:
+        """Background task that listens for messages on subscribed channels."""
+        async with self._limiter:
+            while True:
+                message: None | dict[str, Any] = await self._pubsub.get_message( # type: ignore
+                    ignore_subscribe_messages=True
+                ) 
+                if message is not None:
+                    # Extract session ID from channel name
+                    channel: str = cast(str, message["channel"])
+                    if not channel.startswith(self._prefix):
+                        continue
+
+                    session_hex = channel.split(":")[-1]
+                    try:
+                        session_id = UUID(hex=session_hex)
+                    except ValueError:
+                        logger.error(f"Invalid session channel: {channel}")
+                        continue
+
+                    # Deserialize the message
+                    data: str = cast(str, message["data"])
+                    msg: None | types.JSONRPCMessage | Exception = None
+                    try:
+                        json_data = json.loads(data)
+                        if isinstance(json_data, dict):
+                            json_dict: dict[str, Any] = json_data
+                            if json_dict.get("_exception", False):
+                                msg = Exception(
+                                    f"{json_dict['type']}: {json_dict['message']}"
+                                )
+                            else:
+                                msg = types.JSONRPCMessage.model_validate_json(data)
+
+                        if msg and session_id in self._callbacks:
+                            from_thread.run(self._callbacks[session_id], msg)
+                    except Exception as e:
+                        logger.error(f"Failed to process message: {e}")
+
+    async def publish_message(
         self, session_id: UUID, message: types.JSONRPCMessage | Exception
     ) -> bool:
-        """Add a message to the queue for the specified session."""
-        # Check if session exists
+        """Publish a message for the specified session."""
         if not await self.session_exists(session_id):
             logger.warning(f"Message received for unknown session {session_id}")
             return False
 
-        # Serialize the message
         if isinstance(message, Exception):
-            # For exceptions, store them as special format
             data = json.dumps(
                 {
                     "_exception": True,
@@ -60,62 +127,12 @@ class RedisMessageQueue:
                 }
             )
         else:
-            data = message.model_dump_json(by_alias=True, exclude_none=True)
+            data = message.model_dump_json()
 
-        # Push to the right side of the list (queue)
-        await self._redis.rpush(self._session_queue_key(session_id), data)  # type: ignore[attr-defined]
-        logger.debug(f"Added message to Redis queue for session {session_id}")
+        channel = self._session_channel(session_id)
+        await self._redis.publish(channel, data)  # type: ignore[attr-defined]
+        logger.debug(f"Published message to Redis channel for session {session_id}")
         return True
-
-    async def get_message(
-        self, session_id: UUID, timeout: float = 0.1
-    ) -> types.JSONRPCMessage | Exception | None:
-        """Get the next message for the specified session."""
-        # Check if session exists
-        if not await self.session_exists(session_id):
-            return None
-
-        # Pop from the left side of the list (queue)
-        # Use BLPOP with timeout to avoid busy waiting
-        result = await self._redis.blpop([self._session_queue_key(session_id)], timeout)  # type: ignore[attr-defined]
-
-        if not result:
-            return None
-
-        # result is a tuple of (key, value)
-        _, data = result  # type: ignore[misc]
-
-        # Deserialize the message
-        json_data = json.loads(data)  # type: ignore[arg-type]
-
-        # Check if it's an exception
-        if isinstance(json_data, dict):
-            exception_dict: dict[str, object] = json_data
-            if exception_dict.get("_exception", False):
-                return Exception(
-                    f"{exception_dict['type']}: {exception_dict['message']}"
-                )
-
-        # Regular message
-        try:
-            return types.JSONRPCMessage.model_validate_json(data)  # type: ignore[arg-type]
-        except Exception as e:
-            logger.error(f"Failed to deserialize message: {e}")
-            return None
-
-    async def register_session(self, session_id: UUID) -> None:
-        """Register a new session with the queue."""
-        # Add session ID to the set of active sessions
-        await self._redis.sadd(self._active_sessions_key, session_id.hex)  # type: ignore[attr-defined]
-        logger.debug(f"Registered session {session_id} in Redis")
-
-    async def unregister_session(self, session_id: UUID) -> None:
-        """Unregister a session when it's closed."""
-        # Remove session ID from active sessions
-        await self._redis.srem(self._active_sessions_key, session_id.hex)  # type: ignore[attr-defined]
-        # Delete the session's message queue
-        await self._redis.delete(self._session_queue_key(session_id))  # type: ignore[attr-defined]
-        logger.debug(f"Unregistered session {session_id} from Redis")
 
     async def session_exists(self, session_id: UUID) -> bool:
         """Check if a session exists."""
