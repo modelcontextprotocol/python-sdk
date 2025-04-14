@@ -1,3 +1,4 @@
+import contextvars
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -6,6 +7,7 @@ from typing import Literal, TextIO
 
 import anyio
 import anyio.lowlevel
+from anyio.abc import Process
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from anyio.streams.text import TextReceiveStream
 from pydantic import BaseModel, Field
@@ -92,6 +94,9 @@ class StdioServerParameters(BaseModel):
     """
 
 
+PROCESS_VAR: contextvars.ContextVar[Process] = contextvars.ContextVar("process")
+
+
 @asynccontextmanager
 async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stderr):
     """
@@ -169,9 +174,13 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     ):
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
+        token = None
         try:
+            token = PROCESS_VAR.set(process)
             yield read_stream, write_stream
         finally:
+            if token is not None:
+                PROCESS_VAR.reset(token)
             # Clean up process to prevent any dangling orphaned processes
             if sys.platform == "win32":
                 await terminate_windows_process(process)

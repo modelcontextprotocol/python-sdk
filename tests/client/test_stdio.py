@@ -2,7 +2,7 @@ import shutil
 
 import pytest
 
-from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.client.stdio import PROCESS_VAR, StdioServerParameters, stdio_client
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 tee: str = shutil.which("tee")  # type: ignore
@@ -33,6 +33,10 @@ async def test_stdio_client():
                 read_messages.append(message)
                 if len(read_messages) == 2:
                     break
+
+        process = PROCESS_VAR.get()
+        assert process is not None
+        assert process.returncode is None
 
         assert len(read_messages) == 2
         assert read_messages[0] == JSONRPCMessage(
