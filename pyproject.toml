@@ -30,8 +30,6 @@ dependencies = [
     "sse-starlette>=1.6.1",
     "pydantic-settings>=2.5.2",
     "uvicorn>=0.23.1",
-    "redis==5.2.1",
-    "types-redis==4.6.0.20241004",
 ]
 
 [project.optional-dependencies]

@@ -1,14 +1,13 @@
 import json
 import logging
+from contextlib import asynccontextmanager
+from typing import Any, cast
 from uuid import UUID
 
 import anyio
-from anyio import CapacityLimiter
+from anyio import CapacityLimiter, from_thread
 import mcp.types as types
 from mcp.server.message_queue.base import MessageCallback
-from typing import Any, cast
-from anyio import from_thread
-from contextlib import asynccontextmanager
 
 
 try:
@@ -38,8 +37,8 @@ class RedisMessageQueue:
             redis_url: Redis connection string
             prefix: Key prefix for Redis channels to avoid collisions
         """
-        self._redis = redis.from_url(redis_url, decode_responses=True) # type: ignore
-        self._pubsub = self._redis.pubsub(ignore_subscribe_messages=True) # type: ignore
+        self._redis = redis.from_url(redis_url, decode_responses=True)  # type: ignore
+        self._pubsub = self._redis.pubsub(ignore_subscribe_messages=True)  # type: ignore
         self._prefix = prefix
         self._active_sessions_key = f"{prefix}active_sessions"
         self._callbacks: dict[UUID, MessageCallback] = {}
@@ -53,11 +52,10 @@ class RedisMessageQueue:
     @asynccontextmanager
     async def active_for_request(self, session_id: UUID, callback: MessageCallback):
         """Request-scoped context manager that ensures the listener task is running."""
-
         await self._redis.sadd(self._active_sessions_key, session_id.hex)
         self._callbacks[session_id] = callback
         channel = self._session_channel(session_id)
-        await self._pubsub.subscribe(channel) # type: ignore
+        await self._pubsub.subscribe(channel)  # type: ignore
         
         logger.debug(f"Registered session {session_id} in Redis with callback")
         async with anyio.create_task_group() as tg:
@@ -66,7 +64,7 @@ class RedisMessageQueue:
                 yield
             finally:
                 tg.cancel_scope.cancel()
-                await self._pubsub.unsubscribe(channel) # type: ignore
+                await self._pubsub.unsubscribe(channel)  # type: ignore
                 await self._redis.srem(self._active_sessions_key, session_id.hex)
                 del self._callbacks[session_id]
                 logger.debug(f"Unregistered session {session_id} from Redis")
@@ -75,40 +73,41 @@ class RedisMessageQueue:
         """Background task that listens for messages on subscribed channels."""
         async with self._limiter:
             while True:
-                message: None | dict[str, Any] = await self._pubsub.get_message( # type: ignore
+                message: None | dict[str, Any] = await self._pubsub.get_message(  # type: ignore
                     ignore_subscribe_messages=True
                 ) 
-                if message is not None:
-                    # Extract session ID from channel name
-                    channel: str = cast(str, message["channel"])
-                    if not channel.startswith(self._prefix):
-                        continue
+                if message is None:
+                    continue
+                    
+                # Extract session ID from channel name
+                channel: str = cast(str, message["channel"])
+                if not channel.startswith(self._prefix):
+                    continue
 
-                    session_hex = channel.split(":")[-1]
-                    try:
-                        session_id = UUID(hex=session_hex)
-                    except ValueError:
-                        logger.error(f"Invalid session channel: {channel}")
-                        continue
+                session_hex = channel.split(":")[-1]
+                try:
+                    session_id = UUID(hex=session_hex)
+                except ValueError:
+                    logger.error(f"Invalid session channel: {channel}")
+                    continue
 
-                    # Deserialize the message
-                    data: str = cast(str, message["data"])
-                    msg: None | types.JSONRPCMessage | Exception = None
-                    try:
-                        json_data = json.loads(data)
-                        if isinstance(json_data, dict):
-                            json_dict: dict[str, Any] = json_data
-                            if json_dict.get("_exception", False):
-                                msg = Exception(
-                                    f"{json_dict['type']}: {json_dict['message']}"
-                                )
-                            else:
-                                msg = types.JSONRPCMessage.model_validate_json(data)
+                data: str = cast(str, message["data"])
+                msg: None | types.JSONRPCMessage | Exception = None
+                try:
+                    json_data = json.loads(data)
+                    if isinstance(json_data, dict):
+                        json_dict: dict[str, Any] = json_data
+                        if json_dict.get("_exception", False):
+                            msg = Exception(
+                                f"{json_dict['type']}: {json_dict['message']}"
+                            )
+                        else:
+                            msg = types.JSONRPCMessage.model_validate_json(data)
 
-                        if msg and session_id in self._callbacks:
-                            from_thread.run(self._callbacks[session_id], msg)
-                    except Exception as e:
-                        logger.error(f"Failed to process message: {e}")
+                    if msg and session_id in self._callbacks:
+                        from_thread.run(self._callbacks[session_id], msg)
+                except Exception as e:
+                    logger.error(f"Failed to process message: {e}")
 
     async def publish_message(
         self, session_id: UUID, message: types.JSONRPCMessage | Exception
@@ -136,8 +135,6 @@ class RedisMessageQueue:
 
     async def session_exists(self, session_id: UUID) -> bool:
         """Check if a session exists."""
-        # Explicitly annotate the result as bool to help the type checker
-        result = bool(
+        return bool(
             await self._redis.sismember(self._active_sessions_key, session_id.hex)  # type: ignore[attr-defined]
         )
-        return result

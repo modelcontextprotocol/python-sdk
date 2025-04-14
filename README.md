@@ -397,22 +397,23 @@ For more information on mounting applications in Starlette, see the [Starlette d
 By default, the SSE server uses an in-memory message queue for incoming POST messages. For production deployments or distributed scenarios, you can use Redis:
 
 ```python
+# Using the built-in Redis message queue
 from mcp.server.fastmcp import FastMCP
+from mcp.server.message_queue import RedisMessageQueue
 
-mcp = FastMCP(
-    "My App",
-    settings={
-        "message_queue": "redis",
-        "redis_url": "redis://localhost:6379/0",
-        "redis_prefix": "mcp:queue:",
-    },
+# Create a Redis message queue
+redis_queue = RedisMessageQueue(
+    redis_url="redis://localhost:6379/0", prefix="mcp:pubsub:"
 )
+
+# Pass the message queue instance to the server
+mcp = FastMCP("My App", message_queue=redis_queue)
 ```
 
 To use Redis, add the Redis dependency:
 
 ```bash
-uv add "mcp[redis]"
+uv add redis types-redis
 ```
 
 ## Examples

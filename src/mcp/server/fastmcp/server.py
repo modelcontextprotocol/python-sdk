@@ -49,6 +49,7 @@ from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
 from mcp.types import ResourceTemplate as MCPResourceTemplate
 from mcp.types import Tool as MCPTool
+from mcp.server.message_queue import MessageQueue
 
 logger = get_logger(__name__)
 
@@ -77,9 +78,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     message_path: str = "/messages/"
 
     # SSE message queue settings
-    message_queue: Literal["memory", "redis"] = "memory"
-    redis_url: str = "redis://localhost:6379/0"
-    redis_prefix: str = "mcp:queue:"
+    message_queue: MessageQueue | None = Field(None, description="Custom message queue instance")
 
     # resource settings
     warn_on_duplicate_resources: bool = True
@@ -484,25 +483,14 @@ class FastMCP:
 
     def sse_app(self) -> Starlette:
         """Return an instance of the SSE server app."""
-        message_queue = None
-        if self.settings.message_queue == "redis":
-            try:
-                from mcp.server.message_queue import RedisMessageQueue
-
-                message_queue = RedisMessageQueue(
-                    redis_url=self.settings.redis_url, prefix=self.settings.redis_prefix
-                )
-                logger.info(f"Using Redis message queue at {self.settings.redis_url}")
-            except ImportError:
-                logger.error(
-                    "Redis message queue requested but 'redis' package not installed. "
-                )
-                raise
-        else:
+        # Use a custom provided message queue if available
+        message_queue = self.settings.message_queue
+        
+        # If no message queue is provided, create an in-memory queue as default
+        if message_queue is None:
             from mcp.server.message_queue import InMemoryMessageQueue
-
             message_queue = InMemoryMessageQueue()
-            logger.info("Using in-memory message queue")
+            logger.info("Using default in-memory message queue")
 
         sse = SseServerTransport(
             self.settings.message_path, message_queue=message_queue
