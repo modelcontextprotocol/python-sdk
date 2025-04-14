@@ -101,12 +101,12 @@ class SseServerTransport:
 
         session_id = uuid4()
         session_uri = f"{quote(self._endpoint)}?session_id={session_id.hex}"
-        
+
         async def message_callback(message: types.JSONRPCMessage | Exception) -> None:
             """Callback that receives messages from the message queue"""
             logger.debug(f"Got message from queue for session {session_id}")
             await read_stream_writer.send(message)
-        
+
         logger.debug(f"Created new session with ID: {session_id}")
 
         sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[
@@ -137,7 +137,9 @@ class SseServerTransport:
             logger.debug("Starting SSE response task")
             tg.start_soon(response, scope, receive, send)
 
-            async with self._message_queue.active_for_request(session_id, message_callback):
+            async with self._message_queue.active_for_request(
+                session_id, message_callback
+            ):
                 try:
                     logger.debug("Yielding read and write streams")
                     yield (read_stream, write_stream)

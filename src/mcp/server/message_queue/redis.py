@@ -6,9 +6,9 @@ from uuid import UUID
 
 import anyio
 from anyio import CapacityLimiter
+
 import mcp.types as types
 from mcp.server.message_queue.base import MessageCallback
-
 
 try:
     import redis.asyncio as redis
@@ -56,7 +56,7 @@ class RedisMessageQueue:
         self._callbacks[session_id] = callback
         channel = self._session_channel(session_id)
         await self._pubsub.subscribe(channel)  # type: ignore
-        
+
         logger.debug(f"Registered session {session_id} in Redis with callback")
         async with anyio.create_task_group() as tg:
             tg.start_soon(self._listen_for_messages)
@@ -74,11 +74,12 @@ class RedisMessageQueue:
         async with self._limiter:
             while True:
                 message: None | dict[str, Any] = await self._pubsub.get_message(  # type: ignore
-                    ignore_subscribe_messages=True, timeout=None # type: ignore
+                    ignore_subscribe_messages=True,
+                    timeout=None,  # type: ignore
                 )
                 if message is None:
                     continue
-                    
+
                 # Extract session ID from channel name
                 channel: str = cast(str, message["channel"])
                 if not channel.startswith(self._prefix):

@@ -1,7 +1,8 @@
 import logging
-from typing import Protocol, runtime_checkable, Callable, Awaitable
-from uuid import UUID
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
+from typing import Protocol, runtime_checkable
+from uuid import UUID
 
 import mcp.types as types
 
@@ -35,7 +36,7 @@ class MessageQueue(Protocol):
     @asynccontextmanager
     async def active_for_request(self, session_id: UUID, callback: MessageCallback):
         """Request-scoped context manager that ensures the listener is active.
-        
+
         Args:
             session_id: The UUID of the session to activate
             callback: Async callback function to handle messages for this session
@@ -57,7 +58,8 @@ class MessageQueue(Protocol):
 class InMemoryMessageQueue:
     """Default in-memory implementation of the MessageQueue interface.
 
-    This implementation immediately calls registered callbacks when messages are received.
+    This implementation immediately calls registered callbacks when messages
+    are received.
     """
 
     def __init__(self) -> None:
@@ -78,7 +80,7 @@ class InMemoryMessageQueue:
             logger.debug(f"Called callback for session {session_id}")
         else:
             logger.warning(f"No callback registered for session {session_id}")
-            
+
         return True
 
     @asynccontextmanager
@@ -87,7 +89,7 @@ class InMemoryMessageQueue:
         self._active_sessions.add(session_id)
         self._callbacks[session_id] = callback
         logger.debug(f"Registered session {session_id} with callback")
-        
+
         try:
             yield
         finally:

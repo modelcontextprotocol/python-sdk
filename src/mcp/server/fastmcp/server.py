@@ -33,6 +33,7 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.lowlevel.server import Server as MCPServer
 from mcp.server.lowlevel.server import lifespan as default_lifespan
+from mcp.server.message_queue import MessageQueue
 from mcp.server.session import ServerSession, ServerSessionT
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
@@ -49,7 +50,6 @@ from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
 from mcp.types import ResourceTemplate as MCPResourceTemplate
 from mcp.types import Tool as MCPTool
-from mcp.server.message_queue import MessageQueue
 
 logger = get_logger(__name__)
 
@@ -78,7 +78,9 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     message_path: str = "/messages/"
 
     # SSE message queue settings
-    message_queue: MessageQueue | None = Field(None, description="Custom message queue instance")
+    message_queue: MessageQueue | None = Field(
+        None, description="Custom message queue instance"
+    )
 
     # resource settings
     warn_on_duplicate_resources: bool = True
@@ -488,6 +490,7 @@ class FastMCP:
         # If no message queue is provided, create an in-memory queue as default
         if message_queue is None:
             from mcp.server.message_queue import InMemoryMessageQueue
+
             message_queue = InMemoryMessageQueue()
             logger.info("Using default in-memory message queue")
 
