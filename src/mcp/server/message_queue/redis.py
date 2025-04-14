@@ -5,7 +5,7 @@ from typing import Any, cast
 from uuid import UUID
 
 import anyio
-from anyio import CapacityLimiter, from_thread
+from anyio import CapacityLimiter
 import mcp.types as types
 from mcp.server.message_queue.base import MessageCallback
 
@@ -74,8 +74,8 @@ class RedisMessageQueue:
         async with self._limiter:
             while True:
                 message: None | dict[str, Any] = await self._pubsub.get_message(  # type: ignore
-                    ignore_subscribe_messages=True
-                ) 
+                    ignore_subscribe_messages=True, timeout=None # type: ignore
+                )
                 if message is None:
                     continue
                     
@@ -105,7 +105,7 @@ class RedisMessageQueue:
                             msg = types.JSONRPCMessage.model_validate_json(data)
 
                     if msg and session_id in self._callbacks:
-                        from_thread.run(self._callbacks[session_id], msg)
+                        await self._callbacks[session_id](msg)
                 except Exception as e:
                     logger.error(f"Failed to process message: {e}")
 

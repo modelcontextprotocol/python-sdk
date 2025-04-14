@@ -4,8 +4,14 @@ Unicode handling in tools and inspectors.
 """
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.message_queue import RedisMessageQueue
 
-mcp = FastMCP()
+# Create a Redis message queue
+redis_queue = RedisMessageQueue(
+    redis_url="redis://localhost:6379/0", prefix="mcp:pubsub:"
+)
+
+mcp = FastMCP(message_queue=redis_queue)
 
 
 @mcp.tool(
@@ -61,4 +67,4 @@ def multilingual_hello() -> str:
 
 
 if __name__ == "__main__":
-    mcp.run()
+    mcp.run(transport="sse")

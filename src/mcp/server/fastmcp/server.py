@@ -485,7 +485,6 @@ class FastMCP:
         """Return an instance of the SSE server app."""
         # Use a custom provided message queue if available
         message_queue = self.settings.message_queue
-        
         # If no message queue is provided, create an in-memory queue as default
         if message_queue is None:
             from mcp.server.message_queue import InMemoryMessageQueue
