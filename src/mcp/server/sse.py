@@ -140,11 +140,8 @@ class SseServerTransport:
             async with self._message_queue.active_for_request(
                 session_id, message_callback
             ):
-                try:
-                    logger.debug("Yielding read and write streams")
-                    yield (read_stream, write_stream)
-                finally:
-                    logger.debug(f"Closing SSE connection for session {session_id}")
+                logger.debug("Yielding read and write streams")
+                yield (read_stream, write_stream)
 
     async def handle_post_message(
         self, scope: Scope, receive: Receive, send: Send

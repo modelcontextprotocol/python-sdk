@@ -87,13 +87,6 @@ If you haven't created a uv-managed project yet, create one:
    ```bash
    uv add "mcp[cli]"
    ```
-   
-   For optional features, you can add extras:
-   
-   ```bash
-   # For Redis support in message queue
-   uv add "mcp[redis]"
-   ```
 
 Alternatively, for projects using pip for dependencies:
 ```bash
@@ -413,7 +406,7 @@ mcp = FastMCP("My App", message_queue=redis_queue)
 To use Redis, add the Redis dependency:
 
 ```bash
-uv add redis types-redis
+uv add "mcp[redis]"
 ```
 
 ## Examples
