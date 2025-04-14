@@ -5,7 +5,7 @@ from typing import Any, cast
 from uuid import UUID
 
 import anyio
-from anyio import CapacityLimiter
+from anyio import CapacityLimiter, lowlevel
 
 import mcp.types as types
 from mcp.server.message_queue.base import MessageCallback
@@ -42,6 +42,7 @@ class RedisMessageQueue:
         self._prefix = prefix
         self._active_sessions_key = f"{prefix}active_sessions"
         self._callbacks: dict[UUID, MessageCallback] = {}
+        # Ensures only one polling task runs at a time for message handling
         self._limiter = CapacityLimiter(1)
         logger.debug(f"Initialized Redis message queue with URL: {redis_url}")
 
@@ -73,6 +74,7 @@ class RedisMessageQueue:
         """Background task that listens for messages on subscribed channels."""
         async with self._limiter:
             while True:
+                await lowlevel.checkpoint()
                 message: None | dict[str, Any] = await self._pubsub.get_message(  # type: ignore
                     ignore_subscribe_messages=True,
                     timeout=None,  # type: ignore
