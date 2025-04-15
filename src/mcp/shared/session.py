@@ -312,9 +312,11 @@ class BaseSession(
 
                     responder = RequestResponder(
                         request_id=message.root.id,
-                        request_meta=validated_request.root.params.meta
-                        if validated_request.root.params
-                        else None,
+                        request_meta=(
+                            validated_request.root.params.meta
+                            if validated_request.root.params
+                            else None
+                        ),
                         request=validated_request,
                         session=self,
                         on_complete=lambda r: self._in_flight.pop(r.request_id, None),
@@ -386,9 +388,11 @@ class BaseSession(
 
     async def _handle_incoming(
         self,
-        req: RequestResponder[ReceiveRequestT, SendResultT]
-        | ReceiveNotificationT
-        | Exception,
+        req: (
+            RequestResponder[ReceiveRequestT, SendResultT]
+            | ReceiveNotificationT
+            | Exception
+        ),
     ) -> None:
         """A generic handler for incoming messages. Overwritten by subclasses."""
         pass
