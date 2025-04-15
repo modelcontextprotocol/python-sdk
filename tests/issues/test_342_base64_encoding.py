@@ -42,7 +42,7 @@ async def test_server_base64_encoding_issue():
 
     # Create binary data that will definitely result in + and / characters
     # when encoded with standard base64
-    binary_data = bytes([x for x in range(255)] * 4)
+    binary_data = bytes(list(range(255)) * 4)
 
     # Register a resource handler that returns our test data
     @server.read_resource()
