@@ -2,7 +2,7 @@ from typing import Literal
 
 import pytest
 
-import mcp.types as types
+from mcp import types
 from mcp.shared.memory import (
     create_connected_server_and_client_session as create_session,
 )

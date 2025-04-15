@@ -90,17 +90,25 @@ venvPath = "."
 venv = ".venv"
 strict = ["src/mcp/**/*.py"]
 
-[tool.ruff.lint]
-select = ["C4", "E", "F", "I", "PERF", "UP"]
-ignore = ["PERF203"]
-
 [tool.ruff]
 line-length = 88
 target-version = "py310"
 
+[tool.ruff.lint]
+select = ["C4", "C90", "E", "F", "I", "PERF", "PL", "UP"]
+ignore = ["PERF203"]
+mccabe.max-complexity = 13  # Default is 10
+
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 "tests/server/fastmcp/test_func_metadata.py" = ["E501"]
+
+[tool.ruff.lint.pylint]
+allow-magic-value-types = ["bytes", "float", "int", "str"]
+max-args = 20        # Default is 5
+max-branches = 14    # Default is 12
+max-returns = 7      # Default is 6
+max-statements = 69  # Default is 50
 
 [tool.uv.workspace]
 members = ["examples/servers/*"]

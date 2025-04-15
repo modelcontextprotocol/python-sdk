@@ -10,7 +10,7 @@ from typing import Any
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
-import mcp.types as types
+from mcp import types
 from mcp.client.session import (
     ClientSession,
     ListRootsFnT,

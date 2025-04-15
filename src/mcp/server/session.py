@@ -45,7 +45,7 @@ import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 
-import mcp.types as types
+from mcp import types
 from mcp.server.models import InitializationOptions
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (

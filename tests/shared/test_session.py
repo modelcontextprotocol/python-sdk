@@ -3,7 +3,7 @@ from collections.abc import AsyncGenerator
 import anyio
 import pytest
 
-import mcp.types as types
+from mcp import types
 from mcp.client.session import ClientSession
 from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
