@@ -1,8 +1,8 @@
-import json
 import logging
 from contextlib import asynccontextmanager
 from typing import Any, cast
 from uuid import UUID
+from pydantic import ValidationError
 
 import anyio
 from anyio import CapacityLimiter, lowlevel
@@ -44,7 +44,7 @@ class RedisMessageDispatch:
         self._callbacks: dict[UUID, MessageCallback] = {}
         # Ensures only one polling task runs at a time for message handling
         self._limiter = CapacityLimiter(1)
-        logger.debug(f"Initialized Redis message dispatch with URL: {redis_url}")
+        logger.debug(f"Redis message dispatch initialized: {redis_url}")
 
     def _session_channel(self, session_id: UUID) -> str:
         """Get the Redis channel for a session."""
@@ -58,7 +58,7 @@ class RedisMessageDispatch:
         channel = self._session_channel(session_id)
         await self._pubsub.subscribe(channel)  # type: ignore
 
-        logger.debug(f"Registered session {session_id} in Redis with callback")
+        logger.debug(f"Subscribing to Redis channel for session {session_id}")
         async with anyio.create_task_group() as tg:
             tg.start_soon(self._listen_for_messages)
             try:
@@ -68,7 +68,7 @@ class RedisMessageDispatch:
                 await self._pubsub.unsubscribe(channel)  # type: ignore
                 await self._redis.srem(self._active_sessions_key, session_id.hex)
                 del self._callbacks[session_id]
-                logger.debug(f"Unregistered session {session_id} from Redis")
+                logger.debug(f"Unsubscribed from Redis channel for session {session_id}")
 
     async def _listen_for_messages(self) -> None:
         """Background task that listens for messages on subscribed channels."""
@@ -85,61 +85,49 @@ class RedisMessageDispatch:
                 # Extract session ID from channel name
                 channel: str = cast(str, message["channel"])
                 if not channel.startswith(self._prefix):
+                    logger.debug(f"Ignoring message from non-MCP channel: {channel}")
                     continue
 
                 session_hex = channel.split(":")[-1]
                 try:
                     session_id = UUID(hex=session_hex)
                 except ValueError:
-                    logger.error(f"Invalid session channel: {channel}")
+                    logger.error(f"Received message for invalid session channel: {channel}")
                     continue
 
                 data: str = cast(str, message["data"])
-                msg: None | types.JSONRPCMessage | Exception = None
                 try:
-                    json_data = json.loads(data)
-                    if not isinstance(json_data, dict):
-                        logger.error(f"Received non-dict JSON data: {type(json_data)}")
+                    if session_id not in self._callbacks:
+                        logger.warning(f"Message dropped: no callback for session {session_id}")
                         continue
                         
-                    json_dict: dict[str, Any] = json_data
-                    if json_dict.get("_exception", False):
-                        msg = Exception(
-                            f"{json_dict['type']}: {json_dict['message']}"
-                        )
-                    else:
+                    # Try to parse as valid message or recreate original ValidationError
+                    try:
                         msg = types.JSONRPCMessage.model_validate_json(data)
-
-                    if msg:
-                        if session_id in self._callbacks:
-                            await self._callbacks[session_id](msg)
-                        else:
-                            logger.warning(f"No callback registered for session {session_id}")
+                        await self._callbacks[session_id](msg)
+                    except ValidationError as exc:
+                        # Pass the identical validation error that would have occurred originally
+                        await self._callbacks[session_id](exc)
                 except Exception as e:
-                    logger.error(f"Failed to process message: {e}")
+                    logger.error(f"Error processing message for session {session_id}: {e}")
 
     async def publish_message(
-        self, session_id: UUID, message: types.JSONRPCMessage | Exception
+        self, session_id: UUID, message: types.JSONRPCMessage | str
     ) -> bool:
         """Publish a message for the specified session."""
         if not await self.session_exists(session_id):
-            logger.warning(f"Message received for unknown session {session_id}")
+            logger.warning(f"Message dropped: unknown session {session_id}")
             return False
 
-        if isinstance(message, Exception):
-            data = json.dumps(
-                {
-                    "_exception": True,
-                    "type": type(message).__name__,
-                    "message": str(message),
-                }
-            )
+        # Pass raw JSON strings directly, preserving validation errors
+        if isinstance(message, str):
+            data = message
         else:
             data = message.model_dump_json()
 
         channel = self._session_channel(session_id)
         await self._redis.publish(channel, data)  # type: ignore[attr-defined]
-        logger.debug(f"Published message to Redis channel for session {session_id}")
+        logger.debug(f"Message published to Redis channel for session {session_id}")
         return True
 
     async def session_exists(self, session_id: UUID) -> bool:

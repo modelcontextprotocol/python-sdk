@@ -46,7 +46,7 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 import mcp.types as types
-from mcp.server.message_queue import InMemoryMessageQueue, MessageQueue
+from mcp.server.message_queue import InMemoryMessageDispatch, MessageDispatch
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +64,10 @@ class SseServerTransport:
     """
 
     _endpoint: str
-    _message_queue: MessageQueue
+    _message_dispatch: MessageDispatch
 
     def __init__(
-        self, endpoint: str, message_queue: MessageQueue | None = None
+        self, endpoint: str, message_dispatch: MessageDispatch | None = None
     ) -> None:
         """
         Creates a new SSE server transport, which will direct the client to POST
@@ -75,12 +75,12 @@ class SseServerTransport:
 
         Args:
             endpoint: The endpoint URL for SSE connections
-            message_queue: Optional message queue to use
+            message_dispatch: Optional message dispatch to use
         """
 
         super().__init__()
         self._endpoint = endpoint
-        self._message_dispatch = message_queue or InMemoryMessageDispatch()
+        self._message_dispatch = message_dispatch or InMemoryMessageDispatch()
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
 
     @asynccontextmanager
@@ -137,7 +137,7 @@ class SseServerTransport:
             logger.debug("Starting SSE response task")
             tg.start_soon(response, scope, receive, send)
 
-            async with self._message_queue.active_for_request(
+            async with self._message_dispatch.subscribe(
                 session_id, message_callback
             ):
                 logger.debug("Yielding read and write streams")
@@ -163,7 +163,7 @@ class SseServerTransport:
             response = Response("Invalid session ID", status_code=400)
             return await response(scope, receive, send)
 
-        if not await self._message_queue.session_exists(session_id):
+        if not await self._message_dispatch.session_exists(session_id):
             logger.warning(f"Could not find session for ID: {session_id}")
             response = Response("Could not find session", status_code=404)
             return await response(scope, receive, send)
@@ -178,10 +178,12 @@ class SseServerTransport:
             logger.error(f"Failed to parse message: {err}")
             response = Response("Could not parse message", status_code=400)
             await response(scope, receive, send)
-            await self._message_queue.publish_message(session_id, err)
+            # Pass raw JSON string through dispatch; original ValidationError will be recreated when 
+            # the receiver tries to validate the same invalid JSON
+            await self._message_dispatch.publish_message(session_id, body.decode())
             return
 
         logger.debug(f"Publishing message for session {session_id}: {message}")
         response = Response("Accepted", status_code=202)
         await response(scope, receive, send)
-        await self._message_queue.publish_message(session_id, message)
+        await self._message_dispatch.publish_message(session_id, message)

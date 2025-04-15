@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Protocol, runtime_checkable
 from uuid import UUID
+from pydantic import ValidationError
 
 import mcp.types as types
 
@@ -20,13 +21,13 @@ class MessageDispatch(Protocol):
     """
 
     async def publish_message(
-        self, session_id: UUID, message: types.JSONRPCMessage | Exception
+        self, session_id: UUID, message: types.JSONRPCMessage | str
     ) -> bool:
         """Publish a message for the specified session.
 
         Args:
             session_id: The UUID of the session this message is for
-            message: The message to publish
+            message: The message to publish (JSONRPCMessage or str for invalid JSON)
 
         Returns:
             bool: True if message was published, False if session not found
@@ -67,31 +68,40 @@ class InMemoryMessageDispatch:
         # We don't need a separate _active_sessions set since _callbacks already tracks this
 
     async def publish_message(
-        self, session_id: UUID, message: types.JSONRPCMessage | Exception
+        self, session_id: UUID, message: types.JSONRPCMessage | str
     ) -> bool:
         """Publish a message for the specified session."""
         if session_id not in self._callbacks:
-            logger.warning(f"Message received for unknown session {session_id}")
+            logger.warning(f"Message dropped: unknown session {session_id}")
             return False
-
-        # Call the callback directly
-        await self._callbacks[session_id](message)
-        logger.debug(f"Called callback for session {session_id}")
-
+        
+        # For string messages, attempt parsing and recreate original ValidationError if invalid
+        if isinstance(message, str):
+            try:
+                callback_argument = types.JSONRPCMessage.model_validate_json(message)
+            except ValidationError as exc:
+                callback_argument = exc
+        else:
+            callback_argument = message
+        
+        # Call the callback with either valid message or recreated ValidationError
+        await self._callbacks[session_id](callback_argument)
+        
+        logger.debug(f"Message dispatched to session {session_id}")
         return True
 
     @asynccontextmanager
     async def subscribe(self, session_id: UUID, callback: MessageCallback):
         """Request-scoped context manager that subscribes to messages for a session."""
         self._callbacks[session_id] = callback
-        logger.debug(f"Registered session {session_id} with callback")
+        logger.debug(f"Subscribing to messages for session {session_id}")
 
         try:
             yield
         finally:
             if session_id in self._callbacks:
                 del self._callbacks[session_id]
-            logger.debug(f"Unregistered session {session_id}")
+            logger.debug(f"Unsubscribed from session {session_id}")
 
     async def session_exists(self, session_id: UUID) -> bool:
         """Check if a session exists."""

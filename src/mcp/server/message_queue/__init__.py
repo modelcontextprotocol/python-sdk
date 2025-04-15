@@ -1,16 +1,16 @@
 """
-Message Queue Module for MCP Server
+Message Dispatch Module for MCP Server
 
-This module implements queue interfaces for handling
+This module implements dispatch interfaces for handling
 messages between clients and servers.
 """
 
-from mcp.server.message_queue.base import InMemoryMessageQueue, MessageQueue
+from mcp.server.message_queue.base import InMemoryMessageDispatch, MessageDispatch
 
 # Try to import Redis implementation if available
 try:
-    from mcp.server.message_queue.redis import RedisMessageQueue
+    from mcp.server.message_queue.redis import RedisMessageDispatch
 except ImportError:
-    RedisMessageQueue = None
+    RedisMessageDispatch = None
 
-__all__ = ["MessageQueue", "InMemoryMessageQueue", "RedisMessageQueue"]
+__all__ = ["MessageDispatch", "InMemoryMessageDispatch", "RedisMessageDispatch"]
