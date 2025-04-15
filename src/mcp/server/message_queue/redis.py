@@ -82,17 +82,22 @@ class RedisMessageDispatch:
                 if message is None:
                     continue
 
-                # Extract session ID from channel name
                 channel: str = cast(str, message["channel"])
-                if not channel.startswith(self._prefix):
+                expected_prefix = f"{self._prefix}session:"
+                
+                if not channel.startswith(expected_prefix):
                     logger.debug(f"Ignoring message from non-MCP channel: {channel}")
                     continue
-
-                session_hex = channel.split(":")[-1]
+                
+                session_hex = channel[len(expected_prefix):]
                 try:
                     session_id = UUID(hex=session_hex)
+                    expected_channel = self._session_channel(session_id)
+                    if channel != expected_channel:
+                        logger.error(f"Channel format mismatch: {channel}")
+                        continue
                 except ValueError:
-                    logger.error(f"Received message for invalid session channel: {channel}")
+                    logger.error(f"Received message with invalid UUID in channel: {channel}")
                     continue
 
                 data: str = cast(str, message["data"])
