@@ -41,6 +41,7 @@ import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
+from starlette.background import BackgroundTask
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
@@ -77,6 +78,18 @@ class SseServerTransport:
         self._endpoint = endpoint
         self._read_stream_writers = {}
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
+
+    async def _remove_stream_writer(self, session_id: UUID) -> None:
+        """
+        Remove the SSE session with the given session ID.
+        """
+        logger.debug(f"Remove SSE session with ID: {session_id}")
+        writer = self._read_stream_writers.pop(session_id, None)
+        if writer:
+            await writer.aclose()
+            logger.debug(f"Closed SSE session with ID: {session_id}")
+        else:
+            logger.warning(f"Session ID {session_id} not found for removal")
 
     @asynccontextmanager
     async def connect_sse(self, scope: Scope, receive: Receive, send: Send):
@@ -119,10 +132,11 @@ class SseServerTransport:
                             ),
                         }
                     )
-
+        background_task = BackgroundTask(self._remove_stream_writer, session_id)
         async with anyio.create_task_group() as tg:
             response = EventSourceResponse(
-                content=sse_stream_reader, data_sender_callable=sse_writer
+                content=sse_stream_reader, data_sender_callable=sse_writer,
+                background=background_task,
             )
             logger.debug("Starting SSE response task")
             tg.start_soon(response, scope, receive, send)
