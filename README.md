@@ -480,7 +480,7 @@ server = Server("example-server", lifespan=server_lifespan)
 # Access lifespan context in handlers
 @server.call_tool()
 async def query_db(name: str, arguments: dict) -> list:
-    ctx = server.request_context
+    ctx = server.get_context()
     db = ctx.lifespan_context["db"]
     return await db.query(arguments["query"])
 ```
