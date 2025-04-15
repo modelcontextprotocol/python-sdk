@@ -21,8 +21,8 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-class RedisMessageQueue:
-    """Redis implementation of the MessageQueue interface using pubsub.
+class RedisMessageDispatch:
+    """Redis implementation of the MessageDispatch interface using pubsub.
 
     This implementation uses Redis pubsub for real-time message distribution across
     multiple servers handling the same sessions.
@@ -31,7 +31,7 @@ class RedisMessageQueue:
     def __init__(
         self, redis_url: str = "redis://localhost:6379/0", prefix: str = "mcp:pubsub:"
     ) -> None:
-        """Initialize Redis message queue.
+        """Initialize Redis message dispatch.
 
         Args:
             redis_url: Redis connection string
@@ -44,15 +44,15 @@ class RedisMessageQueue:
         self._callbacks: dict[UUID, MessageCallback] = {}
         # Ensures only one polling task runs at a time for message handling
         self._limiter = CapacityLimiter(1)
-        logger.debug(f"Initialized Redis message queue with URL: {redis_url}")
+        logger.debug(f"Initialized Redis message dispatch with URL: {redis_url}")
 
     def _session_channel(self, session_id: UUID) -> str:
         """Get the Redis channel for a session."""
         return f"{self._prefix}session:{session_id.hex}"
 
     @asynccontextmanager
-    async def active_for_request(self, session_id: UUID, callback: MessageCallback):
-        """Request-scoped context manager that ensures the listener task is running."""
+    async def subscribe(self, session_id: UUID, callback: MessageCallback):
+        """Request-scoped context manager that subscribes to messages for a session."""
         await self._redis.sadd(self._active_sessions_key, session_id.hex)
         self._callbacks[session_id] = callback
         channel = self._session_channel(session_id)
@@ -98,17 +98,23 @@ class RedisMessageQueue:
                 msg: None | types.JSONRPCMessage | Exception = None
                 try:
                     json_data = json.loads(data)
-                    if isinstance(json_data, dict):
-                        json_dict: dict[str, Any] = json_data
-                        if json_dict.get("_exception", False):
-                            msg = Exception(
-                                f"{json_dict['type']}: {json_dict['message']}"
-                            )
-                        else:
-                            msg = types.JSONRPCMessage.model_validate_json(data)
+                    if not isinstance(json_data, dict):
+                        logger.error(f"Received non-dict JSON data: {type(json_data)}")
+                        continue
+                        
+                    json_dict: dict[str, Any] = json_data
+                    if json_dict.get("_exception", False):
+                        msg = Exception(
+                            f"{json_dict['type']}: {json_dict['message']}"
+                        )
+                    else:
+                        msg = types.JSONRPCMessage.model_validate_json(data)
 
-                    if msg and session_id in self._callbacks:
-                        await self._callbacks[session_id](msg)
+                    if msg:
+                        if session_id in self._callbacks:
+                            await self._callbacks[session_id](msg)
+                        else:
+                            logger.warning(f"No callback registered for session {session_id}")
                 except Exception as e:
                     logger.error(f"Failed to process message: {e}")
 

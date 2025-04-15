@@ -80,7 +80,7 @@ class SseServerTransport:
 
         super().__init__()
         self._endpoint = endpoint
-        self._message_queue = message_queue or InMemoryMessageQueue()
+        self._message_dispatch = message_queue or InMemoryMessageDispatch()
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
 
     @asynccontextmanager

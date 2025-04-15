@@ -12,8 +12,8 @@ MessageCallback = Callable[[types.JSONRPCMessage | Exception], Awaitable[None]]
 
 
 @runtime_checkable
-class MessageQueue(Protocol):
-    """Abstract interface for SSE messaging.
+class MessageDispatch(Protocol):
+    """Abstract interface for SSE message dispatching.
 
     This interface allows messages to be published to sessions and callbacks to be
     registered for message handling, enabling multiple servers to handle requests.
@@ -34,11 +34,11 @@ class MessageQueue(Protocol):
         ...
 
     @asynccontextmanager
-    async def active_for_request(self, session_id: UUID, callback: MessageCallback):
-        """Request-scoped context manager that ensures the listener is active.
+    async def subscribe(self, session_id: UUID, callback: MessageCallback):
+        """Request-scoped context manager that subscribes to messages for a session.
 
         Args:
-            session_id: The UUID of the session to activate
+            session_id: The UUID of the session to subscribe to
             callback: Async callback function to handle messages for this session
         """
         yield
@@ -55,49 +55,44 @@ class MessageQueue(Protocol):
         ...
 
 
-class InMemoryMessageQueue:
-    """Default in-memory implementation of the MessageQueue interface.
+class InMemoryMessageDispatch:
+    """Default in-memory implementation of the MessageDispatch interface.
 
-    This implementation immediately calls registered callbacks when messages
-    are received.
+    This implementation immediately dispatches messages to registered callbacks when 
+    messages are received without any queuing behavior.
     """
 
     def __init__(self) -> None:
         self._callbacks: dict[UUID, MessageCallback] = {}
-        self._active_sessions: set[UUID] = set()
+        # We don't need a separate _active_sessions set since _callbacks already tracks this
 
     async def publish_message(
         self, session_id: UUID, message: types.JSONRPCMessage | Exception
     ) -> bool:
         """Publish a message for the specified session."""
-        if not await self.session_exists(session_id):
+        if session_id not in self._callbacks:
             logger.warning(f"Message received for unknown session {session_id}")
             return False
 
-        # Call the callback directly if registered
-        if session_id in self._callbacks:
-            await self._callbacks[session_id](message)
-            logger.debug(f"Called callback for session {session_id}")
-        else:
-            logger.warning(f"No callback registered for session {session_id}")
+        # Call the callback directly
+        await self._callbacks[session_id](message)
+        logger.debug(f"Called callback for session {session_id}")
 
         return True
 
     @asynccontextmanager
-    async def active_for_request(self, session_id: UUID, callback: MessageCallback):
-        """Request-scoped context manager that ensures the listener is active."""
-        self._active_sessions.add(session_id)
+    async def subscribe(self, session_id: UUID, callback: MessageCallback):
+        """Request-scoped context manager that subscribes to messages for a session."""
         self._callbacks[session_id] = callback
         logger.debug(f"Registered session {session_id} with callback")
 
         try:
             yield
         finally:
-            self._active_sessions.discard(session_id)
             if session_id in self._callbacks:
                 del self._callbacks[session_id]
             logger.debug(f"Unregistered session {session_id}")
 
     async def session_exists(self, session_id: UUID) -> bool:
         """Check if a session exists."""
-        return session_id in self._active_sessions
+        return session_id in self._callbacks
