@@ -5,7 +5,7 @@ import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl, TypeAdapter
 
-import mcp.types as types
+from mcp import types
 from mcp.shared.context import RequestContext
 from mcp.shared.session import BaseSession, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
