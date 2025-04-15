@@ -5,12 +5,17 @@ import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl, TypeAdapter
 
+
 import mcp.types as types
+
 from mcp.shared.context import RequestContext
 from mcp.shared.session import BaseSession, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+from typing import TypeVar
+from pydantic import BaseModel
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
+ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 
 
 class SamplingFnT(Protocol):
@@ -37,16 +42,38 @@ class LoggingFnT(Protocol):
 class MessageHandlerFnT(Protocol):
     async def __call__(
         self,
-        message: RequestResponder[types.ServerRequest, types.ClientResult]
-        | types.ServerNotification
-        | Exception,
-    ) -> None: ...
+        message: (
+            RequestResponder[types.ServerRequest, types.ClientResult]
+            | types.ServerNotification
+            | Exception
+        ),
+    ) -> types.ExperimentalResult | types.ErrorData: ...
+
+
+class ExperimentalMessageHandlerFnT(Protocol):
+    async def __call__(
+        self,
+        context: RequestContext["ClientSession", Any],
+        params: dict[str, Any] | None,
+    ) -> types.ExperimentalResult | types.ErrorData: ...
+
+
+async def _default_experimental_message_handler(
+    context: RequestContext["ClientSession", Any],
+    params: dict[str, Any] | None,
+) -> types.ExperimentalResult | types.ErrorData:
+    return types.ErrorData(
+        code=types.INVALID_REQUEST,
+        message="Experimental request message not supported",
+    )
 
 
 async def _default_message_handler(
-    message: RequestResponder[types.ServerRequest, types.ClientResult]
-    | types.ServerNotification
-    | Exception,
+    message: (
+        RequestResponder[types.ServerRequest, types.ClientResult]
+        | types.ServerNotification
+        | Exception
+    ),
 ) -> None:
     await anyio.lowlevel.checkpoint()
 
@@ -100,6 +127,13 @@ class ClientSession(
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
+        experimental_capabilities_callbacks: (
+            dict[str, ExperimentalMessageHandlerFnT] | None
+        ) = None,
+        default_experimental_message_handler: (
+            ExperimentalMessageHandlerFnT | None
+        ) = None,
+        experimental_capabilities: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -113,6 +147,14 @@ class ClientSession(
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
+        self._experimental_capabilities_callbacks = (
+            experimental_capabilities_callbacks or {}
+        )
+        self._default_experimental_message_handler = (
+            default_experimental_message_handler
+            or _default_experimental_message_handler
+        )
+        self._experimental_capabilities = experimental_capabilities
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability()
@@ -131,7 +173,7 @@ class ClientSession(
                         protocolVersion=types.LATEST_PROTOCOL_VERSION,
                         capabilities=types.ClientCapabilities(
                             sampling=sampling,
-                            experimental=None,
+                            experimental=self._experimental_capabilities,
                             roots=roots,
                         ),
                         clientInfo=self._client_info,
@@ -181,6 +223,30 @@ class ClientSession(
                     ),
                 ),
             )
+        )
+
+    async def send_experimental_request(
+        self,
+        request: types.ExperimentalRequest[types.RequestParamsT, types.MethodT],
+        response_type: type[ReceiveResultT],
+    ) -> ReceiveResultT:
+        """Send an experimental request."""
+        request_params = (
+            request.params.model_dump(by_alias=True, mode="json", exclude_none=True)
+            if isinstance(request.params, types.BaseModel)
+            else request.params
+        )
+        return await self.send_request(
+            types.ClientRequest(
+                types.ExperimentalRequestWrapper(
+                    method="experimental/wrapper",
+                    params=types.ExperimentalRequestWrapperParams(
+                        method=request.method,
+                        params=request_params,
+                    ),
+                )
+            ),
+            response_type,
         )
 
     async def set_logging_level(self, level: types.LoggingLevel) -> types.EmptyResult:
@@ -361,11 +427,46 @@ class ClientSession(
                         types.ClientResult(root=types.EmptyResult())
                     )
 
+            case types.ExperimentalRequestWrapper(
+                params=types.ExperimentalRequestWrapperParams(
+                    method=experimental_method, params=experimental_params
+                )
+            ):
+                with responder:
+                    base_experimental_method = experimental_method.replace(
+                        "experimental/", ""
+                    )
+                    prefix = (
+                        base_experimental_method.split("/")[0]
+                        if "/" in base_experimental_method
+                        else base_experimental_method
+                    )
+
+                    if prefix in self._experimental_capabilities_callbacks:
+                        experimental_callback = (
+                            self._experimental_capabilities_callbacks[prefix]
+                        )
+                        experimental_response = await experimental_callback(
+                            ctx, experimental_params
+                        )
+                    else:
+                        experimental_response = (
+                            await self._default_experimental_message_handler(
+                                ctx, experimental_params
+                            )
+                        )
+                    client_response = ClientResponse.validate_python(
+                        experimental_response
+                    )
+                    await responder.respond(client_response)
+
     async def _handle_incoming(
         self,
-        req: RequestResponder[types.ServerRequest, types.ClientResult]
-        | types.ServerNotification
-        | Exception,
+        req: (
+            RequestResponder[types.ServerRequest, types.ClientResult]
+            | types.ServerNotification
+            | Exception
+        ),
     ) -> None:
         """Handle incoming messages by forwarding to the message handler."""
         await self._message_handler(req)
