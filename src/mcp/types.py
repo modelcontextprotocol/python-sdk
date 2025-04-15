@@ -8,7 +8,14 @@ from typing import (
     TypeVar,
 )
 
-from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    FileUrl,
+    RootModel,
+    field_validator,
+)
 from pydantic.networks import AnyUrl, UrlConstraints
 
 """
@@ -79,6 +86,36 @@ class Request(BaseModel, Generic[RequestParamsT, MethodT]):
     model_config = ConfigDict(extra="allow")
 
 
+class ExperimentalRequest(Request[RequestParamsT, MethodT]):
+    """Base class for experimental requests."""
+
+    @field_validator("method")
+    @classmethod
+    def validate_experimental_method(cls, v: Any) -> str:
+        if not isinstance(v, str) or not v.startswith("experimental/"):
+            raise ValueError(
+                f"Experimental request method must start with 'experimental/', got {v}"
+            )
+        return v
+
+
+ExperimentalRequestT = TypeVar(
+    "ExperimentalRequestT", bound=ExperimentalRequest[Any, Any]
+)
+
+
+class ExperimentalRequestWrapperParams(RequestParams):
+    method: str
+    params: dict[str, Any] | None
+
+
+class ExperimentalRequestWrapper(
+    Request[ExperimentalRequestWrapperParams, Literal["experimental/wrapper"]]
+):
+    method: Literal["experimental/wrapper"]
+    params: ExperimentalRequestWrapperParams
+
+
 class PaginatedRequest(Request[RequestParamsT, MethodT]):
     cursor: Cursor | None = None
     """
@@ -105,6 +142,15 @@ class Result(BaseModel):
     This result property is reserved by the protocol to allow clients and servers to
     attach additional metadata to their responses.
     """
+
+
+ResultT = TypeVar("ResultT", bound=Result)
+
+
+class ExperimentalResult(Result):
+    """Base class for experimental results."""
+
+    payload: Any
 
 
 class PaginatedResult(Result):
@@ -1075,6 +1121,7 @@ class ClientRequest(
         | UnsubscribeRequest
         | CallToolRequest
         | ListToolsRequest
+        | ExperimentalRequestWrapper
     ]
 ):
     pass
@@ -1091,11 +1138,20 @@ class ClientNotification(
     pass
 
 
-class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult]):
+class ClientResult(
+    RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ExperimentalResult]
+):
     pass
 
 
-class ServerRequest(RootModel[PingRequest | CreateMessageRequest | ListRootsRequest]):
+class ServerRequest(
+    RootModel[
+        PingRequest
+        | CreateMessageRequest
+        | ListRootsRequest
+        | ExperimentalRequestWrapper
+    ]
+):
     pass
 
 
@@ -1125,6 +1181,7 @@ class ServerResult(
         | ReadResourceResult
         | CallToolResult
         | ListToolsResult
+        | ExperimentalResult
     ]
 ):
     pass
