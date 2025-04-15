@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
+
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
@@ -245,7 +246,7 @@ class LLMClient:
         }
         payload = {
             "messages": messages,
-            "model": "llama-3.2-90b-vision-preview",
+            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
             "temperature": 0.7,
             "max_tokens": 4096,
             "top_p": 1,
