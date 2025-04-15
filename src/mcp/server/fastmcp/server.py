@@ -472,6 +472,7 @@ class FastMCP:
     async def run_sse_async(self) -> None:
         """Run the server using SSE transport."""
         import uvicorn
+
         starlette_app = self.sse_app()
 
         config = uvicorn.Config(

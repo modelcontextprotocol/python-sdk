@@ -137,9 +137,7 @@ class SseServerTransport:
             logger.debug("Starting SSE response task")
             tg.start_soon(response, scope, receive, send)
 
-            async with self._message_dispatch.subscribe(
-                session_id, message_callback
-            ):
+            async with self._message_dispatch.subscribe(session_id, message_callback):
                 logger.debug("Yielding read and write streams")
                 yield (read_stream, write_stream)
 
@@ -178,8 +176,8 @@ class SseServerTransport:
             logger.error(f"Failed to parse message: {err}")
             response = Response("Could not parse message", status_code=400)
             await response(scope, receive, send)
-            # Pass raw JSON string through dispatch; original ValidationError will be recreated when 
-            # the receiver tries to validate the same invalid JSON
+            # Pass raw JSON string; receiver will recreate identical ValidationError
+            # when parsing the same invalid JSON
             await self._message_dispatch.publish_message(session_id, body.decode())
             return
 

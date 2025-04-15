@@ -2,10 +2,10 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any, cast
 from uuid import UUID
-from pydantic import ValidationError
 
 import anyio
 from anyio import CapacityLimiter, lowlevel
+from pydantic import ValidationError
 
 import mcp.types as types
 from mcp.server.message_queue.base import MessageCallback
@@ -68,7 +68,7 @@ class RedisMessageDispatch:
                 await self._pubsub.unsubscribe(channel)  # type: ignore
                 await self._redis.srem(self._active_sessions_key, session_id.hex)
                 del self._callbacks[session_id]
-                logger.debug(f"Unsubscribed from Redis channel for session {session_id}")
+                logger.debug(f"Unsubscribed from Redis channel: {session_id}")
 
     async def _listen_for_messages(self) -> None:
         """Background task that listens for messages on subscribed channels."""
@@ -84,12 +84,12 @@ class RedisMessageDispatch:
 
                 channel: str = cast(str, message["channel"])
                 expected_prefix = f"{self._prefix}session:"
-                
+
                 if not channel.startswith(expected_prefix):
                     logger.debug(f"Ignoring message from non-MCP channel: {channel}")
                     continue
-                
-                session_hex = channel[len(expected_prefix):]
+
+                session_hex = channel[len(expected_prefix) :]
                 try:
                     session_id = UUID(hex=session_hex)
                     expected_channel = self._session_channel(session_id)
@@ -97,24 +97,24 @@ class RedisMessageDispatch:
                         logger.error(f"Channel format mismatch: {channel}")
                         continue
                 except ValueError:
-                    logger.error(f"Received message with invalid UUID in channel: {channel}")
+                    logger.error(f"Invalid UUID in channel: {channel}")
                     continue
 
                 data: str = cast(str, message["data"])
                 try:
                     if session_id not in self._callbacks:
-                        logger.warning(f"Message dropped: no callback for session {session_id}")
+                        logger.warning(f"Message dropped: no callback for {session_id}")
                         continue
-                        
+
                     # Try to parse as valid message or recreate original ValidationError
                     try:
                         msg = types.JSONRPCMessage.model_validate_json(data)
                         await self._callbacks[session_id](msg)
                     except ValidationError as exc:
-                        # Pass the identical validation error that would have occurred originally
+                        # Pass the identical validation error that would have occurred
                         await self._callbacks[session_id](exc)
                 except Exception as e:
-                    logger.error(f"Error processing message for session {session_id}: {e}")
+                    logger.error(f"Error processing message for {session_id}: {e}")
 
     async def publish_message(
         self, session_id: UUID, message: types.JSONRPCMessage | str

@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Protocol, runtime_checkable
 from uuid import UUID
+
 from pydantic import ValidationError
 
 import mcp.types as types
@@ -59,13 +60,13 @@ class MessageDispatch(Protocol):
 class InMemoryMessageDispatch:
     """Default in-memory implementation of the MessageDispatch interface.
 
-    This implementation immediately dispatches messages to registered callbacks when 
+    This implementation immediately dispatches messages to registered callbacks when
     messages are received without any queuing behavior.
     """
 
     def __init__(self) -> None:
         self._callbacks: dict[UUID, MessageCallback] = {}
-        # We don't need a separate _active_sessions set since _callbacks already tracks this
+        # _callbacks tracks active sessions, no need for separate _active_sessions set
 
     async def publish_message(
         self, session_id: UUID, message: types.JSONRPCMessage | str
@@ -74,8 +75,8 @@ class InMemoryMessageDispatch:
         if session_id not in self._callbacks:
             logger.warning(f"Message dropped: unknown session {session_id}")
             return False
-        
-        # For string messages, attempt parsing and recreate original ValidationError if invalid
+
+        # Parse string messages or recreate original ValidationError
         if isinstance(message, str):
             try:
                 callback_argument = types.JSONRPCMessage.model_validate_json(message)
@@ -83,10 +84,10 @@ class InMemoryMessageDispatch:
                 callback_argument = exc
         else:
             callback_argument = message
-        
+
         # Call the callback with either valid message or recreated ValidationError
         await self._callbacks[session_id](callback_argument)
-        
+
         logger.debug(f"Message dispatched to session {session_id}")
         return True
 
