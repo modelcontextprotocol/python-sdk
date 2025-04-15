@@ -660,7 +660,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
     async def log(
         self,
         level: Literal["debug", "info", "warning", "error"],
-        message: str,
+        message: Any,
         *,
         logger_name: str | None = None,
     ) -> None:
@@ -696,18 +696,38 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         return self.request_context.session
 
     # Convenience methods for common log levels
-    async def debug(self, message: str, **extra: Any) -> None:
-        """Send a debug log message."""
+    async def debug(self, message: Any, **extra: Any) -> None:
+        """Send a debug log message.
+        
+        Args:
+            message: The message to log. Can be any JSON-serializable type.
+            **extra: Additional structured data to include
+        """
         await self.log("debug", message, **extra)
 
-    async def info(self, message: str, **extra: Any) -> None:
-        """Send an info log message."""
+    async def info(self, message: Any, **extra: Any) -> None:
+        """Send an info log message.
+        
+        Args:
+            message: The message to log. Can be any JSON-serializable type.
+            **extra: Additional structured data to include
+        """
         await self.log("info", message, **extra)
 
-    async def warning(self, message: str, **extra: Any) -> None:
-        """Send a warning log message."""
+    async def warning(self, message: Any, **extra: Any) -> None:
+        """Send a warning log message.
+        
+        Args:
+            message: The message to log. Can be any JSON-serializable type.
+            **extra: Additional structured data to include
+        """
         await self.log("warning", message, **extra)
 
-    async def error(self, message: str, **extra: Any) -> None:
-        """Send an error log message."""
+    async def error(self, message: Any, **extra: Any) -> None:
+        """Send an error log message.
+        
+        Args:
+            message: The message to log. Can be any JSON-serializable type.
+            **extra: Additional structured data to include
+        """
         await self.log("error", message, **extra)
