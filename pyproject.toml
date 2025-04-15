@@ -89,8 +89,8 @@ venv = ".venv"
 strict = ["src/mcp/**/*.py"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
-ignore = []
+select = ["C4", "E", "F", "I", "PERF", "UP"]
+ignore = ["PERF203"]
 
 [tool.ruff]
 line-length = 88
