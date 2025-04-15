@@ -387,7 +387,7 @@ class FastMCP:
                 resource = FunctionResource(
                     uri=AnyUrl(uri),
                     name=name,
-                    description=description,
+                    description=description or fn.__doc__ or "",
                     mime_type=mime_type or "text/plain",
                     fn=fn,
                 )
