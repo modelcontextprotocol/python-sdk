@@ -7,23 +7,39 @@
 # mcp = { path = "/workspace" }
 # ///
 
-from typing import Literal
-import anyio
-import mcp.types as types
-from mcp.client.session import ClientSession
-from mcp.shared.memory import create_client_server_memory_streams
-from mcp.server.lowlevel import Server
-import asyncio as aio
-from mcp.shared.context import RequestContext
-from typing import Any
-from mcp.client.session import ExperimentalMessageHandlerFnT
+##
+## The goal of this example is to demonstrate a workflow where
+## users can define their own message types for MCP and how to
+## process then client and/or server side.
+##
+## In this concrete example we demonstrate a new set of message types
+## such that the client sends a request to the server and the server
+## sends a response back to the client and back and forth until a TTL
+## is reached.
+##
+## This is meant to demonstrate a possible future where MCP is used
+## more bidirectionally as defined by a user.
+##
 
+
+import asyncio as aio
+from typing import Any, Literal
+
+import anyio
+
+import mcp.types as types
+from mcp.client.session import ClientSession, ExperimentalMessageHandlerFnT
+from mcp.server.lowlevel import Server
+from mcp.shared.context import RequestContext
+from mcp.shared.memory import create_client_server_memory_streams
 
 EXPERIMENTAL_CAPABILITIES = {
     "my-awesome-capability": {
         "delay": 1000,
     }
 }
+
+## Define the 'awesome' protocol
 
 
 class AwesomeParams(types.RequestParams):
