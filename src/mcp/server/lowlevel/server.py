@@ -544,9 +544,9 @@ class Server(Generic[LifespanResultT]):
         with warnings.catch_warnings(record=True) as w:
             # TODO(Marcelo): We should be checking if message is Exception here.
             match message:  # type: ignore[reportMatchNotExhaustive]
-                case RequestResponder(
-                    request=types.ClientRequest(root=req)
-                ) as responder:
+                case (
+                    RequestResponder(request=types.ClientRequest(root=req)) as responder
+                ):
                     with responder:
                         await self._handle_request(
                             message, req, session, lifespan_context, raise_exceptions
