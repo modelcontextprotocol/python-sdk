@@ -6,17 +6,16 @@ from typing import Literal, TextIO
 
 import anyio
 import anyio.lowlevel
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from anyio.streams.memory import (
+    MemoryObjectReceiveStream,
+    MemoryObjectSendStream,
+)
 from anyio.streams.text import TextReceiveStream
 from pydantic import BaseModel, Field
 
 import mcp.types as types
 
-from .win32 import (
-    create_windows_process,
-    get_windows_executable_command,
-    terminate_windows_process,
-)
+from .win32 import create_windows_process, get_windows_executable_command
 
 # Environment variables to inherit by default
 DEFAULT_INHERITED_ENV_VARS = (
@@ -173,10 +172,9 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             yield read_stream, write_stream
         finally:
             # Clean up process to prevent any dangling orphaned processes
-            if sys.platform == "win32":
-                await terminate_windows_process(process)
-            else:
-                process.terminate()
+            tg.cancel_scope.cancel()
+            process.terminate()
+            await process.wait()
 
 
 def _get_executable_command(command: str) -> str:
