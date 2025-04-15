@@ -20,9 +20,16 @@ def get_origin(url: str) -> str:
     return f"{parsed_url.scheme}://{parsed_url.netloc}"
 
 
-def get_path(url: str) -> str:
+def get_relative_path(url: str, remove_params: bool = False) -> str:
     parsed_url = urlparse(url)
-    return parsed_url.path
+    if remove_params:
+        return parsed_url.path
+    relative_path = parsed_url.path
+    if parsed_url.query:
+        relative_path += f"?{parsed_url.query}"
+    if parsed_url.fragment:
+        relative_path += f"#{parsed_url.fragment}"
+    return relative_path
 
 
 def get_endpoint_url(
@@ -30,7 +37,7 @@ def get_endpoint_url(
 ) -> str:
     endpoint_url = urljoin(base_url, sse_relative_url)
     if server_mount_path:
-        origin, path = get_origin(endpoint_url), get_path(endpoint_url)
+        origin, path = get_origin(endpoint_url), get_relative_path(endpoint_url)
         endpoint_url = urljoin(
             f"{origin}/{server_mount_path.strip('/')}/", path.lstrip("/")
         )
@@ -38,7 +45,7 @@ def get_endpoint_url(
 
 
 def remove_request_params(url: str) -> str:
-    return urljoin(url, get_path(url))
+    return urljoin(url, get_relative_path(url, remove_params=True))
 
 
 @asynccontextmanager
