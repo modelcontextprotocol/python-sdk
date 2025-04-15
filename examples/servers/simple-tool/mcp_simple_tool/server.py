@@ -1,7 +1,7 @@
 import anyio
 import click
 import httpx
-import mcp.types as types
+from mcp import types
 from mcp.server.lowlevel import Server
 
 
