@@ -458,7 +458,7 @@ from collections.abc import AsyncIterator
 
 from fake_database import Database  # Replace with your actual DB type
 
-from mcp.server import Server
+from mcp.server.lowlevel import Server
 
 
 @asynccontextmanager
