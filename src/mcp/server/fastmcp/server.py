@@ -32,6 +32,7 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.lowlevel.server import Server as MCPServer
 from mcp.server.lowlevel.server import lifespan as default_lifespan
+from mcp.server.message_queue import MessageDispatch
 from mcp.server.session import ServerSession, ServerSessionT
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
@@ -74,6 +75,11 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     port: int = 8000
     sse_path: str = "/sse"
     message_path: str = "/messages/"
+
+    # SSE message queue settings
+    message_dispatch: MessageDispatch | None = Field(
+        None, description="Custom message dispatch instance"
+    )
 
     # resource settings
     warn_on_duplicate_resources: bool = True
@@ -466,6 +472,7 @@ class FastMCP:
     async def run_sse_async(self) -> None:
         """Run the server using SSE transport."""
         import uvicorn
+
         starlette_app = self.sse_app()
 
         config = uvicorn.Config(
@@ -479,7 +486,16 @@ class FastMCP:
 
     def sse_app(self) -> Starlette:
         """Return an instance of the SSE server app."""
-        sse = SseServerTransport(self.settings.message_path)
+        message_dispatch = self.settings.message_dispatch
+        if message_dispatch is None:
+            from mcp.server.message_queue import InMemoryMessageDispatch
+
+            message_dispatch = InMemoryMessageDispatch()
+            logger.info("Using default in-memory message dispatch")
+
+        sse = SseServerTransport(
+            self.settings.message_path, message_dispatch=message_dispatch
+        )
 
         async def handle_sse(request: Request) -> None:
             async with sse.connect_sse(
