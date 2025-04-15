@@ -75,7 +75,7 @@ from typing import Any, Generic, TypeVar
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl
+from pydantic import AnyUrl, ValidationError
 
 import mcp.types as types
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -140,6 +140,10 @@ class Server(Generic[LifespanResultT]):
         ] = {
             types.PingRequest: _ping_handler,
         }
+        self.experimental_request_handlers: dict[
+            type[types.ExperimentalRequest[Any, Any]],
+            Callable[..., Awaitable[types.ServerResult]],
+        ] = {}
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self.notification_options = NotificationOptions()
         logger.debug(f"Initializing server '{name}'")
@@ -458,15 +462,43 @@ class Server(Generic[LifespanResultT]):
                 completion = await func(req.params.ref, req.params.argument)
                 return types.ServerResult(
                     types.CompleteResult(
-                        completion=completion
-                        if completion is not None
-                        else types.Completion(values=[], total=None, hasMore=None),
+                        completion=(
+                            completion
+                            if completion is not None
+                            else types.Completion(values=[], total=None, hasMore=None)
+                        ),
                     )
                 )
 
             self.request_handlers[types.CompleteRequest] = handler
             return func
 
+        return decorator
+
+    def handle_experimental_request(
+        self, request_type: type[types.ExperimentalRequestT]
+    ):
+        def decorator(
+            func: Callable[
+                [
+                    types.ExperimentalRequestT,
+                ],
+                Awaitable[types.ServerResult],
+            ],
+        ):
+            logger.debug("Registering handler for ExperimentalRequest")
+
+            async def handler(req: types.ExperimentalRequestT):
+                result = await func(req)
+                return result
+
+            self.experimental_request_handlers[request_type] = handler
+            return func
+
+        assert issubclass(request_type, types.ExperimentalRequest), (
+            f"Experimental request type {request_type} must be a subclass of "
+            f"{types.ExperimentalRequest}"
+        )
         return decorator
 
     async def run(
@@ -500,9 +532,11 @@ class Server(Generic[LifespanResultT]):
 
     async def _handle_message(
         self,
-        message: RequestResponder[types.ClientRequest, types.ServerResult]
-        | types.ClientNotification
-        | Exception,
+        message: (
+            RequestResponder[types.ClientRequest, types.ServerResult]
+            | types.ClientNotification
+            | Exception
+        ),
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool = False,
@@ -510,9 +544,9 @@ class Server(Generic[LifespanResultT]):
         with warnings.catch_warnings(record=True) as w:
             # TODO(Marcelo): We should be checking if message is Exception here.
             match message:  # type: ignore[reportMatchNotExhaustive]
-                case (
-                    RequestResponder(request=types.ClientRequest(root=req)) as responder
-                ):
+                case RequestResponder(
+                    request=types.ClientRequest(root=req)
+                ) as responder:
                     with responder:
                         await self._handle_request(
                             message, req, session, lifespan_context, raise_exceptions
@@ -532,8 +566,40 @@ class Server(Generic[LifespanResultT]):
         raise_exceptions: bool,
     ):
         logger.info(f"Processing request of type {type(req).__name__}")
+
+        handler = None
         if type(req) in self.request_handlers:
             handler = self.request_handlers[type(req)]
+        elif isinstance(req, types.ExperimentalRequestWrapper):
+            for request_handler_type in self.experimental_request_handlers.keys():
+                try:
+                    req = request_handler_type.model_validate(
+                        req.params.model_dump(
+                            by_alias=True, mode="json", exclude_none=True
+                        )
+                    )
+                    handler = self.experimental_request_handlers[req.__class__]
+                    break
+                except ValidationError as e:
+                    logger.debug(f"ValidationError: {e}")
+                    pass
+                except KeyError:
+                    logger.debug(
+                        f"Experimental request {req} does not match any "
+                        f"experimental request handler"
+                    )
+                    pass
+                except Exception as err:
+                    logger.error(f"Error validating experimental request: {err}")
+                    pass
+        if not handler:
+            await message.respond(
+                types.ErrorData(
+                    code=types.METHOD_NOT_FOUND,
+                    message="Method not found. oops",
+                )
+            )
+        else:
             logger.debug(f"Dispatching request of type {type(req).__name__}")
 
             token = None
@@ -561,13 +627,6 @@ class Server(Generic[LifespanResultT]):
                     request_ctx.reset(token)
 
             await message.respond(response)
-        else:
-            await message.respond(
-                types.ErrorData(
-                    code=types.METHOD_NOT_FOUND,
-                    message="Method not found",
-                )
-            )
 
         logger.debug("Response sent")
 
