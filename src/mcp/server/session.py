@@ -308,24 +308,27 @@ class ServerSession(
             )
         )
 
-    async def send_experimental_request(
+    async def send_custom_request(
         self,
-        request: types.ExperimentalRequest[types.RequestParamsT, types.MethodT],
+        request: types.CustomRequest[types.RequestParamsT, types.MethodT],
         response_type: type[ReceiveResultT],
     ) -> ReceiveResultT:
-        """Send an experimental request."""
+        """Send a custom request."""
         request_params = (
             request.params.model_dump(by_alias=True, mode="json", exclude_none=True)
             if isinstance(request.params, types.BaseModel)
             else request.params
         )
+        inner_request = types.CustomRequest[dict[str, Any] | None, str](
+            method=request.method,
+            params=request_params,
+        )
         return await self.send_request(
             types.ServerRequest(
-                types.ExperimentalRequestWrapper(
-                    method="experimental/wrapper",
-                    params=types.ExperimentalRequestWrapperParams(
-                        method=request.method,
-                        params=request_params,
+                types.CustomRequestWrapper(
+                    method="custom/request",
+                    params=types.CustomRequestWrapperParams(
+                        inner=inner_request,
                     ),
                 )
             ),

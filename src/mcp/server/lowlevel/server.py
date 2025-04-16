@@ -71,11 +71,11 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl, ValidationError
+from pydantic import AnyUrl
 
 import mcp.types as types
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -140,8 +140,8 @@ class Server(Generic[LifespanResultT]):
         ] = {
             types.PingRequest: _ping_handler,
         }
-        self.experimental_request_handlers: dict[
-            type[types.ExperimentalRequest[Any, Any]],
+        self.custom_request_handlers: dict[
+            str,  # method literal for each custom request type
             Callable[..., Awaitable[types.ServerResult]],
         ] = {}
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
@@ -475,30 +475,59 @@ class Server(Generic[LifespanResultT]):
 
         return decorator
 
-    def handle_experimental_request(
-        self, request_type: type[types.ExperimentalRequestT]
-    ):
+    def handle_custom_request(self, request_type: type[types.CustomRequestT]):
+        assert issubclass(request_type, types.CustomRequest), (
+            f"Custom request type {request_type} must be a subclass of "
+            f"{types.CustomRequest}"
+        )
+
+        # Extract the method literal string from the custom request type
+        method_literal = None
+        try:
+            from typing import get_args, get_origin, get_type_hints
+
+            type_hints = get_type_hints(request_type)
+            if "method" in type_hints:
+                method_annotation = type_hints["method"]
+                if get_origin(method_annotation) is Literal:
+                    args = get_args(method_annotation)
+                    if args:
+                        method_literal = args[0]
+                        logger.debug(f"Extracted method literal: {method_literal}")
+        except Exception:
+            logger.debug(f"Failed to extract method literal from {request_type}")
+
+        if method_literal is None:
+            logger.warning(f"Could not extract method literal from {request_type}")
+            raise ValueError(f"Could not extract method literal from {request_type}")
+
         def decorator(
             func: Callable[
                 [
-                    types.ExperimentalRequestT,
+                    types.CustomRequestT,
                 ],
                 Awaitable[types.ServerResult],
             ],
         ):
-            logger.debug("Registering handler for ExperimentalRequest")
+            logger.debug(
+                f"Registering handler for {request_type} under method literal {method_literal}"
+            )
 
-            async def handler(req: types.ExperimentalRequestT):
-                result = await func(req)
+            async def handler(req: types.CustomRequestT):
+                result = await func(
+                    request_type.model_validate(
+                        req.model_dump(
+                            by_alias=True,
+                            exclude_none=True,
+                            mode="json",
+                        )
+                    )
+                )
                 return result
 
-            self.experimental_request_handlers[request_type] = handler
+            self.custom_request_handlers[method_literal] = handler
             return func
 
-        assert issubclass(request_type, types.ExperimentalRequest), (
-            f"Experimental request type {request_type} must be a subclass of "
-            f"{types.ExperimentalRequest}"
-        )
         return decorator
 
     async def run(
@@ -570,28 +599,20 @@ class Server(Generic[LifespanResultT]):
         handler = None
         if type(req) in self.request_handlers:
             handler = self.request_handlers[type(req)]
-        elif isinstance(req, types.ExperimentalRequestWrapper):
-            for request_handler_type in self.experimental_request_handlers.keys():
-                try:
-                    req = request_handler_type.model_validate(
-                        req.params.model_dump(
-                            by_alias=True, mode="json", exclude_none=True
-                        )
-                    )
-                    handler = self.experimental_request_handlers[req.__class__]
-                    break
-                except ValidationError as e:
-                    logger.debug(f"ValidationError: {e}")
-                    pass
-                except KeyError:
-                    logger.debug(
-                        f"Experimental request {req} does not match any "
-                        f"experimental request handler"
-                    )
-                    pass
-                except Exception as err:
-                    logger.error(f"Error validating experimental request: {err}")
-                    pass
+        elif isinstance(req, types.CustomRequestWrapper):
+            custom_request_method = req.params.inner.method
+            try:
+                handler = self.custom_request_handlers[custom_request_method]
+                req = req.params.inner
+            except KeyError:
+                logger.debug(
+                    f"Custom request method {custom_request_method} does not match any "
+                    f"custom request handler"
+                )
+                pass
+            except Exception as err:
+                logger.error(f"Error handling custom request: {err}")
+                pass
         if not handler:
             await message.respond(
                 types.ErrorData(

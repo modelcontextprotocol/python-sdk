@@ -14,7 +14,6 @@ from pydantic import (
     Field,
     FileUrl,
     RootModel,
-    field_validator,
 )
 from pydantic.networks import AnyUrl, UrlConstraints
 
@@ -86,34 +85,40 @@ class Request(BaseModel, Generic[RequestParamsT, MethodT]):
     model_config = ConfigDict(extra="allow")
 
 
-class ExperimentalRequest(Request[RequestParamsT, MethodT]):
-    """Base class for experimental requests."""
+class CustomRequest(Request[RequestParamsT, MethodT]):
+    """Base class for custom requests."""
 
-    @field_validator("method")
-    @classmethod
-    def validate_experimental_method(cls, v: Any) -> str:
-        if not isinstance(v, str) or not v.startswith("experimental/"):
-            raise ValueError(
-                f"Experimental request method must start with 'experimental/', got {v}"
-            )
-        return v
+    ...
 
 
-ExperimentalRequestT = TypeVar(
-    "ExperimentalRequestT", bound=ExperimentalRequest[Any, Any]
+CustomRequestT = TypeVar(
+    "CustomRequestT",
+    bound=CustomRequest[Any, Any],
+    contravariant=True,
 )
 
 
-class ExperimentalRequestWrapperParams(RequestParams):
-    method: str
-    params: dict[str, Any] | None
+class CustomRequestWrapperParams(RequestParams):
+    """
+    Parameters for the custom request wrapper.
+    """
+
+    inner: CustomRequest[dict[str, Any] | None, str]
+    """
+    The custom request to be wrapped.
+    """
 
 
-class ExperimentalRequestWrapper(
-    Request[ExperimentalRequestWrapperParams, Literal["experimental/wrapper"]]
+class CustomRequestWrapper(
+    Request[CustomRequestWrapperParams, Literal["custom/request"]]
 ):
-    method: Literal["experimental/wrapper"]
-    params: ExperimentalRequestWrapperParams
+    """
+    This request is used when sending custom user defined requests from
+    the client to the server or vice versa.
+    """
+
+    method: Literal["custom/request"]
+    params: CustomRequestWrapperParams
 
 
 class PaginatedRequest(Request[RequestParamsT, MethodT]):
@@ -144,11 +149,8 @@ class Result(BaseModel):
     """
 
 
-ResultT = TypeVar("ResultT", bound=Result)
-
-
-class ExperimentalResult(Result):
-    """Base class for experimental results."""
+class CustomResult(Result):
+    """Base class for custom results."""
 
     payload: Any
 
@@ -1121,7 +1123,7 @@ class ClientRequest(
         | UnsubscribeRequest
         | CallToolRequest
         | ListToolsRequest
-        | ExperimentalRequestWrapper
+        | CustomRequestWrapper
     ]
 ):
     pass
@@ -1139,17 +1141,14 @@ class ClientNotification(
 
 
 class ClientResult(
-    RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ExperimentalResult]
+    RootModel[EmptyResult | CreateMessageResult | ListRootsResult | CustomResult]
 ):
     pass
 
 
 class ServerRequest(
     RootModel[
-        PingRequest
-        | CreateMessageRequest
-        | ListRootsRequest
-        | ExperimentalRequestWrapper
+        PingRequest | CreateMessageRequest | ListRootsRequest | CustomRequestWrapper
     ]
 ):
     pass
@@ -1181,7 +1180,7 @@ class ServerResult(
         | ReadResourceResult
         | CallToolResult
         | ListToolsResult
-        | ExperimentalResult
+        | CustomResult
     ]
 ):
     pass
