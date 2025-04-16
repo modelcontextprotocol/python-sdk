@@ -1,4 +1,5 @@
 from .client.session import ClientSession
+from .client.sse import sse_client
 from .client.stdio import StdioServerParameters, stdio_client
 from .server.session import ServerSession
 from .server.stdio import stdio_server
@@ -107,6 +108,7 @@ __all__ = [
     "Tool",
     "ToolsCapability",
     "UnsubscribeRequest",
+    "sse_client",
     "stdio_client",
     "stdio_server",
     "CompleteRequest",
