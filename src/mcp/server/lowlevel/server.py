@@ -531,11 +531,8 @@ class Server(Generic[LifespanResultT]):
         lifespan_context: LifespanResultT,
         raise_exceptions: bool,
     ):
-        logger.info(f"Processing request of type {type(req).__name__}")
         if type(req) in self.request_handlers:
             handler = self.request_handlers[type(req)]
-            logger.debug(f"Dispatching request of type {type(req).__name__}")
-
             token = None
             try:
                 # Set our global state that can be retrieved via
@@ -548,6 +545,7 @@ class Server(Generic[LifespanResultT]):
                         lifespan_context,
                     )
                 )
+                logger.info(f"Processing request of type {type(req).__name__}")
                 response = await handler(req)
             except McpError as err:
                 response = err.error
