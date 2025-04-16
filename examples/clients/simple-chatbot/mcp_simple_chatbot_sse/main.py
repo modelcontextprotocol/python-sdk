@@ -85,7 +85,9 @@ class Server:
             session = await self.exit_stack.enter_async_context(session_context)
             await session.initialize()
             self.session = session
-            logging.info(f"Successfully connected to server {self.name} at {server_url}")
+            logging.info(
+                f"Successfully connected to server {self.name} at {server_url}"
+            )
         except Exception as e:
             logging.error(f"Error initializing server {self.name}: {e}")
             await self.cleanup()
