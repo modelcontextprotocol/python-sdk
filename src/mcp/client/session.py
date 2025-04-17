@@ -436,9 +436,14 @@ class ClientSession(
                 params=types.CustomRequestWrapperParams(inner=custom_request)
             ):
                 with responder:
-                    custom_request_handler = self._custom_request_handlers.get(
-                        custom_request.method,
-                        _default_custom_request_handler,
+                    custom_request_handler = (
+                        self._custom_request_handlers.get(
+                            custom_request.method,
+                            _default_custom_request_handler,
+                        )
+                        if self._experimental_capabilities.get("custom_requests", None)
+                        is not None
+                        else _default_custom_request_handler
                     )
 
                     ## TODO: This is a hack to get the type of the custom request

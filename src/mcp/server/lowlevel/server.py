@@ -541,6 +541,16 @@ class Server(Generic[LifespanResultT]):
         # in-process servers.
         raise_exceptions: bool = False,
     ):
+        if self.custom_request_handlers and (
+            initialization_options.capabilities.experimental is None
+            or initialization_options.capabilities.experimental.get("custom_requests")
+            is None
+        ):
+            raise RuntimeError(
+                "server has custom request handlers but experimental capability "
+                "'custom_requests' is not set in the server capabilities."
+            )
+
         async with AsyncExitStack() as stack:
             lifespan_context = await stack.enter_async_context(self.lifespan(self))
             session = await stack.enter_async_context(
