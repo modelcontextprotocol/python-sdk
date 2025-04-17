@@ -151,7 +151,7 @@ class ClientSession(
             str,
             CustomRequestHandlerFnT[types.CustomRequest[dict[str, Any] | None, str]],
         ] = custom_request_handlers or {}
-        self._experimental_capabilities = experimental_capabilities
+        self._experimental_capabilities = experimental_capabilities or {}
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability()
@@ -228,6 +228,11 @@ class ClientSession(
         response_type: type[ReceiveResultT],
     ) -> ReceiveResultT:
         """Send a custom request."""
+        if self._experimental_capabilities.get("custom_requests", None) is None:
+            raise RuntimeError(
+                "experimental capability 'custom_requests' must be set in the"
+                " client capabilities to send custom requests."
+            )
         request_params = (
             request.params.model_dump(by_alias=True, mode="json", exclude_none=True)
             if isinstance(request.params, types.BaseModel)

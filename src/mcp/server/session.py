@@ -314,6 +314,16 @@ class ServerSession(
         response_type: type[ReceiveResultT],
     ) -> ReceiveResultT:
         """Send a custom request."""
+        if (
+            self._init_options.capabilities.experimental is None
+            or self._init_options.capabilities.experimental.get("custom_requests")
+            is None
+        ):
+            raise RuntimeError(
+                "experimental capability 'custom_requests' must be set in the"
+                " server capabilities to send custom requests."
+            )
+
         request_params = (
             request.params.model_dump(by_alias=True, mode="json", exclude_none=True)
             if isinstance(request.params, types.BaseModel)
