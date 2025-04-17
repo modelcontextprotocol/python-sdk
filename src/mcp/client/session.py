@@ -1,9 +1,9 @@
 from datetime import timedelta
-from typing import Any, Protocol
+from typing import Any, Generic, Protocol, TypeVar, get_args
 
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl, TypeAdapter
+from pydantic import AnyUrl, BaseModel, TypeAdapter
 
 import mcp.types as types
 from mcp.shared.context import RequestContext
@@ -11,6 +11,8 @@ from mcp.shared.session import BaseSession, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
+ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
+CustomRequestMethodT = TypeVar("CustomRequestMethodT", bound=str)
 
 
 class SamplingFnT(Protocol):
@@ -43,10 +45,30 @@ class MessageHandlerFnT(Protocol):
     ) -> None: ...
 
 
+class CustomRequestHandlerFnT(Protocol, Generic[types.CustomRequestT]):
+    async def __call__(
+        self,
+        context: RequestContext["ClientSession", Any],
+        message: types.CustomRequestT,
+    ) -> types.ClientResult | types.ErrorData: ...
+
+
+async def _default_custom_request_handler(
+    context: RequestContext["ClientSession", Any],
+    message: types.CustomRequest[dict[str, Any] | None, str],
+) -> types.ClientResult | types.ErrorData:
+    return types.ErrorData(
+        code=types.INVALID_REQUEST,
+        message=f"Custom request method {message.method} not supported",
+    )
+
+
 async def _default_message_handler(
-    message: RequestResponder[types.ServerRequest, types.ClientResult]
-    | types.ServerNotification
-    | Exception,
+    message: (
+        RequestResponder[types.ServerRequest, types.ClientResult]
+        | types.ServerNotification
+        | Exception
+    ),
 ) -> None:
     await anyio.lowlevel.checkpoint()
 
@@ -100,6 +122,16 @@ class ClientSession(
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
+        custom_request_handlers: (
+            dict[
+                str,
+                CustomRequestHandlerFnT[
+                    types.CustomRequest[dict[str, Any] | None, str]
+                ],
+            ]
+            | None
+        ) = None,
+        experimental_capabilities: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -113,6 +145,11 @@ class ClientSession(
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
+        self._custom_request_handlers: dict[
+            str,
+            CustomRequestHandlerFnT[types.CustomRequest[dict[str, Any] | None, str]],
+        ] = custom_request_handlers or {}
+        self._experimental_capabilities = experimental_capabilities or {}
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability()
@@ -131,7 +168,7 @@ class ClientSession(
                         protocolVersion=types.LATEST_PROTOCOL_VERSION,
                         capabilities=types.ClientCapabilities(
                             sampling=sampling,
-                            experimental=None,
+                            experimental=self._experimental_capabilities,
                             roots=roots,
                         ),
                         clientInfo=self._client_info,
@@ -181,6 +218,38 @@ class ClientSession(
                     ),
                 ),
             )
+        )
+
+    async def send_custom_request(
+        self,
+        request: types.CustomRequest[types.RequestParamsT, types.MethodT],
+        response_type: type[ReceiveResultT],
+    ) -> ReceiveResultT:
+        """Send a custom request."""
+        if self._experimental_capabilities.get("custom_requests", None) is None:
+            raise RuntimeError(
+                "experimental capability 'custom_requests' must be set in the"
+                " client capabilities to send custom requests."
+            )
+        request_params = (
+            request.params.model_dump(by_alias=True, mode="json", exclude_none=True)
+            if isinstance(request.params, types.BaseModel)
+            else request.params
+        )
+        inner_request = types.CustomRequest[dict[str, Any] | None, str](
+            method=request.method,
+            params=request_params,
+        )
+        return await self.send_request(
+            types.ClientRequest(
+                types.CustomRequestWrapper(
+                    method="custom/request",
+                    params=types.CustomRequestWrapperParams(
+                        inner=inner_request,
+                    ),
+                )
+            ),
+            response_type,
         )
 
     async def set_logging_level(self, level: types.LoggingLevel) -> types.EmptyResult:
@@ -361,11 +430,49 @@ class ClientSession(
                         types.ClientResult(root=types.EmptyResult())
                     )
 
+            case types.CustomRequestWrapper(
+                params=types.CustomRequestWrapperParams(inner=custom_request)
+            ):
+                with responder:
+                    custom_request_handler = (
+                        self._custom_request_handlers.get(
+                            custom_request.method,
+                            _default_custom_request_handler,
+                        )
+                        if self._experimental_capabilities.get("custom_requests", None)
+                        is not None
+                        else _default_custom_request_handler
+                    )
+
+                    ## TODO: This is a hack to get the type of the custom request
+                    ##       from the custom request handler.
+                    orig_base = custom_request_handler.__orig_bases__[0]  # type: ignore
+                    (type_arg,) = get_args(orig_base)
+                    CustomRequestType = type_arg
+                    parsed_custom_request = CustomRequestType.model_validate(
+                        custom_request.model_dump(
+                            by_alias=True,
+                            exclude_none=True,
+                            mode="json",
+                        )
+                    )
+
+                    custom_request_response = await custom_request_handler(
+                        ctx,
+                        parsed_custom_request,
+                    )
+                    client_response = ClientResponse.validate_python(
+                        custom_request_response
+                    )
+                    await responder.respond(client_response)
+
     async def _handle_incoming(
         self,
-        req: RequestResponder[types.ServerRequest, types.ClientResult]
-        | types.ServerNotification
-        | Exception,
+        req: (
+            RequestResponder[types.ServerRequest, types.ClientResult]
+            | types.ServerNotification
+            | Exception
+        ),
     ) -> None:
         """Handle incoming messages by forwarding to the message handler."""
         await self._message_handler(req)

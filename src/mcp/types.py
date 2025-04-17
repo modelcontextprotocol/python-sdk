@@ -8,7 +8,13 @@ from typing import (
     TypeVar,
 )
 
-from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    FileUrl,
+    RootModel,
+)
 from pydantic.networks import AnyUrl, UrlConstraints
 
 """
@@ -79,6 +85,42 @@ class Request(BaseModel, Generic[RequestParamsT, MethodT]):
     model_config = ConfigDict(extra="allow")
 
 
+class CustomRequest(Request[RequestParamsT, MethodT]):
+    """Base class for custom requests."""
+
+    ...
+
+
+CustomRequestT = TypeVar(
+    "CustomRequestT",
+    bound=CustomRequest[Any, Any],
+    contravariant=True,
+)
+
+
+class CustomRequestWrapperParams(RequestParams):
+    """
+    Parameters for the custom request wrapper.
+    """
+
+    inner: CustomRequest[dict[str, Any] | None, str]
+    """
+    The custom request to be wrapped.
+    """
+
+
+class CustomRequestWrapper(
+    Request[CustomRequestWrapperParams, Literal["custom/request"]]
+):
+    """
+    This request is used when sending custom user defined requests from
+    the client to the server or vice versa.
+    """
+
+    method: Literal["custom/request"]
+    params: CustomRequestWrapperParams
+
+
 class PaginatedRequest(Request[RequestParamsT, MethodT]):
     cursor: Cursor | None = None
     """
@@ -105,6 +147,12 @@ class Result(BaseModel):
     This result property is reserved by the protocol to allow clients and servers to
     attach additional metadata to their responses.
     """
+
+
+class CustomResult(Result):
+    """Base class for custom results."""
+
+    payload: Any
 
 
 class PaginatedResult(Result):
@@ -1075,6 +1123,7 @@ class ClientRequest(
         | UnsubscribeRequest
         | CallToolRequest
         | ListToolsRequest
+        | CustomRequestWrapper
     ]
 ):
     pass
@@ -1091,11 +1140,17 @@ class ClientNotification(
     pass
 
 
-class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult]):
+class ClientResult(
+    RootModel[EmptyResult | CreateMessageResult | ListRootsResult | CustomResult]
+):
     pass
 
 
-class ServerRequest(RootModel[PingRequest | CreateMessageRequest | ListRootsRequest]):
+class ServerRequest(
+    RootModel[
+        PingRequest | CreateMessageRequest | ListRootsRequest | CustomRequestWrapper
+    ]
+):
     pass
 
 
@@ -1125,6 +1180,7 @@ class ServerResult(
         | ReadResourceResult
         | CallToolResult
         | ListToolsResult
+        | CustomResult
     ]
 ):
     pass

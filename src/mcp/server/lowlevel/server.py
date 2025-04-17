@@ -71,7 +71,7 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -140,6 +140,10 @@ class Server(Generic[LifespanResultT]):
         ] = {
             types.PingRequest: _ping_handler,
         }
+        self.custom_request_handlers: dict[
+            str,  # method literal for each custom request type
+            Callable[..., Awaitable[types.ServerResult]],
+        ] = {}
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self.notification_options = NotificationOptions()
         logger.debug(f"Initializing server '{name}'")
@@ -458,13 +462,71 @@ class Server(Generic[LifespanResultT]):
                 completion = await func(req.params.ref, req.params.argument)
                 return types.ServerResult(
                     types.CompleteResult(
-                        completion=completion
-                        if completion is not None
-                        else types.Completion(values=[], total=None, hasMore=None),
+                        completion=(
+                            completion
+                            if completion is not None
+                            else types.Completion(values=[], total=None, hasMore=None)
+                        ),
                     )
                 )
 
             self.request_handlers[types.CompleteRequest] = handler
+            return func
+
+        return decorator
+
+    def handle_custom_request(self, request_type: type[types.CustomRequestT]):
+        assert issubclass(request_type, types.CustomRequest), (
+            f"Custom request type {request_type} must be a subclass of "
+            f"{types.CustomRequest}"
+        )
+
+        # Extract the method literal string from the custom request type
+        method_literal = None
+        try:
+            from typing import get_args, get_origin, get_type_hints
+
+            type_hints = get_type_hints(request_type)
+            if "method" in type_hints:
+                method_annotation = type_hints["method"]
+                if get_origin(method_annotation) is Literal:
+                    args = get_args(method_annotation)
+                    if args:
+                        method_literal = args[0]
+                        logger.debug(f"Extracted method literal: {method_literal}")
+        except Exception:
+            logger.debug(f"Failed to extract method literal from {request_type}")
+
+        if method_literal is None:
+            logger.warning(f"Could not extract method literal from {request_type}")
+            raise ValueError(f"Could not extract method literal from {request_type}")
+
+        def decorator(
+            func: Callable[
+                [
+                    types.CustomRequestT,
+                ],
+                Awaitable[types.ServerResult],
+            ],
+        ):
+            logger.debug(
+                f"Registering handler for {request_type} under method "
+                f"literal {method_literal}"
+            )
+
+            async def handler(req: types.CustomRequestT):
+                result = await func(
+                    request_type.model_validate(
+                        req.model_dump(
+                            by_alias=True,
+                            exclude_none=True,
+                            mode="json",
+                        )
+                    )
+                )
+                return result
+
+            self.custom_request_handlers[method_literal] = handler
             return func
 
         return decorator
@@ -480,6 +542,16 @@ class Server(Generic[LifespanResultT]):
         # in-process servers.
         raise_exceptions: bool = False,
     ):
+        if self.custom_request_handlers and (
+            initialization_options.capabilities.experimental is None
+            or initialization_options.capabilities.experimental.get("custom_requests")
+            is None
+        ):
+            raise RuntimeError(
+                "server has custom request handlers but experimental capability "
+                "'custom_requests' is not set in the server capabilities."
+            )
+
         async with AsyncExitStack() as stack:
             lifespan_context = await stack.enter_async_context(self.lifespan(self))
             session = await stack.enter_async_context(
@@ -500,9 +572,11 @@ class Server(Generic[LifespanResultT]):
 
     async def _handle_message(
         self,
-        message: RequestResponder[types.ClientRequest, types.ServerResult]
-        | types.ClientNotification
-        | Exception,
+        message: (
+            RequestResponder[types.ClientRequest, types.ServerResult]
+            | types.ClientNotification
+            | Exception
+        ),
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool = False,
@@ -532,8 +606,32 @@ class Server(Generic[LifespanResultT]):
         raise_exceptions: bool,
     ):
         logger.info(f"Processing request of type {type(req).__name__}")
+
+        handler = None
         if type(req) in self.request_handlers:
             handler = self.request_handlers[type(req)]
+        elif isinstance(req, types.CustomRequestWrapper):
+            custom_request_method = req.params.inner.method
+            try:
+                handler = self.custom_request_handlers[custom_request_method]
+                req = req.params.inner
+            except KeyError:
+                logger.debug(
+                    f"Custom request method {custom_request_method} does not match any "
+                    f"custom request handler"
+                )
+                pass
+            except Exception as err:
+                logger.error(f"Error handling custom request: {err}")
+                pass
+        if not handler:
+            await message.respond(
+                types.ErrorData(
+                    code=types.METHOD_NOT_FOUND,
+                    message="Method not found. oops",
+                )
+            )
+        else:
             logger.debug(f"Dispatching request of type {type(req).__name__}")
 
             token = None
@@ -561,13 +659,6 @@ class Server(Generic[LifespanResultT]):
                     request_ctx.reset(token)
 
             await message.respond(response)
-        else:
-            await message.respond(
-                types.ErrorData(
-                    code=types.METHOD_NOT_FOUND,
-                    message="Method not found",
-                )
-            )
 
         logger.debug("Response sent")
 

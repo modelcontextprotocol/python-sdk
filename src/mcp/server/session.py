@@ -43,7 +43,7 @@ from typing import Any, TypeVar
 import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl
+from pydantic import AnyUrl, BaseModel
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
@@ -60,6 +60,7 @@ class InitializationState(Enum):
 
 
 ServerSessionT = TypeVar("ServerSessionT", bound="ServerSession")
+ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 
 ServerRequestResponder = (
     RequestResponder[types.ClientRequest, types.ServerResult]
@@ -305,6 +306,43 @@ class ServerSession(
                     method="notifications/prompts/list_changed",
                 )
             )
+        )
+
+    async def send_custom_request(
+        self,
+        request: types.CustomRequest[types.RequestParamsT, types.MethodT],
+        response_type: type[ReceiveResultT],
+    ) -> ReceiveResultT:
+        """Send a custom request."""
+        if (
+            self._init_options.capabilities.experimental is None
+            or self._init_options.capabilities.experimental.get("custom_requests")
+            is None
+        ):
+            raise RuntimeError(
+                "experimental capability 'custom_requests' must be set in the"
+                " server capabilities to send custom requests."
+            )
+
+        request_params = (
+            request.params.model_dump(by_alias=True, mode="json", exclude_none=True)
+            if isinstance(request.params, types.BaseModel)
+            else request.params
+        )
+        inner_request = types.CustomRequest[dict[str, Any] | None, str](
+            method=request.method,
+            params=request_params,
+        )
+        return await self.send_request(
+            types.ServerRequest(
+                types.CustomRequestWrapper(
+                    method="custom/request",
+                    params=types.CustomRequestWrapperParams(
+                        inner=inner_request,
+                    ),
+                )
+            ),
+            response_type,
         )
 
     async def _handle_incoming(self, req: ServerRequestResponder) -> None:
