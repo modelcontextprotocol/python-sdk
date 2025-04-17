@@ -15,7 +15,6 @@ from typing import Any, Generic, Literal
 
 import anyio
 import pydantic_core
-import uvicorn
 from pydantic import BaseModel, Field
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -68,7 +67,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 
     # Server settings
     debug: bool = False
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "ERROR"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     # HTTP settings
     host: str = "0.0.0.0"
@@ -466,6 +465,7 @@ class FastMCP:
 
     async def run_sse_async(self) -> None:
         """Run the server using SSE transport."""
+        import uvicorn
         starlette_app = self.sse_app()
 
         config = uvicorn.Config(
@@ -652,9 +652,9 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         Returns:
             The resource content as either text or bytes
         """
-        assert self._fastmcp is not None, (
-            "Context is not available outside of a request"
-        )
+        assert (
+            self._fastmcp is not None
+        ), "Context is not available outside of a request"
         return await self._fastmcp.read_resource(uri)
 
     async def log(

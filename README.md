@@ -73,15 +73,24 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 
 ### Adding MCP to your python project
 
-We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python projects. In a uv managed python project, add mcp to dependencies by:
+We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python projects. 
 
-```bash
-uv add "mcp[cli]"
-```
+If you haven't created a uv-managed project yet, create one:
+
+   ```bash
+   uv init mcp-server-demo
+   cd mcp-server-demo
+   ```
+
+   Then add MCP to your project dependencies:
+
+   ```bash
+   uv add "mcp[cli]"
+   ```
 
 Alternatively, for projects using pip for dependencies:
 ```bash
-pip install mcp
+pip install "mcp[cli]"
 ```
 
 ### Running the standalone MCP development tools
@@ -185,7 +194,7 @@ mcp = FastMCP("My App", lifespan=app_lifespan)
 @mcp.tool()
 def query_db(ctx: Context) -> str:
     """Tool that uses initialized resources"""
-    db = ctx.request_context.lifespan_context["db"]
+    db = ctx.request_context.lifespan_context.db
     return db.query()
 ```
 
@@ -357,7 +366,7 @@ You can mount the SSE server to an existing ASGI server using the `sse_app` meth
 
 ```python
 from starlette.applications import Starlette
-from starlette.routes import Mount, Host
+from starlette.routing import Mount, Host
 from mcp.server.fastmcp import FastMCP
 
 

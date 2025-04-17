@@ -7,7 +7,7 @@ from mcp.shared.session import BaseSession
 from mcp.types import RequestId, RequestParams
 
 SessionT = TypeVar("SessionT", bound=BaseSession[Any, Any, Any, Any, Any])
-LifespanContextT = TypeVar("LifespanContextT", default=None)
+LifespanContextT = TypeVar("LifespanContextT")
 
 
 @dataclass
