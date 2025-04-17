@@ -510,7 +510,8 @@ class Server(Generic[LifespanResultT]):
             ],
         ):
             logger.debug(
-                f"Registering handler for {request_type} under method literal {method_literal}"
+                f"Registering handler for {request_type} under method "
+                f"literal {method_literal}"
             )
 
             async def handler(req: types.CustomRequestT):

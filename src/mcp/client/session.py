@@ -39,12 +39,10 @@ class LoggingFnT(Protocol):
 class MessageHandlerFnT(Protocol):
     async def __call__(
         self,
-        message: (
-            RequestResponder[types.ServerRequest, types.ClientResult]
-            | types.ServerNotification
-            | Exception
-        ),
-    ) -> types.ClientResult | types.ErrorData: ...
+        message: RequestResponder[types.ServerRequest, types.ClientResult]
+        | types.ServerNotification
+        | Exception,
+    ) -> None: ...
 
 
 class CustomRequestHandlerFnT(Protocol, Generic[types.CustomRequestT]):
