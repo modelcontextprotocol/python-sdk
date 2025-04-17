@@ -337,6 +337,11 @@ class ProgressNotificationParams(NotificationParams):
     total is unknown.
     """
     total: float | None = None
+    """
+    Message related to progress. This should provide relevant human readable 
+    progress information.
+    """
+    message: str | None = None
     """Total number of items to process (or total progress required), if known."""
     model_config = ConfigDict(extra="allow")
 
