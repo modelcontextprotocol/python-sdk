@@ -33,13 +33,7 @@ from mcp.server.lowlevel import Server
 from mcp.shared.context import RequestContext
 from mcp.shared.memory import create_client_server_memory_streams
 
-EXPERIMENTAL_CAPABILITIES = {
-    "custom_requests": {
-        "awesome": {
-            "delay": 1000,
-        }
-    }
-}
+EXPERIMENTAL_CAPABILITIES: dict[str, dict[str, Any]] = {"custom_requests": {}}
 
 ## Define the 'awesome' protocol
 
@@ -99,6 +93,8 @@ async def run_all():
                     raise_exceptions=True,
                 )
             )
+
+            ## MCP Client code
 
             class AwesomeResponder(CustomRequestHandlerFnT[AwesomeRequest]):
                 async def __call__(
