@@ -18,9 +18,10 @@ logger = get_logger(__name__)
 class ToolManager:
     """Manages FastMCP tools."""
 
-    def __init__(self, warn_on_duplicate_tools: bool = True):
+    def __init__(self, warn_on_duplicate_tools: bool = True, tool_class: type[Tool] = Tool,):
         self._tools: dict[str, Tool] = {}
         self.warn_on_duplicate_tools = warn_on_duplicate_tools
+        self._tool_class = tool_class
 
     def get_tool(self, name: str) -> Tool | None:
         """Get tool by name."""
@@ -37,7 +38,12 @@ class ToolManager:
         description: str | None = None,
     ) -> Tool:
         """Add a tool to the server."""
-        tool = Tool.from_function(fn, name=name, description=description)
+        # tool = Tool.from_function(fn, name=name, description=description)
+        tool = self._tool_class.from_function(
+            fn,
+            name=name,
+            description=description,
+        )
         existing = self._tools.get(tool.name)
         if existing:
             if self.warn_on_duplicate_tools:

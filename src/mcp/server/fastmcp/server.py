@@ -26,6 +26,7 @@ from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.fastmcp.tools import ToolManager
+from mcp.server.fastmcp.tools.custom_tool import CustomTool
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.fastmcp.utilities.types import Image
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -108,7 +109,10 @@ def lifespan_wrapper(
 
 class FastMCP:
     def __init__(
-        self, name: str | None = None, instructions: str | None = None, **settings: Any
+        self,
+        name: str | None = None,
+        instructions: str | None = None,
+        **settings: Any
     ):
         self.settings = Settings(**settings)
 
@@ -119,9 +123,13 @@ class FastMCP:
             if self.settings.lifespan
             else default_lifespan,
         )
+        # self._tool_manager = ToolManager(
+        #     warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
+        # )
         self._tool_manager = ToolManager(
-            warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
-        )
+                                warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools,
+                                tool_class=CustomTool
+                            )
         self._resource_manager = ResourceManager(
             warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources
         )
@@ -143,6 +151,14 @@ class FastMCP:
     @property
     def instructions(self) -> str | None:
         return self._mcp_server.instructions
+
+    def set_post_processor(self, fn: Callable[[Any, str, dict[str, Any]], Any]) -> None:
+        """Set a function that will be called after every tool execution.
+        Args:
+            fn: A function that takes (result, tool_name, arguments) and returns
+                the processed result.
+        """
+        CustomTool.set_post_processor(fn)
 
     def run(self, transport: Literal["stdio", "sse"] = "stdio") -> None:
         """Run the FastMCP server. Note this is a synchronous function.
