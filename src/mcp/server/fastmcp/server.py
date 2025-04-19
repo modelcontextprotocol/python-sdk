@@ -72,7 +72,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # HTTP settings
     host: str = "0.0.0.0"
     port: int = 8000
-    mount_path: str = "/"  # Mount path (e.g. "/github", defaults to root path)
+    mount_path: str = "/"
     sse_path: str = "/sse"
     message_path: str = "/messages/"
 
