@@ -467,6 +467,7 @@ class FastMCP:
     async def run_sse_async(self) -> None:
         """Run the server using SSE transport."""
         import uvicorn
+
         starlette_app = self.sse_app()
 
         config = uvicorn.Config(
@@ -481,33 +482,35 @@ class FastMCP:
     def _normalize_path(self, mount_path: str, endpoint: str) -> str:
         """
         Combine mount path and endpoint to return a normalized path.
-        
+
         Args:
             mount_path: The mount path (e.g. "/github" or "/")
             endpoint: The endpoint path (e.g. "/messages/")
-            
+
         Returns:
             Normalized path (e.g. "/github/messages/")
         """
         # Special case: root path
         if mount_path == "/":
             return endpoint
-        
+
         # Remove trailing slash from mount path
         if mount_path.endswith("/"):
             mount_path = mount_path[:-1]
-        
+
         # Ensure endpoint starts with slash
         if not endpoint.startswith("/"):
             endpoint = "/" + endpoint
-        
+
         # Combine paths
         return mount_path + endpoint
-    
+
     def sse_app(self) -> Starlette:
         """Return an instance of the SSE server app."""
         # Create normalized endpoint considering the mount path
-        normalized_endpoint = self._normalize_path(self.settings.mount_path, self.settings.message_path)
+        normalized_endpoint = self._normalize_path(
+            self.settings.mount_path, self.settings.message_path
+        )
         sse = SseServerTransport(normalized_endpoint)
 
         async def handle_sse(request: Request) -> None:
