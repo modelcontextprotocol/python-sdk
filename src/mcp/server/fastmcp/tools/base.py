@@ -31,6 +31,25 @@ class Tool(BaseModel):
         None, description="Name of the kwarg that should receive context"
     )
 
+    # Add a new class method for post-processing
+    @classmethod
+    def post_process_result(cls, result: Any, tool_name: str, arguments: dict[str, Any]) -> Any:
+        """Post-process the result of a tool execution.
+
+        Override this method in a subclass to customize the post-processing behavior.
+
+        Args:
+            result: The result of the tool execution
+            tool_name: The name of the tool that was executed
+            arguments: The arguments that were passed to the tool
+
+        Returns:
+            The post-processed result
+        """
+        # Default implementation just returns the original result
+        # You would replace this with your custom logic
+        return result
+
     @classmethod
     def from_function(
         cls,
@@ -82,7 +101,7 @@ class Tool(BaseModel):
     ) -> Any:
         """Run the tool with arguments."""
         try:
-            return await self.fn_metadata.call_fn_with_arg_validation(
+            result = await self.fn_metadata.call_fn_with_arg_validation(
                 self.fn,
                 self.is_async,
                 arguments,
@@ -90,5 +109,7 @@ class Tool(BaseModel):
                 if self.context_kwarg is not None
                 else None,
             )
+            # Post-process the result before returning
+            return self.post_process_result(result, self.name, arguments)
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e
