@@ -122,8 +122,10 @@ class Server:
 
         for item in tools_response:
             if isinstance(item, tuple) and item[0] == "tools":
-                for tool in item[1]:
-                    tools.append(Tool(tool.name, tool.description, tool.inputSchema))
+                tools.extend(
+                    Tool(tool.name, tool.description, tool.inputSchema)
+                    for tool in item[1]
+                )
 
         return tools
 
@@ -282,10 +284,9 @@ class ChatSession:
 
     async def cleanup_servers(self) -> None:
         """Clean up all servers properly."""
-        cleanup_tasks = []
-        for server in self.servers:
-            cleanup_tasks.append(asyncio.create_task(server.cleanup()))
-
+        cleanup_tasks = [
+            asyncio.create_task(server.cleanup()) for server in self.servers
+        ]
         if cleanup_tasks:
             try:
                 await asyncio.gather(*cleanup_tasks, return_exceptions=True)

@@ -7,15 +7,29 @@ repos:
       - id: prettier
         types_or: [yaml, json5]
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.1
-    hooks:
-      - id: ruff-format
-      - id: ruff
-        args: [--fix, --exit-non-zero-on-fix]
-
   - repo: local
     hooks:
+      - id: ruff-format
+        name: Ruff Format
+        entry: uv run ruff
+        args: [format]
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: ruff
+        name: Ruff
+        entry: uv run ruff
+        args: ["check", "--fix", "--exit-non-zero-on-fix"]
+        types: [python]
+        language: system
+        pass_filenames: false
+      - id: pyright
+        name: pyright
+        entry: uv run pyright
+        args: [src]
+        language: system
+        types: [python]
+        pass_filenames: false
       - id: uv-lock-check
         name: Check uv.lock is up to date
         entry: uv lock --check

@@ -2,7 +2,7 @@ import anyio
 import pytest
 
 import mcp.types as types
-from mcp.client.session import ClientSession
+from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
@@ -111,3 +111,131 @@ async def test_client_session_initialize():
     # Check that the client sent the initialized notification
     assert initialized_notification
     assert isinstance(initialized_notification.root, InitializedNotification)
+
+
+@pytest.mark.anyio
+async def test_client_session_custom_client_info():
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        JSONRPCMessage
+    ](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        JSONRPCMessage
+    ](1)
+
+    custom_client_info = Implementation(name="test-client", version="1.2.3")
+    received_client_info = None
+
+    async def mock_server():
+        nonlocal received_client_info
+
+        jsonrpc_request = await client_to_server_receive.receive()
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        request = ClientRequest.model_validate(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(request.root, InitializeRequest)
+        received_client_info = request.root.params.clientInfo
+
+        result = ServerResult(
+            InitializeResult(
+                protocolVersion=LATEST_PROTOCOL_VERSION,
+                capabilities=ServerCapabilities(),
+                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+            )
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                JSONRPCMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.root.id,
+                        result=result.model_dump(
+                            by_alias=True, mode="json", exclude_none=True
+                        ),
+                    )
+                )
+            )
+            # Receive initialized notification
+            await client_to_server_receive.receive()
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            client_info=custom_client_info,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+        await session.initialize()
+
+    # Assert that the custom client info was sent
+    assert received_client_info == custom_client_info
+
+
+@pytest.mark.anyio
+async def test_client_session_default_client_info():
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        JSONRPCMessage
+    ](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        JSONRPCMessage
+    ](1)
+
+    received_client_info = None
+
+    async def mock_server():
+        nonlocal received_client_info
+
+        jsonrpc_request = await client_to_server_receive.receive()
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        request = ClientRequest.model_validate(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(request.root, InitializeRequest)
+        received_client_info = request.root.params.clientInfo
+
+        result = ServerResult(
+            InitializeResult(
+                protocolVersion=LATEST_PROTOCOL_VERSION,
+                capabilities=ServerCapabilities(),
+                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+            )
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                JSONRPCMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.root.id,
+                        result=result.model_dump(
+                            by_alias=True, mode="json", exclude_none=True
+                        ),
+                    )
+                )
+            )
+            # Receive initialized notification
+            await client_to_server_receive.receive()
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+        await session.initialize()
+
+    # Assert that the default client info was sent
+    assert received_client_info == DEFAULT_CLIENT_INFO
