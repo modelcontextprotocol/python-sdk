@@ -383,6 +383,33 @@ app = Starlette(
 app.router.routes.append(Host('mcp.acme.corp', app=mcp.sse_app()))
 ```
 
+When mounting multiple MCP servers under different paths, you need to configure the mount path for each server:
+
+```python
+from starlette.applications import Starlette
+from starlette.routing import Mount
+from mcp.server.fastmcp import FastMCP
+
+# Create multiple MCP servers
+github_mcp = FastMCP("GitHub API")
+browser_mcp = FastMCP("Browser")
+curl_mcp = FastMCP("Curl")
+
+# Configure mount paths for each server
+github_mcp.settings.mount_path = "/github"
+browser_mcp.settings.mount_path = "/browser"
+curl_mcp.settings.mount_path = "/curl"
+
+# Create Starlette app with multiple mounted servers
+app = Starlette(
+    routes=[
+        Mount("/github", app=github_mcp.sse_app()),
+        Mount("/browser", app=browser_mcp.sse_app()),
+        Mount("/curl", app=curl_mcp.sse_app()),
+    ]
+)
+```
+
 For more information on mounting applications in Starlette, see the [Starlette documentation](https://www.starlette.io/routing/#submounting-routes).
 
 ## Examples
