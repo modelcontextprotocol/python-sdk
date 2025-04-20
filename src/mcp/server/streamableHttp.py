@@ -11,6 +11,7 @@ import json
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from http import HTTPStatus
 from typing import Any
 
 import anyio
@@ -32,6 +33,14 @@ logger = logging.getLogger(__name__)
 
 # Maximum size for incoming messages
 MAXIMUM_MESSAGE_SIZE = 4 * 1024 * 1024  # 4MB
+
+# Header names
+MCP_SESSION_ID_HEADER = "mcp-session-id"
+LAST_EVENT_ID_HEADER = "last-event-id"
+
+# Content types
+CONTENT_TYPE_JSON = "application/json"
+CONTENT_TYPE_SSE = "text/event-stream"
 
 
 class StreamableHTTPServerTransport:
@@ -61,6 +70,34 @@ class StreamableHTTPServerTransport:
         self.mcp_session_id = mcp_session_id
         self._request_streams = {}
 
+    def _create_error_response(
+        self,
+        message: str,
+        status_code: HTTPStatus,
+        headers: dict[str, str] | None = None,
+    ) -> Response:
+        """
+        Create a standardized error response.
+        """
+        response_headers = {"Content-Type": CONTENT_TYPE_JSON}
+        if headers:
+            response_headers.update(headers)
+
+        if self.mcp_session_id:
+            response_headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
+
+        return Response(
+            message,
+            status_code=status_code,
+            headers=response_headers,
+        )
+
+    def _get_session_id(self, request: Request) -> str | None:
+        """
+        Extract the session ID from request headers.
+        """
+        return request.headers.get(MCP_SESSION_ID_HEADER)
+
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """
         ASGI application entry point that handles all HTTP requests
@@ -80,7 +117,46 @@ class StreamableHTTPServerTransport:
         elif request.method == "DELETE":
             await self._handle_delete_request(request, send)
         else:
-            await self._handle_unsupported_request(send)
+            await self._handle_unsupported_request(request, send)
+
+    def _check_accept_headers(self, request: Request) -> tuple[bool, bool]:
+        """
+        Check if the request accepts the required media types.
+
+        Args:
+            request: The HTTP request
+
+        Returns:
+            Tuple of (has_json, has_sse) indicating whether each media type is accepted
+        """
+        accept_header = request.headers.get("accept", "")
+        accept_types = [media_type.strip() for media_type in accept_header.split(",")]
+
+        has_json = any(
+            media_type.startswith(CONTENT_TYPE_JSON) for media_type in accept_types
+        )
+        has_sse = any(
+            media_type.startswith(CONTENT_TYPE_SSE) for media_type in accept_types
+        )
+
+        return has_json, has_sse
+
+    def _check_content_type(self, request: Request) -> bool:
+        """
+        Check if the request has the correct Content-Type.
+
+        Args:
+            request: The HTTP request
+
+        Returns:
+            True if Content-Type is acceptable, False otherwise
+        """
+        content_type = request.headers.get("content-type", "")
+        content_type_parts = [
+            part.strip() for part in content_type.split(";")[0].split(",")
+        ]
+
+        return any(part == CONTENT_TYPE_JSON for part in content_type_parts)
 
     async def _handle_post_request(
         self, scope: Scope, request: Request, receive: Receive, send: Send
@@ -89,13 +165,11 @@ class StreamableHTTPServerTransport:
         Handles POST requests containing JSON-RPC messages
 
         Args:
-            stream_id: Unique identifier for this stream
             scope: ASGI scope
             request: Starlette Request object
             receive: ASGI receive function
             send: ASGI send function
         """
-        body = await request.body()
         writer = self._read_stream_writer
         if writer is None:
             raise ValueError(
@@ -103,41 +177,34 @@ class StreamableHTTPServerTransport:
             )
             return
         try:
-            # Validate Accept header
-            accept_header = request.headers.get("accept", "")
-            if (
-                "application/json" not in accept_header
-                or "text/event-stream" not in accept_header
-            ):
-                response = Response(
+            # Check Accept headers
+            has_json, has_sse = self._check_accept_headers(request)
+            if not (has_json and has_sse):
+                response = self._create_error_response(
                     (
                         "Not Acceptable: Client must accept both application/json and "
                         "text/event-stream"
                     ),
-                    status_code=406,
-                    headers={"Content-Type": "application/json"},
+                    HTTPStatus.NOT_ACCEPTABLE,
                 )
                 await response(scope, receive, send)
                 return
 
             # Validate Content-Type
-            content_type = request.headers.get("content-type", "")
-            if "application/json" not in content_type:
-                response = Response(
+            if not self._check_content_type(request):
+                response = self._create_error_response(
                     "Unsupported Media Type: Content-Type must be application/json",
-                    status_code=415,
-                    headers={"Content-Type": "application/json"},
+                    HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
                 )
                 await response(scope, receive, send)
                 return
 
-            # Parse the body
+            # Parse the body - only read it once
             body = await request.body()
             if len(body) > MAXIMUM_MESSAGE_SIZE:
-                response = Response(
+                response = self._create_error_response(
                     "Payload Too Large: Message exceeds maximum size",
-                    status_code=413,
-                    headers={"Content-Type": "application/json"},
+                    HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
                 )
                 await response(scope, receive, send)
                 return
@@ -145,29 +212,28 @@ class StreamableHTTPServerTransport:
             try:
                 raw_message = json.loads(body)
             except json.JSONDecodeError as e:
-                response = Response(
+                response = self._create_error_response(
                     f"Parse error: {str(e)}",
-                    status_code=400,
-                    headers={"Content-Type": "application/json"},
+                    HTTPStatus.BAD_REQUEST,
                 )
                 await response(scope, receive, send)
                 return
+
             message = None
             try:
                 message = JSONRPCMessage.model_validate(raw_message)
             except ValidationError as e:
-                response = Response(
+                response = self._create_error_response(
                     f"Validation error: {str(e)}",
-                    status_code=400,
-                    headers={"Content-Type": "application/json"},
+                    HTTPStatus.BAD_REQUEST,
                 )
                 await response(scope, receive, send)
                 return
+
             if not message:
-                response = Response(
+                response = self._create_error_response(
                     "Invalid Request: Message is empty",
-                    status_code=400,
-                    headers={"Content-Type": "application/json"},
+                    HTTPStatus.BAD_REQUEST,
                 )
                 await response(scope, receive, send)
                 return
@@ -179,8 +245,19 @@ class StreamableHTTPServerTransport:
             )
 
             if is_initialization_request:
-                # TODO validate
-                logger.info("INITIALIZATION REQUEST")
+                # Check if the server already has an established session
+                if self.mcp_session_id:
+                    # Check if request has a session ID
+                    request_session_id = self._get_session_id(request)
+
+                    # If request has a session ID but doesn't match, return 404
+                    if request_session_id and request_session_id != self.mcp_session_id:
+                        response = self._create_error_response(
+                            "Not Found: Invalid or expired session ID",
+                            HTTPStatus.NOT_FOUND,
+                        )
+                        await response(scope, receive, send)
+                        return
             # For non-initialization requests, validate the session
             elif not await self._validate_session(request, send):
                 return
@@ -189,12 +266,11 @@ class StreamableHTTPServerTransport:
 
             # For notifications and responses only, return 202 Accepted
             if not is_request:
-                headers: dict[str, str] = {}
-                if self.mcp_session_id:
-                    headers["mcp-session-id"] = self.mcp_session_id
-
                 # Create response object and send it
-                response = Response("Accepted", status_code=202, headers=headers)
+                response = self._create_error_response(
+                    "Accepted",
+                    HTTPStatus.ACCEPTED,
+                )
                 await response(scope, receive, send)
 
                 # Process the message after sending the response
@@ -208,13 +284,11 @@ class StreamableHTTPServerTransport:
                 headers = {
                     "Cache-Control": "no-cache, no-transform",
                     "Connection": "keep-alive",
+                    "Content-Type": CONTENT_TYPE_SSE,
                 }
 
                 if self.mcp_session_id:
-                    headers["mcp-session-id"] = self.mcp_session_id
-
-                # For SSE responses, set up SSE stream
-                headers["Content-Type"] = "text/event-stream"
+                    headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
                 # Create SSE stream
                 sse_stream_writer, sse_stream_reader = (
                     anyio.create_memory_object_stream[dict[str, Any]](0)
@@ -306,23 +380,125 @@ class StreamableHTTPServerTransport:
 
         except Exception as err:
             logger.exception("Error handling POST request")
-            response = Response(f"Error handling POST request: {err}", status_code=500)
+            response = self._create_error_response(
+                f"Error handling POST request: {err}",
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
             await response(scope, receive, send)
             if writer:
                 await writer.send(err)
             return
 
     async def _handle_get_request(self, request: Request, send: Send) -> None:
-        pass
+        """
+        Handle GET requests for SSE stream establishment
+
+        Args:
+            request: The HTTP request
+            send: ASGI send function
+        """
+        # Validate session ID if server has one
+        if not await self._validate_session(request, send):
+            return
+
+        # Validate Accept header - must include text/event-stream
+        _, has_sse = self._check_accept_headers(request)
+
+        if not has_sse:
+            response = self._create_error_response(
+                "Not Acceptable: Client must accept text/event-stream",
+                HTTPStatus.NOT_ACCEPTABLE,
+            )
+            await response(request.scope, request.receive, send)
+            return
+
+        # TODO: Implement SSE stream for GET requests
+        # For now, return 501 Not Implemented
+        response = self._create_error_response(
+            "SSE stream from GET request not implemented yet",
+            HTTPStatus.NOT_IMPLEMENTED,
+        )
+        await response(request.scope, request.receive, send)
 
     async def _handle_delete_request(self, request: Request, send: Send) -> None:
-        pass
+        """
+        Handle DELETE requests for explicit session termination
 
-    async def _handle_unsupported_request(self, send: Send) -> None:
-        pass
+        Args:
+            request: The HTTP request
+            send: ASGI send function
+        """
+        # Validate session ID
+        if not self.mcp_session_id:
+            # If no session ID set, return Method Not Allowed
+            response = self._create_error_response(
+                "Method Not Allowed: Session termination not supported",
+                HTTPStatus.METHOD_NOT_ALLOWED,
+            )
+            await response(request.scope, request.receive, send)
+            return
+        if not await self._validate_session(request, send):
+            return
+        # TODO : Implement session termination logic
+
+    async def _handle_unsupported_request(self, request: Request, send: Send) -> None:
+        """
+        Handle unsupported HTTP methods
+
+        Args:
+            request: The HTTP request
+            send: ASGI send function
+        """
+        headers = {
+            "Content-Type": CONTENT_TYPE_JSON,
+            "Allow": "GET, POST, DELETE",
+        }
+        if self.mcp_session_id:
+            headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
+
+        response = Response(
+            "Method Not Allowed",
+            status_code=HTTPStatus.METHOD_NOT_ALLOWED,
+            headers=headers,
+        )
+        await response(request.scope, request.receive, send)
 
     async def _validate_session(self, request: Request, send: Send) -> bool:
-        # TODO
+        """
+        Validate the session ID in the request.
+
+        Args:
+            request: The HTTP request
+            send: ASGI send function
+
+        Returns:
+            bool: True if session is valid, False otherwise
+        """
+        if not self.mcp_session_id:
+            # If we're not using session IDs, return True
+            return True
+
+        # Get the session ID from the request headers
+        request_session_id = self._get_session_id(request)
+
+        # If no session ID provided but required, return error
+        if not request_session_id:
+            response = self._create_error_response(
+                "Bad Request: Missing session ID",
+                HTTPStatus.BAD_REQUEST,
+            )
+            await response(request.scope, request.receive, send)
+            return False
+
+        # If session ID doesn't match, return error
+        if request_session_id != self.mcp_session_id:
+            response = self._create_error_response(
+                "Not Found: Invalid or expired session ID",
+                HTTPStatus.NOT_FOUND,
+            )
+            await response(request.scope, request.receive, send)
+            return False
+
         return True
 
     @asynccontextmanager
