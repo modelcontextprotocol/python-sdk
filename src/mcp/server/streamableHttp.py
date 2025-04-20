@@ -77,8 +77,8 @@ class StreamableHTTPServerTransport:
             ValueError: If the session ID contains invalid characters.
         """
         if mcp_session_id is not None and (
-            not SESSION_ID_PATTERN.match(mcp_session_id) or 
-            SESSION_ID_PATTERN.fullmatch(mcp_session_id) is None
+            not SESSION_ID_PATTERN.match(mcp_session_id)
+            or SESSION_ID_PATTERN.fullmatch(mcp_session_id) is None
         ):
             raise ValueError(
                 "Session ID must only contain visible ASCII characters (0x21-0x7E)"
@@ -86,6 +86,7 @@ class StreamableHTTPServerTransport:
 
         self.mcp_session_id = mcp_session_id
         self._request_streams = {}
+        self._terminated = False
 
     def _create_error_response(
         self,
@@ -126,6 +127,14 @@ class StreamableHTTPServerTransport:
             send: ASGI send function
         """
         request = Request(scope, receive)
+        if self._terminated:
+            # If the session has been terminated, return 404 Not Found
+            response = self._create_error_response(
+                "Not Found: Session has been terminated",
+                HTTPStatus.NOT_FOUND,
+            )
+            await response(scope, receive, send)
+            return
 
         if request.method == "POST":
             await self._handle_post_request(scope, request, receive, send)
@@ -192,7 +201,6 @@ class StreamableHTTPServerTransport:
             raise ValueError(
                 "No read stream writer available. Ensure connect() is called first."
             )
-            return
         try:
             # Check Accept headers
             has_json, has_sse = self._check_accept_headers(request)
@@ -417,7 +425,6 @@ class StreamableHTTPServerTransport:
         # Validate session ID if server has one
         if not await self._validate_session(request, send):
             return
-
         # Validate Accept header - must include text/event-stream
         _, has_sse = self._check_accept_headers(request)
 
@@ -454,9 +461,46 @@ class StreamableHTTPServerTransport:
             )
             await response(request.scope, request.receive, send)
             return
+
         if not await self._validate_session(request, send):
             return
-            # TODO : Implement session termination logic
+
+        # Terminate the session
+        self._terminate_session()
+
+        # Return success response
+        response = self._create_error_response(
+            "Session terminated",
+            HTTPStatus.OK,
+        )
+        await response(request.scope, request.receive, send)
+
+    def _terminate_session(self) -> None:
+        """
+        Terminate the current session, closing all streams and marking as terminated.
+
+        Once terminated, all requests with this session ID will receive 404 Not Found.
+        """
+
+        self._terminated = True
+        logger.info(f"Terminating session: {self.mcp_session_id}")
+
+        # We need a copy of the keys to avoid modification during iteration
+        request_stream_keys = list(self._request_streams.keys())
+
+        # Close all request streams (synchronously)
+        for key in request_stream_keys:
+            try:
+                # Get the stream
+                stream = self._request_streams.get(key)
+                if stream:
+                    # We must use close() here, not aclose() since this is a sync method
+                    stream.close()
+            except Exception as e:
+                logger.debug(f"Error closing stream {key} during termination: {e}")
+
+        # Clear the request streams dictionary immediately
+        self._request_streams.clear()
 
     async def _handle_unsupported_request(self, request: Request, send: Send) -> None:
         """
@@ -599,10 +643,16 @@ class StreamableHTTPServerTransport:
                 # Yield the streams for the caller to use
                 yield read_stream, write_stream
             finally:
-                # Clean up any remaining request streams
                 for stream in list(self._request_streams.values()):
                     try:
                         await stream.aclose()
                     except Exception:
                         pass
                 self._request_streams.clear()
+                # Clean up read/write streams
+                if self._read_stream_writer:
+                    try:
+                        await self._read_stream_writer.aclose()
+                    except Exception:
+                        pass
+                    self._read_stream_writer = None

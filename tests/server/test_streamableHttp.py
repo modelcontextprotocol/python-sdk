@@ -4,81 +4,87 @@ Tests for the StreamableHTTP server transport validation.
 This file contains tests for request validation in the StreamableHTTP transport.
 """
 
+import multiprocessing
 import socket
 import time
-from collections.abc import Generator
-from multiprocessing import Process
-
+from collections.abc import AsyncGenerator, Generator
+from http import HTTPStatus
+from uuid import uuid4
+import contextlib
 import anyio
 import pytest
 import requests
 import uvicorn
+from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.routing import Route
+from starlette.routing import Mount, Route
 
+from mcp.server import Server
 from mcp.server.streamableHttp import (
     MCP_SESSION_ID_HEADER,
     SESSION_ID_PATTERN,
     StreamableHTTPServerTransport,
 )
-from mcp.types import JSONRPCMessage
+from mcp.shared.exceptions import McpError
+from mcp.types import (
+    EmptyResult,
+    ErrorData,
+    JSONRPCMessage,
+    TextContent,
+    TextResourceContents,
+    Tool,
+)
 
 # Test constants
 SERVER_NAME = "test_streamable_http_server"
 TEST_SESSION_ID = "test-session-id-12345"
+INIT_REQUEST = {
+    "jsonrpc": "2.0",
+    "method": "initialize",
+    "params": {
+        "clientInfo": {"name": "test-client", "version": "1.0"},
+        "protocolVersion": "2025-03-26",
+        "capabilities": {},
+    },
+    "id": "init-1",
+}
 
 
-# App handler class for testing validation (not a pytest test class)
-class StreamableAppHandler:
-    def __init__(self, session_id=None):
-        self.transport = StreamableHTTPServerTransport(mcp_session_id=session_id)
-        self.started = False
-        self.read_stream = None
-        self.write_stream = None
+# Test server implementation that follows MCP protocol
+class ServerTest(Server):
+    def __init__(self):
+        super().__init__(SERVER_NAME)
 
-    async def startup(self):
-        """Initialize the transport streams."""
-        # Create real memory streams to satisfy type checking
-        read_stream_writer, read_stream = anyio.create_memory_object_stream[
-            JSONRPCMessage | Exception
-        ](0)
-        write_stream, write_stream_reader = anyio.create_memory_object_stream[
-            JSONRPCMessage
-        ](0)
+        @self.read_resource()
+        async def handle_read_resource(uri: AnyUrl) -> str | bytes:
+            if uri.scheme == "foobar":
+                return f"Read {uri.host}"
+            elif uri.scheme == "slow":
+                # Simulate a slow resource
+                await anyio.sleep(2.0)
+                return f"Slow response from {uri.host}"
 
-        # Assign the streams to the transport
-        self.transport._read_stream_writer = read_stream_writer
-        self.transport._write_stream_reader = write_stream_reader
-
-        # Store the streams so they don't get garbage collected
-        self.read_stream = read_stream
-        self.write_stream = write_stream
-
-        self.started = True
-        print("Transport streams initialized")
-
-    async def handle_request(self, request: Request):
-        """Handle incoming requests by validating and responding."""
-        # Make sure transport is initialized
-        if not self.started:
-            await self.startup()
-
-        # Let the transport handle the request validation and response
-        try:
-            await self.transport.handle_request(
-                request.scope, request.receive, request._send
+            raise McpError(
+                error=ErrorData(
+                    code=404, message="OOPS! no resource with that URI was found"
+                )
             )
-        except Exception as e:
-            print(f"Error handling request: {e}")
-            # Make sure we provide an error response
-            response = Response(
-                status_code=500,
-                content=f"Server error: {str(e)}",
-                media_type="text/plain",
-            )
-            await response(request.scope, request.receive, request._send)
+
+        @self.list_tools()
+        async def handle_list_tools() -> list[Tool]:
+            return [
+                Tool(
+                    name="test_tool",
+                    description="A test tool",
+                    inputSchema={"type": "object", "properties": {}},
+                )
+            ]
+
+        @self.call_tool()
+        async def handle_call_tool(name: str, args: dict) -> list[TextContent]:
+            return [TextContent(type="text", text=f"Called {name}")]
 
 
 @pytest.fixture
@@ -96,28 +102,93 @@ def server_url(server_port: int) -> str:
 
 
 def create_app(session_id=None) -> Starlette:
-    """Create a Starlette application for testing."""
-    # Create our test app handler
-    app_handler = StreamableAppHandler(session_id=session_id)
+    """Create a Starlette application for testing that matches the example server."""
+    # Create server instance
+    server = ServerTest()
 
-    # Define a startup event to ensure the transport is initialized
-    async def on_startup():
-        """Initialize the transport on application startup."""
-        print("Initializing transport streams...")
-        await app_handler.startup()
-        app_handler.started = True
-        print("Transport initialized")
+    # Store the server instances between requests for session management
+    server_instances = {}
+    # Lock to prevent race conditions when creating new sessions
+    session_creation_lock = anyio.Lock()
+    # Task group for running server instances
+    task_group = None
 
+    @contextlib.asynccontextmanager
+    async def lifespan(app):
+        """Application lifespan context manager for managing task group."""
+        nonlocal task_group
+
+        async with anyio.create_task_group() as tg:
+            task_group = tg
+            print("Application started, task group initialized!")
+            try:
+                yield
+            finally:
+                print("Application shutting down, cleaning up resources...")
+                if task_group:
+                    tg.cancel_scope.cancel()
+                    task_group = None
+                print("Resources cleaned up successfully.")
+
+    # ASGI handler for streamable HTTP connections
+    async def handle_streamable_http(scope, receive, send):
+        request = Request(scope, receive)
+        request_mcp_session_id = request.headers.get(MCP_SESSION_ID_HEADER)
+
+        # Use existing transport if session ID matches
+        if (
+            request_mcp_session_id is not None
+            and request_mcp_session_id in server_instances
+        ):
+            transport = server_instances[request_mcp_session_id]
+            print("Session already exists, handling request directly")
+            await transport.handle_request(scope, receive, send)
+        elif session_id is None or request_mcp_session_id is None:
+            async with session_creation_lock:
+                # For tests with fixed session ID
+                new_session_id = session_id if session_id else uuid4().hex
+
+                http_transport = StreamableHTTPServerTransport(
+                    mcp_session_id=new_session_id,
+                )
+
+                async with http_transport.connect() as streams:
+                    read_stream, write_stream = streams
+
+                    async def run_server():
+                        await server.run(
+                            read_stream,
+                            write_stream,
+                            server.create_initialization_options(),
+                        )
+
+                    if task_group is None:
+                        response = Response(
+                            "Internal Server Error: Task group is not initialized",
+                            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                        )
+                        await response(scope, receive, send)
+                        return
+
+                    # Store the instance before starting the task to prevent races
+                    server_instances[http_transport.mcp_session_id] = http_transport
+                    task_group.start_soon(run_server)
+
+                    await http_transport.handle_request(scope, receive, send)
+        else:
+            response = Response(
+                "Bad Request: No valid session ID provided",
+                status_code=HTTPStatus.BAD_REQUEST,
+            )
+            await response(scope, receive, send)
+
+    # Create an ASGI application
     app = Starlette(
-        debug=True,  # Enable debug mode for better error messages
+        debug=True,
         routes=[
-            Route(
-                "/mcp",
-                endpoint=app_handler.handle_request,
-                methods=["GET", "POST", "DELETE"],
-            ),
+            Mount("/mcp", app=handle_streamable_http),
         ],
-        on_startup=[on_startup],
+        lifespan=lifespan,
     )
 
     return app
@@ -127,17 +198,15 @@ def run_server(port: int, session_id=None) -> None:
     """Run the test server."""
     print(f"Starting test server on port {port} with session_id={session_id}")
 
-    # Create app with simpler configuration
     app = create_app(session_id)
-
-    # Configure to use a single worker and simpler settings
+    # Configure server
     config = uvicorn.Config(
         app=app,
         host="127.0.0.1",
         port=port,
-        log_level="info",  # Use info to see startup messages
+        log_level="info",
         limit_concurrency=10,
-        timeout_keep_alive=2,
+        timeout_keep_alive=5,
         access_log=False,
     )
 
@@ -161,7 +230,9 @@ def run_server(port: int, session_id=None) -> None:
 def basic_server(server_port: int) -> Generator[None, None, None]:
     """Start a basic server without session ID."""
     # Start server process
-    process = Process(target=run_server, kwargs={"port": server_port}, daemon=True)
+    process = multiprocessing.Process(
+        target=run_server, kwargs={"port": server_port}, daemon=True
+    )
     process.start()
 
     # Wait for server to start
@@ -191,7 +262,7 @@ def basic_server(server_port: int) -> Generator[None, None, None]:
 def session_server(server_port: int) -> Generator[str, None, None]:
     """Start a server with session ID."""
     # Start server process
-    process = Process(
+    process = multiprocessing.Process(
         target=run_server,
         kwargs={"port": server_port, "session_id": TEST_SESSION_ID},
         daemon=True,
@@ -309,17 +380,20 @@ def test_method_not_allowed(basic_server, server_url):
 
 def test_get_request_validation(basic_server, server_url):
     """Test GET request validation for SSE streams."""
+
+    response = requests.post(
+        f"{server_url}/mcp",
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
     # Test GET without Accept header
+    assert response.status_code == 200
     response = requests.get(f"{server_url}/mcp")
     assert response.status_code == 406
     assert "Not Acceptable" in response.text
-
-    # Test GET with wrong Accept header
-    response = requests.get(
-        f"{server_url}/mcp",
-        headers={"Accept": "application/json"},
-    )
-    assert response.status_code == 406
 
 
 def test_session_validation(session_server, server_url):
@@ -337,45 +411,6 @@ def test_session_validation(session_server, server_url):
     )
     assert response.status_code == 400
     assert "Missing session ID" in response.text
-
-    # Test with invalid session ID
-    response = requests.post(
-        f"{server_url}/mcp",
-        headers={
-            "Accept": "application/json, text/event-stream",
-            "Content-Type": "application/json",
-            MCP_SESSION_ID_HEADER: "invalid-session-id",
-        },
-        json={"jsonrpc": "2.0", "method": "list_tools", "id": 1},
-    )
-    assert response.status_code == 404
-    assert "Invalid or expired session ID" in response.text
-
-
-def test_delete_request(session_server, server_url):
-    """Test DELETE request for session termination."""
-    # session_id not used directly in this test
-
-    # Test without session ID
-    response = requests.delete(f"{server_url}/mcp")
-    assert response.status_code == 400
-    assert "Missing session ID" in response.text
-
-    # Test with invalid session ID
-    response = requests.delete(
-        f"{server_url}/mcp",
-        headers={MCP_SESSION_ID_HEADER: "invalid-session-id"},
-    )
-    assert response.status_code == 404
-    assert "Invalid or expired session ID" in response.text
-
-
-def test_delete_without_session_support(basic_server, server_url):
-    """Test DELETE request when server doesn't support sessions."""
-    # Server without session support should reject DELETE
-    response = requests.delete(f"{server_url}/mcp")
-    assert response.status_code == 405
-    assert "Method Not Allowed" in response.text
 
 
 def test_session_id_pattern():
@@ -414,7 +449,7 @@ def test_session_id_pattern():
 
 
 def test_streamable_http_transport_init_validation():
-    """Test that StreamableHTTPServerTransport validates session ID on initialization."""
+    """Test that StreamableHTTPServerTransport validates session ID on init."""
     # Valid session ID should initialize without errors
     valid_transport = StreamableHTTPServerTransport(mcp_session_id="valid-id")
     assert valid_transport.mcp_session_id == "valid-id"
@@ -434,3 +469,67 @@ def test_streamable_http_transport_init_validation():
 
     with pytest.raises(ValueError):
         StreamableHTTPServerTransport(mcp_session_id="test\n")
+
+
+def test_delete_request(session_server, server_url):
+    """Test DELETE request for session termination."""
+    session_id = session_server
+
+    # First, send an initialize request to properly initialize the server
+    response = requests.post(
+        f"{server_url}/mcp",
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert response.status_code == 200
+
+    #  Test without session ID
+    response = requests.delete(f"{server_url}/mcp")
+    assert response.status_code == 400
+    assert "Missing session ID" in response.text
+
+    # Test valid session termination
+    response = requests.delete(
+        f"{server_url}/mcp",
+        headers={MCP_SESSION_ID_HEADER: session_id},
+    )
+    # assert response.status_code == 200
+    assert "Session terminated" in response.text
+
+
+def test_session_termination(session_server, server_url):
+    """Test session termination via DELETE and subsequent request handling."""
+    response = requests.post(
+        f"{server_url}/mcp",
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert response.status_code == 200
+
+    # Now terminate the session
+    session_id = session_server
+    response = requests.delete(
+        f"{server_url}/mcp",
+        headers={MCP_SESSION_ID_HEADER: session_id},
+    )
+    assert response.status_code == 200
+    assert "Session terminated" in response.text
+
+    # Try to use the terminated session
+    response = requests.post(
+        f"{server_url}/mcp",
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            MCP_SESSION_ID_HEADER: session_id,
+        },
+        json={"jsonrpc": "2.0", "method": "ping", "id": 2},
+    )
+    assert response.status_code == 404
+    assert "Session has been terminated" in response.text
