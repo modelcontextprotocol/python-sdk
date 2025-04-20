@@ -13,7 +13,6 @@ import anyio
 import pytest
 import requests
 import uvicorn
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
@@ -21,6 +20,7 @@ from starlette.routing import Route
 
 from mcp.server.streamableHttp import (
     MCP_SESSION_ID_HEADER,
+    SESSION_ID_PATTERN,
     StreamableHTTPServerTransport,
 )
 from mcp.types import JSONRPCMessage
@@ -376,3 +376,61 @@ def test_delete_without_session_support(basic_server, server_url):
     response = requests.delete(f"{server_url}/mcp")
     assert response.status_code == 405
     assert "Method Not Allowed" in response.text
+
+
+def test_session_id_pattern():
+    """Test that SESSION_ID_PATTERN correctly validates session IDs."""
+    # Valid session IDs (visible ASCII characters from 0x21 to 0x7E)
+    valid_session_ids = [
+        "test-session-id",
+        "1234567890",
+        "session!@#$%^&*()_+-=[]{}|;:,.<>?/",
+        "~`",
+    ]
+
+    for session_id in valid_session_ids:
+        assert SESSION_ID_PATTERN.match(session_id) is not None
+        # Ensure fullmatch matches too (whole string)
+        assert SESSION_ID_PATTERN.fullmatch(session_id) is not None
+
+    # Invalid session IDs
+    invalid_session_ids = [
+        "",  # Empty string
+        " test",  # Space (0x20)
+        "test\t",  # Tab
+        "test\n",  # Newline
+        "test\r",  # Carriage return
+        "test" + chr(0x7F),  # DEL character
+        "test" + chr(0x80),  # Extended ASCII
+        "test" + chr(0x00),  # Null character
+        "test" + chr(0x20),  # Space (0x20)
+    ]
+
+    for session_id in invalid_session_ids:
+        # For invalid IDs, either match will fail or fullmatch will fail
+        if SESSION_ID_PATTERN.match(session_id) is not None:
+            # If match succeeds, fullmatch should fail (partial match case)
+            assert SESSION_ID_PATTERN.fullmatch(session_id) is None
+
+
+def test_streamable_http_transport_init_validation():
+    """Test that StreamableHTTPServerTransport validates session ID on initialization."""
+    # Valid session ID should initialize without errors
+    valid_transport = StreamableHTTPServerTransport(mcp_session_id="valid-id")
+    assert valid_transport.mcp_session_id == "valid-id"
+
+    # None should be accepted
+    none_transport = StreamableHTTPServerTransport(mcp_session_id=None)
+    assert none_transport.mcp_session_id is None
+
+    # Invalid session ID should raise ValueError
+    with pytest.raises(ValueError) as excinfo:
+        StreamableHTTPServerTransport(mcp_session_id="invalid id with space")
+    assert "Session ID must only contain visible ASCII characters" in str(excinfo.value)
+
+    # Test with control characters
+    with pytest.raises(ValueError):
+        StreamableHTTPServerTransport(mcp_session_id="test\nid")
+
+    with pytest.raises(ValueError):
+        StreamableHTTPServerTransport(mcp_session_id="test\n")

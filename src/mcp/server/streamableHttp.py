@@ -9,6 +9,7 @@ responses, with streaming support for long-running operations.
 
 import json
 import logging
+import re
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from http import HTTPStatus
@@ -42,6 +43,10 @@ LAST_EVENT_ID_HEADER = "last-event-id"
 CONTENT_TYPE_JSON = "application/json"
 CONTENT_TYPE_SSE = "text/event-stream"
 
+# Session ID validation pattern (visible ASCII characters ranging from 0x21 to 0x7E)
+# Pattern ensures entire string contains only valid characters by using ^ and $ anchors
+SESSION_ID_PATTERN = re.compile(r"^[\x21-\x7E]+$")
+
 
 class StreamableHTTPServerTransport:
     """
@@ -65,8 +70,20 @@ class StreamableHTTPServerTransport:
         Initialize a new StreamableHTTP server transport.
 
         Args:
-            mcp_session_id: Optional session identifier for this connection
+            mcp_session_id: Optional session identifier for this connection.
+                            Must contain only visible ASCII characters (0x21-0x7E).
+
+        Raises:
+            ValueError: If the session ID contains invalid characters.
         """
+        if mcp_session_id is not None and (
+            not SESSION_ID_PATTERN.match(mcp_session_id) or 
+            SESSION_ID_PATTERN.fullmatch(mcp_session_id) is None
+        ):
+            raise ValueError(
+                "Session ID must only contain visible ASCII characters (0x21-0x7E)"
+            )
+
         self.mcp_session_id = mcp_session_id
         self._request_streams = {}
 
@@ -439,7 +456,7 @@ class StreamableHTTPServerTransport:
             return
         if not await self._validate_session(request, send):
             return
-        # TODO : Implement session termination logic
+            # TODO : Implement session termination logic
 
     async def _handle_unsupported_request(self, request: Request, send: Send) -> None:
         """

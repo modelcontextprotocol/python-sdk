@@ -1,13 +1,19 @@
 import contextlib
 import logging
+from http import HTTPStatus
 from uuid import uuid4
 
 import anyio
 import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
-from mcp.server.streamableHttp import StreamableHTTPServerTransport
+from mcp.server.streamableHttp import (
+    MCP_SESSION_ID_HEADER,
+    StreamableHTTPServerTransport,
+)
 from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import Response
 from starlette.routing import Mount
 
 # Configure logging
@@ -116,40 +122,56 @@ def main(
             )
         ]
 
-    # Create a Streamable HTTP transport
-    http_transport = StreamableHTTPServerTransport(
-        mcp_session_id=uuid4().hex,
-    )
-
     # We need to store the server instances between requests
     server_instances = {}
+    # Lock to prevent race conditions when creating new sessions
+    session_creation_lock = anyio.Lock()
 
     # ASGI handler for streamable HTTP connections
     async def handle_streamable_http(scope, receive, send):
-        if http_transport.mcp_session_id in server_instances:
+        request = Request(scope, receive)
+        request_mcp_session_id = request.headers.get(MCP_SESSION_ID_HEADER)
+        if (
+            request_mcp_session_id is not None
+            and request_mcp_session_id in server_instances
+        ):
+            transport = server_instances[request_mcp_session_id]
             logger.debug("Session already exists, handling request directly")
-            await http_transport.handle_request(scope, receive, send)
+            await transport.handle_request(scope, receive, send)
+        elif request_mcp_session_id is None:
+            # try to establish new session
+            logger.debug("Creating new transport")
+            # Use lock to prevent race conditions when creating new sessions
+            async with session_creation_lock:
+                new_session_id = uuid4().hex
+                http_transport = StreamableHTTPServerTransport(
+                    mcp_session_id=new_session_id,
+                )
+                async with http_transport.connect() as streams:
+                    read_stream, write_stream = streams
+
+                    async def run_server():
+                        await app.run(
+                            read_stream,
+                            write_stream,
+                            app.create_initialization_options(),
+                        )
+
+                    if not task_group:
+                        raise RuntimeError("Task group is not initialized")
+
+                    # Store the instance before starting the task to prevent races
+                    server_instances[http_transport.mcp_session_id] = http_transport
+                    task_group.start_soon(run_server)
+
+                    # Handle the HTTP request and return the response
+                    await http_transport.handle_request(scope, receive, send)
         else:
-            # Start new server instance for this session
-            async with http_transport.connect() as streams:
-                read_stream, write_stream = streams
-
-                async def run_server():
-                    await app.run(
-                        read_stream, write_stream, app.create_initialization_options()
-                    )
-
-                if not task_group:
-                    raise RuntimeError("Task group is not initialized")
-
-                task_group.start_soon(run_server)
-
-                # For initialization requests, store the server reference
-                if http_transport.mcp_session_id:
-                    server_instances[http_transport.mcp_session_id] = True
-
-                # Handle the HTTP request and return the response
-                await http_transport.handle_request(scope, receive, send)
+            response = Response(
+                "Bad Request: No valid session ID provided",
+                status_code=HTTPStatus.BAD_REQUEST,
+            )
+            await response(scope, receive, send)
 
     # Create an ASGI application using the transport
     starlette_app = Starlette(
