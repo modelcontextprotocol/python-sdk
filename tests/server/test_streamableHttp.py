@@ -99,8 +99,13 @@ def server_url(server_port: int) -> str:
     return f"http://127.0.0.1:{server_port}"
 
 
-def create_app(session_id=None) -> Starlette:
-    """Create a Starlette application for testing that matches the example server."""
+def create_app(session_id=None, is_json_response_enabled=False) -> Starlette:
+    """Create a Starlette application for testing that matches the example server.
+
+    Args:
+        session_id: Optional session ID to use for the server.
+        is_json_response_enabled: If True, use JSON responses instead of SSE streams.
+    """
     # Create server instance
     server = ServerTest()
 
@@ -144,6 +149,7 @@ def create_app(session_id=None) -> Starlette:
 
                 http_transport = StreamableHTTPServerTransport(
                     mcp_session_id=new_session_id,
+                    is_json_response_enabled=is_json_response_enabled,
                 )
 
                 async with http_transport.connect() as streams:
@@ -191,11 +197,20 @@ def create_app(session_id=None) -> Starlette:
     return app
 
 
-def run_server(port: int, session_id=None) -> None:
-    """Run the test server."""
-    print(f"Starting test server on port {port} with session_id={session_id}")
+def run_server(port: int, session_id=None, is_json_response_enabled=False) -> None:
+    """Run the test server.
 
-    app = create_app(session_id)
+    Args:
+        port: Port to listen on.
+        session_id: Optional session ID to use for the server.
+        is_json_response_enabled: If True, use JSON responses instead of SSE streams.
+    """
+    print(
+        f"Starting test server on port {port} with "
+        f"session_id={session_id}, json_enabled={is_json_response_enabled}"
+    )
+
+    app = create_app(session_id, is_json_response_enabled)
     # Configure server
     config = uvicorn.Config(
         app=app,
@@ -256,12 +271,12 @@ def basic_server(server_port: int) -> Generator[None, None, None]:
 
 
 @pytest.fixture
-def session_server(server_port: int) -> Generator[str, None, None]:
-    """Start a server with session ID."""
-    # Start server process
+def json_response_server(server_port: int) -> Generator[None, None, None]:
+    """Start a server with JSON response enabled."""
+    # Start server process with is_json_response_enabled=True
     process = multiprocessing.Process(
         target=run_server,
-        kwargs={"port": server_port, "session_id": TEST_SESSION_ID},
+        kwargs={"port": server_port, "is_json_response_enabled": True},
         daemon=True,
     )
     process.start()
@@ -280,7 +295,7 @@ def session_server(server_port: int) -> Generator[str, None, None]:
     else:
         raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
 
-    yield TEST_SESSION_ID
+    yield
 
     # Clean up
     process.terminate()
@@ -362,7 +377,7 @@ def test_method_not_allowed(basic_server, server_url):
     assert "Method Not Allowed" in response.text
 
 
-def test_session_validation(session_server, server_url):
+def test_session_validation(basic_server, server_url):
     """Test session ID validation."""
     # session_id not used directly in this test
 
@@ -497,7 +512,22 @@ def test_response(basic_server, server_url):
             MCP_SESSION_ID_HEADER: session_id,  # Use the session ID we got earlier
         },
         json={"jsonrpc": "2.0", "method": "tools/list", "id": "tools-1"},
-        stream=True,  # Important for SSE
+        stream=True,
     )
     assert tools_response.status_code == 200
     assert tools_response.headers.get("Content-Type") == "text/event-stream"
+
+
+def test_json_response(json_response_server, server_url):
+    """Test response handling when is_json_response_enabled is True."""
+    mcp_url = f"{server_url}/mcp"
+    response = requests.post(
+        mcp_url,
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert response.status_code == 200
+    assert response.headers.get("Content-Type") == "application/json"

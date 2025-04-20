@@ -54,6 +54,7 @@ class StreamableHTTPServerTransport:
 
     Handles POST requests containing JSON-RPC messages and provides
     Server-Sent Events (SSE) responses for streaming communication.
+    When configured, can also return JSON responses instead of SSE streams.
     """
 
     # Server notification streams for POST requests as well as standalone SSE stream
@@ -65,6 +66,7 @@ class StreamableHTTPServerTransport:
     def __init__(
         self,
         mcp_session_id: str | None,
+        is_json_response_enabled: bool = False,
     ):
         """
         Initialize a new StreamableHTTP server transport.
@@ -72,6 +74,8 @@ class StreamableHTTPServerTransport:
         Args:
             mcp_session_id: Optional session identifier for this connection.
                             Must contain only visible ASCII characters (0x21-0x7E).
+            is_json_response_enabled: If True, return JSON responses for requests
+                                    instead of SSE streams. Default is False.
 
         Raises:
             ValueError: If the session ID contains invalid characters.
@@ -85,6 +89,7 @@ class StreamableHTTPServerTransport:
             )
 
         self.mcp_session_id = mcp_session_id
+        self.is_json_response_enabled = is_json_response_enabled
         self._request_streams = {}
         self._terminated = False
 
@@ -106,6 +111,36 @@ class StreamableHTTPServerTransport:
 
         return Response(
             message,
+            status_code=status_code,
+            headers=response_headers,
+        )
+
+    def _create_json_response(
+        self,
+        response_message: JSONRPCMessage,
+        status_code: HTTPStatus = HTTPStatus.OK,
+        headers: dict[str, str] | None = None,
+    ) -> Response:
+        """
+        Create a JSON response from a JSONRPCMessage.
+
+        Args:
+            response_message: The JSON-RPC message to include in the response
+            status_code: HTTP status code (default: 200 OK)
+            headers: Additional headers to include
+
+        Returns:
+            A Starlette Response object with the JSON-RPC message
+        """
+        response_headers = {"Content-Type": CONTENT_TYPE_JSON}
+        if headers:
+            response_headers.update(headers)
+
+        if self.mcp_session_id:
+            response_headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
+
+        return Response(
+            response_message.model_dump_json(by_alias=True, exclude_none=True),
             status_code=status_code,
             headers=response_headers,
         )
@@ -303,105 +338,183 @@ class StreamableHTTPServerTransport:
 
                 return
 
-            # For requests, set up an SSE stream for the response
+            # For requests, determine whether to return JSON or set up SSE stream
             if is_request:
-                # Set up headers
-                headers = {
-                    "Cache-Control": "no-cache, no-transform",
-                    "Connection": "keep-alive",
-                    "Content-Type": CONTENT_TYPE_SSE,
-                }
+                if self.is_json_response_enabled:
+                    # JSON response mode - create a response future
+                    request_id = None
+                    if isinstance(message.root, JSONRPCRequest):
+                        request_id = str(message.root.id)
 
-                if self.mcp_session_id:
-                    headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
-                # Create SSE stream
-                sse_stream_writer, sse_stream_reader = (
-                    anyio.create_memory_object_stream[dict[str, Any]](0)
-                )
-
-                async def sse_writer():
-                    try:
-                        # Create a request-specific message stream for this POST request
-                        request_stream_writer, request_stream_reader = (
-                            anyio.create_memory_object_stream[JSONRPCMessage](0)
+                    if not request_id:
+                        # Should not happen for valid JSONRPCRequest, but handle just in case
+                        response = self._create_error_response(
+                            "Invalid Request: Missing request ID",
+                            HTTPStatus.BAD_REQUEST,
                         )
+                        await response(scope, receive, send)
+                        return
 
-                        # Get the request ID from the incoming request message
-                        request_id = None
-                        if isinstance(message.root, JSONRPCRequest):
-                            request_id = str(message.root.id)
-                            # Register this stream for the request ID
-                            if request_id:
-                                self._request_streams[request_id] = (
-                                    request_stream_writer
+                    # Create promise stream for getting response
+                    request_stream_writer, request_stream_reader = (
+                        anyio.create_memory_object_stream[JSONRPCMessage](0)
+                    )
+
+                    # Register this stream for the request ID
+                    self._request_streams[request_id] = request_stream_writer
+
+                    # Process the message
+                    await writer.send(message)
+
+                    try:
+                        # Process messages from the request-specific stream
+                        # We need to collect all messages until we get a response
+                        response_message = None
+                        
+                        # Use similar approach to SSE writer for consistency
+                        async for received_message in request_stream_reader:
+                            # If it's a response, this is what we're waiting for
+                            if isinstance(received_message.root, JSONRPCResponse):
+                                response_message = received_message
+                                break
+                            # For notifications, we need to keep waiting for the actual response
+                            elif isinstance(received_message.root, JSONRPCNotification):
+                                # Just process it and continue waiting
+                                logger.debug(
+                                    f"Received notification while waiting for response: {received_message.root.method}"
                                 )
+                                continue
 
-                        async with sse_stream_writer, request_stream_reader:
-                            # Process messages from the request-specific stream
-                            async for received_message in request_stream_reader:
-                                # Send the message via SSE
-                                related_request_id = None
-
-                                if isinstance(
-                                    received_message.root, JSONRPCNotification
-                                ):
-                                    # Get related_request_id from params
-                                    params = received_message.root.params
-                                    if params and "related_request_id" in params:
-                                        related_request_id = params.get(
-                                            "related_request_id"
-                                        )
-                                        logger.debug(
-                                            f"NOTIFICATION: {related_request_id}, "
-                                            f"{params.get('data')}"
-                                        )
-
-                                # Build the event data
-                                event_data = {
-                                    "event": "message",
-                                    "data": received_message.model_dump_json(
-                                        by_alias=True, exclude_none=True
-                                    ),
-                                }
-
-                                await sse_stream_writer.send(event_data)
-
-                                # If response, remove from pending streams and close
-                                if isinstance(received_message.root, JSONRPCResponse):
-                                    if request_id:
-                                        self._request_streams.pop(request_id, None)
-                                    break
+                        # At this point we should have a response
+                        if response_message:
+                            # Create JSON response
+                            response = self._create_json_response(response_message)
+                            await response(scope, receive, send)
+                        else:
+                            # This shouldn't happen in normal operation
+                            logger.error("No response message received before stream closed")
+                            response = self._create_error_response(
+                                "Error processing request: No response received",
+                                HTTPStatus.INTERNAL_SERVER_ERROR,
+                            )
+                            await response(scope, receive, send)
                     except Exception as e:
-                        logger.exception(f"Error in SSE writer: {e}")
+                        logger.exception(f"Error processing JSON response: {e}")
+                        response = self._create_error_response(
+                            f"Error processing request: {str(e)}",
+                            HTTPStatus.INTERNAL_SERVER_ERROR,
+                        )
+                        await response(scope, receive, send)
                     finally:
-                        logger.debug("Closing SSE writer")
-                        # TODO
+                        # Clean up the request stream
+                        if request_id in self._request_streams:
+                            self._request_streams.pop(request_id, None)
+                        await request_stream_reader.aclose()
+                        await request_stream_writer.aclose()
+                else:
+                    # SSE stream mode (original behavior)
+                    # Set up headers
+                    headers = {
+                        "Cache-Control": "no-cache, no-transform",
+                        "Connection": "keep-alive",
+                        "Content-Type": CONTENT_TYPE_SSE,
+                    }
 
-                # Create and start EventSourceResponse
-                response = EventSourceResponse(
-                    content=sse_stream_reader,
-                    data_sender_callable=sse_writer,
-                    headers=headers,
-                )
+                    if self.mcp_session_id:
+                        headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
+                    # Create SSE stream
+                    sse_stream_writer, sse_stream_reader = (
+                        anyio.create_memory_object_stream[dict[str, Any]](0)
+                    )
 
-                # Extract the request ID outside the try block for proper scope
-                outer_request_id = None
-                if isinstance(message.root, JSONRPCRequest):
-                    outer_request_id = str(message.root.id)
+                    async def sse_writer():
+                        try:
+                            # Create a request-specific message stream for this POST request
+                            request_stream_writer, request_stream_reader = (
+                                anyio.create_memory_object_stream[JSONRPCMessage](0)
+                            )
 
-                # Start the SSE response (this will send headers immediately)
-                try:
-                    # First send the response to establish the SSE connection
-                    async with anyio.create_task_group() as tg:
-                        tg.start_soon(response, scope, receive, send)
+                            # Get the request ID from the incoming request message
+                            request_id = None
+                            if isinstance(message.root, JSONRPCRequest):
+                                request_id = str(message.root.id)
+                                # Register this stream for the request ID
+                                if request_id:
+                                    self._request_streams[request_id] = (
+                                        request_stream_writer
+                                    )
 
-                        # Then send the message to be processed by the server
-                        await writer.send(message)
-                except Exception:
-                    logger.exception("SSE response error")
-                    # Make sure to clean up the request stream if something goes wrong
-                    if outer_request_id and outer_request_id in self._request_streams:
-                        self._request_streams.pop(outer_request_id, None)
+                            async with sse_stream_writer, request_stream_reader:
+                                # Process messages from the request-specific stream
+                                async for received_message in request_stream_reader:
+                                    # Send the message via SSE
+                                    related_request_id = None
+
+                                    if isinstance(
+                                        received_message.root, JSONRPCNotification
+                                    ):
+                                        # Get related_request_id from params
+                                        params = received_message.root.params
+                                        if params and "related_request_id" in params:
+                                            related_request_id = params.get(
+                                                "related_request_id"
+                                            )
+                                            logger.debug(
+                                                f"NOTIFICATION: {related_request_id}, "
+                                                f"{params.get('data')}"
+                                            )
+
+                                    # Build the event data
+                                    event_data = {
+                                        "event": "message",
+                                        "data": received_message.model_dump_json(
+                                            by_alias=True, exclude_none=True
+                                        ),
+                                    }
+
+                                    await sse_stream_writer.send(event_data)
+
+                                    # If response, remove from pending streams and close
+                                    if isinstance(
+                                        received_message.root, JSONRPCResponse
+                                    ):
+                                        if request_id:
+                                            self._request_streams.pop(request_id, None)
+                                        break
+                        except Exception as e:
+                            logger.exception(f"Error in SSE writer: {e}")
+                        finally:
+                            logger.debug("Closing SSE writer")
+                            # TODO
+
+                    # Create and start EventSourceResponse
+                    response = EventSourceResponse(
+                        content=sse_stream_reader,
+                        data_sender_callable=sse_writer,
+                        headers=headers,
+                    )
+
+                    # Extract the request ID outside the try block for proper scope
+                    outer_request_id = None
+                    if isinstance(message.root, JSONRPCRequest):
+                        outer_request_id = str(message.root.id)
+
+                    # Start the SSE response (this will send headers immediately)
+                    try:
+                        # First send the response to establish the SSE connection
+                        async with anyio.create_task_group() as tg:
+                            tg.start_soon(response, scope, receive, send)
+
+                            # Then send the message to be processed by the server
+                            await writer.send(message)
+                    except Exception:
+                        logger.exception("SSE response error")
+                        # Make sure to clean up the request stream if something goes wrong
+                        if (
+                            outer_request_id
+                            and outer_request_id in self._request_streams
+                        ):
+                            self._request_streams.pop(outer_request_id, None)
 
         except Exception as err:
             logger.exception("Error handling POST request")

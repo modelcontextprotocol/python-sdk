@@ -20,6 +20,9 @@ uv run mcp-simple-streamablehttp --port 3000
 
 # Custom logging level
 uv run mcp-simple-streamablehttp --log-level DEBUG
+
+# Enable JSON responses instead of SSE streams
+uv run mcp-simple-streamablehttp --json-response
 ```
 
 The server exposes a tool named "start-notification-stream" that accepts three arguments:
