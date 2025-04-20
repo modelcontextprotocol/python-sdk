@@ -179,7 +179,11 @@ class ServerSession(
                     )
 
     async def send_log_message(
-        self, level: types.LoggingLevel, data: Any, logger: str | None = None
+        self,
+        level: types.LoggingLevel,
+        data: Any,
+        logger: str | None = None,
+        related_request_id: types.RequestId | None = None,
     ) -> None:
         """Send a log message notification."""
         await self.send_notification(
@@ -192,7 +196,8 @@ class ServerSession(
                         logger=logger,
                     ),
                 )
-            )
+            ),
+            related_request_id,
         )
 
     async def send_resource_updated(self, uri: AnyUrl) -> None:
@@ -261,7 +266,11 @@ class ServerSession(
         )
 
     async def send_progress_notification(
-        self, progress_token: str | int, progress: float, total: float | None = None
+        self,
+        progress_token: str | int,
+        progress: float,
+        total: float | None = None,
+        related_request_id: str | None = None,
     ) -> None:
         """Send a progress notification."""
         await self.send_notification(
@@ -274,7 +283,8 @@ class ServerSession(
                         total=total,
                     ),
                 )
-            )
+            ),
+            related_request_id,
         )
 
     async def send_resource_list_changed(self) -> None:

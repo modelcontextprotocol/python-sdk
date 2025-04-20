@@ -267,16 +267,21 @@ class BaseSession(
         else:
             return result_type.model_validate(response_or_error.result)
 
-    async def send_notification(self, notification: SendNotificationT) -> None:
+    async def send_notification(
+        self,
+        notification: SendNotificationT,
+        related_request_id: RequestId | None = None,
+    ) -> None:
         """
         Emits a notification, which is a one-way message that does not expect
         a response.
         """
+        if related_request_id is not None and notification.root.params is not None:
+            notification.root.params.related_request_id = related_request_id
         jsonrpc_notification = JSONRPCNotification(
             jsonrpc="2.0",
             **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
         )
-
         await self._write_stream.send(JSONRPCMessage(jsonrpc_notification))
 
     async def _send_response(
