@@ -4,13 +4,14 @@ Tests for the StreamableHTTP server transport validation.
 This file contains tests for request validation in the StreamableHTTP transport.
 """
 
+import contextlib
 import multiprocessing
 import socket
 import time
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import Generator
 from http import HTTPStatus
 from uuid import uuid4
-import contextlib
+
 import anyio
 import pytest
 import requests
@@ -19,7 +20,7 @@ from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.routing import Mount, Route
+from starlette.routing import Mount
 
 from mcp.server import Server
 from mcp.server.streamableHttp import (
@@ -29,11 +30,8 @@ from mcp.server.streamableHttp import (
 )
 from mcp.shared.exceptions import McpError
 from mcp.types import (
-    EmptyResult,
     ErrorData,
-    JSONRPCMessage,
     TextContent,
-    TextResourceContents,
     Tool,
 )
 
@@ -106,11 +104,9 @@ def create_app(session_id=None) -> Starlette:
     # Create server instance
     server = ServerTest()
 
-    # Store the server instances between requests for session management
     server_instances = {}
     # Lock to prevent race conditions when creating new sessions
     session_creation_lock = anyio.Lock()
-    # Task group for running server instances
     task_group = None
 
     @contextlib.asynccontextmanager
@@ -130,7 +126,6 @@ def create_app(session_id=None) -> Starlette:
                     task_group = None
                 print("Resources cleaned up successfully.")
 
-    # ASGI handler for streamable HTTP connections
     async def handle_streamable_http(scope, receive, send):
         request = Request(scope, receive)
         request_mcp_session_id = request.headers.get(MCP_SESSION_ID_HEADER)
@@ -141,12 +136,11 @@ def create_app(session_id=None) -> Starlette:
             and request_mcp_session_id in server_instances
         ):
             transport = server_instances[request_mcp_session_id]
-            print("Session already exists, handling request directly")
+
             await transport.handle_request(scope, receive, send)
-        elif session_id is None or request_mcp_session_id is None:
+        elif request_mcp_session_id is None:
             async with session_creation_lock:
-                # For tests with fixed session ID
-                new_session_id = session_id if session_id else uuid4().hex
+                new_session_id = uuid4().hex
 
                 http_transport = StreamableHTTPServerTransport(
                     mcp_session_id=new_session_id,
@@ -156,11 +150,14 @@ def create_app(session_id=None) -> Starlette:
                     read_stream, write_stream = streams
 
                     async def run_server():
-                        await server.run(
-                            read_stream,
-                            write_stream,
-                            server.create_initialization_options(),
-                        )
+                        try:
+                            await server.run(
+                                read_stream,
+                                write_stream,
+                                server.create_initialization_options(),
+                            )
+                        except Exception as e:
+                            print(f"Server exception: {e}")
 
                     if task_group is None:
                         response = Response(
@@ -533,3 +530,34 @@ def test_session_termination(session_server, server_url):
     )
     assert response.status_code == 404
     assert "Session has been terminated" in response.text
+
+
+def test_response(basic_server, server_url):
+    """Test response handling for a valid request."""
+    mcp_url = f"{server_url}/mcp"
+    response = requests.post(
+        mcp_url,
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert response.status_code == 200
+
+    # Now terminate the session
+    session_id = response.headers.get(MCP_SESSION_ID_HEADER)
+
+    # Try to use the terminated session
+    tools_response = requests.post(
+        mcp_url,
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            MCP_SESSION_ID_HEADER: session_id,  # Use the session ID we got earlier
+        },
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": "tools-1"},
+        stream=True,  # Important for SSE
+    )
+    assert tools_response.status_code == 200
+    assert tools_response.headers.get("Content-Type") == "text/event-stream"
