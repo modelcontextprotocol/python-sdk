@@ -649,10 +649,3 @@ class StreamableHTTPServerTransport:
                     except Exception:
                         pass
                 self._request_streams.clear()
-                # Clean up read/write streams
-                if self._read_stream_writer:
-                    try:
-                        await self._read_stream_writer.aclose()
-                    except Exception:
-                        pass
-                    self._read_stream_writer = None
