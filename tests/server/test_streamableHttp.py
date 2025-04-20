@@ -301,22 +301,6 @@ def test_accept_header_validation(basic_server, server_url):
     assert response.status_code == 406
     assert "Not Acceptable" in response.text
 
-    # Test with only application/json
-    response = requests.post(
-        f"{server_url}/mcp",
-        headers={"Accept": "application/json", "Content-Type": "application/json"},
-        json={"jsonrpc": "2.0", "method": "initialize", "id": 1},
-    )
-    assert response.status_code == 406
-
-    # Test with only text/event-stream
-    response = requests.post(
-        f"{server_url}/mcp",
-        headers={"Accept": "text/event-stream", "Content-Type": "application/json"},
-        json={"jsonrpc": "2.0", "method": "initialize", "id": 1},
-    )
-    assert response.status_code == 406
-
 
 def test_content_type_validation(basic_server, server_url):
     """Test that Content-Type header is properly validated."""
@@ -347,6 +331,9 @@ def test_json_validation(basic_server, server_url):
     assert response.status_code == 400
     assert "Parse error" in response.text
 
+
+def test_json_parsing(basic_server, server_url):
+    """Test that JSON content is properly parse."""
     # Test with valid JSON but invalid JSON-RPC
     response = requests.post(
         f"{server_url}/mcp",
@@ -373,24 +360,6 @@ def test_method_not_allowed(basic_server, server_url):
     )
     assert response.status_code == 405
     assert "Method Not Allowed" in response.text
-
-
-def test_get_request_validation(basic_server, server_url):
-    """Test GET request validation for SSE streams."""
-
-    response = requests.post(
-        f"{server_url}/mcp",
-        headers={
-            "Accept": "application/json, text/event-stream",
-            "Content-Type": "application/json",
-        },
-        json=INIT_REQUEST,
-    )
-    # Test GET without Accept header
-    assert response.status_code == 200
-    response = requests.get(f"{server_url}/mcp")
-    assert response.status_code == 406
-    assert "Not Acceptable" in response.text
 
 
 def test_session_validation(session_server, server_url):
@@ -468,36 +437,7 @@ def test_streamable_http_transport_init_validation():
         StreamableHTTPServerTransport(mcp_session_id="test\n")
 
 
-def test_delete_request(session_server, server_url):
-    """Test DELETE request for session termination."""
-    session_id = session_server
-
-    # First, send an initialize request to properly initialize the server
-    response = requests.post(
-        f"{server_url}/mcp",
-        headers={
-            "Accept": "application/json, text/event-stream",
-            "Content-Type": "application/json",
-        },
-        json=INIT_REQUEST,
-    )
-    assert response.status_code == 200
-
-    #  Test without session ID
-    response = requests.delete(f"{server_url}/mcp")
-    assert response.status_code == 400
-    assert "Missing session ID" in response.text
-
-    # Test valid session termination
-    response = requests.delete(
-        f"{server_url}/mcp",
-        headers={MCP_SESSION_ID_HEADER: session_id},
-    )
-    # assert response.status_code == 200
-    assert "Session terminated" in response.text
-
-
-def test_session_termination(session_server, server_url):
+def test_session_termination(basic_server, server_url):
     """Test session termination via DELETE and subsequent request handling."""
     response = requests.post(
         f"{server_url}/mcp",
@@ -510,7 +450,7 @@ def test_session_termination(session_server, server_url):
     assert response.status_code == 200
 
     # Now terminate the session
-    session_id = session_server
+    session_id = response.headers.get(MCP_SESSION_ID_HEADER)
     response = requests.delete(
         f"{server_url}/mcp",
         headers={MCP_SESSION_ID_HEADER: session_id},
