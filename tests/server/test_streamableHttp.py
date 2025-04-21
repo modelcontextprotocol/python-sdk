@@ -85,25 +85,10 @@ class ServerTest(Server):
             return [TextContent(type="text", text=f"Called {name}")]
 
 
-@pytest.fixture
-def server_port() -> int:
-    """Find an available port for the test server."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-@pytest.fixture
-def server_url(server_port: int) -> str:
-    """Get the URL for the test server."""
-    return f"http://127.0.0.1:{server_port}"
-
-
-def create_app(session_id=None, is_json_response_enabled=False) -> Starlette:
+def create_app(is_json_response_enabled=False) -> Starlette:
     """Create a Starlette application for testing that matches the example server.
 
     Args:
-        session_id: Optional session ID to use for the server.
         is_json_response_enabled: If True, use JSON responses instead of SSE streams.
     """
     # Create server instance
@@ -197,20 +182,19 @@ def create_app(session_id=None, is_json_response_enabled=False) -> Starlette:
     return app
 
 
-def run_server(port: int, session_id=None, is_json_response_enabled=False) -> None:
+def run_server(port: int, is_json_response_enabled=False) -> None:
     """Run the test server.
 
     Args:
         port: Port to listen on.
-        session_id: Optional session ID to use for the server.
         is_json_response_enabled: If True, use JSON responses instead of SSE streams.
     """
     print(
         f"Starting test server on port {port} with "
-        f"session_id={session_id}, json_enabled={is_json_response_enabled}"
+        f"json_enabled={is_json_response_enabled}"
     )
 
-    app = create_app(session_id, is_json_response_enabled)
+    app = create_app(is_json_response_enabled)
     # Configure server
     config = uvicorn.Config(
         app=app,
@@ -238,22 +222,38 @@ def run_server(port: int, session_id=None, is_json_response_enabled=False) -> No
     print("Server shutdown")
 
 
+# Test fixtures - using same approach as SSE tests
 @pytest.fixture
-def basic_server(server_port: int) -> Generator[None, None, None]:
-    """Start a basic server without session ID."""
-    # Start server process
-    process = multiprocessing.Process(
-        target=run_server, kwargs={"port": server_port}, daemon=True
-    )
-    process.start()
+def basic_server_port() -> int:
+    """Find an available port for the basic server."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
-    # Wait for server to start
+
+@pytest.fixture
+def json_server_port() -> int:
+    """Find an available port for the JSON response server."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest.fixture
+def basic_server(basic_server_port: int) -> Generator[None, None, None]:
+    """Start a basic server."""
+    proc = multiprocessing.Process(
+        target=run_server, kwargs={"port": basic_server_port}, daemon=True
+    )
+    proc.start()
+
+    # Wait for server to be running
     max_attempts = 20
     attempt = 0
     while attempt < max_attempts:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", server_port))
+                s.connect(("127.0.0.1", basic_server_port))
                 break
         except ConnectionRefusedError:
             time.sleep(0.1)
@@ -264,30 +264,29 @@ def basic_server(server_port: int) -> Generator[None, None, None]:
     yield
 
     # Clean up
-    process.terminate()
-    process.join(timeout=1)
-    if process.is_alive():
-        process.kill()
+    proc.kill()
+    proc.join(timeout=2)
+    if proc.is_alive():
+        print("server process failed to terminate")
 
 
 @pytest.fixture
-def json_response_server(server_port: int) -> Generator[None, None, None]:
+def json_response_server(json_server_port: int) -> Generator[None, None, None]:
     """Start a server with JSON response enabled."""
-    # Start server process with is_json_response_enabled=True
-    process = multiprocessing.Process(
+    proc = multiprocessing.Process(
         target=run_server,
-        kwargs={"port": server_port, "is_json_response_enabled": True},
+        kwargs={"port": json_server_port, "is_json_response_enabled": True},
         daemon=True,
     )
-    process.start()
+    proc.start()
 
-    # Wait for server to start
+    # Wait for server to be running
     max_attempts = 20
     attempt = 0
     while attempt < max_attempts:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", server_port))
+                s.connect(("127.0.0.1", json_server_port))
                 break
         except ConnectionRefusedError:
             time.sleep(0.1)
@@ -298,18 +297,30 @@ def json_response_server(server_port: int) -> Generator[None, None, None]:
     yield
 
     # Clean up
-    process.terminate()
-    process.join(timeout=1)
-    if process.is_alive():
-        process.kill()
+    proc.kill()
+    proc.join(timeout=2)
+    if proc.is_alive():
+        print("server process failed to terminate")
+
+
+@pytest.fixture
+def basic_server_url(basic_server_port: int) -> str:
+    """Get the URL for the basic test server."""
+    return f"http://127.0.0.1:{basic_server_port}"
+
+
+@pytest.fixture
+def json_server_url(json_server_port: int) -> str:
+    """Get the URL for the JSON response test server."""
+    return f"http://127.0.0.1:{json_server_port}"
 
 
 # Basic request validation tests
-def test_accept_header_validation(basic_server, server_url):
+def test_accept_header_validation(basic_server, basic_server_url):
     """Test that Accept header is properly validated."""
     # Test without Accept header
     response = requests.post(
-        f"{server_url}/mcp",
+        f"{basic_server_url}/mcp",
         headers={"Content-Type": "application/json"},
         json={"jsonrpc": "2.0", "method": "initialize", "id": 1},
     )
@@ -317,11 +328,11 @@ def test_accept_header_validation(basic_server, server_url):
     assert "Not Acceptable" in response.text
 
 
-def test_content_type_validation(basic_server, server_url):
+def test_content_type_validation(basic_server, basic_server_url):
     """Test that Content-Type header is properly validated."""
     # Test with incorrect Content-Type
     response = requests.post(
-        f"{server_url}/mcp",
+        f"{basic_server_url}/mcp",
         headers={
             "Accept": "application/json, text/event-stream",
             "Content-Type": "text/plain",
@@ -332,11 +343,11 @@ def test_content_type_validation(basic_server, server_url):
     assert "Unsupported Media Type" in response.text
 
 
-def test_json_validation(basic_server, server_url):
+def test_json_validation(basic_server, basic_server_url):
     """Test that JSON content is properly validated."""
     # Test with invalid JSON
     response = requests.post(
-        f"{server_url}/mcp",
+        f"{basic_server_url}/mcp",
         headers={
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
@@ -347,11 +358,11 @@ def test_json_validation(basic_server, server_url):
     assert "Parse error" in response.text
 
 
-def test_json_parsing(basic_server, server_url):
+def test_json_parsing(basic_server, basic_server_url):
     """Test that JSON content is properly parse."""
     # Test with valid JSON but invalid JSON-RPC
     response = requests.post(
-        f"{server_url}/mcp",
+        f"{basic_server_url}/mcp",
         headers={
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
@@ -362,11 +373,11 @@ def test_json_parsing(basic_server, server_url):
     assert "Validation error" in response.text
 
 
-def test_method_not_allowed(basic_server, server_url):
+def test_method_not_allowed(basic_server, basic_server_url):
     """Test that unsupported HTTP methods are rejected."""
     # Test with unsupported method (PUT)
     response = requests.put(
-        f"{server_url}/mcp",
+        f"{basic_server_url}/mcp",
         headers={
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
@@ -377,13 +388,13 @@ def test_method_not_allowed(basic_server, server_url):
     assert "Method Not Allowed" in response.text
 
 
-def test_session_validation(basic_server, server_url):
+def test_session_validation(basic_server, basic_server_url):
     """Test session ID validation."""
     # session_id not used directly in this test
 
     # Test without session ID
     response = requests.post(
-        f"{server_url}/mcp",
+        f"{basic_server_url}/mcp",
         headers={
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
@@ -452,10 +463,10 @@ def test_streamable_http_transport_init_validation():
         StreamableHTTPServerTransport(mcp_session_id="test\n")
 
 
-def test_session_termination(basic_server, server_url):
+def test_session_termination(basic_server, basic_server_url):
     """Test session termination via DELETE and subsequent request handling."""
     response = requests.post(
-        f"{server_url}/mcp",
+        f"{basic_server_url}/mcp",
         headers={
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
@@ -467,7 +478,7 @@ def test_session_termination(basic_server, server_url):
     # Now terminate the session
     session_id = response.headers.get(MCP_SESSION_ID_HEADER)
     response = requests.delete(
-        f"{server_url}/mcp",
+        f"{basic_server_url}/mcp",
         headers={MCP_SESSION_ID_HEADER: session_id},
     )
     assert response.status_code == 200
@@ -475,7 +486,7 @@ def test_session_termination(basic_server, server_url):
 
     # Try to use the terminated session
     response = requests.post(
-        f"{server_url}/mcp",
+        f"{basic_server_url}/mcp",
         headers={
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
@@ -487,9 +498,9 @@ def test_session_termination(basic_server, server_url):
     assert "Session has been terminated" in response.text
 
 
-def test_response(basic_server, server_url):
+def test_response(basic_server, basic_server_url):
     """Test response handling for a valid request."""
-    mcp_url = f"{server_url}/mcp"
+    mcp_url = f"{basic_server_url}/mcp"
     response = requests.post(
         mcp_url,
         headers={
@@ -518,9 +529,9 @@ def test_response(basic_server, server_url):
     assert tools_response.headers.get("Content-Type") == "text/event-stream"
 
 
-def test_json_response(json_response_server, server_url):
+def test_json_response(json_response_server, json_server_url):
     """Test response handling when is_json_response_enabled is True."""
-    mcp_url = f"{server_url}/mcp"
+    mcp_url = f"{json_server_url}/mcp"
     response = requests.post(
         mcp_url,
         headers={
