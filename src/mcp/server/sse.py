@@ -174,7 +174,6 @@ class SseServerTransport:
             logger.debug(f"Validated client message: {message}")
         except ValidationError as err:
             logger.error(f"Failed to parse message: {err}")
-            # Still publish the invalid message, but using synchronized version
             response = Response("Could not parse message", status_code=400)
             await response(scope, receive, send)
             # Pass raw JSON string; receiver will recreate identical ValidationError
@@ -184,7 +183,7 @@ class SseServerTransport:
 
         logger.debug(f"Publishing message for session {session_id}: {message}")
         
-        # Use sync publish to block until the message is processed
+        # Use sync publish, block POST response until the message is processed
         result = await self._message_dispatch.publish_message_sync(session_id, message)
         
         if result:

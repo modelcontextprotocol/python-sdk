@@ -130,10 +130,8 @@ class RedisMessageDispatch:
         if not channel.startswith(ack_prefix):
             return
 
-        # Validate channel format exactly matches our expected format
         session_hex = channel[len(ack_prefix) :]
         try:
-            # Validate this is a valid UUID hex and channel has correct format
             session_id = UUID(hex=session_hex)
             expected_channel = self._ack_channel(session_id)
             if channel != expected_channel:

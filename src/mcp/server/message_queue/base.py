@@ -16,7 +16,7 @@ MessageCallback = Callable[[types.JSONRPCMessage | Exception], Awaitable[None]]
 class MessageWrapper(BaseModel):
     message_id: str
     payload: str
-    
+
     def get_json_rpc_message(self) -> types.JSONRPCMessage | ValidationError:
         """Parse the payload into a JSONRPCMessage or return ValidationError."""
         try:
@@ -48,9 +48,12 @@ class MessageDispatch(Protocol):
         ...
 
     async def publish_message_sync(
-        self, session_id: UUID, message: types.JSONRPCMessage | str, timeout: float = 30.0
+        self,
+        session_id: UUID,
+        message: types.JSONRPCMessage | str,
+        timeout: float = 120.0,
     ) -> bool:
-        """Publish a message for the specified session and wait for consumption confirmation.
+        """Publish a message for the specified session and wait for confirmation.
 
         This method blocks until the message has been fully consumed by the subscriber,
         or until the timeout is reached.
@@ -121,12 +124,15 @@ class InMemoryMessageDispatch:
 
         logger.debug(f"Message dispatched to session {session_id}")
         return True
-        
+
     async def publish_message_sync(
-        self, session_id: UUID, message: types.JSONRPCMessage | str, timeout: float = 30.0
+        self,
+        session_id: UUID,
+        message: types.JSONRPCMessage | str,
+        timeout: float = 30.0,
     ) -> bool:
         """Publish a message for the specified session and wait for consumption.
-        
+
         For InMemoryMessageDispatch, this is the same as publish_message since
         the callback is executed synchronously.
         """
