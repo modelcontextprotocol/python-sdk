@@ -80,7 +80,7 @@ class FuncMetadata(BaseModel):
         dicts (JSON objects) as JSON strings, which can be pre-parsed here.
         """
         new_data = data.copy()  # Shallow copy
-        for field_name, _field_info in self.arg_model.model_fields.items():
+        for field_name in self.arg_model.model_fields.keys():
             if field_name not in data.keys():
                 continue
             if isinstance(data[field_name], str):
