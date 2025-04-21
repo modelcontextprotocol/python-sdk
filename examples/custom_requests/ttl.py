@@ -35,7 +35,8 @@ from mcp.shared.memory import create_client_server_memory_streams
 
 EXPERIMENTAL_CAPABILITIES: dict[str, dict[str, Any]] = {"custom_requests": {}}
 
-## Define the 'awesome' protocol
+## Define a simple ttl protocol, sending a request to/from the client/server
+## back and forth until a TTL is reached.
 
 
 class TTLParams(types.RequestParams):
