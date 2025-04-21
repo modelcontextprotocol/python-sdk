@@ -86,11 +86,13 @@ If you haven't created a uv-managed project yet, create one:
 
    ```bash
    uv add "mcp[cli]"
+   uv add fastmcp
    ```
 
 Alternatively, for projects using pip for dependencies:
 ```bash
 pip install "mcp[cli]"
+pip install fastmcp
 ```
 
 ### Running the standalone MCP development tools
