@@ -8,9 +8,7 @@ import sys
 from pathlib import Path
 from typing import BinaryIO, TextIO, cast
 
-import anyio
 from anyio import to_thread
-from anyio.abc import Process
 from anyio.streams.file import FileReadStream, FileWriteStream
 
 
@@ -158,25 +156,5 @@ async def create_windows_process(
             cwd=cwd,
             bufsize=0,
         )
+
         return FallbackProcess(popen_obj)
-
-
-async def terminate_windows_process(process: Process | FallbackProcess):
-    """
-    Terminate a Windows process.
-
-    Note: On Windows, terminating a process with process.terminate() doesn't
-    always guarantee immediate process termination.
-    So we give it 2s to exit, or we call process.kill()
-    which sends a SIGKILL equivalent signal.
-
-    Args:
-        process: The process to terminate
-    """
-    try:
-        process.terminate()
-        with anyio.fail_after(2.0):
-            await process.wait()
-    except TimeoutError:
-        # Force kill if it doesn't terminate
-        process.kill()
