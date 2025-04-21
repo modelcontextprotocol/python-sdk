@@ -52,14 +52,15 @@ class StreamableHTTPServerTransport:
     """
     HTTP server transport with event streaming support for MCP.
 
-    Handles POST requests containing JSON-RPC messages and provides
-    Server-Sent Events (SSE) responses for streaming communication.
-    When configured, can also return JSON responses instead of SSE streams.
+    Handles JSON-RPC messages in HTTP POST requests with SSE streaming.
+    Supports optional JSON responses and session management.
     """
 
     # Server notification streams for POST requests as well as standalone SSE stream
-    _read_stream_writer: MemoryObjectSendStream[JSONRPCMessage | Exception] | None
-    _write_stream_reader: MemoryObjectReceiveStream[JSONRPCMessage]
+    _read_stream_writer: MemoryObjectSendStream[JSONRPCMessage | Exception] | None = (
+        None
+    )
+    _write_stream_reader: MemoryObjectReceiveStream[JSONRPCMessage] | None = None
     # Dictionary to track request-specific message streams
     _request_streams: dict[str, MemoryObjectSendStream[JSONRPCMessage]]
 
@@ -67,7 +68,7 @@ class StreamableHTTPServerTransport:
         self,
         mcp_session_id: str | None,
         is_json_response_enabled: bool = False,
-    ):
+    ) -> None:
         """
         Initialize a new StreamableHTTP server transport.
 
@@ -80,9 +81,8 @@ class StreamableHTTPServerTransport:
         Raises:
             ValueError: If the session ID contains invalid characters.
         """
-        if mcp_session_id is not None and (
-            not SESSION_ID_PATTERN.match(mcp_session_id)
-            or SESSION_ID_PATTERN.fullmatch(mcp_session_id) is None
+        if mcp_session_id is not None and not SESSION_ID_PATTERN.fullmatch(
+            mcp_session_id
         ):
             raise ValueError(
                 "Session ID must only contain visible ASCII characters (0x21-0x7E)"
@@ -93,15 +93,13 @@ class StreamableHTTPServerTransport:
         self._request_streams = {}
         self._terminated = False
 
-    def _create_error_response(
+    def _create_server_response(
         self,
         message: str,
         status_code: HTTPStatus,
         headers: dict[str, str] | None = None,
     ) -> Response:
-        """
-        Create a standardized error response.
-        """
+        """Create a standardized server response."""
         response_headers = {"Content-Type": CONTENT_TYPE_JSON}
         if headers:
             response_headers.update(headers)
@@ -121,17 +119,7 @@ class StreamableHTTPServerTransport:
         status_code: HTTPStatus = HTTPStatus.OK,
         headers: dict[str, str] | None = None,
     ) -> Response:
-        """
-        Create a JSON response from a JSONRPCMessage.
-
-        Args:
-            response_message: The JSON-RPC message to include in the response
-            status_code: HTTP status code (default: 200 OK)
-            headers: Additional headers to include
-
-        Returns:
-            A Starlette Response object with the JSON-RPC message
-        """
+        """Create a JSON response from a JSONRPCMessage"""
         response_headers = {"Content-Type": CONTENT_TYPE_JSON}
         if headers:
             response_headers.update(headers)
@@ -146,25 +134,15 @@ class StreamableHTTPServerTransport:
         )
 
     def _get_session_id(self, request: Request) -> str | None:
-        """
-        Extract the session ID from request headers.
-        """
+        """Extract the session ID from request headers."""
         return request.headers.get(MCP_SESSION_ID_HEADER)
 
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """
-        ASGI application entry point that handles all HTTP requests
-
-        Args:
-            stream_id: Unique identifier for this stream
-            scope: ASGI scope
-            receive: ASGI receive function
-            send: ASGI send function
-        """
+        """Application entry point that handles all HTTP requests"""
         request = Request(scope, receive)
         if self._terminated:
             # If the session has been terminated, return 404 Not Found
-            response = self._create_error_response(
+            response = self._create_server_response(
                 "Not Found: Session has been terminated",
                 HTTPStatus.NOT_FOUND,
             )
@@ -181,15 +159,7 @@ class StreamableHTTPServerTransport:
             await self._handle_unsupported_request(request, send)
 
     def _check_accept_headers(self, request: Request) -> tuple[bool, bool]:
-        """
-        Check if the request accepts the required media types.
-
-        Args:
-            request: The HTTP request
-
-        Returns:
-            Tuple of (has_json, has_sse) indicating whether each media type is accepted
-        """
+        """Check if the request accepts the required media types."""
         accept_header = request.headers.get("accept", "")
         accept_types = [media_type.strip() for media_type in accept_header.split(",")]
 
@@ -203,15 +173,7 @@ class StreamableHTTPServerTransport:
         return has_json, has_sse
 
     def _check_content_type(self, request: Request) -> bool:
-        """
-        Check if the request has the correct Content-Type.
-
-        Args:
-            request: The HTTP request
-
-        Returns:
-            True if Content-Type is acceptable, False otherwise
-        """
+        """Check if the request has the correct Content-Type."""
         content_type = request.headers.get("content-type", "")
         content_type_parts = [
             part.strip() for part in content_type.split(";")[0].split(",")
@@ -222,15 +184,7 @@ class StreamableHTTPServerTransport:
     async def _handle_post_request(
         self, scope: Scope, request: Request, receive: Receive, send: Send
     ) -> None:
-        """
-        Handles POST requests containing JSON-RPC messages
-
-        Args:
-            scope: ASGI scope
-            request: Starlette Request object
-            receive: ASGI receive function
-            send: ASGI send function
-        """
+        """Handle POST requests containing JSON-RPC messages."""
         writer = self._read_stream_writer
         if writer is None:
             raise ValueError(
@@ -240,7 +194,7 @@ class StreamableHTTPServerTransport:
             # Check Accept headers
             has_json, has_sse = self._check_accept_headers(request)
             if not (has_json and has_sse):
-                response = self._create_error_response(
+                response = self._create_server_response(
                     (
                         "Not Acceptable: Client must accept both application/json and "
                         "text/event-stream"
@@ -252,7 +206,7 @@ class StreamableHTTPServerTransport:
 
             # Validate Content-Type
             if not self._check_content_type(request):
-                response = self._create_error_response(
+                response = self._create_server_response(
                     "Unsupported Media Type: Content-Type must be application/json",
                     HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
                 )
@@ -262,7 +216,7 @@ class StreamableHTTPServerTransport:
             # Parse the body - only read it once
             body = await request.body()
             if len(body) > MAXIMUM_MESSAGE_SIZE:
-                response = self._create_error_response(
+                response = self._create_server_response(
                     "Payload Too Large: Message exceeds maximum size",
                     HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
                 )
@@ -272,27 +226,18 @@ class StreamableHTTPServerTransport:
             try:
                 raw_message = json.loads(body)
             except json.JSONDecodeError as e:
-                response = self._create_error_response(
+                response = self._create_server_response(
                     f"Parse error: {str(e)}",
                     HTTPStatus.BAD_REQUEST,
                 )
                 await response(scope, receive, send)
                 return
 
-            message = None
             try:
                 message = JSONRPCMessage.model_validate(raw_message)
             except ValidationError as e:
-                response = self._create_error_response(
+                response = self._create_server_response(
                     f"Validation error: {str(e)}",
-                    HTTPStatus.BAD_REQUEST,
-                )
-                await response(scope, receive, send)
-                return
-
-            if not message:
-                response = self._create_error_response(
-                    "Invalid Request: Message is empty",
                     HTTPStatus.BAD_REQUEST,
                 )
                 await response(scope, receive, send)
@@ -312,7 +257,7 @@ class StreamableHTTPServerTransport:
 
                     # If request has a session ID but doesn't match, return 404
                     if request_session_id and request_session_id != self.mcp_session_id:
-                        response = self._create_error_response(
+                        response = self._create_server_response(
                             "Not Found: Invalid or expired session ID",
                             HTTPStatus.NOT_FOUND,
                         )
@@ -327,7 +272,7 @@ class StreamableHTTPServerTransport:
             # For notifications and responses only, return 202 Accepted
             if not is_request:
                 # Create response object and send it
-                response = self._create_error_response(
+                response = self._create_server_response(
                     "Accepted",
                     HTTPStatus.ACCEPTED,
                 )
@@ -347,8 +292,8 @@ class StreamableHTTPServerTransport:
                         request_id = str(message.root.id)
 
                     if not request_id:
-                        # Should not happen for valid JSONRPCRequest, but handle just in case
-                        response = self._create_error_response(
+                        # Should not happen for valid JSONRPCRequest, but handle it
+                        response = self._create_server_response(
                             "Invalid Request: Missing request ID",
                             HTTPStatus.BAD_REQUEST,
                         )
@@ -370,20 +315,19 @@ class StreamableHTTPServerTransport:
                         # Process messages from the request-specific stream
                         # We need to collect all messages until we get a response
                         response_message = None
-                        
+
                         # Use similar approach to SSE writer for consistency
                         async for received_message in request_stream_reader:
                             # If it's a response, this is what we're waiting for
                             if isinstance(received_message.root, JSONRPCResponse):
                                 response_message = received_message
                                 break
-                            # For notifications, we need to keep waiting for the actual response
+                            # For notifications, keep waiting for the actual response
                             elif isinstance(received_message.root, JSONRPCNotification):
                                 # Just process it and continue waiting
                                 logger.debug(
-                                    f"Received notification while waiting for response: {received_message.root.method}"
+                                    f"Notification: {received_message.root.method}"
                                 )
-                                continue
 
                         # At this point we should have a response
                         if response_message:
@@ -392,15 +336,17 @@ class StreamableHTTPServerTransport:
                             await response(scope, receive, send)
                         else:
                             # This shouldn't happen in normal operation
-                            logger.error("No response message received before stream closed")
-                            response = self._create_error_response(
+                            logger.error(
+                                "No response message received before stream closed"
+                            )
+                            response = self._create_server_response(
                                 "Error processing request: No response received",
                                 HTTPStatus.INTERNAL_SERVER_ERROR,
                             )
                             await response(scope, receive, send)
                     except Exception as e:
                         logger.exception(f"Error processing JSON response: {e}")
-                        response = self._create_error_response(
+                        response = self._create_server_response(
                             f"Error processing request: {str(e)}",
                             HTTPStatus.INTERNAL_SERVER_ERROR,
                         )
@@ -428,14 +374,14 @@ class StreamableHTTPServerTransport:
                     )
 
                     async def sse_writer():
+                        # Get the request ID from the incoming request message
+                        request_id = None
                         try:
-                            # Create a request-specific message stream for this POST request
+                            # Create a request-specific message stream for this POST
                             request_stream_writer, request_stream_reader = (
                                 anyio.create_memory_object_stream[JSONRPCMessage](0)
                             )
 
-                            # Get the request ID from the incoming request message
-                            request_id = None
                             if isinstance(message.root, JSONRPCRequest):
                                 request_id = str(message.root.id)
                                 # Register this stream for the request ID
@@ -485,7 +431,9 @@ class StreamableHTTPServerTransport:
                             logger.exception(f"Error in SSE writer: {e}")
                         finally:
                             logger.debug("Closing SSE writer")
-                            # TODO
+                            # Clean up the request-specific streams
+                            if request_id and request_id in self._request_streams:
+                                self._request_streams.pop(request_id, None)
 
                     # Create and start EventSourceResponse
                     response = EventSourceResponse(
@@ -509,7 +457,7 @@ class StreamableHTTPServerTransport:
                             await writer.send(message)
                     except Exception:
                         logger.exception("SSE response error")
-                        # Make sure to clean up the request stream if something goes wrong
+                        # Clean up the request stream if something goes wrong
                         if (
                             outer_request_id
                             and outer_request_id in self._request_streams
@@ -518,7 +466,7 @@ class StreamableHTTPServerTransport:
 
         except Exception as err:
             logger.exception("Error handling POST request")
-            response = self._create_error_response(
+            response = self._create_server_response(
                 f"Error handling POST request: {err}",
                 HTTPStatus.INTERNAL_SERVER_ERROR,
             )
@@ -528,13 +476,7 @@ class StreamableHTTPServerTransport:
             return
 
     async def _handle_get_request(self, request: Request, send: Send) -> None:
-        """
-        Handle GET requests for SSE stream establishment
-
-        Args:
-            request: The HTTP request
-            send: ASGI send function
-        """
+        """Handle GET requests for SSE stream establishment."""
         # Validate session ID if server has one
         if not await self._validate_session(request, send):
             return
@@ -542,7 +484,7 @@ class StreamableHTTPServerTransport:
         _, has_sse = self._check_accept_headers(request)
 
         if not has_sse:
-            response = self._create_error_response(
+            response = self._create_server_response(
                 "Not Acceptable: Client must accept text/event-stream",
                 HTTPStatus.NOT_ACCEPTABLE,
             )
@@ -551,24 +493,18 @@ class StreamableHTTPServerTransport:
 
         # TODO: Implement SSE stream for GET requests
         # For now, return 501 Not Implemented
-        response = self._create_error_response(
+        response = self._create_server_response(
             "SSE stream from GET request not implemented yet",
             HTTPStatus.NOT_IMPLEMENTED,
         )
         await response(request.scope, request.receive, send)
 
     async def _handle_delete_request(self, request: Request, send: Send) -> None:
-        """
-        Handle DELETE requests for explicit session termination
-
-        Args:
-            request: The HTTP request
-            send: ASGI send function
-        """
+        """Handle DELETE requests for explicit session termination."""
         # Validate session ID
         if not self.mcp_session_id:
             # If no session ID set, return Method Not Allowed
-            response = self._create_error_response(
+            response = self._create_server_response(
                 "Method Not Allowed: Session termination not supported",
                 HTTPStatus.METHOD_NOT_ALLOWED,
             )
@@ -581,16 +517,14 @@ class StreamableHTTPServerTransport:
         # Terminate the session
         self._terminate_session()
 
-        # Return success response
-        response = self._create_error_response(
+        response = self._create_server_response(
             "Session terminated",
             HTTPStatus.OK,
         )
         await response(request.scope, request.receive, send)
 
     def _terminate_session(self) -> None:
-        """
-        Terminate the current session, closing all streams and marking as terminated.
+        """Terminate the current session, closing all streams.
 
         Once terminated, all requests with this session ID will receive 404 Not Found.
         """
@@ -616,13 +550,7 @@ class StreamableHTTPServerTransport:
         self._request_streams.clear()
 
     async def _handle_unsupported_request(self, request: Request, send: Send) -> None:
-        """
-        Handle unsupported HTTP methods
-
-        Args:
-            request: The HTTP request
-            send: ASGI send function
-        """
+        """Handle unsupported HTTP methods."""
         headers = {
             "Content-Type": CONTENT_TYPE_JSON,
             "Allow": "GET, POST, DELETE",
@@ -638,16 +566,7 @@ class StreamableHTTPServerTransport:
         await response(request.scope, request.receive, send)
 
     async def _validate_session(self, request: Request, send: Send) -> bool:
-        """
-        Validate the session ID in the request.
-
-        Args:
-            request: The HTTP request
-            send: ASGI send function
-
-        Returns:
-            bool: True if session is valid, False otherwise
-        """
+        """Validate the session ID in the request."""
         if not self.mcp_session_id:
             # If we're not using session IDs, return True
             return True
@@ -657,7 +576,7 @@ class StreamableHTTPServerTransport:
 
         # If no session ID provided but required, return error
         if not request_session_id:
-            response = self._create_error_response(
+            response = self._create_server_response(
                 "Bad Request: Missing session ID",
                 HTTPStatus.BAD_REQUEST,
             )
@@ -666,7 +585,7 @@ class StreamableHTTPServerTransport:
 
         # If session ID doesn't match, return error
         if request_session_id != self.mcp_session_id:
-            response = self._create_error_response(
+            response = self._create_server_response(
                 "Not Found: Invalid or expired session ID",
                 HTTPStatus.NOT_FOUND,
             )
@@ -685,8 +604,7 @@ class StreamableHTTPServerTransport:
         ],
         None,
     ]:
-        """
-        Context manager that provides read and write streams for a connection
+        """Context manager that provides read and write streams for a connection.
 
         Yields:
             Tuple of (read_stream, write_stream) for bidirectional communication

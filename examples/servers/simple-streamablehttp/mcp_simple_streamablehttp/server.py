@@ -152,7 +152,8 @@ def main(
             async with session_creation_lock:
                 new_session_id = uuid4().hex
                 http_transport = StreamableHTTPServerTransport(
-                    mcp_session_id=new_session_id, is_json_response_enabled=json_response
+                    mcp_session_id=new_session_id,
+                    is_json_response_enabled=json_response,
                 )
                 async with http_transport.connect() as streams:
                     read_stream, write_stream = streams
