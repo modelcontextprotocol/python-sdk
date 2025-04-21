@@ -175,7 +175,6 @@ class ServerSession(
         await anyio.lowlevel.checkpoint()
         match notification.root:
             case types.InitializedNotification():
-                print("INITIALIZED")
                 self._initialization_state = InitializationState.Initialized
             case _:
                 if self._initialization_state != InitializationState.Initialized:
