@@ -1,23 +1,12 @@
 [project]
 name = "mcp-simple-streamablehttp"
 version = "0.1.0"
-description = "A simple MCP server exposing a website fetching tool with StreamableHttp transport"
+description = "A simple MCP server exposing a StreamableHttp transport for testing"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Anthropic, PBC." }]
-maintainers = [
-    { name = "David Soria Parra", email = "davidsp@anthropic.com" },
-    { name = "Justin Spahr-Summers", email = "justin@anthropic.com" },
-]
 keywords = ["mcp", "llm", "automation", "web", "fetch", "http", "streamable"]
 license = { text = "MIT" }
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-]
 dependencies = ["anyio>=4.5", "click>=8.1.0", "httpx>=0.27", "mcp", "starlette", "uvicorn"]
 
 [project.scripts]

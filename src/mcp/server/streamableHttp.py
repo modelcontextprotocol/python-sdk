@@ -492,10 +492,10 @@ class StreamableHTTPServerTransport:
             return
 
         # TODO: Implement SSE stream for GET requests
-        # For now, return 501 Not Implemented
+        # For now, return 405 Method Not Allowed
         response = self._create_server_response(
             "SSE stream from GET request not implemented yet",
-            HTTPStatus.NOT_IMPLEMENTED,
+            HTTPStatus.METHOD_NOT_ALLOWED,
         )
         await response(request.scope, request.receive, send)
 
@@ -514,7 +514,6 @@ class StreamableHTTPServerTransport:
         if not await self._validate_session(request, send):
             return
 
-        # Terminate the session
         self._terminate_session()
 
         response = self._create_server_response(
