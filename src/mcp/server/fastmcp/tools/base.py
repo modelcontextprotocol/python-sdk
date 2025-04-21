@@ -1,7 +1,7 @@
 from __future__ import annotations as _annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, get_origin
 
 from pydantic import BaseModel, Field
@@ -43,6 +43,7 @@ class Tool(BaseModel):
         description: str | None = None,
         context_kwarg: str | None = None,
         annotations: ToolAnnotations | None = None,
+        skip_names: Sequence[str] = (),
     ) -> Tool:
         """Create a Tool from a function."""
         from mcp.server.fastmcp.server import Context
@@ -64,10 +65,10 @@ class Tool(BaseModel):
                     context_kwarg = param_name
                     break
 
-        func_arg_metadata = func_metadata(
-            fn,
-            skip_names=[context_kwarg] if context_kwarg is not None else [],
-        )
+        if context_kwarg is not None:
+            skip_names = (context_kwarg, *skip_names)
+
+        func_arg_metadata = func_metadata(fn, skip_names=skip_names)
         parameters = func_arg_metadata.arg_model.model_json_schema()
 
         return cls(

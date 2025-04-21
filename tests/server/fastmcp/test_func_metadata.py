@@ -180,18 +180,26 @@ def test_skip_names():
     """Test that skipped parameters are not included in the model"""
 
     def func_with_many_params(
-        keep_this: int, skip_this: str, also_keep: float, also_skip: bool
+        keep_this: int,
+        skip_this: str,
+        also_keep: float,
+        also_skip: bool,
+        _skip_this_too: int = 0,
     ):
-        return keep_this, skip_this, also_keep, also_skip
+        return keep_this, skip_this, also_keep, also_skip, _skip_this_too
 
     # Skip some parameters
-    meta = func_metadata(func_with_many_params, skip_names=["skip_this", "also_skip"])
+    meta = func_metadata(
+        func_with_many_params,
+        skip_names=["skip_this", "also_skip", "_skip_this_too"],
+    )
 
     # Check model fields
     assert "keep_this" in meta.arg_model.model_fields
     assert "also_keep" in meta.arg_model.model_fields
     assert "skip_this" not in meta.arg_model.model_fields
     assert "also_skip" not in meta.arg_model.model_fields
+    assert "_skip_this_too" not in meta.arg_model.model_fields
 
     # Validate that we can call with only non-skipped parameters
     model: BaseModel = meta.arg_model.model_validate({"keep_this": 1, "also_keep": 2.5})  # type: ignore
