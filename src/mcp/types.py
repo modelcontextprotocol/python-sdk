@@ -152,7 +152,13 @@ class Result(BaseModel):
 class CustomResult(Result):
     """Base class for custom results."""
 
-    payload: Any
+    pass
+
+
+class CustomResultWrapper(Result):
+    """Wrapper for custom results."""
+
+    payload: dict[str, Any]
 
 
 class PaginatedResult(Result):
@@ -1141,7 +1147,7 @@ class ClientNotification(
 
 
 class ClientResult(
-    RootModel[EmptyResult | CreateMessageResult | ListRootsResult | CustomResult]
+    RootModel[EmptyResult | CreateMessageResult | ListRootsResult | CustomResultWrapper]
 ):
     pass
 
@@ -1180,7 +1186,7 @@ class ServerResult(
         | ReadResourceResult
         | CallToolResult
         | ListToolsResult
-        | CustomResult
+        | CustomResultWrapper
     ]
 ):
     pass

@@ -43,7 +43,7 @@ from typing import Any, TypeVar
 import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl, BaseModel
+from pydantic import AnyUrl
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
@@ -60,7 +60,7 @@ class InitializationState(Enum):
 
 
 ServerSessionT = TypeVar("ServerSessionT", bound="ServerSession")
-ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
+CustomResultT = TypeVar("CustomResultT", bound=types.CustomResult)
 
 ServerRequestResponder = (
     RequestResponder[types.ClientRequest, types.ServerResult]
@@ -311,8 +311,8 @@ class ServerSession(
     async def send_custom_request(
         self,
         request: types.CustomRequest[types.RequestParamsT, types.MethodT],
-        response_type: type[ReceiveResultT],
-    ) -> ReceiveResultT:
+        response_type: type[CustomResultT],
+    ) -> CustomResultT:
         """Send a custom request."""
         if (
             self._init_options.capabilities.experimental is None
@@ -333,7 +333,7 @@ class ServerSession(
             method=request.method,
             params=request_params,
         )
-        return await self.send_request(
+        result = await self.send_request(
             types.ServerRequest(
                 types.CustomRequestWrapper(
                     method="custom/request",
@@ -342,8 +342,9 @@ class ServerSession(
                     ),
                 )
             ),
-            response_type,
+            types.CustomResultWrapper,
         )
+        return response_type.model_validate(result.payload)
 
     async def _handle_incoming(self, req: ServerRequestResponder) -> None:
         await self._incoming_message_stream_writer.send(req)

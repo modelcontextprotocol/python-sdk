@@ -38,22 +38,17 @@ EXPERIMENTAL_CAPABILITIES: dict[str, dict[str, Any]] = {"custom_requests": {}}
 ## Define the 'awesome' protocol
 
 
-class AwesomeParams(types.RequestParams):
+class TTLParams(types.RequestParams):
     ttl: int
-    payload: str
 
 
-class AwesomeRequest(types.CustomRequest[AwesomeParams, Literal["awesome/request"]]):
-    method: Literal["awesome/request"] = "awesome/request"
-    params: AwesomeParams
+class TTLRequest(types.CustomRequest[TTLParams, Literal["ttl"]]):
+    method: Literal["ttl"] = "ttl"
+    params: TTLParams
 
 
-class AwesomeResult(types.CustomResult):
-    """
-    A response to a Awesome request.
-    """
-
-    payload: str
+class TTLPayloadResult(types.CustomResult):
+    message: str
 
 
 async def run_all():
@@ -68,20 +63,20 @@ async def run_all():
             ## MCP Server code
             server = Server("my-custom-server")
 
-            @server.handle_custom_request(AwesomeRequest)
-            async def handle_awesome_request(req: AwesomeRequest) -> AwesomeResult:
+            @server.handle_custom_request(TTLRequest)
+            async def handle_ttl_request(req: TTLRequest) -> TTLPayloadResult:
                 print(f"SERVER: RECEIVED REQUEST WITH TTL={req.params.ttl}")
                 if req.params.ttl > 0:
                     tg.start_soon(
                         server.request_context.session.send_custom_request,
-                        AwesomeRequest(
-                            params=AwesomeParams(
-                                ttl=req.params.ttl - 1, payload=req.params.payload
+                        TTLRequest(
+                            params=TTLParams(
+                                ttl=req.params.ttl - 1,
                             )
                         ),
-                        AwesomeResult,
+                        TTLPayloadResult,
                     )
-                return AwesomeResult(payload="woohoo!")
+                return TTLPayloadResult(message=f"Recieved ttl {req.params.ttl}!")
 
             tg.start_soon(
                 lambda: server.run(
@@ -96,40 +91,43 @@ async def run_all():
 
             ## MCP Client code
 
-            class AwesomeResponder(CustomRequestHandlerFnT[AwesomeRequest]):
+            class TTLPayloadResponder(
+                CustomRequestHandlerFnT[TTLRequest, TTLPayloadResult]
+            ):
                 async def __call__(
                     self,
                     context: RequestContext["ClientSession", Any],
-                    message: AwesomeRequest,
-                ) -> types.ClientResult | types.ErrorData:
+                    message: TTLRequest,
+                ) -> TTLPayloadResult | types.ErrorData:
                     print(f"CLIENT: RECEIVED REQUEST WITH TTL={message.params.ttl}")
                     if message.params.ttl > 0:
                         tg.start_soon(
                             context.session.send_custom_request,
-                            AwesomeRequest(
-                                params=AwesomeParams(
+                            TTLRequest(
+                                params=TTLParams(
                                     ttl=message.params.ttl - 1,
-                                    payload=message.params.payload,
                                 )
                             ),
-                            AwesomeResult,
+                            TTLPayloadResult,
                         )
-                    return types.ClientResult(AwesomeResult(payload="woohoo!"))
+                    return TTLPayloadResult(
+                        message=f"Recieved ttl {message.params.ttl}!"
+                    )
 
             async with ClientSession(
                 read_stream=client_read,
                 write_stream=client_write,
                 experimental_capabilities=EXPERIMENTAL_CAPABILITIES,
                 custom_request_handlers={
-                    "awesome/request": AwesomeResponder(),
+                    "ttl": TTLPayloadResponder(),
                 },
             ) as client_session:
                 await client_session.initialize()
 
-                req = AwesomeRequest(params=AwesomeParams(ttl=10, payload="hooray!"))
+                req = TTLRequest(params=TTLParams(ttl=8))
                 print(f"Sending: {req}")
                 await client_session.send_custom_request(
-                    req, response_type=AwesomeResult
+                    req, response_type=TTLPayloadResult
                 )
                 await anyio.sleep(1)
 

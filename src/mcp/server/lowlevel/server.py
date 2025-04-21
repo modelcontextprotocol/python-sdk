@@ -71,7 +71,7 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar, get_args, get_origin, get_type_hints
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -484,8 +484,6 @@ class Server(Generic[LifespanResultT]):
         # Extract the method literal string from the custom request type
         method_literal = None
         try:
-            from typing import get_args, get_origin, get_type_hints
-
             type_hints = get_type_hints(request_type)
             if "method" in type_hints:
                 method_annotation = type_hints["method"]
@@ -506,7 +504,7 @@ class Server(Generic[LifespanResultT]):
                 [
                     types.CustomRequestT,
                 ],
-                Awaitable[types.ServerResult],
+                Awaitable[types.CustomResult],
             ],
         ):
             logger.debug(
@@ -524,7 +522,9 @@ class Server(Generic[LifespanResultT]):
                         )
                     )
                 )
-                return result
+                return types.ServerResult(
+                    types.CustomResultWrapper(payload=result.model_dump())
+                )
 
             self.custom_request_handlers[method_literal] = handler
             return func
