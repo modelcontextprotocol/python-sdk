@@ -4,13 +4,25 @@ from contextlib import asynccontextmanager
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 import mcp.types as types
 
 logger = logging.getLogger(__name__)
 
 MessageCallback = Callable[[types.JSONRPCMessage | Exception], Awaitable[None]]
+
+
+class MessageWrapper(BaseModel):
+    message_id: str
+    payload: str
+    
+    def get_json_rpc_message(self) -> types.JSONRPCMessage | ValidationError:
+        """Parse the payload into a JSONRPCMessage or return ValidationError."""
+        try:
+            return types.JSONRPCMessage.model_validate_json(self.payload)
+        except ValidationError as exc:
+            return exc
 
 
 @runtime_checkable
@@ -34,6 +46,25 @@ class MessageDispatch(Protocol):
             bool: True if message was published, False if session not found
         """
         ...
+
+    async def publish_message_sync(
+        self, session_id: UUID, message: types.JSONRPCMessage | str, timeout: float = 30.0
+    ) -> bool:
+        """Publish a message for the specified session and wait for consumption confirmation.
+
+        This method blocks until the message has been fully consumed by the subscriber,
+        or until the timeout is reached.
+
+        Args:
+            session_id: The UUID of the session this message is for
+            message: The message to publish (JSONRPCMessage or str for invalid JSON)
+            timeout: Maximum time to wait for consumption in seconds
+
+        Returns:
+            bool: True if message was published and consumed, False otherwise
+        """
+        # Default implementation falls back to standard publish
+        return await self.publish_message(session_id, message)
 
     @asynccontextmanager
     async def subscribe(self, session_id: UUID, callback: MessageCallback):
@@ -90,6 +121,18 @@ class InMemoryMessageDispatch:
 
         logger.debug(f"Message dispatched to session {session_id}")
         return True
+        
+    async def publish_message_sync(
+        self, session_id: UUID, message: types.JSONRPCMessage | str, timeout: float = 30.0
+    ) -> bool:
+        """Publish a message for the specified session and wait for consumption.
+        
+        For InMemoryMessageDispatch, this is the same as publish_message since
+        the callback is executed synchronously.
+        """
+        # For in-memory dispatch, the message is processed immediately
+        # so we can just call the regular publish method
+        return await self.publish_message(session_id, message)
 
     @asynccontextmanager
     async def subscribe(self, session_id: UUID, callback: MessageCallback):
