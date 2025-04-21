@@ -155,25 +155,24 @@ def main(
                     mcp_session_id=new_session_id,
                     is_json_response_enabled=json_response,
                 )
-                async with http_transport.connect() as streams:
-                    read_stream, write_stream = streams
+                server_instances[http_transport.mcp_session_id] = http_transport
+            async with http_transport.connect() as streams:
+                read_stream, write_stream = streams
 
-                    async def run_server():
-                        await app.run(
-                            read_stream,
-                            write_stream,
-                            app.create_initialization_options(),
-                        )
+                async def run_server():
+                    await app.run(
+                        read_stream,
+                        write_stream,
+                        app.create_initialization_options(),
+                    )
 
-                    if not task_group:
-                        raise RuntimeError("Task group is not initialized")
+                if not task_group:
+                    raise RuntimeError("Task group is not initialized")
 
-                    # Store the instance before starting the task to prevent races
-                    server_instances[http_transport.mcp_session_id] = http_transport
-                    task_group.start_soon(run_server)
+                task_group.start_soon(run_server)
 
-                    # Handle the HTTP request and return the response
-                    await http_transport.handle_request(scope, receive, send)
+                # Handle the HTTP request and return the response
+                await http_transport.handle_request(scope, receive, send)
         else:
             response = Response(
                 "Bad Request: No valid session ID provided",
