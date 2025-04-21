@@ -41,6 +41,7 @@
   - [Advanced Usage](#advanced-usage)
     - [Low-Level Server](#low-level-server)
     - [Writing MCP Clients](#writing-mcp-clients)
+    - [Custom Requests](#custom-requests)
     - [MCP Primitives](#mcp-primitives)
     - [Server Capabilities](#server-capabilities)
   - [Documentation](#documentation)
@@ -620,6 +621,89 @@ if __name__ == "__main__":
 
     asyncio.run(run())
 ```
+
+### Custom Requests
+
+The MCP sdk can be extended with custom requests to support use cases outside [Model Context Protocol specification](https://spec.modelcontextprotocol.io)
+
+*warning:* This capability is opt-in and must be explicitly declared in `experimental_capabilities` in the server/client's capabilities
+
+Example of MCP server side custom requests processing:
+
+```python
+import asyncio as aio
+from typing import Literal
+
+import anyio
+
+import mcp.types as types
+from mcp.client.session import ClientSession
+from mcp.server.lowlevel import Server
+from mcp.shared.memory import create_client_server_memory_streams
+
+## define custom request type
+
+class AddOneParams(types.RequestParams):
+    value: int
+
+
+class AddOneRequest(types.CustomRequest[AddOneParams, Literal["add_one"]]):
+    method: Literal["add_one"] = "add_one"
+    params: AddOneParams
+
+
+class AddOneResult(types.CustomResult):
+    result: int
+
+
+async def run_all():
+    async with anyio.create_task_group() as tg:
+        async with create_client_server_memory_streams() as (
+            client_streams,
+            server_streams,
+        ):
+            client_read, client_write = client_streams
+            server_read, server_write = server_streams
+
+            server = Server("my-add-one-server")
+
+            ## handle custom request type
+            @server.handle_custom_request(AddOneRequest)
+            async def handle_add_one_request(req: AddOneRequest) -> AddOneResult:
+                return AddOneResult(result=req.params.value + 1)
+
+            tg.start_soon(
+                lambda: server.run(
+                    server_read,
+                    server_write,
+                    server.create_initialization_options(
+                        experimental_capabilities={"custom_requests": {}},
+                    ),
+                    raise_exceptions=True,
+                )
+            )
+
+            async with ClientSession(
+                read_stream=client_read,
+                write_stream=client_write,
+                experimental_capabilities={"custom_requests": {}},
+            ) as client_session:
+                await client_session.initialize()
+
+                ## send custom request type
+                req = AddOneRequest(params=AddOneParams(value=1))
+                res = await client_session.send_custom_request(
+                    req, response_type=AddOneResult
+                )
+                print(res)
+
+            tg.cancel_scope.cancel()
+
+
+if __name__ == "__main__":
+    aio.run(run_all())
+```
+
 
 ### MCP Primitives
 
