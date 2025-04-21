@@ -479,11 +479,20 @@ class Server(Generic[LifespanResultT]):
         # but also make tracing exceptions much easier during testing and when using
         # in-process servers.
         raise_exceptions: bool = False,
+        # When True, the server will wait for the client to send an initialization
+        # message before processing any other messages.
+        # False should be used for stateless servers.
+        require_initialization: bool = True,
     ):
         async with AsyncExitStack() as stack:
             lifespan_context = await stack.enter_async_context(self.lifespan(self))
             session = await stack.enter_async_context(
-                ServerSession(read_stream, write_stream, initialization_options)
+                ServerSession(
+                    read_stream,
+                    write_stream,
+                    initialization_options,
+                    require_initialization,
+                )
             )
 
             async with anyio.create_task_group() as tg:
