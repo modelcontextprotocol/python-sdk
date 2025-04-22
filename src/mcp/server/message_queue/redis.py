@@ -1,14 +1,14 @@
 import logging
 from contextlib import asynccontextmanager
 from typing import Any, cast
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import anyio
-from anyio import CancelScope, CapacityLimiter, Event, lowlevel
-from anyio.abc import TaskGroup
+from anyio import CapacityLimiter, lowlevel
+from pydantic import ValidationError
 
 import mcp.types as types
-from mcp.server.message_queue.base import MessageCallback, MessageWrapper
+from mcp.server.message_queue.base import MessageCallback
 
 try:
     import redis.asyncio as redis
@@ -42,234 +42,98 @@ class RedisMessageDispatch:
         self._prefix = prefix
         self._active_sessions_key = f"{prefix}active_sessions"
         self._callbacks: dict[UUID, MessageCallback] = {}
-        self._handlers: dict[UUID, TaskGroup] = {}
+        # Ensures only one polling task runs at a time for message handling
         self._limiter = CapacityLimiter(1)
-        self._ack_events: dict[str, Event] = {}
-
         logger.debug(f"Redis message dispatch initialized: {redis_url}")
 
     def _session_channel(self, session_id: UUID) -> str:
         """Get the Redis channel for a session."""
         return f"{self._prefix}session:{session_id.hex}"
 
-    def _ack_channel(self, session_id: UUID) -> str:
-        """Get the acknowledgment channel for a session."""
-        return f"{self._prefix}ack:{session_id.hex}"
-
     @asynccontextmanager
     async def subscribe(self, session_id: UUID, callback: MessageCallback):
         """Request-scoped context manager that subscribes to messages for a session."""
         await self._redis.sadd(self._active_sessions_key, session_id.hex)
         self._callbacks[session_id] = callback
+        channel = self._session_channel(session_id)
+        await self._pubsub.subscribe(channel)  # type: ignore
 
-        session_channel = self._session_channel(session_id)
-        ack_channel = self._ack_channel(session_id)
-
-        await self._pubsub.subscribe(session_channel)  # type: ignore
-        await self._pubsub.subscribe(ack_channel)  # type: ignore
-
-        logger.debug(f"Subscribing to Redis channels for session {session_id}")
-
-        # Store the task group for the session
+        logger.debug(f"Subscribing to Redis channel for session {session_id}")
         async with anyio.create_task_group() as tg:
-            self._handlers[session_id] = tg
             tg.start_soon(self._listen_for_messages)
             try:
                 yield
             finally:
                 tg.cancel_scope.cancel()
-                await self._pubsub.unsubscribe(session_channel)  # type: ignore
-                await self._pubsub.unsubscribe(ack_channel)  # type: ignore
+                await self._pubsub.unsubscribe(channel)  # type: ignore
                 await self._redis.srem(self._active_sessions_key, session_id.hex)
                 del self._callbacks[session_id]
-                logger.debug(
-                    f"Unsubscribed from Redis channels for session {session_id}"
-                )
-                del self._handlers[session_id]
-
-    def _parse_ack_channel(self, channel: str) -> UUID | None:
-        """Parse and validate an acknowledgment channel, returning session_id."""
-        ack_prefix = f"{self._prefix}ack:"
-        if not channel.startswith(ack_prefix):
-            return None
-            
-        # Extract exactly what should be a UUID hex after the prefix
-        session_hex = channel[len(ack_prefix):]
-        if len(session_hex) != 32:  # Standard UUID hex length
-            logger.error(f"Invalid UUID length in ack channel: {channel}")
-            return None
-            
-        try:
-            session_id = UUID(hex=session_hex)
-            expected_channel = self._ack_channel(session_id)
-            if channel != expected_channel:
-                logger.error(f"Channel mismatch: got {channel}, expected {expected_channel}")
-                return None
-            return session_id
-        except ValueError:
-            logger.error(f"Invalid UUID hex in ack channel: {channel}")
-            return None
-            
-    def _parse_session_channel(self, channel: str) -> UUID | None:
-        """Parse and validate a session channel, returning session_id."""
-        session_prefix = f"{self._prefix}session:"
-        if not channel.startswith(session_prefix):
-            return None
-            
-        # Extract exactly what should be a UUID hex after the prefix
-        session_hex = channel[len(session_prefix):]
-        if len(session_hex) != 32:  # Standard UUID hex length
-            logger.error(f"Invalid UUID length in session channel: {channel}")
-            return None
-            
-        try:
-            session_id = UUID(hex=session_hex)
-            expected_channel = self._session_channel(session_id)
-            if channel != expected_channel:
-                logger.error(f"Channel mismatch: got {channel}, expected {expected_channel}")
-                return None
-            return session_id
-        except ValueError:
-            logger.error(f"Invalid UUID hex in session channel: {channel}")
-            return None
+                logger.debug(f"Unsubscribed from Redis channel: {session_id}")
 
     async def _listen_for_messages(self) -> None:
         """Background task that listens for messages on subscribed channels."""
         async with self._limiter:
             while True:
                 await lowlevel.checkpoint()
-                # Shield message retrieval from cancellation to ensure no messages are
-                # lost when a session disconnects during processing.
-                with CancelScope(shield=True):
-                    redis_message: (  # type: ignore
-                        None | dict[str, Any]
-                    ) = await self._pubsub.get_message(  # type: ignore
-                        ignore_subscribe_messages=True,
-                        timeout=0.1,  # type: ignore
-                    )
-                    if redis_message is None:
+                message: None | dict[str, Any] = await self._pubsub.get_message(  # type: ignore
+                    ignore_subscribe_messages=True,
+                    timeout=None,  # type: ignore
+                )
+                if message is None:
+                    continue
+
+                channel: str = cast(str, message["channel"])
+                expected_prefix = f"{self._prefix}session:"
+
+                if not channel.startswith(expected_prefix):
+                    logger.debug(f"Ignoring message from non-MCP channel: {channel}")
+                    continue
+
+                session_hex = channel[len(expected_prefix) :]
+                try:
+                    session_id = UUID(hex=session_hex)
+                    expected_channel = self._session_channel(session_id)
+                    if channel != expected_channel:
+                        logger.error(f"Channel format mismatch: {channel}")
+                        continue
+                except ValueError:
+                    logger.error(f"Invalid UUID in channel: {channel}")
+                    continue
+
+                data: str = cast(str, message["data"])
+                try:
+                    if session_id not in self._callbacks:
+                        logger.warning(f"Message dropped: no callback for {session_id}")
                         continue
 
-                    channel: str = cast(str, redis_message["channel"])
-                    data: str = cast(str, redis_message["data"])
-
-                    # Determine which session this message is for
-                    session_id = None
-                    if channel.startswith(f"{self._prefix}ack:"):
-                        session_id = self._parse_ack_channel(channel)
-                    elif channel.startswith(f"{self._prefix}session:"):
-                        session_id = self._parse_session_channel(channel)
-                        
-                    if session_id is None:
-                        logger.debug(f"Ignoring message from channel: {channel}")
-                        continue
-                        
-                    if session_id not in self._handlers:
-                        logger.warning(f"Dropping message for non-existent session: {session_id}")
-                        continue
-                        
-                    session_tg = self._handlers[session_id]
-                    if channel.startswith(f"{self._prefix}ack:"):
-                        session_tg.start_soon(self._handle_ack_message, channel, data)
-                    else:
-                        session_tg.start_soon(self._handle_session_message, channel, data)
-
-    async def _handle_ack_message(self, channel: str, data: str) -> None:
-        """Handle acknowledgment messages received on ack channels."""
-        session_id = self._parse_ack_channel(channel)
-        if session_id is None:
-            return
-
-        # Extract message ID from data
-        message_id = data.strip()
-        if message_id in self._ack_events:
-            logger.debug(f"Received acknowledgment for message: {message_id}")
-            self._ack_events[message_id].set()
-
-    async def _handle_session_message(self, channel: str, data: str) -> None:
-        """Handle regular messages received on session channels."""
-        session_id = self._parse_session_channel(channel)
-        if session_id is None:
-            return
-
-        if session_id not in self._callbacks:
-            logger.warning(f"Message dropped: no callback for {session_id}")
-            return
-
-        try:
-            wrapper = MessageWrapper.model_validate_json(data)
-            result = wrapper.get_json_rpc_message()
-            await self._callbacks[session_id](result)
-            await self._send_acknowledgment(session_id, wrapper.message_id)
-
-        except Exception as e:
-            logger.error(f"Error processing message for {session_id}: {e}")
-
-    async def _send_acknowledgment(self, session_id: UUID, message_id: str) -> None:
-        """Send an acknowledgment for a message that was successfully processed."""
-        ack_channel = self._ack_channel(session_id)
-        await self._redis.publish(ack_channel, message_id)  # type: ignore
-        logger.debug(
-            f"Sent acknowledgment for message {message_id} to session {session_id}"
-        )
+                    # Try to parse as valid message or recreate original ValidationError
+                    try:
+                        msg = types.JSONRPCMessage.model_validate_json(data)
+                        await self._callbacks[session_id](msg)
+                    except ValidationError as exc:
+                        # Pass the identical validation error that would have occurred
+                        await self._callbacks[session_id](exc)
+                except Exception as e:
+                    logger.error(f"Error processing message for {session_id}: {e}")
 
     async def publish_message(
-        self,
-        session_id: UUID,
-        message: types.JSONRPCMessage | str,
-        message_id: str | None = None,
-    ) -> str | None:
+        self, session_id: UUID, message: types.JSONRPCMessage | str
+    ) -> bool:
         """Publish a message for the specified session."""
         if not await self.session_exists(session_id):
             logger.warning(f"Message dropped: unknown session {session_id}")
-            return None
-
-        # Pass raw JSON strings directly, preserving validation errors
-        message_id = message_id or str(uuid4())
-        if isinstance(message, str):
-            wrapper = MessageWrapper(message_id=message_id, payload=message)
-        else:
-            wrapper = MessageWrapper(
-                message_id=message_id, payload=message.model_dump_json()
-            )
-
-        channel = self._session_channel(session_id)
-        await self._redis.publish(channel, wrapper.model_dump_json())  # type: ignore
-        logger.debug(
-            f"Message {message_id} published to Redis channel for session {session_id}"
-        )
-        return message_id
-
-    async def publish_message_sync(
-        self,
-        session_id: UUID,
-        message: types.JSONRPCMessage | str,
-        timeout: float = 120.0,
-    ) -> bool:
-        """Publish a message and wait for acknowledgment of processing."""
-        message_id = str(uuid4())
-        ack_event = Event()
-        self._ack_events[message_id] = ack_event
-
-        try:
-            published_id = await self.publish_message(session_id, message, message_id)
-            if published_id is None:
-                return False
-
-            with anyio.fail_after(timeout):
-                await ack_event.wait()
-                logger.debug(f"Received acknowledgment for message {message_id}")
-                return True
-
-        except TimeoutError:
-            logger.warning(
-                f"Timed out waiting for acknowledgment of message {message_id}"
-            )
             return False
 
-        finally:
-            if message_id in self._ack_events:
-                del self._ack_events[message_id]
+        # Pass raw JSON strings directly, preserving validation errors
+        if isinstance(message, str):
+            data = message
+        else:
+            data = message.model_dump_json()
+
+        channel = self._session_channel(session_id)
+        await self._redis.publish(channel, data)  # type: ignore[attr-defined]
+        logger.debug(f"Message published to Redis channel for session {session_id}")
+        return True
 
     async def session_exists(self, session_id: UUID) -> bool:
         """Check if a session exists."""

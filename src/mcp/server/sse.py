@@ -178,19 +178,10 @@ class SseServerTransport:
             await response(scope, receive, send)
             # Pass raw JSON string; receiver will recreate identical ValidationError
             # when parsing the same invalid JSON
-            await self._message_dispatch.publish_message_sync(session_id, body.decode())
+            await self._message_dispatch.publish_message(session_id, body.decode())
             return
 
         logger.debug(f"Publishing message for session {session_id}: {message}")
-        
-        # Use sync publish, block POST response until the message is processed
-        result = await self._message_dispatch.publish_message_sync(session_id, message)
-        
-        if result:
-            # Message was successfully processed
-            response = Response("OK", status_code=200)
-        else:
-            # Message timed out or failed to be processed
-            response = Response("Processing Timeout", status_code=504)
-            
+        response = Response("Accepted", status_code=202)
         await response(scope, receive, send)
+        await self._message_dispatch.publish_message(session_id, message)
