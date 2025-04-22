@@ -479,6 +479,7 @@ class Server(Generic[LifespanResultT]):
         # but also make tracing exceptions much easier during testing and when using
         # in-process servers.
         raise_exceptions: bool = False,
+        extra_metadata: dict[str, Any] | None = None,
     ):
         async with AsyncExitStack() as stack:
             lifespan_context = await stack.enter_async_context(self.lifespan(self))
@@ -489,7 +490,9 @@ class Server(Generic[LifespanResultT]):
             async with anyio.create_task_group() as tg:
                 async for message in session.incoming_messages:
                     logger.debug(f"Received message: {message}")
-
+                    if (hasattr(message, "request_meta") and 
+                        getattr(message, "request_meta")):
+                        message.request_meta.extra_metadata = extra_metadata  # type: ignore
                     tg.start_soon(
                         self._handle_message,
                         message,
