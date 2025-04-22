@@ -24,10 +24,17 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 from mcp.types import (
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    INVALID_REQUEST,
+    PARSE_ERROR,
+    ErrorData,
+    JSONRPCError,
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    RequestId,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,8 +68,6 @@ class StreamableHTTPServerTransport:
         None
     )
     _write_stream_reader: MemoryObjectReceiveStream[JSONRPCMessage] | None = None
-    # Dictionary to track request-specific message streams
-    _request_streams: dict[str, MemoryObjectSendStream[JSONRPCMessage]]
 
     def __init__(
         self,
@@ -90,16 +95,19 @@ class StreamableHTTPServerTransport:
 
         self.mcp_session_id = mcp_session_id
         self.is_json_response_enabled = is_json_response_enabled
-        self._request_streams = {}
+        self._request_streams: dict[
+            RequestId, MemoryObjectSendStream[JSONRPCMessage]
+        ] = {}
         self._terminated = False
 
-    def _create_server_response(
+    def _create_error_response(
         self,
-        message: str,
+        error_message: str,
         status_code: HTTPStatus,
+        error_code: int = INVALID_REQUEST,
         headers: dict[str, str] | None = None,
     ) -> Response:
-        """Create a standardized server response."""
+        """Create an error response with a simple string message."""
         response_headers = {"Content-Type": CONTENT_TYPE_JSON}
         if headers:
             response_headers.update(headers)
@@ -107,15 +115,25 @@ class StreamableHTTPServerTransport:
         if self.mcp_session_id:
             response_headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
+        # Return a properly formatted JSON error response
+        error_response = JSONRPCError(
+            jsonrpc="2.0",
+            id="server-error",  # We don't have a request ID for general errors
+            error=ErrorData(
+                code=error_code,
+                message=error_message,
+            ),
+        )
+
         return Response(
-            message,
+            error_response.model_dump_json(by_alias=True, exclude_none=True),
             status_code=status_code,
             headers=response_headers,
         )
 
     def _create_json_response(
         self,
-        response_message: JSONRPCMessage,
+        response_message: JSONRPCMessage | None,
         status_code: HTTPStatus = HTTPStatus.OK,
         headers: dict[str, str] | None = None,
     ) -> Response:
@@ -128,7 +146,9 @@ class StreamableHTTPServerTransport:
             response_headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
         return Response(
-            response_message.model_dump_json(by_alias=True, exclude_none=True),
+            response_message.model_dump_json(by_alias=True, exclude_none=True)
+            if response_message
+            else None,
             status_code=status_code,
             headers=response_headers,
         )
@@ -142,7 +162,7 @@ class StreamableHTTPServerTransport:
         request = Request(scope, receive)
         if self._terminated:
             # If the session has been terminated, return 404 Not Found
-            response = self._create_server_response(
+            response = self._create_error_response(
                 "Not Found: Session has been terminated",
                 HTTPStatus.NOT_FOUND,
             )
@@ -194,7 +214,7 @@ class StreamableHTTPServerTransport:
             # Check Accept headers
             has_json, has_sse = self._check_accept_headers(request)
             if not (has_json and has_sse):
-                response = self._create_server_response(
+                response = self._create_error_response(
                     (
                         "Not Acceptable: Client must accept both application/json and "
                         "text/event-stream"
@@ -206,7 +226,7 @@ class StreamableHTTPServerTransport:
 
             # Validate Content-Type
             if not self._check_content_type(request):
-                response = self._create_server_response(
+                response = self._create_error_response(
                     "Unsupported Media Type: Content-Type must be application/json",
                     HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
                 )
@@ -216,7 +236,7 @@ class StreamableHTTPServerTransport:
             # Parse the body - only read it once
             body = await request.body()
             if len(body) > MAXIMUM_MESSAGE_SIZE:
-                response = self._create_server_response(
+                response = self._create_error_response(
                     "Payload Too Large: Message exceeds maximum size",
                     HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
                 )
@@ -226,9 +246,8 @@ class StreamableHTTPServerTransport:
             try:
                 raw_message = json.loads(body)
             except json.JSONDecodeError as e:
-                response = self._create_server_response(
-                    f"Parse error: {str(e)}",
-                    HTTPStatus.BAD_REQUEST,
+                response = self._create_error_response(
+                    f"Parse error: {str(e)}", HTTPStatus.BAD_REQUEST, PARSE_ERROR
                 )
                 await response(scope, receive, send)
                 return
@@ -236,9 +255,10 @@ class StreamableHTTPServerTransport:
             try:
                 message = JSONRPCMessage.model_validate(raw_message)
             except ValidationError as e:
-                response = self._create_server_response(
+                response = self._create_error_response(
                     f"Validation error: {str(e)}",
                     HTTPStatus.BAD_REQUEST,
+                    INVALID_PARAMS,
                 )
                 await response(scope, receive, send)
                 return
@@ -257,7 +277,7 @@ class StreamableHTTPServerTransport:
 
                     # If request has a session ID but doesn't match, return 404
                     if request_session_id and request_session_id != self.mcp_session_id:
-                        response = self._create_server_response(
+                        response = self._create_error_response(
                             "Not Found: Invalid or expired session ID",
                             HTTPStatus.NOT_FOUND,
                         )
@@ -267,13 +287,11 @@ class StreamableHTTPServerTransport:
             elif not await self._validate_session(request, send):
                 return
 
-            is_request = isinstance(message.root, JSONRPCRequest)
-
             # For notifications and responses only, return 202 Accepted
-            if not is_request:
+            if not isinstance(message.root, JSONRPCRequest):
                 # Create response object and send it
-                response = self._create_server_response(
-                    "Accepted",
+                response = self._create_json_response(
+                    None,
                     HTTPStatus.ACCEPTED,
                 )
                 await response(scope, receive, send)
@@ -283,192 +301,141 @@ class StreamableHTTPServerTransport:
 
                 return
 
-            # For requests, determine whether to return JSON or set up SSE stream
-            if is_request:
-                if self.is_json_response_enabled:
-                    # JSON response mode - create a response future
-                    request_id = None
-                    if isinstance(message.root, JSONRPCRequest):
-                        request_id = str(message.root.id)
+            # Extract the request ID outside the try block for proper scope
+            request_id = str(message.root.id)
+            # Create promise stream for getting response
+            request_stream_writer, request_stream_reader = (
+                anyio.create_memory_object_stream[JSONRPCMessage](0)
+            )
 
-                    if not request_id:
-                        # Should not happen for valid JSONRPCRequest, but handle it
-                        response = self._create_server_response(
-                            "Invalid Request: Missing request ID",
-                            HTTPStatus.BAD_REQUEST,
-                        )
-                        await response(scope, receive, send)
-                        return
+            # Register this stream for the request ID
+            self._request_streams[request_id] = request_stream_writer
 
-                    # Create promise stream for getting response
-                    request_stream_writer, request_stream_reader = (
-                        anyio.create_memory_object_stream[JSONRPCMessage](0)
-                    )
+            if self.is_json_response_enabled:
+                # Process the message
+                await writer.send(message)
+                try:
+                    # Process messages from the request-specific stream
+                    # We need to collect all messages until we get a response
+                    response_message = None
 
-                    # Register this stream for the request ID
-                    self._request_streams[request_id] = request_stream_writer
-
-                    # Process the message
-                    await writer.send(message)
-
-                    try:
-                        # Process messages from the request-specific stream
-                        # We need to collect all messages until we get a response
-                        response_message = None
-
-                        # Use similar approach to SSE writer for consistency
-                        async for received_message in request_stream_reader:
-                            # If it's a response, this is what we're waiting for
-                            if isinstance(received_message.root, JSONRPCResponse):
-                                response_message = received_message
-                                break
-                            # For notifications, keep waiting for the actual response
-                            elif isinstance(received_message.root, JSONRPCNotification):
-                                # Just process it and continue waiting
-                                logger.debug(
-                                    f"Notification: {received_message.root.method}"
-                                )
-
-                        # At this point we should have a response
-                        if response_message:
-                            # Create JSON response
-                            response = self._create_json_response(response_message)
-                            await response(scope, receive, send)
+                    # Use similar approach to SSE writer for consistency
+                    async for received_message in request_stream_reader:
+                        # If it's a response, this is what we're waiting for
+                        if isinstance(
+                            received_message.root, JSONRPCResponse | JSONRPCError
+                        ):
+                            response_message = received_message
+                            break
+                        # For notifications and request, keep waiting
                         else:
-                            # This shouldn't happen in normal operation
-                            logger.error(
-                                "No response message received before stream closed"
-                            )
-                            response = self._create_server_response(
-                                "Error processing request: No response received",
-                                HTTPStatus.INTERNAL_SERVER_ERROR,
-                            )
-                            await response(scope, receive, send)
-                    except Exception as e:
-                        logger.exception(f"Error processing JSON response: {e}")
-                        response = self._create_server_response(
-                            f"Error processing request: {str(e)}",
+                            logger.debug(f"received: {received_message.root.method}")
+
+                    # At this point we should have a response
+                    if response_message:
+                        # Create JSON response
+                        response = self._create_json_response(response_message)
+                        await response(scope, receive, send)
+                    else:
+                        # This shouldn't happen in normal operation
+                        logger.error(
+                            "No response message received before stream closed"
+                        )
+                        response = self._create_error_response(
+                            "Error processing request: No response received",
                             HTTPStatus.INTERNAL_SERVER_ERROR,
                         )
                         await response(scope, receive, send)
-                    finally:
-                        # Clean up the request stream
-                        if request_id in self._request_streams:
-                            self._request_streams.pop(request_id, None)
-                        await request_stream_reader.aclose()
-                        await request_stream_writer.aclose()
-                else:
-                    # SSE stream mode (original behavior)
-                    # Set up headers
-                    headers = {
-                        "Cache-Control": "no-cache, no-transform",
-                        "Connection": "keep-alive",
-                        "Content-Type": CONTENT_TYPE_SSE,
-                    }
-
-                    if self.mcp_session_id:
-                        headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
-                    # Create SSE stream
-                    sse_stream_writer, sse_stream_reader = (
-                        anyio.create_memory_object_stream[dict[str, Any]](0)
+                except Exception as e:
+                    logger.exception(f"Error processing JSON response: {e}")
+                    response = self._create_error_response(
+                        f"Error processing request: {str(e)}",
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                        INTERNAL_ERROR,
                     )
+                    await response(scope, receive, send)
+                finally:
+                    # Clean up the request stream
+                    if request_id in self._request_streams:
+                        self._request_streams.pop(request_id, None)
+                    await request_stream_reader.aclose()
+                    await request_stream_writer.aclose()
+            else:
+                # Create SSE stream
+                sse_stream_writer, sse_stream_reader = (
+                    anyio.create_memory_object_stream[dict[str, Any]](0)
+                )
 
-                    async def sse_writer():
-                        # Get the request ID from the incoming request message
-                        request_id = None
-                        try:
-                            # Create a request-specific message stream for this POST
-                            request_stream_writer, request_stream_reader = (
-                                anyio.create_memory_object_stream[JSONRPCMessage](0)
-                            )
-
-                            if isinstance(message.root, JSONRPCRequest):
-                                request_id = str(message.root.id)
-                                # Register this stream for the request ID
-                                if request_id:
-                                    self._request_streams[request_id] = (
-                                        request_stream_writer
-                                    )
-
-                            async with sse_stream_writer, request_stream_reader:
-                                # Process messages from the request-specific stream
-                                async for received_message in request_stream_reader:
-                                    # Send the message via SSE
-                                    related_request_id = None
-
-                                    if isinstance(
-                                        received_message.root, JSONRPCNotification
-                                    ):
-                                        # Get related_request_id from params
-                                        params = received_message.root.params
-                                        if params and "related_request_id" in params:
-                                            related_request_id = params.get(
-                                                "related_request_id"
-                                            )
-                                            logger.debug(
-                                                f"NOTIFICATION: {related_request_id}, "
-                                                f"{params.get('data')}"
-                                            )
-
-                                    # Build the event data
-                                    event_data = {
-                                        "event": "message",
-                                        "data": received_message.model_dump_json(
-                                            by_alias=True, exclude_none=True
-                                        ),
-                                    }
-
-                                    await sse_stream_writer.send(event_data)
-
-                                    # If response, remove from pending streams and close
-                                    if isinstance(
-                                        received_message.root, JSONRPCResponse
-                                    ):
-                                        if request_id:
-                                            self._request_streams.pop(request_id, None)
-                                        break
-                        except Exception as e:
-                            logger.exception(f"Error in SSE writer: {e}")
-                        finally:
-                            logger.debug("Closing SSE writer")
-                            # Clean up the request-specific streams
-                            if request_id and request_id in self._request_streams:
-                                self._request_streams.pop(request_id, None)
-
-                    # Create and start EventSourceResponse
-                    response = EventSourceResponse(
-                        content=sse_stream_reader,
-                        data_sender_callable=sse_writer,
-                        headers=headers,
-                    )
-
-                    # Extract the request ID outside the try block for proper scope
-                    outer_request_id = None
-                    if isinstance(message.root, JSONRPCRequest):
-                        outer_request_id = str(message.root.id)
-
-                    # Start the SSE response (this will send headers immediately)
+                async def sse_writer():
+                    # Get the request ID from the incoming request message
                     try:
-                        # First send the response to establish the SSE connection
-                        async with anyio.create_task_group() as tg:
-                            tg.start_soon(response, scope, receive, send)
+                        async with sse_stream_writer, request_stream_reader:
+                            # Process messages from the request-specific stream
+                            async for received_message in request_stream_reader:
+                                # Build the event data
+                                event_data = {
+                                    "event": "message",
+                                    "data": received_message.model_dump_json(
+                                        by_alias=True, exclude_none=True
+                                    ),
+                                }
 
-                            # Then send the message to be processed by the server
-                            await writer.send(message)
-                    except Exception:
-                        logger.exception("SSE response error")
-                        # Clean up the request stream if something goes wrong
-                        if (
-                            outer_request_id
-                            and outer_request_id in self._request_streams
-                        ):
-                            self._request_streams.pop(outer_request_id, None)
+                                await sse_stream_writer.send(event_data)
+
+                                # If response, remove from pending streams and close
+                                if isinstance(
+                                    received_message.root,
+                                    JSONRPCResponse | JSONRPCError,
+                                ):
+                                    if request_id:
+                                        self._request_streams.pop(request_id, None)
+                                    break
+                    except Exception as e:
+                        logger.exception(f"Error in SSE writer: {e}")
+                    finally:
+                        logger.debug("Closing SSE writer")
+                        # Clean up the request-specific streams
+                        if request_id and request_id in self._request_streams:
+                            self._request_streams.pop(request_id, None)
+
+                # Create and start EventSourceResponse
+                # SSE stream mode (original behavior)
+                # Set up headers
+                headers = {
+                    "Cache-Control": "no-cache, no-transform",
+                    "Connection": "keep-alive",
+                    "Content-Type": CONTENT_TYPE_SSE,
+                    **(
+                        {MCP_SESSION_ID_HEADER: self.mcp_session_id}
+                        if self.mcp_session_id
+                        else {}
+                    ),
+                }
+                response = EventSourceResponse(
+                    content=sse_stream_reader,
+                    data_sender_callable=sse_writer,
+                    headers=headers,
+                )
+
+                # Start the SSE response (this will send headers immediately)
+                try:
+                    # First send the response to establish the SSE connection
+                    async with anyio.create_task_group() as tg:
+                        tg.start_soon(response, scope, receive, send)
+                        # Then send the message to be processed by the server
+                        await writer.send(message)
+                except Exception:
+                    logger.exception("SSE response error")
+                    # Clean up the request stream if something goes wrong
+                    if request_id and request_id in self._request_streams:
+                        self._request_streams.pop(request_id, None)
 
         except Exception as err:
             logger.exception("Error handling POST request")
-            response = self._create_server_response(
+            response = self._create_error_response(
                 f"Error handling POST request: {err}",
                 HTTPStatus.INTERNAL_SERVER_ERROR,
+                INTERNAL_ERROR,
             )
             await response(scope, receive, send)
             if writer:
@@ -484,7 +451,7 @@ class StreamableHTTPServerTransport:
         _, has_sse = self._check_accept_headers(request)
 
         if not has_sse:
-            response = self._create_server_response(
+            response = self._create_error_response(
                 "Not Acceptable: Client must accept text/event-stream",
                 HTTPStatus.NOT_ACCEPTABLE,
             )
@@ -493,7 +460,7 @@ class StreamableHTTPServerTransport:
 
         # TODO: Implement SSE stream for GET requests
         # For now, return 405 Method Not Allowed
-        response = self._create_server_response(
+        response = self._create_error_response(
             "SSE stream from GET request not implemented yet",
             HTTPStatus.METHOD_NOT_ALLOWED,
         )
@@ -504,7 +471,7 @@ class StreamableHTTPServerTransport:
         # Validate session ID
         if not self.mcp_session_id:
             # If no session ID set, return Method Not Allowed
-            response = self._create_server_response(
+            response = self._create_error_response(
                 "Method Not Allowed: Session termination not supported",
                 HTTPStatus.METHOD_NOT_ALLOWED,
             )
@@ -516,8 +483,8 @@ class StreamableHTTPServerTransport:
 
         self._terminate_session()
 
-        response = self._create_server_response(
-            "Session terminated",
+        response = self._create_json_response(
+            None,
             HTTPStatus.OK,
         )
         await response(request.scope, request.receive, send)
@@ -557,9 +524,9 @@ class StreamableHTTPServerTransport:
         if self.mcp_session_id:
             headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
-        response = Response(
+        response = self._create_error_response(
             "Method Not Allowed",
-            status_code=HTTPStatus.METHOD_NOT_ALLOWED,
+            HTTPStatus.METHOD_NOT_ALLOWED,
             headers=headers,
         )
         await response(request.scope, request.receive, send)
@@ -575,7 +542,7 @@ class StreamableHTTPServerTransport:
 
         # If no session ID provided but required, return error
         if not request_session_id:
-            response = self._create_server_response(
+            response = self._create_error_response(
                 "Bad Request: Missing session ID",
                 HTTPStatus.BAD_REQUEST,
             )
@@ -584,7 +551,7 @@ class StreamableHTTPServerTransport:
 
         # If session ID doesn't match, return error
         if request_session_id != self.mcp_session_id:
-            response = self._create_server_response(
+            response = self._create_error_response(
                 "Not Found: Invalid or expired session ID",
                 HTTPStatus.NOT_FOUND,
             )
@@ -635,18 +602,16 @@ class StreamableHTTPServerTransport:
                     async for message in write_stream_reader:
                         # Determine which request stream(s) should receive this message
                         target_request_id = None
-
-                        # For responses, route based on the request ID
-                        if isinstance(message.root, JSONRPCResponse):
+                        if isinstance(
+                            message.root, JSONRPCNotification | JSONRPCRequest
+                        ):
+                            # Extract related_request_id from params if it exists
+                            if (params := getattr(message.root, "params", None)) and (
+                                related_id := params.get("related_request_id")
+                            ) is not None:
+                                target_request_id = str(related_id)
+                        else:
                             target_request_id = str(message.root.id)
-                        # For notifications, route by related_request_id if available
-                        elif isinstance(message.root, JSONRPCNotification):
-                            # Get related_request_id from params
-                            params = message.root.params
-                            if params and "related_request_id" in params:
-                                related_id = params.get("related_request_id")
-                                if related_id is not None:
-                                    target_request_id = str(related_id)
 
                         # Send to the specific request stream if available
                         if (
