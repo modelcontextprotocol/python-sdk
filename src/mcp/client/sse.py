@@ -61,7 +61,7 @@ async def sse_client(
                                 logger.debug(f"Received SSE event: {sse.event}")
                                 match sse.event:
                                     case "endpoint":
-                                        endpoint_url = urljoin(url, sse.data)
+                                        endpoint_url = url.rstrip("/sse") + sse.data
                                         logger.info(
                                             f"Received endpoint URL: {endpoint_url}"
                                         )
