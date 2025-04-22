@@ -107,7 +107,9 @@ class RedisMessageDispatch:
                     channel: str = cast(str, message["channel"])
                     session_id = self._extract_session_id(channel)
                     if session_id is None:
-                        logger.debug(f"Ignoring message from non-MCP channel: {channel}")
+                        logger.debug(
+                            f"Ignoring message from non-MCP channel: {channel}"
+                        )
                         continue
 
                     data: str = cast(str, message["data"])
