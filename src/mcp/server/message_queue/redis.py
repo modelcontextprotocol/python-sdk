@@ -4,7 +4,8 @@ from typing import Any, cast
 from uuid import UUID
 
 import anyio
-from anyio import CapacityLimiter, lowlevel
+from anyio import CancelScope, CapacityLimiter, lowlevel
+from anyio.abc import TaskGroup
 from pydantic import ValidationError
 
 import mcp.types as types
@@ -42,6 +43,7 @@ class RedisMessageDispatch:
         self._prefix = prefix
         self._active_sessions_key = f"{prefix}active_sessions"
         self._callbacks: dict[UUID, MessageCallback] = {}
+        self._task_groups: dict[UUID, TaskGroup] = {}
         # Ensures only one polling task runs at a time for message handling
         self._limiter = CapacityLimiter(1)
         logger.debug(f"Redis message dispatch initialized: {redis_url}")
@@ -60,6 +62,7 @@ class RedisMessageDispatch:
 
         logger.debug(f"Subscribing to Redis channel for session {session_id}")
         async with anyio.create_task_group() as tg:
+            self._task_groups[session_id] = tg
             tg.start_soon(self._listen_for_messages)
             try:
                 yield
@@ -68,53 +71,75 @@ class RedisMessageDispatch:
                 await self._pubsub.unsubscribe(channel)  # type: ignore
                 await self._redis.srem(self._active_sessions_key, session_id.hex)
                 del self._callbacks[session_id]
+                del self._task_groups[session_id]
                 logger.debug(f"Unsubscribed from Redis channel: {session_id}")
+
+    def _extract_session_id(self, channel: str) -> UUID | None:
+        """Extract and validate session ID from channel."""
+        expected_prefix = f"{self._prefix}session:"
+        if not channel.startswith(expected_prefix):
+            return None
+
+        session_hex = channel[len(expected_prefix) :]
+        try:
+            session_id = UUID(hex=session_hex)
+            if channel != self._session_channel(session_id):
+                logger.error(f"Channel format mismatch: {channel}")
+                return None
+            return session_id
+        except ValueError:
+            logger.error(f"Invalid UUID in channel: {channel}")
+            return None
 
     async def _listen_for_messages(self) -> None:
         """Background task that listens for messages on subscribed channels."""
         async with self._limiter:
             while True:
                 await lowlevel.checkpoint()
-                message: None | dict[str, Any] = await self._pubsub.get_message(  # type: ignore
-                    ignore_subscribe_messages=True,
-                    timeout=None,  # type: ignore
-                )
-                if message is None:
-                    continue
-
-                channel: str = cast(str, message["channel"])
-                expected_prefix = f"{self._prefix}session:"
-
-                if not channel.startswith(expected_prefix):
-                    logger.debug(f"Ignoring message from non-MCP channel: {channel}")
-                    continue
-
-                session_hex = channel[len(expected_prefix) :]
-                try:
-                    session_id = UUID(hex=session_hex)
-                    expected_channel = self._session_channel(session_id)
-                    if channel != expected_channel:
-                        logger.error(f"Channel format mismatch: {channel}")
-                        continue
-                except ValueError:
-                    logger.error(f"Invalid UUID in channel: {channel}")
-                    continue
-
-                data: str = cast(str, message["data"])
-                try:
-                    if session_id not in self._callbacks:
-                        logger.warning(f"Message dropped: no callback for {session_id}")
+                with CancelScope(shield=True):
+                    message: None | dict[str, Any] = await self._pubsub.get_message(  # type: ignore
+                        ignore_subscribe_messages=True,
+                        timeout=0.1,  # type: ignore
+                    )
+                    if message is None:
                         continue
 
-                    # Try to parse as valid message or recreate original ValidationError
+                    channel: str = cast(str, message["channel"])
+                    session_id = self._extract_session_id(channel)
+                    if session_id is None:
+                        logger.debug(f"Ignoring message from non-MCP channel: {channel}")
+                        continue
+
+                    data: str = cast(str, message["data"])
                     try:
-                        msg = types.JSONRPCMessage.model_validate_json(data)
-                        await self._callbacks[session_id](msg)
-                    except ValidationError as exc:
-                        # Pass the identical validation error that would have occurred
-                        await self._callbacks[session_id](exc)
-                except Exception as e:
-                    logger.error(f"Error processing message for {session_id}: {e}")
+                        if session_id in self._task_groups:
+                            self._task_groups[session_id].start_soon(
+                                self._handle_message, session_id, data
+                            )
+                        else:
+                            logger.warning(
+                                f"Message dropped: no task group for session: {session_id}"
+                            )
+                    except Exception as e:
+                        logger.error(f"Error processing message for {session_id}: {e}")
+
+    async def _handle_message(self, session_id: UUID, data: str) -> None:
+        """Process a message from Redis in the session's task group."""
+        if session_id not in self._callbacks:
+            logger.warning(f"Message dropped: callback removed for {session_id}")
+            return
+
+        try:
+            # Parse message or pass validation error to callback
+            msg_or_error = None
+            try:
+                msg_or_error = types.JSONRPCMessage.model_validate_json(data)
+            except ValidationError as exc:
+                msg_or_error = exc
+
+            await self._callbacks[session_id](msg_or_error)
+        except Exception as e:
+            logger.error(f"Error in message handler for {session_id}: {e}")
 
     async def publish_message(
         self, session_id: UUID, message: types.JSONRPCMessage | str
