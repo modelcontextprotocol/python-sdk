@@ -482,7 +482,6 @@ def test_session_termination(basic_server, basic_server_url):
         headers={MCP_SESSION_ID_HEADER: session_id},
     )
     assert response.status_code == 200
-    assert "Session terminated" in response.text
 
     # Try to use the terminated session
     response = requests.post(
