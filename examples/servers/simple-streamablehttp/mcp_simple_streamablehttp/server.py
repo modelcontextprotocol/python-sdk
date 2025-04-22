@@ -11,6 +11,7 @@ from mcp.server.streamableHttp import (
     MCP_SESSION_ID_HEADER,
     StreamableHTTPServerTransport,
 )
+from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
@@ -87,6 +88,9 @@ def main(
             if i < count - 1:  # Don't wait after the last notification
                 await anyio.sleep(interval)
 
+        # This will send a resource notificaiton though standalone SSE
+        # established by GET request
+        await ctx.session.send_resource_updated(uri=AnyUrl("http:///test_resource"))
         return [
             types.TextContent(
                 type="text",

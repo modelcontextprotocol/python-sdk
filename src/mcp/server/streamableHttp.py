@@ -43,6 +43,9 @@ LAST_EVENT_ID_HEADER = "last-event-id"
 CONTENT_TYPE_JSON = "application/json"
 CONTENT_TYPE_SSE = "text/event-stream"
 
+# Special key for the standalone GET stream
+GET_STREAM_KEY = "_GET_stream"
+
 # Session ID validation pattern (visible ASCII characters ranging from 0x21 to 0x7E)
 # Pattern ensures entire string contains only valid characters by using ^ and $ anchors
 SESSION_ID_PATTERN = re.compile(r"^[\x21-\x7E]+$")
@@ -476,10 +479,19 @@ class StreamableHTTPServerTransport:
             return
 
     async def _handle_get_request(self, request: Request, send: Send) -> None:
-        """Handle GET requests for SSE stream establishment."""
-        # Validate session ID if server has one
-        if not await self._validate_session(request, send):
-            return
+        """
+        Handle GET request to establish SSE.
+
+        This allows the server to communicate to the client without the client
+        first sending data via HTTP POST. The server can send JSON-RPC requests
+        and notifications on this stream.
+        """
+        writer = self._read_stream_writer
+        if writer is None:
+            raise ValueError(
+                "No read stream writer available. Ensure connect() is called first."
+            )
+
         # Validate Accept header - must include text/event-stream
         _, has_sse = self._check_accept_headers(request)
 
@@ -491,13 +503,80 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
             return
 
-        # TODO: Implement SSE stream for GET requests
-        # For now, return 405 Method Not Allowed
-        response = self._create_server_response(
-            "SSE stream from GET request not implemented yet",
-            HTTPStatus.METHOD_NOT_ALLOWED,
+        if not await self._validate_session(request, send):
+            return
+
+        headers = {
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "Content-Type": CONTENT_TYPE_SSE,
+        }
+
+        if self.mcp_session_id:
+            headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
+
+        # Check if we already have an active GET stream
+        if GET_STREAM_KEY in self._request_streams:
+            response = self._create_server_response(
+                "Conflict: Only one SSE stream is allowed per session",
+                HTTPStatus.CONFLICT,
+            )
+            await response(request.scope, request.receive, send)
+            return
+
+        # Create SSE stream
+        sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[
+            dict[str, Any]
+        ](0)
+
+        async def standalone_sse_writer():
+            try:
+                # Create a standalone message stream for server-initiated messages
+                standalone_stream_writer, standalone_stream_reader = (
+                    anyio.create_memory_object_stream[JSONRPCMessage](0)
+                )
+
+                # Register this stream using the special key
+                self._request_streams[GET_STREAM_KEY] = standalone_stream_writer
+
+                async with sse_stream_writer, standalone_stream_reader:
+                    # Process messages from the standalone stream
+                    async for received_message in standalone_stream_reader:
+                        # For the standalone stream, we handle:
+                        # - JSONRPCNotification (server can send notifications to client)
+                        # - JSONRPCRequest (server can send requests to client)
+                        # We should NOT receive JSONRPCResponse
+
+                        # Send the message via SSE
+                        event_data = {
+                            "event": "message",
+                            "data": received_message.model_dump_json(
+                                by_alias=True, exclude_none=True
+                            ),
+                        }
+
+                        await sse_stream_writer.send(event_data)
+            except Exception as e:
+                logger.exception(f"Error in standalone SSE writer: {e}")
+            finally:
+                logger.debug("Closing standalone SSE writer")
+                # Remove the stream from request_streams
+                self._request_streams.pop(GET_STREAM_KEY, None)
+
+        # Create and start EventSourceResponse
+        response = EventSourceResponse(
+            content=sse_stream_reader,
+            data_sender_callable=standalone_sse_writer,
+            headers=headers,
         )
-        await response(request.scope, request.receive, send)
+
+        try:
+            # This will send headers immediately and establish the SSE connection
+            await response(request.scope, request.receive, send)
+        except Exception as e:
+            logger.exception(f"Error in standalone SSE response: {e}")
+            # Clean up the request stream
+            self._request_streams.pop(GET_STREAM_KEY, None)
 
     async def _handle_delete_request(self, request: Request, send: Send) -> None:
         """Handle DELETE requests for explicit session termination."""
@@ -639,22 +718,20 @@ class StreamableHTTPServerTransport:
                         # For responses, route based on the request ID
                         if isinstance(message.root, JSONRPCResponse):
                             target_request_id = str(message.root.id)
-                        # For notifications, route by related_request_id if available
-                        elif isinstance(message.root, JSONRPCNotification):
-                            # Get related_request_id from params
+                        # For notifications and requests, handle routing logic
+                        elif isinstance(
+                            message.root, JSONRPCNotification
+                        ) or isinstance(message.root, JSONRPCRequest):
                             params = message.root.params
                             if params and "related_request_id" in params:
                                 related_id = params.get("related_request_id")
                                 if related_id is not None:
                                     target_request_id = str(related_id)
 
-                        # Send to the specific request stream if available
-                        if (
-                            target_request_id
-                            and target_request_id in self._request_streams
-                        ):
+                        request_stream_id = target_request_id or GET_STREAM_KEY
+                        if request_stream_id in self._request_streams:
                             try:
-                                await self._request_streams[target_request_id].send(
+                                await self._request_streams[request_stream_id].send(
                                     message
                                 )
                             except (
@@ -662,7 +739,7 @@ class StreamableHTTPServerTransport:
                                 anyio.ClosedResourceError,
                             ):
                                 # Stream might be closed, remove from registry
-                                self._request_streams.pop(target_request_id, None)
+                                self._request_streams.pop(request_stream_id, None)
                 except Exception as e:
                     logger.exception(f"Error in message router: {e}")
 
