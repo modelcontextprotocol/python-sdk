@@ -66,7 +66,6 @@ class InMemoryMessageDispatch:
 
     def __init__(self) -> None:
         self._callbacks: dict[UUID, MessageCallback] = {}
-        # _callbacks tracks active sessions, no need for separate _active_sessions set
 
     async def publish_message(
         self, session_id: UUID, message: types.JSONRPCMessage | str

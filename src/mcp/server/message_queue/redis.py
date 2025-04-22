@@ -42,8 +42,8 @@ class RedisMessageDispatch:
         self._pubsub = self._redis.pubsub(ignore_subscribe_messages=True)  # type: ignore
         self._prefix = prefix
         self._active_sessions_key = f"{prefix}active_sessions"
-        self._callbacks: dict[UUID, MessageCallback] = {}
-        self._task_groups: dict[UUID, TaskGroup] = {}
+        # Maps session IDs to the callback and task group for that SSE session.
+        self._session_state: dict[UUID, tuple[MessageCallback, TaskGroup]] = {}
         # Ensures only one polling task runs at a time for message handling
         self._limiter = CapacityLimiter(1)
         logger.debug(f"Redis message dispatch initialized: {redis_url}")
@@ -56,13 +56,12 @@ class RedisMessageDispatch:
     async def subscribe(self, session_id: UUID, callback: MessageCallback):
         """Request-scoped context manager that subscribes to messages for a session."""
         await self._redis.sadd(self._active_sessions_key, session_id.hex)
-        self._callbacks[session_id] = callback
         channel = self._session_channel(session_id)
         await self._pubsub.subscribe(channel)  # type: ignore
 
         logger.debug(f"Subscribing to Redis channel for session {session_id}")
         async with anyio.create_task_group() as tg:
-            self._task_groups[session_id] = tg
+            self._session_state[session_id] = (callback, tg)
             tg.start_soon(self._listen_for_messages)
             try:
                 yield
@@ -70,8 +69,7 @@ class RedisMessageDispatch:
                 tg.cancel_scope.cancel()
                 await self._pubsub.unsubscribe(channel)  # type: ignore
                 await self._redis.srem(self._active_sessions_key, session_id.hex)
-                del self._callbacks[session_id]
-                del self._task_groups[session_id]
+                del self._session_state[session_id]
                 logger.debug(f"Unsubscribed from Redis channel: {session_id}")
 
     def _extract_session_id(self, channel: str) -> UUID | None:
@@ -114,8 +112,8 @@ class RedisMessageDispatch:
 
                     data: str = cast(str, message["data"])
                     try:
-                        if session_id in self._task_groups:
-                            self._task_groups[session_id].start_soon(
+                        if session_state := self._session_state.get(session_id):
+                            session_state[1].start_soon(
                                 self._handle_message, session_id, data
                             )
                         else:
@@ -127,7 +125,7 @@ class RedisMessageDispatch:
 
     async def _handle_message(self, session_id: UUID, data: str) -> None:
         """Process a message from Redis in the session's task group."""
-        if session_id not in self._callbacks:
+        if (session_state := self._session_state.get(session_id)) is None:
             logger.warning(f"Message dropped: callback removed for {session_id}")
             return
 
@@ -139,7 +137,7 @@ class RedisMessageDispatch:
             except ValidationError as exc:
                 msg_or_error = exc
 
-            await self._callbacks[session_id](msg_or_error)
+            await session_state[0](msg_or_error)
         except Exception as e:
             logger.error(f"Error in message handler for {session_id}: {e}")
 
