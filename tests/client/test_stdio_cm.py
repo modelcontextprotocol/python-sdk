@@ -4,8 +4,7 @@ from mcp import StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 MCP_SERVER = {
-    "command": "uvx",
-    "args": ["mcp-server-fetch"],
+    "command": "tee",
 }
 
 
