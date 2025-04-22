@@ -118,7 +118,7 @@ class RedisMessageDispatch:
                             )
                         else:
                             logger.warning(
-                                f"Message dropped: no task group for session: {session_id}"
+                                f"Message dropped: unknown session {session_id}"
                             )
                     except Exception as e:
                         logger.error(f"Error processing message for {session_id}: {e}")
