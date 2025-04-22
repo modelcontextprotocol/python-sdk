@@ -13,7 +13,7 @@ from starlette.requests import Request
 from starlette.routing import Mount, Route
 
 from mcp.client.session import ClientSession
-from mcp.client.sse import sse_client, remove_request_params
+from mcp.client.sse import remove_request_params, sse_client
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.shared.exceptions import McpError
