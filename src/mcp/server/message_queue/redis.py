@@ -42,6 +42,7 @@ class RedisMessageDispatch:
         self._prefix = prefix
         self._active_sessions_key = f"{prefix}active_sessions"
         self._callbacks: dict[UUID, MessageCallback] = {}
+        self._handlers: dict[UUID, TaskGroup] = {}
         self._limiter = CapacityLimiter(1)
         self._ack_events: dict[str, Event] = {}
 
@@ -69,24 +70,70 @@ class RedisMessageDispatch:
 
         logger.debug(f"Subscribing to Redis channels for session {session_id}")
 
-        # Two nested task groups ensure proper cleanup: the inner one cancels the
-        # listener, while the outer one allows any handlers to complete before exiting.
-        async with anyio.create_task_group() as tg_handler:
-            async with anyio.create_task_group() as tg:
-                tg.start_soon(self._listen_for_messages, tg_handler)
-                try:
-                    yield
-                finally:
-                    tg.cancel_scope.cancel()
-                    await self._pubsub.unsubscribe(session_channel)  # type: ignore
-                    await self._pubsub.unsubscribe(ack_channel)  # type: ignore
-                    await self._redis.srem(self._active_sessions_key, session_id.hex)
-                    del self._callbacks[session_id]
-                    logger.debug(
-                        f"Unsubscribed from Redis channels for session {session_id}"
-                    )
+        # Store the task group for the session
+        async with anyio.create_task_group() as tg:
+            self._handlers[session_id] = tg
+            tg.start_soon(self._listen_for_messages)
+            try:
+                yield
+            finally:
+                tg.cancel_scope.cancel()
+                await self._pubsub.unsubscribe(session_channel)  # type: ignore
+                await self._pubsub.unsubscribe(ack_channel)  # type: ignore
+                await self._redis.srem(self._active_sessions_key, session_id.hex)
+                del self._callbacks[session_id]
+                logger.debug(
+                    f"Unsubscribed from Redis channels for session {session_id}"
+                )
+                del self._handlers[session_id]
 
-    async def _listen_for_messages(self, tg_handler: TaskGroup) -> None:
+    def _parse_ack_channel(self, channel: str) -> UUID | None:
+        """Parse and validate an acknowledgment channel, returning session_id."""
+        ack_prefix = f"{self._prefix}ack:"
+        if not channel.startswith(ack_prefix):
+            return None
+            
+        # Extract exactly what should be a UUID hex after the prefix
+        session_hex = channel[len(ack_prefix):]
+        if len(session_hex) != 32:  # Standard UUID hex length
+            logger.error(f"Invalid UUID length in ack channel: {channel}")
+            return None
+            
+        try:
+            session_id = UUID(hex=session_hex)
+            expected_channel = self._ack_channel(session_id)
+            if channel != expected_channel:
+                logger.error(f"Channel mismatch: got {channel}, expected {expected_channel}")
+                return None
+            return session_id
+        except ValueError:
+            logger.error(f"Invalid UUID hex in ack channel: {channel}")
+            return None
+            
+    def _parse_session_channel(self, channel: str) -> UUID | None:
+        """Parse and validate a session channel, returning session_id."""
+        session_prefix = f"{self._prefix}session:"
+        if not channel.startswith(session_prefix):
+            return None
+            
+        # Extract exactly what should be a UUID hex after the prefix
+        session_hex = channel[len(session_prefix):]
+        if len(session_hex) != 32:  # Standard UUID hex length
+            logger.error(f"Invalid UUID length in session channel: {channel}")
+            return None
+            
+        try:
+            session_id = UUID(hex=session_hex)
+            expected_channel = self._session_channel(session_id)
+            if channel != expected_channel:
+                logger.error(f"Channel mismatch: got {channel}, expected {expected_channel}")
+                return None
+            return session_id
+        except ValueError:
+            logger.error(f"Invalid UUID hex in session channel: {channel}")
+            return None
+
+    async def _listen_for_messages(self) -> None:
         """Background task that listens for messages on subscribed channels."""
         async with self._limiter:
             while True:
@@ -106,41 +153,31 @@ class RedisMessageDispatch:
                     channel: str = cast(str, redis_message["channel"])
                     data: str = cast(str, redis_message["data"])
 
-                    # Handle acknowledgment messages
+                    # Determine which session this message is for
+                    session_id = None
                     if channel.startswith(f"{self._prefix}ack:"):
-                        tg_handler.start_soon(self._handle_ack_message, channel, data)
-                        continue
-
-                    # Handle session messages
+                        session_id = self._parse_ack_channel(channel)
                     elif channel.startswith(f"{self._prefix}session:"):
-                        tg_handler.start_soon(
-                            self._handle_session_message, channel, data
-                        )
+                        session_id = self._parse_session_channel(channel)
+                        
+                    if session_id is None:
+                        logger.debug(f"Ignoring message from channel: {channel}")
                         continue
-
-                    # Ignore other channels
+                        
+                    if session_id not in self._handlers:
+                        logger.warning(f"Dropping message for non-existent session: {session_id}")
+                        continue
+                        
+                    session_tg = self._handlers[session_id]
+                    if channel.startswith(f"{self._prefix}ack:"):
+                        session_tg.start_soon(self._handle_ack_message, channel, data)
                     else:
-                        logger.debug(
-                            f"Ignoring message from non-MCP channel: {channel}"
-                        )
+                        session_tg.start_soon(self._handle_session_message, channel, data)
 
     async def _handle_ack_message(self, channel: str, data: str) -> None:
         """Handle acknowledgment messages received on ack channels."""
-        ack_prefix = f"{self._prefix}ack:"
-        if not channel.startswith(ack_prefix):
-            return
-
-        session_hex = channel[len(ack_prefix) :]
-        try:
-            session_id = UUID(hex=session_hex)
-            expected_channel = self._ack_channel(session_id)
-            if channel != expected_channel:
-                logger.error(
-                    f"Channel mismatch: got {channel}, expected {expected_channel}"
-                )
-                return
-        except ValueError:
-            logger.error(f"Invalid UUID hex in ack channel: {channel}")
+        session_id = self._parse_ack_channel(channel)
+        if session_id is None:
             return
 
         # Extract message ID from data
@@ -151,21 +188,8 @@ class RedisMessageDispatch:
 
     async def _handle_session_message(self, channel: str, data: str) -> None:
         """Handle regular messages received on session channels."""
-        session_prefix = f"{self._prefix}session:"
-        if not channel.startswith(session_prefix):
-            return
-
-        session_hex = channel[len(session_prefix) :]
-        try:
-            session_id = UUID(hex=session_hex)
-            expected_channel = self._session_channel(session_id)
-            if channel != expected_channel:
-                logger.error(
-                    f"Channel mismatch: got {channel}, expected {expected_channel}"
-                )
-                return
-        except ValueError:
-            logger.error(f"Invalid UUID hex in session channel: {channel}")
+        session_id = self._parse_session_channel(channel)
+        if session_id is None:
             return
 
         if session_id not in self._callbacks:
