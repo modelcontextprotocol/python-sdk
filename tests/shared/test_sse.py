@@ -13,7 +13,7 @@ from starlette.requests import Request
 from starlette.routing import Mount, Route
 
 from mcp.client.session import ClientSession
-from mcp.client.sse import sse_client
+from mcp.client.sse import sse_client, remove_request_params
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.shared.exceptions import McpError
@@ -250,3 +250,14 @@ async def test_sse_client_timeout(
         return
 
     pytest.fail("the client should have timed out and returned an error already")
+
+
+def test_remove_request_params():
+    # Removes query parameters
+    assert remove_request_params('http://example.com/test?foo=bar') == 'http://example.com/test'
+    # Removes fragment
+    assert remove_request_params('http://example.com/test#section') == 'http://example.com/test'
+    # Leaves clean URL unchanged
+    assert remove_request_params('http://example.com/test') == 'http://example.com/test'
+    # Works with path only
+    assert remove_request_params('/test/path?x=1') == '/test/path'
