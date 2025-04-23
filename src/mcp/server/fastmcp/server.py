@@ -477,9 +477,9 @@ class FastMCP:
         server = uvicorn.Server(config)
         await server.serve()
 
-    def sse_app(self) -> Starlette:
+    def sse_app(self, mcp_mount_path: str = '') -> Starlette:
         """Return an instance of the SSE server app."""
-        sse = SseServerTransport(self.settings.message_path)
+        sse = SseServerTransport(mcp_mount_path + self.settings.message_path)
 
         async def handle_sse(request: Request) -> None:
             async with sse.connect_sse(

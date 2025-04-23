@@ -372,10 +372,13 @@ from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("My App")
 
+# Customize a mount path 
+mcp_mount_path = '/mcp'
+
 # Mount the SSE server to the existing ASGI server
 app = Starlette(
     routes=[
-        Mount('/', app=mcp.sse_app()),
+        Mount(mcp_mount_path, app=mcp.sse_app(mcp_mount_path=mcp_mount_path)),
     ]
 )
 
