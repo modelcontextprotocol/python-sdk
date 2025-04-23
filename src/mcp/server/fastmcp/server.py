@@ -466,6 +466,7 @@ class FastMCP:
     async def run_sse_async(self) -> None:
         """Run the server using SSE transport."""
         import uvicorn
+
         starlette_app = self.sse_app()
 
         config = uvicorn.Config(
@@ -673,7 +674,10 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
             **extra: Additional structured data to include
         """
         await self.request_context.session.send_log_message(
-            level=level, data=message, logger=logger_name
+            level=level,
+            data=message,
+            logger=logger_name,
+            related_request_id=self.request_id,
         )
 
     @property
