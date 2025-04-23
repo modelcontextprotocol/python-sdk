@@ -277,17 +277,13 @@ class BaseSession(
         a response.
         """
         # Some transport implementations may need to set the related_request_id
-        # to attribute to the notifications to the request that triggered
-        # them.
-        # Update notification meta with related request ID if provided
+        # to attribute to the notifications to the request that triggered them.
         if related_request_id is not None and notification.root.params is not None:
             # Create meta if it doesn't exist
             if notification.root.params.meta is None:
-                # Create meta dict with related_request_id
                 meta_dict = {"related_request_id": related_request_id}
 
             else:
-                # Update existing meta with model_validate to properly handle extra fields
                 meta_dict = notification.root.params.meta.model_dump(
                     by_alias=True, mode="json", exclude_none=True
                 )
