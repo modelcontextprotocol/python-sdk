@@ -75,8 +75,6 @@ async def streamable_client(
                     except Exception as exc:
                         logger.error(f"Error in sse_reader: {exc}")
                         await read_stream_writer.send(exc)
-                    finally:
-                        await read_stream_writer.aclose()
 
                 async def post_writer():
                     nonlocal headers
