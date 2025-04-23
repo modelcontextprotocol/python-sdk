@@ -6,7 +6,6 @@ from types import TracebackType
 from typing import Any, Generic, TypeVar
 
 import anyio
-import anyio.lowlevel
 import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import BaseModel
@@ -24,6 +23,7 @@ from mcp.types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    NotificationParams,
     RequestParams,
     ServerNotification,
     ServerRequest,
@@ -276,8 +276,23 @@ class BaseSession(
         Emits a notification, which is a one-way message that does not expect
         a response.
         """
+        # Some transport implementations may need to set the related_request_id
+        # to attribute to the notifications to the request that triggered
+        # them.
+        # Update notification meta with related request ID if provided
         if related_request_id is not None and notification.root.params is not None:
-            notification.root.params.related_request_id = related_request_id
+            # Create meta if it doesn't exist
+            if notification.root.params.meta is None:
+                # Create meta dict with related_request_id
+                meta_dict = {"related_request_id": related_request_id}
+
+            else:
+                # Update existing meta with model_validate to properly handle extra fields
+                meta_dict = notification.root.params.meta.model_dump(
+                    by_alias=True, mode="json", exclude_none=True
+                )
+                meta_dict["related_request_id"] = related_request_id
+            notification.root.params.meta = NotificationParams.Meta(**meta_dict)
         jsonrpc_notification = JSONRPCNotification(
             jsonrpc="2.0",
             **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
