@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING, Any, get_origin
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
+from mcp.server.fastmcp.utilities.func_metadata import (
+    FuncMetadata,
+    filter_args_by_arg_model,
+    func_metadata,
+)
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -85,10 +89,15 @@ class Tool(BaseModel):
             return await self.fn_metadata.call_fn_with_arg_validation(
                 self.fn,
                 self.is_async,
-                arguments,
-                {self.context_kwarg: context}
-                if self.context_kwarg is not None
-                else None,
+                filter_args_by_arg_model(arguments, self.fn_metadata.arg_model),
+                filter_args_by_arg_model(
+                    arguments, self.fn_metadata.client_provided_arg_model
+                )
+                | (
+                    {self.context_kwarg: context}
+                    if self.context_kwarg is not None
+                    else {}
+                ),
             )
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e

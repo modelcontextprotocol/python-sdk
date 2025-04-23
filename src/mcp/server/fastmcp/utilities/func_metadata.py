@@ -18,6 +18,14 @@ from mcp.server.fastmcp.utilities.logging import get_logger
 logger = get_logger(__name__)
 
 
+class ClientProvidedArg:
+    """A class to annotate an argument that is to be provided by client at call
+    time and to be skipped from JSON schema generation."""
+
+    def __init__(self):
+        pass
+
+
 class ArgModelBase(BaseModel):
     """A model representing the arguments to a function."""
 
@@ -36,8 +44,42 @@ class ArgModelBase(BaseModel):
     )
 
 
+def filter_args_by_arg_model(
+    arguments: dict[str, Any], model_filter: type[ArgModelBase] | None = None
+) -> dict[str, Any]:
+    """Filter the arguments dictionary to only include keys that are present in
+    `model_filter`."""
+    if not model_filter:
+        return arguments
+    filtered_args: dict[str, Any] = {}
+    for key in arguments.keys():
+        if key in model_filter.model_fields.keys():
+            filtered_args[key] = arguments[key]
+    return filtered_args
+
+
 class FuncMetadata(BaseModel):
+    """Metadata about a function, including Pydantic models for argument validation.
+
+    This class manages the arguments required by a function, separating them into two 
+    categories:
+
+    *   `arg_model`: A Pydantic model representing the function's standard arguments. 
+        These arguments will be included in the JSON schema when the tool is listed, 
+        allowing for automatic argument parsing. This defines the structure of the 
+        expected input.
+
+    *   `client_provided_arg_model` (Optional): A Pydantic model representing arguments 
+        that need to be provided directly by the client and will not be included in the 
+        JSON schema. 
+
+    """
+
     arg_model: Annotated[type[ArgModelBase], WithJsonSchema(None)]
+    client_provided_arg_model: (
+        Annotated[type[ArgModelBase], WithJsonSchema(None)] | None
+    ) = None
+
     # We can add things in the future like
     #  - Maybe some args are excluded from attempting to parse from JSON
     #  - Maybe some args are special (like context) for dependency injection
@@ -127,7 +169,8 @@ def func_metadata(
     """
     sig = _get_typed_signature(func)
     params = sig.parameters
-    dynamic_pydantic_model_params: dict[str, Any] = {}
+    dynamic_pydantic_arg_model_params: dict[str, Any] = {}
+    dynamic_pydantic_client_provided_arg_model_params: dict[str, Any] = {}
     globalns = getattr(func, "__globals__", {})
     for param in params.values():
         if param.name.startswith("_"):
@@ -164,15 +207,34 @@ def func_metadata(
             if param.default is not inspect.Parameter.empty
             else PydanticUndefined,
         )
-        dynamic_pydantic_model_params[param.name] = (field_info.annotation, field_info)
-        continue
+
+        # loop through annotations,
+        # use ClientProvidedArg metadata to split the arguments
+        if any(isinstance(m, ClientProvidedArg) for m in field_info.metadata):
+            dynamic_pydantic_client_provided_arg_model_params[param.name] = (
+                field_info.annotation,
+                field_info,
+            )
+        else:
+            dynamic_pydantic_arg_model_params[param.name] = (
+                field_info.annotation,
+                field_info,
+            )
 
     arguments_model = create_model(
         f"{func.__name__}Arguments",
-        **dynamic_pydantic_model_params,
+        **dynamic_pydantic_arg_model_params,
         __base__=ArgModelBase,
     )
-    resp = FuncMetadata(arg_model=arguments_model)
+
+    provided_arguments_model = create_model(
+        f"{func.__name__}ClientProvidedArguments",
+        **dynamic_pydantic_client_provided_arg_model_params,
+        __base__=ArgModelBase,
+    )
+    resp = FuncMetadata(
+        arg_model=arguments_model, client_provided_arg_model=provided_arguments_model
+    )
     return resp
 
 

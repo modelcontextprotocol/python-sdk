@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import Annotated
 
 import pytest
 from pydantic import BaseModel
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools import ToolManager
+from mcp.server.fastmcp.utilities.func_metadata import ClientProvidedArg
 from mcp.server.session import ServerSessionT
 from mcp.shared.context import LifespanContextT
 
@@ -220,6 +222,31 @@ class TestCallTools:
         )
         assert result == ["rex", "gertrude"]
 
+    @pytest.mark.anyio
+    async def test_call_tool_with_client_provided_arg(self):
+        class ClientArgModel(BaseModel):
+            arg1: int
+            arg2: str
+
+        def afunc(args: Annotated[dict, ClientProvidedArg()], ctx: Context) -> str:
+            args_obj = ClientArgModel.model_validate(args)
+            return f"{args_obj.arg1} {args_obj.arg2}"
+
+        manager = ToolManager()
+        manager.add_tool(afunc)
+        result = await manager.call_tool(
+            "afunc",
+            {"args": {"arg1": 3, "arg2": "apple"}},
+        )
+        assert result == "3 apple"
+
+        with pytest.raises(ToolError):
+            # Raises an error because it misses the required args
+            result = await manager.call_tool(
+                "afunc",
+                {},
+            )
+
 
 class TestToolSchema:
     @pytest.mark.anyio
@@ -232,6 +259,18 @@ class TestToolSchema:
         assert "ctx" not in json.dumps(tool.parameters)
         assert "Context" not in json.dumps(tool.parameters)
         assert "ctx" not in tool.fn_metadata.arg_model.model_fields
+
+    @pytest.mark.anyio
+    async def test_client_provided_arg_excluded_from_schema(self):
+        def something(a: int, b: Annotated[int, ClientProvidedArg()]) -> int:
+            return a + b
+
+        manager = ToolManager()
+        tool = manager.add_tool(something)
+        assert "properties" in tool.parameters
+        assert "b" not in tool.parameters["properties"]
+        assert tool.fn_metadata.client_provided_arg_model is not None
+        assert "b" in tool.fn_metadata.client_provided_arg_model.model_fields
 
 
 class TestContextHandling:

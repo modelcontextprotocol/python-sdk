@@ -1,6 +1,6 @@
 import base64
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 import pytest
 from pydantic import AnyUrl
@@ -8,6 +8,7 @@ from pydantic import AnyUrl
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.prompts.base import EmbeddedResource, Message, UserMessage
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
+from mcp.server.fastmcp.utilities.func_metadata import ClientProvidedArg
 from mcp.server.fastmcp.utilities.types import Image
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import (
@@ -106,6 +107,12 @@ def tool_fn(x: int, y: int) -> int:
     return x + y
 
 
+def tool_with_client_provided_args_fn(
+    x: int, y: Annotated[int, ClientProvidedArg()], z: str
+) -> str:
+    return f"{x} + {y} = {z}"
+
+
 def error_tool_fn() -> None:
     raise ValueError("Test error")
 
@@ -128,6 +135,13 @@ class TestServerTools:
         mcp.add_tool(tool_fn)
         mcp.add_tool(tool_fn)
         assert len(mcp._tool_manager.list_tools()) == 1
+
+    @pytest.mark.anyio
+    async def test_add_tool_with_client_provided_arg(self):
+        mcp = FastMCP()
+        mcp.add_tool(tool_fn)
+        mcp.add_tool(tool_with_client_provided_args_fn)
+        assert len(mcp._tool_manager.list_tools()) == 2
 
     @pytest.mark.anyio
     async def test_list_tools(self):

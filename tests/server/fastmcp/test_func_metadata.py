@@ -4,7 +4,7 @@ import annotated_types
 import pytest
 from pydantic import BaseModel, Field
 
-from mcp.server.fastmcp.utilities.func_metadata import func_metadata
+from mcp.server.fastmcp.utilities.func_metadata import ClientProvidedArg, func_metadata
 
 
 class SomeInputModelA(BaseModel):
@@ -414,3 +414,38 @@ def test_str_vs_int():
     result = meta.pre_parse_json({"a": "123", "b": 123})
     assert result["a"] == "123"
     assert result["b"] == 123
+
+
+def test_func_with_client_provided_args():
+    """Test that client-provided arguments are correctly parsed and validated"""
+
+    def func_with_client_provided_args(
+        a: int,
+        b: str,
+        c: Annotated[int, ClientProvidedArg()],
+        d: Annotated[str, ClientProvidedArg()],
+    ):
+        return a, b, c, d
+
+    meta = func_metadata(func_with_client_provided_args)
+
+    # Test schema
+    assert meta.arg_model.model_json_schema() == {
+        "properties": {
+            "a": {"title": "A", "type": "integer"},
+            "b": {"title": "B", "type": "string"},
+        },
+        "required": ["a", "b"],
+        "title": "func_with_client_provided_argsArguments",
+        "type": "object",
+    }
+    assert meta.client_provided_arg_model is not None
+    assert meta.client_provided_arg_model.model_json_schema() == {
+        "properties": {
+            "c": {"title": "C", "type": "integer"},
+            "d": {"title": "D", "type": "string"},
+        },
+        "required": ["c", "d"],
+        "title": "func_with_client_provided_argsClientProvidedArguments",
+        "type": "object",
+    }
