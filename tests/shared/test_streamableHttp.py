@@ -650,8 +650,15 @@ async def http_client(basic_server, basic_server_url):
 @pytest.fixture
 async def initialized_client_session(basic_server, basic_server_url):
     """Create initialized StreamableHTTP client session."""
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as streams:
-        async with ClientSession(*streams) as session:
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(
+            read_stream,
+            write_stream,
+        ) as session:
             await session.initialize()
             yield session
 
@@ -659,8 +666,15 @@ async def initialized_client_session(basic_server, basic_server_url):
 @pytest.mark.anyio
 async def test_streamablehttp_client_basic_connection(basic_server, basic_server_url):
     """Test basic client connection with initialization."""
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as streams:
-        async with ClientSession(*streams) as session:
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(
+            read_stream,
+            write_stream,
+        ) as session:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -709,8 +723,15 @@ async def test_streamablehttp_client_session_persistence(
     basic_server, basic_server_url
 ):
     """Test that session ID persists across requests."""
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as streams:
-        async with ClientSession(*streams) as session:
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(
+            read_stream,
+            write_stream,
+        ) as session:
             # Initialize the session
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -732,8 +753,15 @@ async def test_streamablehttp_client_json_response(
     json_response_server, json_server_url
 ):
     """Test client with JSON response mode."""
-    async with streamablehttp_client(f"{json_server_url}/mcp") as streams:
-        async with ClientSession(*streams) as session:
+    async with streamablehttp_client(f"{json_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(
+            read_stream,
+            write_stream,
+        ) as session:
             # Initialize the session
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -767,8 +795,14 @@ async def test_streamablehttp_client_get_stream(basic_server, basic_server_url):
         if isinstance(message, types.ServerNotification):
             notifications_received.append(message)
 
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as streams:
-        async with ClientSession(*streams, message_handler=message_handler) as session:
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(
+            read_stream, write_stream, message_handler=message_handler
+        ) as session:
             # Initialize the session - this triggers the GET stream setup
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -789,3 +823,33 @@ async def test_streamablehttp_client_get_stream(basic_server, basic_server_url):
             assert (
                 resource_update_found
             ), "ResourceUpdatedNotification not received via GET stream"
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_client_session_termination(
+    basic_server, basic_server_url
+):
+    """Test client session termination functionality."""
+
+    # Create the streamablehttp_client with a custom httpx client to capture headers
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        terminate_session,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            # Initialize the session
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+            # Make a request to confirm session is working
+            tools = await session.list_tools()
+            assert len(tools.tools) == 2
+
+            # After exiting ClientSession context, explicitly terminate the session
+            await terminate_session()
+            with pytest.raises(
+                McpError,
+                match="Session terminated",
+            ):
+                await session.list_tools()

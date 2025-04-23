@@ -14,7 +14,13 @@ import anyio
 import httpx
 from httpx_sse import EventSource, aconnect_sse
 
-from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest
+from mcp.types import (
+    ErrorData,
+    JSONRPCError,
+    JSONRPCMessage,
+    JSONRPCNotification,
+    JSONRPCRequest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +45,9 @@ async def streamablehttp_client(
 
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
+
+    Yields:
+        Tuple of (read_stream, write_stream, terminate_callback)
     """
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream[
@@ -122,9 +131,19 @@ async def streamablehttp_client(
                                                 headers=post_headers,
                                             ) as new_response:
                                                 response = new_response
-                                        else:
-                                            response.raise_for_status()
-
+                                        elif isinstance(message.root, JSONRPCRequest):
+                                            jsonrpc_error = JSONRPCError(
+                                                jsonrpc="2.0",
+                                                id=message.root.id,
+                                                error=ErrorData(
+                                                    code=32600,
+                                                    message="Session terminated",
+                                                ),
+                                            )
+                                            await read_stream_writer.send(
+                                                JSONRPCMessage(jsonrpc_error)
+                                            )
+                                            continue
                                     response.raise_for_status()
 
                                     # Extract session ID from response headers
@@ -204,7 +223,6 @@ async def streamablehttp_client(
 
                     except Exception as exc:
                         logger.error(f"Error in post_writer: {exc}")
-                        await read_stream_writer.send(exc)
                     finally:
                         await read_stream_writer.aclose()
                         await write_stream.aclose()
@@ -223,7 +241,11 @@ async def streamablehttp_client(
                         get_headers[MCP_SESSION_ID_HEADER] = session_id
 
                         async with aconnect_sse(
-                            client, "GET", url, headers=get_headers
+                            client,
+                            "GET",
+                            url,
+                            headers=get_headers,
+                            timeout=httpx.Timeout(timeout, read=sse_read_timeout),
                         ) as event_source:
                             event_source.response.raise_for_status()
                             logger.debug("GET SSE connection established")
@@ -251,8 +273,35 @@ async def streamablehttp_client(
 
                 tg.start_soon(post_writer)
 
+                async def terminate_session():
+                    """
+                    Terminate the session by sending a DELETE request.
+                    """
+                    nonlocal session_id
+                    if not session_id:
+                        return  # No session to terminate
+
+                    try:
+                        delete_headers = request_headers.copy()
+                        delete_headers[MCP_SESSION_ID_HEADER] = session_id
+
+                        response = await client.delete(
+                            url,
+                            headers=delete_headers,
+                        )
+
+                        if response.status_code == 405:
+                            # Server doesn't allow client-initiated termination
+                            logger.debug("Server does not allow session termination")
+                        elif response.status_code != 200:
+                            logger.warning(
+                                f"Session termination failed: {response.status_code}"
+                            )
+                    except Exception as exc:
+                        logger.warning(f"Session termination failed: {exc}")
+
                 try:
-                    yield read_stream, write_stream
+                    yield read_stream, write_stream, terminate_session
                 finally:
                     tg.cancel_scope.cancel()
         finally:
