@@ -10,6 +10,7 @@ from typing import Any
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
+import mcp.types as types
 from mcp.client.session import (
     ClientSession,
     ListRootsFnT,
@@ -65,6 +66,7 @@ async def create_connected_server_and_client_session(
     list_roots_callback: ListRootsFnT | None = None,
     logging_callback: LoggingFnT | None = None,
     message_handler: MessageHandlerFnT | None = None,
+    client_info: types.Implementation | None = None,
     raise_exceptions: bool = False,
 ) -> AsyncGenerator[ClientSession, None]:
     """Creates a ClientSession that is connected to a running MCP server."""
@@ -95,6 +97,7 @@ async def create_connected_server_and_client_session(
                     list_roots_callback=list_roots_callback,
                     logging_callback=logging_callback,
                     message_handler=message_handler,
+                    client_info=client_info,
                 ) as client_session:
                     await client_session.initialize()
                     yield client_session

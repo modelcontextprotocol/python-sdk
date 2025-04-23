@@ -10,6 +10,8 @@ from mcp.shared.context import RequestContext
 from mcp.shared.session import BaseSession, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
+DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
+
 
 class SamplingFnT(Protocol):
     async def __call__(
@@ -97,6 +99,7 @@ class ClientSession(
         list_roots_callback: ListRootsFnT | None = None,
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
+        client_info: types.Implementation | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -105,6 +108,7 @@ class ClientSession(
             types.ServerNotification,
             read_timeout_seconds=read_timeout_seconds,
         )
+        self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
@@ -130,7 +134,7 @@ class ClientSession(
                             experimental=None,
                             roots=roots,
                         ),
-                        clientInfo=types.Implementation(name="mcp", version="0.1.0"),
+                        clientInfo=self._client_info,
                     ),
                 )
             ),
