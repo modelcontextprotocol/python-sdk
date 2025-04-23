@@ -577,11 +577,6 @@ class StreamableHTTPServerTransport:
         """
 
         # Create the memory streams for this connection
-        read_stream: MemoryObjectReceiveStream[JSONRPCMessage | Exception]
-        read_stream_writer: MemoryObjectSendStream[JSONRPCMessage | Exception]
-
-        write_stream: MemoryObjectSendStream[JSONRPCMessage]
-        write_stream_reader: MemoryObjectReceiveStream[JSONRPCMessage]
 
         read_stream_writer, read_stream = anyio.create_memory_object_stream[
             JSONRPCMessage | Exception
