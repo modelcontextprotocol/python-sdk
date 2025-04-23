@@ -29,7 +29,7 @@ dependencies = [
     "starlette>=0.27",
     "sse-starlette>=1.6.1",
     "pydantic-settings>=2.5.2",
-    "uvicorn>=0.23.1",
+    "uvicorn>=0.23.1; sys_platform != 'emscripten'",
 ]
 
 [project.optional-dependencies]
@@ -89,8 +89,8 @@ venv = ".venv"
 strict = ["src/mcp/**/*.py"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
-ignore = []
+select = ["C4", "E", "F", "I", "PERF", "UP"]
+ignore = ["PERF203"]
 
 [tool.ruff]
 line-length = 88
