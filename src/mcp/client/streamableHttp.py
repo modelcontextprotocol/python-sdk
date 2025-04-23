@@ -12,7 +12,6 @@ from typing import Any
 
 import anyio
 import httpx
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, aconnect_sse
 
 from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest
@@ -41,11 +40,6 @@ async def streamablehttp_client(
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
     """
-    read_stream: MemoryObjectReceiveStream[JSONRPCMessage | Exception]
-    read_stream_writer: MemoryObjectSendStream[JSONRPCMessage | Exception]
-
-    write_stream: MemoryObjectSendStream[JSONRPCMessage]
-    write_stream_reader: MemoryObjectReceiveStream[JSONRPCMessage]
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream[
         JSONRPCMessage | Exception
