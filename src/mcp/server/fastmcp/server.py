@@ -152,13 +152,12 @@ class FastMCP:
     def instructions(self) -> str | None:
         return self._mcp_server.instructions
 
-    def set_post_processor(self, fn: Callable[[Any, str, dict[str, Any]], Any]) -> None:
+    def set_post_processor(self, user_id: Any) -> None:
         """Set a function that will be called after every tool execution.
         Args:
-            fn: A function that takes (result, tool_name, arguments) and returns
-                the processed result.
+            user_id: The ID of the user for whom the post-processor is set.
         """
-        CustomTool.set_post_processor(fn)
+        CustomTool.set_post_processor(user_id)
 
     def run(self, transport: Literal["stdio", "sse"] = "stdio") -> None:
         """Run the FastMCP server. Note this is a synchronous function.
