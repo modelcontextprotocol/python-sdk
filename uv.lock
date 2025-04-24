@@ -359,6 +359,20 @@ wheels = [
 ]
 
 [[package]]
+name = "fakeredis"
+version = "2.28.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "redis" },
+    { name = "sortedcontainers" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/60/32/8c1c215e50cb055e24a8d5a8981edab665d131ea9068c420bf81eb0fcb63/fakeredis-2.28.1.tar.gz", hash = "sha256:5e542200b945aa0a7afdc0396efefe3cdabab61bc0f41736cc45f68960255964", size = 161179 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e1/77/bca49c4960c22131da3acb647978983bea07f15c255fbef0a6559a774a7a/fakeredis-2.28.1-py3-none-any.whl", hash = "sha256:38c7c17fba5d5522af9d980a8f74a4da9900a3441e8f25c0fe93ea4205d695d1", size = 113685 },
+]
+
+[[package]]
 name = "ghp-import"
 version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -543,6 +557,7 @@ name = "mcp"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
+    { name = "fakeredis" },
     { name = "httpx" },
     { name = "httpx-sse" },
     { name = "pydantic" },
@@ -588,6 +603,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
+    { name = "fakeredis", specifier = "==2.28.1" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "httpx-sse", specifier = ">=0.4" },
     { name = "pydantic", specifier = ">=2.7.2,<3.0.0" },

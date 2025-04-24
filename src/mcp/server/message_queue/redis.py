@@ -48,6 +48,10 @@ class RedisMessageDispatch:
         self._limiter = CapacityLimiter(1)
         logger.debug(f"Redis message dispatch initialized: {redis_url}")
 
+    async def close(self):
+        await self._pubsub.aclose() # type: ignore
+        await self._redis.aclose() # type: ignore
+
     def _session_channel(self, session_id: UUID) -> str:
         """Get the Redis channel for a session."""
         return f"{self._prefix}session:{session_id.hex}"

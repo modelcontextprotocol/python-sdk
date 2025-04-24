@@ -49,6 +49,7 @@ import mcp.types as types
 from mcp.server.message_queue import InMemoryMessageDispatch, MessageDispatch
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 
 
 class SseServerTransport:

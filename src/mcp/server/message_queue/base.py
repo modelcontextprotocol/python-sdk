@@ -56,6 +56,10 @@ class MessageDispatch(Protocol):
         """
         ...
 
+    async def close(self) -> None:
+        """Close the message dispatch."""
+        ...
+
 
 class InMemoryMessageDispatch:
     """Default in-memory implementation of the MessageDispatch interface.
@@ -106,3 +110,7 @@ class InMemoryMessageDispatch:
     async def session_exists(self, session_id: UUID) -> bool:
         """Check if a session exists."""
         return session_id in self._callbacks
+
+    async def close(self) -> None:
+        """Close the message dispatch."""
+        pass

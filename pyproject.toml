@@ -30,6 +30,7 @@ dependencies = [
     "sse-starlette>=1.6.1",
     "pydantic-settings>=2.5.2",
     "uvicorn>=0.23.1; sys_platform != 'emscripten'",
+    "fakeredis==2.28.1",
 ]
 
 [project.optional-dependencies]

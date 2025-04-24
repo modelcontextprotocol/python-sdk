@@ -2,6 +2,7 @@
 
 from __future__ import annotations as _annotations
 
+from email import message
 import inspect
 import json
 import re
@@ -507,7 +508,14 @@ class FastMCP:
                     streams[0],
                     streams[1],
                     self._mcp_server.create_initialization_options(),
-                )
+                )            
+
+        @asynccontextmanager
+        async def lifespan(app: Starlette):
+            try:
+                yield
+            finally:
+                await message_dispatch.close()
 
         return Starlette(
             debug=self.settings.debug,
@@ -515,6 +523,7 @@ class FastMCP:
                 Route(self.settings.sse_path, endpoint=handle_sse),
                 Mount(self.settings.message_path, app=sse.handle_post_message),
             ],
+            lifespan=lifespan,
         )
 
     async def list_prompts(self) -> list[MCPPrompt]:

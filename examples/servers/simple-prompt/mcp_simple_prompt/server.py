@@ -92,7 +92,11 @@ def main(port: int, transport: str) -> int:
         from starlette.applications import Starlette
         from starlette.routing import Mount, Route
 
-        sse = SseServerTransport("/messages/")
+        from mcp.server.message_queue.redis import RedisMessageDispatch
+
+        message_dispatch = RedisMessageDispatch("redis://localhost:6379/0")
+
+        sse = SseServerTransport("/messages/", message_dispatch=message_dispatch)
 
         async def handle_sse(request):
             async with sse.connect_sse(
