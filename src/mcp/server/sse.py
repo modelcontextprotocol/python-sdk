@@ -32,6 +32,7 @@ See SseServerTransport class documentation for more details.
 """
 
 import logging
+import json
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import quote
@@ -160,7 +161,11 @@ class SseServerTransport:
         logger.debug(f"Received JSON: {body}")
 
         try:
-            message = types.JSONRPCMessage.model_validate_json(body)
+            message_with_session_id = {
+                **json.loads(body),
+                'session_id': str(session_id),
+            }
+            message = types.JSONRPCMessage.model_validate_json(json.dumps(message_with_session_id))
             logger.debug(f"Validated client message: {message}")
         except ValidationError as err:
             logger.error(f"Failed to parse message: {err}")
