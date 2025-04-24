@@ -492,6 +492,7 @@ class Server(Generic[LifespanResultT]):
                     logger.debug(f"Received message: {message}")
                     if (hasattr(message, "request_meta") and 
                         getattr(message, "request_meta")):
+                        message.request_meta = message.request_meta or types.RequestParams.Meta()   # type: ignore
                         message.request_meta.extra_metadata = extra_metadata  # type: ignore
                     tg.start_soon(
                         self._handle_message,
