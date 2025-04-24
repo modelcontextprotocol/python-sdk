@@ -221,8 +221,8 @@ class Server(Generic[LifespanResultT]):
         def decorator(func: Callable[[], Awaitable[list[types.Prompt]]]):
             logger.debug("Registering handler for PromptListRequest")
 
-            async def handler(_: Any):
-                prompts = await func()
+            async def handler(request: types.ListPromptsRequest):
+                prompts = await func(request)
                 return types.ServerResult(types.ListPromptsResult(prompts=prompts))
 
             self.request_handlers[types.ListPromptsRequest] = handler
@@ -251,8 +251,8 @@ class Server(Generic[LifespanResultT]):
         def decorator(func: Callable[[], Awaitable[list[types.Resource]]]):
             logger.debug("Registering handler for ListResourcesRequest")
 
-            async def handler(_: Any):
-                resources = await func()
+            async def handler(request: types.ListResourcesRequest):
+                resources = await func(request)
                 return types.ServerResult(
                     types.ListResourcesResult(resources=resources)
                 )
@@ -266,8 +266,8 @@ class Server(Generic[LifespanResultT]):
         def decorator(func: Callable[[], Awaitable[list[types.ResourceTemplate]]]):
             logger.debug("Registering handler for ListResourceTemplatesRequest")
 
-            async def handler(_: Any):
-                templates = await func()
+            async def handler(request: types.ListResourceTemplatesRequest):
+                templates = await func(request)
                 return types.ServerResult(
                     types.ListResourceTemplatesResult(resourceTemplates=templates)
                 )
@@ -383,8 +383,8 @@ class Server(Generic[LifespanResultT]):
         def decorator(func: Callable[[], Awaitable[list[types.Tool]]]):
             logger.debug("Registering handler for ListToolsRequest")
 
-            async def handler(_: Any):
-                tools = await func()
+            async def handler(request: types.ListToolsRequest):
+                tools = await func(request)
                 return types.ServerResult(types.ListToolsResult(tools=tools))
 
             self.request_handlers[types.ListToolsRequest] = handler
