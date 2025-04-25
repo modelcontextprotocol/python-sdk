@@ -111,27 +111,7 @@ async def streamablehttp_client(
                                         continue
                                     # Check for 404 (session expired/invalid)
                                     if response.status_code == 404:
-                                        if is_initialization and session_id:
-                                            logger.info(
-                                                "Session expired, retrying without ID"
-                                            )
-                                            session_id = None
-                                            post_headers.pop(
-                                                MCP_SESSION_ID_HEADER, None
-                                            )
-                                            # Retry with client.stream
-                                            async with client.stream(
-                                                "POST",
-                                                url,
-                                                json=message.model_dump(
-                                                    by_alias=True,
-                                                    mode="json",
-                                                    exclude_none=True,
-                                                ),
-                                                headers=post_headers,
-                                            ) as new_response:
-                                                response = new_response
-                                        elif isinstance(message.root, JSONRPCRequest):
+                                        if isinstance(message.root, JSONRPCRequest):
                                             jsonrpc_error = JSONRPCError(
                                                 jsonrpc="2.0",
                                                 id=message.root.id,
