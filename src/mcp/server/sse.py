@@ -42,10 +42,9 @@ import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
-from starlette.background import BackgroundTask
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.types import Receive, Scope, Send
+from starlette.types import Receive, Scope, Send, Message
 
 import mcp.types as types
 
@@ -128,7 +127,7 @@ class SseServerTransport:
                         }
                     )
 
-        async def _remove_stream_writer() -> None:
+        async def client_close_handler(message: Message) -> None:
             await read_stream_writer.aclose()
             await write_stream_reader.aclose()
             del self._read_stream_writers[session_id]
@@ -140,7 +139,7 @@ class SseServerTransport:
             response = EventSourceResponse(
                 content=sse_stream_reader,
                 data_sender_callable=sse_writer,
-                background=BackgroundTask(_remove_stream_writer),
+                client_close_handler_callable=client_close_handler,
             )
             logger.debug("Starting SSE response task")
             tg.start_soon(response, scope, receive, send)
