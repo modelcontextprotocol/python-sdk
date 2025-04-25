@@ -511,7 +511,7 @@ class StreamableHTTPServerTransport:
                     async for received_message in standalone_stream_reader:
                         # For the standalone stream, we handle:
                         # - JSONRPCNotification (server sends notifications to client)
-                        # - JSONRPCRequest (server can send requests to client)
+                        # - JSONRPCRequest (server sends requests to client)
                         # We should NOT receive JSONRPCResponse
 
                         # Send the message via SSE
