@@ -426,7 +426,6 @@ class StreamableHTTPServerTransport:
                         async with sse_stream_writer, request_stream_reader:
                             # Process messages from the request-specific stream
                             async for item in request_stream_reader:
-                                # The message router always sends a tuple of (message, event_id)
                                 received_message, event_id = item
 
                                 # Build the event data
@@ -437,7 +436,7 @@ class StreamableHTTPServerTransport:
                                     ),
                                 }
 
-                                # If an event ID was provided, include it in the SSE stream
+                                # If an event ID was provided, include it
                                 if event_id:
                                     event_data["id"] = event_id
 
@@ -869,9 +868,7 @@ class StreamableHTTPServerTransport:
                             event_id = await self._event_store.store_event(
                                 request_stream_id, message
                             )
-                            logger.debug(
-                                f"Stored event {event_id} for stream {request_stream_id} in message router"
-                            )
+                            logger.debug(f"Stored {event_id} from {request_stream_id}")
 
                         if request_stream_id in self._request_streams:
                             try:
