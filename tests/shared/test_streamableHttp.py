@@ -113,15 +113,12 @@ def create_app(is_json_response_enabled=False) -> Starlette:
 
         async with anyio.create_task_group() as tg:
             task_group = tg
-            print("Application started, task group initialized!")
             try:
                 yield
             finally:
-                print("Application shutting down, cleaning up resources...")
                 if task_group:
                     tg.cancel_scope.cancel()
                     task_group = None
-                print("Resources cleaned up successfully.")
 
     async def handle_streamable_http(scope, receive, send):
         request = Request(scope, receive)
@@ -148,14 +145,11 @@ def create_app(is_json_response_enabled=False) -> Starlette:
                     read_stream, write_stream = streams
 
                     async def run_server():
-                        try:
-                            await server.run(
-                                read_stream,
-                                write_stream,
-                                server.create_initialization_options(),
-                            )
-                        except Exception as e:
-                            print(f"Server exception: {e}")
+                        await server.run(
+                            read_stream,
+                            write_stream,
+                            server.create_initialization_options(),
+                        )
 
                     if task_group is None:
                         response = Response(
@@ -196,10 +190,6 @@ def run_server(port: int, is_json_response_enabled=False) -> None:
         port: Port to listen on.
         is_json_response_enabled: If True, use JSON responses instead of SSE streams.
     """
-    print(
-        f"Starting test server on port {port} with "
-        f"json_enabled={is_json_response_enabled}"
-    )
 
     app = create_app(is_json_response_enabled)
     # Configure server
@@ -218,15 +208,11 @@ def run_server(port: int, is_json_response_enabled=False) -> None:
 
     # This is important to catch exceptions and prevent test hangs
     try:
-        print("Server starting...")
         server.run()
-    except Exception as e:
-        print(f"ERROR: Server failed to run: {e}")
+    except Exception:
         import traceback
 
         traceback.print_exc()
-
-    print("Server shutdown")
 
 
 # Test fixtures - using same approach as SSE tests
@@ -273,8 +259,6 @@ def basic_server(basic_server_port: int) -> Generator[None, None, None]:
     # Clean up
     proc.kill()
     proc.join(timeout=2)
-    if proc.is_alive():
-        print("server process failed to terminate")
 
 
 @pytest.fixture
@@ -306,8 +290,6 @@ def json_response_server(json_server_port: int) -> Generator[None, None, None]:
     # Clean up
     proc.kill()
     proc.join(timeout=2)
-    if proc.is_alive():
-        print("server process failed to terminate")
 
 
 @pytest.fixture

@@ -744,9 +744,6 @@ class StreamableHTTPServerTransport:
                         async def send_event(
                             event_id: EventId, message: JSONRPCMessage
                         ) -> None:
-                            print(
-                                "------ REPLAYING EVENT ----------", event_id, message
-                            )
                             await sse_stream_writer.send(
                                 {
                                     "event": "message",
