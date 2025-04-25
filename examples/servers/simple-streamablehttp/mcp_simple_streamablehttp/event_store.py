@@ -8,9 +8,10 @@ not for production use where a persistent storage solution would be more appropr
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from operator import itemgetter
 from uuid import uuid4
 
-from mcp.server.streamableHttp import EventId, EventStore, StreamId
+from mcp.server.streamable_http import EventId, EventStore, StreamId
 from mcp.types import JSONRPCMessage
 
 logger = logging.getLogger(__name__)
@@ -54,14 +55,18 @@ class InMemoryEventStore(EventStore):
         stream_id, _, last_timestamp = self.events[last_event_id]
 
         # Find all events for this stream after the last event
-        events_to_replay = [
-            (event_id, message)
-            for event_id, (sid, message, timestamp) in self.events.items()
-            if sid == stream_id and timestamp > last_timestamp
-        ]
+        events_sorted = sorted(
+            [
+                (event_id, message, timestamp)
+                for event_id, (sid, message, timestamp) in self.events.items()
+                if sid == stream_id and timestamp > last_timestamp
+            ],
+            key=itemgetter(2),
+        )
 
-        # Sort by timestamp to ensure chronological order
-        events_to_replay.sort(key=lambda x: self.events[x[0]][2])
+        events_to_replay = [
+            (event_id, message) for event_id, message, _ in events_sorted
+        ]
 
         logger.debug(f"Found {len(events_to_replay)} events to replay")
         logger.debug(

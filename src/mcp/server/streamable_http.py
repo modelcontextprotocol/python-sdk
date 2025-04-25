@@ -373,8 +373,7 @@ class StreamableHTTPServerTransport:
                     response_message = None
 
                     # Use similar approach to SSE writer for consistency
-                    async for item in request_stream_reader:
-                        received_message, _ = item  # Extract message, ignore event_id
+                    async for received_message, _ in request_stream_reader:
                         # If it's a response, this is what we're waiting for
                         if isinstance(
                             received_message.root, JSONRPCResponse | JSONRPCError
@@ -425,9 +424,10 @@ class StreamableHTTPServerTransport:
                     try:
                         async with sse_stream_writer, request_stream_reader:
                             # Process messages from the request-specific stream
-                            async for item in request_stream_reader:
-                                received_message, event_id = item
-
+                            async for (
+                                received_message,
+                                event_id,
+                            ) in request_stream_reader:
                                 # Build the event data
                                 event_data = {
                                     "event": "message",
