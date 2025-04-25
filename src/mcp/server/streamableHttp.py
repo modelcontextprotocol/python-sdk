@@ -10,7 +10,8 @@ responses, with streaming support for long-running operations.
 import json
 import logging
 import re
-from collections.abc import AsyncGenerator
+from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from typing import Any
@@ -57,6 +58,50 @@ GET_STREAM_KEY = "_GET_stream"
 # Pattern ensures entire string contains only valid characters by using ^ and $ anchors
 SESSION_ID_PATTERN = re.compile(r"^[\x21-\x7E]+$")
 
+# Type aliases
+StreamId = str
+EventId = str
+
+
+class EventStore(ABC):
+    """
+    Interface for resumability support via event storage.
+    """
+
+    @abstractmethod
+    async def store_event(
+        self, stream_id: StreamId, message: JSONRPCMessage
+    ) -> EventId:
+        """
+        Stores an event for later retrieval.
+
+        Args:
+            stream_id: ID of the stream the event belongs to
+            message: The JSON-RPC message to store
+
+        Returns:
+            The generated event ID for the stored event
+        """
+        pass
+
+    @abstractmethod
+    async def replay_events_after(
+        self,
+        last_event_id: EventId,
+        send_callback: Callable[[EventId, JSONRPCMessage], Awaitable[None]],
+    ) -> StreamId:
+        """
+        Replays events that occurred after the specified event ID.
+
+        Args:
+            last_event_id: The ID of the last event the client received
+            send_callback: A callback function to send events to the client
+
+        Returns:
+            The stream ID of the replayed events
+        """
+        pass
+
 
 class StreamableHTTPServerTransport:
     """
@@ -76,6 +121,7 @@ class StreamableHTTPServerTransport:
         self,
         mcp_session_id: str | None,
         is_json_response_enabled: bool = False,
+        event_store: EventStore | None = None,
     ) -> None:
         """
         Initialize a new StreamableHTTP server transport.
@@ -85,6 +131,9 @@ class StreamableHTTPServerTransport:
                             Must contain only visible ASCII characters (0x21-0x7E).
             is_json_response_enabled: If True, return JSON responses for requests
                                     instead of SSE streams. Default is False.
+            event_store: Event store for resumability support. If provided,
+                        resumability will be enabled, allowing clients to
+                        reconnect and resume messages.
 
         Raises:
             ValueError: If the session ID contains invalid characters.
@@ -98,8 +147,9 @@ class StreamableHTTPServerTransport:
 
         self.mcp_session_id = mcp_session_id
         self.is_json_response_enabled = is_json_response_enabled
+        self._event_store = event_store
         self._request_streams: dict[
-            RequestId, MemoryObjectSendStream[JSONRPCMessage]
+            RequestId, MemoryObjectSendStream[tuple[JSONRPCMessage, str | None]]
         ] = {}
         self._terminated = False
 
@@ -308,7 +358,7 @@ class StreamableHTTPServerTransport:
             request_id = str(message.root.id)
             # Create promise stream for getting response
             request_stream_writer, request_stream_reader = (
-                anyio.create_memory_object_stream[JSONRPCMessage](0)
+                anyio.create_memory_object_stream[tuple[JSONRPCMessage, str | None]](0)
             )
 
             # Register this stream for the request ID
@@ -323,7 +373,8 @@ class StreamableHTTPServerTransport:
                     response_message = None
 
                     # Use similar approach to SSE writer for consistency
-                    async for received_message in request_stream_reader:
+                    async for item in request_stream_reader:
+                        received_message, _ = item  # Extract message, ignore event_id
                         # If it's a response, this is what we're waiting for
                         if isinstance(
                             received_message.root, JSONRPCResponse | JSONRPCError
@@ -374,7 +425,10 @@ class StreamableHTTPServerTransport:
                     try:
                         async with sse_stream_writer, request_stream_reader:
                             # Process messages from the request-specific stream
-                            async for received_message in request_stream_reader:
+                            async for item in request_stream_reader:
+                                # The message router always sends a tuple of (message, event_id)
+                                received_message, event_id = item
+
                                 # Build the event data
                                 event_data = {
                                     "event": "message",
@@ -382,6 +436,10 @@ class StreamableHTTPServerTransport:
                                         by_alias=True, exclude_none=True
                                     ),
                                 }
+
+                                # If an event ID was provided, include it in the SSE stream
+                                if event_id:
+                                    event_data["id"] = event_id
 
                                 await sse_stream_writer.send(event_data)
 
@@ -472,6 +530,12 @@ class StreamableHTTPServerTransport:
 
         if not await self._validate_session(request, send):
             return
+        # Handle resumability: check for Last-Event-ID header
+        if self._event_store:
+            last_event_id = request.headers.get(LAST_EVENT_ID_HEADER)
+            if last_event_id:
+                await self._replay_events(last_event_id, request, send)
+                return
 
         headers = {
             "Cache-Control": "no-cache, no-transform",
@@ -500,7 +564,9 @@ class StreamableHTTPServerTransport:
             try:
                 # Create a standalone message stream for server-initiated messages
                 standalone_stream_writer, standalone_stream_reader = (
-                    anyio.create_memory_object_stream[JSONRPCMessage](0)
+                    anyio.create_memory_object_stream[
+                        tuple[JSONRPCMessage, str | None]
+                    ](0)
                 )
 
                 # Register this stream using the special key
@@ -508,7 +574,10 @@ class StreamableHTTPServerTransport:
 
                 async with sse_stream_writer, standalone_stream_reader:
                     # Process messages from the standalone stream
-                    async for received_message in standalone_stream_reader:
+                    async for item in standalone_stream_reader:
+                        # The message router always sends a tuple of (message, event_id)
+                        received_message, event_id = item
+
                         # For the standalone stream, we handle:
                         # - JSONRPCNotification (server sends notifications to client)
                         # - JSONRPCRequest (server sends requests to client)
@@ -521,6 +590,10 @@ class StreamableHTTPServerTransport:
                                 by_alias=True, exclude_none=True
                             ),
                         }
+
+                        # If an event ID was provided, include it in the SSE stream
+                        if event_id:
+                            event_data["id"] = event_id
 
                         await sse_stream_writer.send(event_data)
             except Exception as e:
@@ -639,6 +712,102 @@ class StreamableHTTPServerTransport:
 
         return True
 
+    async def _replay_events(
+        self, last_event_id: str, request: Request, send: Send
+    ) -> None:
+        """
+        Replays events that would have been sent after the specified event ID.
+        Only used when resumability is enabled.
+        """
+        event_store = self._event_store
+        if not event_store:
+            return
+
+        try:
+            headers = {
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "Content-Type": CONTENT_TYPE_SSE,
+            }
+
+            if self.mcp_session_id:
+                headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
+
+            # Create SSE stream for replay
+            sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[
+                dict[str, Any]
+            ](0)
+
+            async def replay_sender():
+                try:
+                    async with sse_stream_writer:
+                        # Define an async callback for sending events
+                        async def send_event(
+                            event_id: EventId, message: JSONRPCMessage
+                        ) -> None:
+                            print(
+                                "------ REPLAYING EVENT ----------", event_id, message
+                            )
+                            await sse_stream_writer.send(
+                                {
+                                    "event": "message",
+                                    "id": event_id,
+                                    "data": message.model_dump_json(
+                                        by_alias=True, exclude_none=True
+                                    ),
+                                }
+                            )
+
+                        # Replay past events and get the stream ID
+                        stream_id = await event_store.replay_events_after(
+                            last_event_id, send_event
+                        )
+
+                        # If stream ID not in mapping, create it
+                        if stream_id and stream_id not in self._request_streams:
+                            msg_writer, msg_reader = anyio.create_memory_object_stream[
+                                tuple[JSONRPCMessage, str | None]
+                            ](0)
+                            self._request_streams[stream_id] = msg_writer
+
+                            # Forward messages to SSE
+                            async with msg_reader:
+                                async for item in msg_reader:
+                                    message, event_id = item
+
+                                    await sse_stream_writer.send(
+                                        {
+                                            "event": "message",
+                                            "id": event_id,
+                                            "data": message.model_dump_json(
+                                                by_alias=True, exclude_none=True
+                                            ),
+                                        }
+                                    )
+                except Exception as e:
+                    logger.exception(f"Error in replay sender: {e}")
+
+            # Create and start EventSourceResponse
+            response = EventSourceResponse(
+                content=sse_stream_reader,
+                data_sender_callable=replay_sender,
+                headers=headers,
+            )
+
+            try:
+                await response(request.scope, request.receive, send)
+            except Exception as e:
+                logger.exception(f"Error in replay response: {e}")
+
+        except Exception as e:
+            logger.exception(f"Error replaying events: {e}")
+            response = self._create_error_response(
+                f"Error replaying events: {str(e)}",
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                INTERNAL_ERROR,
+            )
+            await response(request.scope, request.receive, send)
+
     @asynccontextmanager
     async def connect(
         self,
@@ -691,10 +860,24 @@ class StreamableHTTPServerTransport:
                             target_request_id = str(message.root.id)
 
                         request_stream_id = target_request_id or GET_STREAM_KEY
+
+                        # Store the event if we have an event store,
+                        # regardless of whether a client is connected
+                        # messages will be replayed on the re-connect
+                        event_id = None
+                        if self._event_store:
+                            event_id = await self._event_store.store_event(
+                                request_stream_id, message
+                            )
+                            logger.debug(
+                                f"Stored event {event_id} for stream {request_stream_id} in message router"
+                            )
+
                         if request_stream_id in self._request_streams:
                             try:
+                                # Send both the message and the event ID
                                 await self._request_streams[request_stream_id].send(
-                                    message
+                                    (message, event_id)
                                 )
                             except (
                                 anyio.BrokenResourceError,

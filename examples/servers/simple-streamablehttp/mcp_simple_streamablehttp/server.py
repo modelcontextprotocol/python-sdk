@@ -17,11 +17,23 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount
 
+from .event_store import InMemoryEventStore
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
 # Global task group that will be initialized in the lifespan
 task_group = None
+
+# Event store for resumability
+# The InMemoryEventStore enables resumability support for StreamableHTTP transport.
+# It stores SSE events with unique IDs, allowing clients to:
+#   1. Receive event IDs for each SSE message
+#   2. Resume streams by sending Last-Event-ID in GET requests
+#   3. Replay missed events after reconnection
+# Note: This in-memory implementation is for demonstration ONLY.
+# For production, use a persistent storage solution.
+event_store = InMemoryEventStore()
 
 
 @contextlib.asynccontextmanager
@@ -79,9 +91,14 @@ def main(
 
         # Send the specified number of notifications with the given interval
         for i in range(count):
+            # Include more detailed message for resumability demonstration
+            notification_msg = (
+                f"[{i+1}/{count}] Event from '{caller}' - "
+                f"Use Last-Event-ID to resume if disconnected"
+            )
             await ctx.session.send_log_message(
                 level="info",
-                data=f"Notification {i+1}/{count} from caller: {caller}",
+                data=notification_msg,
                 logger="notification_stream",
                 # Associates this notification with the original request
                 # Ensures notifications are sent to the correct response stream
@@ -90,6 +107,7 @@ def main(
                 # - nowhere (if GET request isn't supported)
                 related_request_id=ctx.request_id,
             )
+            logger.debug(f"Sent notification {i+1}/{count} for caller: {caller}")
             if i < count - 1:  # Don't wait after the last notification
                 await anyio.sleep(interval)
 
@@ -163,8 +181,10 @@ def main(
                 http_transport = StreamableHTTPServerTransport(
                     mcp_session_id=new_session_id,
                     is_json_response_enabled=json_response,
+                    event_store=event_store,  # Enable resumability
                 )
                 server_instances[http_transport.mcp_session_id] = http_transport
+                logger.info(f"Created new transport with session ID: {new_session_id}")
             async with http_transport.connect() as streams:
                 read_stream, write_stream = streams
 
