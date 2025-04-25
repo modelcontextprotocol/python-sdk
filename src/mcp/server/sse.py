@@ -44,7 +44,7 @@ from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.types import Receive, Scope, Send, Message
+from starlette.types import Message, Receive, Scope, Send
 
 import mcp.types as types
 
@@ -139,7 +139,7 @@ class SseServerTransport:
             response = EventSourceResponse(
                 content=sse_stream_reader,
                 data_sender_callable=sse_writer,
-                client_close_handler_callable=client_close_handler,
+                client_close_handler_callable=client_close_handler,  # type: ignore[arg-type]
             )
             logger.debug("Starting SSE response task")
             tg.start_soon(response, scope, receive, send)
