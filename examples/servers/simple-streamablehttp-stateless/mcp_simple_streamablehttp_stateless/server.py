@@ -148,10 +148,6 @@ def main(
             # Start server task
             task_group.start_soon(run_server)
 
-            # Small delay to allow the server task to start
-            # This helps prevent race conditions in stateless mode
-            await anyio.sleep(0.001)
-
             # Handle the HTTP request and return the response
             await http_transport.handle_request(scope, receive, send)
 
