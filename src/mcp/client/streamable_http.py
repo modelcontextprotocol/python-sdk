@@ -8,6 +8,7 @@ and session management.
 
 import logging
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from typing import Any
 
 import anyio
@@ -37,8 +38,8 @@ CONTENT_TYPE_SSE = "text/event-stream"
 async def streamablehttp_client(
     url: str,
     headers: dict[str, Any] | None = None,
-    timeout: float = 30,
-    sse_read_timeout: float = 60 * 5,
+    timeout: timedelta = timedelta(seconds=30),
+    sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
 ):
     """
     Client transport for StreamableHTTP.
@@ -71,7 +72,9 @@ async def streamablehttp_client(
             session_id: str | None = None
 
             async with httpx.AsyncClient(
-                headers=request_headers, timeout=timeout, follow_redirects=True
+                headers=request_headers,
+                timeout=httpx.Timeout(timeout.seconds, read=sse_read_timeout.seconds),
+                follow_redirects=True,
             ) as client:
 
                 async def post_writer():
@@ -225,7 +228,9 @@ async def streamablehttp_client(
                             "GET",
                             url,
                             headers=get_headers,
-                            timeout=httpx.Timeout(timeout, read=sse_read_timeout),
+                            timeout=httpx.Timeout(
+                                timeout.seconds, read=sse_read_timeout.seconds
+                            ),
                         ) as event_source:
                             event_source.response.raise_for_status()
                             logger.debug("GET SSE connection established")
