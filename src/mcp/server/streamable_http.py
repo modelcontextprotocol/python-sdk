@@ -13,8 +13,8 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Any
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -63,17 +63,14 @@ StreamId = str
 EventId = str
 
 
+@dataclass
 class EventMessage:
     """
     A JSONRPCMessage with an optional event ID for stream resumability.
     """
 
     message: JSONRPCMessage
-    event_id: str | None
-
-    def __init__(self, message: JSONRPCMessage, event_id: str | None = None):
-        self.message = message
-        self.event_id = event_id
+    event_id: str | None = None
 
 
 EventCallback = Callable[[EventMessage], Awaitable[None]]
@@ -225,6 +222,21 @@ class StreamableHTTPServerTransport:
     def _get_session_id(self, request: Request) -> str | None:
         """Extract the session ID from request headers."""
         return request.headers.get(MCP_SESSION_ID_HEADER)
+
+    def _create_event_data(self, event_message: EventMessage) -> dict[str, str]:
+        """Create event data dictionary from an EventMessage."""
+        event_data = {
+            "event": "message",
+            "data": event_message.message.model_dump_json(
+                by_alias=True, exclude_none=True
+            ),
+        }
+
+        # If an event ID was provided, include it
+        if event_message.event_id:
+            event_data["id"] = event_message.event_id
+
+        return event_data
 
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Application entry point that handles all HTTP requests"""
@@ -434,7 +446,7 @@ class StreamableHTTPServerTransport:
             else:
                 # Create SSE stream
                 sse_stream_writer, sse_stream_reader = (
-                    anyio.create_memory_object_stream[dict[str, Any]](0)
+                    anyio.create_memory_object_stream[dict[str, str]](0)
                 )
 
                 async def sse_writer():
@@ -444,17 +456,7 @@ class StreamableHTTPServerTransport:
                             # Process messages from the request-specific stream
                             async for event_message in request_stream_reader:
                                 # Build the event data
-                                event_data = {
-                                    "event": "message",
-                                    "data": event_message.message.model_dump_json(
-                                        by_alias=True, exclude_none=True
-                                    ),
-                                }
-
-                                # If an event ID was provided, include it
-                                if event_message.event_id:
-                                    event_data["id"] = event_message.event_id
-
+                                event_data = self._create_event_data(event_message)
                                 await sse_stream_writer.send(event_data)
 
                                 # If response, remove from pending streams and close
@@ -571,7 +573,7 @@ class StreamableHTTPServerTransport:
 
         # Create SSE stream
         sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[
-            dict[str, Any]
+            dict[str, str]
         ](0)
 
         async def standalone_sse_writer():
@@ -593,17 +595,7 @@ class StreamableHTTPServerTransport:
                         # We should NOT receive JSONRPCResponse
 
                         # Send the message via SSE
-                        event_data = {
-                            "event": "message",
-                            "data": event_message.message.model_dump_json(
-                                by_alias=True, exclude_none=True
-                            ),
-                        }
-
-                        # If an event ID was provided, include it in the SSE stream
-                        if event_message.event_id:
-                            event_data["id"] = event_message.event_id
-
+                        event_data = self._create_event_data(event_message)
                         await sse_stream_writer.send(event_data)
             except Exception as e:
                 logger.exception(f"Error in standalone SSE writer: {e}")
@@ -744,7 +736,7 @@ class StreamableHTTPServerTransport:
 
             # Create SSE stream for replay
             sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[
-                dict[str, Any]
+                dict[str, str]
             ](0)
 
             async def replay_sender():
@@ -752,15 +744,8 @@ class StreamableHTTPServerTransport:
                     async with sse_stream_writer:
                         # Define an async callback for sending events
                         async def send_event(event_message: EventMessage) -> None:
-                            await sse_stream_writer.send(
-                                {
-                                    "event": "message",
-                                    "id": event_message.event_id,
-                                    "data": event_message.message.model_dump_json(
-                                        by_alias=True, exclude_none=True
-                                    ),
-                                }
-                            )
+                            event_data = self._create_event_data(event_message)
+                            await sse_stream_writer.send(event_data)
 
                         # Replay past events and get the stream ID
                         stream_id = await event_store.replay_events_after(
@@ -777,16 +762,9 @@ class StreamableHTTPServerTransport:
                             # Forward messages to SSE
                             async with msg_reader:
                                 async for event_message in msg_reader:
-                                    event_data = event_message.message.model_dump_json(
-                                        by_alias=True, exclude_none=True
-                                    )
-                                    await sse_stream_writer.send(
-                                        {
-                                            "event": "message",
-                                            "id": event_message.event_id,
-                                            "data": event_data,
-                                        }
-                                    )
+                                    event_data = self._create_event_data(event_message)
+
+                                    await sse_stream_writer.send(event_data)
                 except Exception as e:
                     logger.exception(f"Error in replay sender: {e}")
 
