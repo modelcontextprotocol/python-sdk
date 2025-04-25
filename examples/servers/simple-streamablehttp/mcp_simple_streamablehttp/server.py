@@ -83,6 +83,11 @@ def main(
                 level="info",
                 data=f"Notification {i+1}/{count} from caller: {caller}",
                 logger="notification_stream",
+                # Associates this notification with the original request
+                # Ensures notifications are sent to the correct response stream
+                # Without this, notifications will either go to:
+                # - a standalone SSE stream (if GET request is supported)
+                # - nowhere (if GET request isn't supported)
                 related_request_id=ctx.request_id,
             )
             if i < count - 1:  # Don't wait after the last notification

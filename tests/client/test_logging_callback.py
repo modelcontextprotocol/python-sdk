@@ -9,6 +9,7 @@ from mcp.shared.memory import (
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     LoggingMessageNotificationParams,
+    NotificationParams,
     TextContent,
 )
 
@@ -78,6 +79,11 @@ async def test_logging_callback():
         )
         assert log_result.isError is False
         assert len(logging_collector.log_messages) == 1
-        assert logging_collector.log_messages[0] == LoggingMessageNotificationParams(
-            level="info", logger="test_logger", data="Test log message"
-        )
+        # Create meta object with related_request_id added dynamically
+        meta = NotificationParams.Meta()
+        setattr(meta, "related_request_id", "2")
+        log = logging_collector.log_messages[0]
+        assert log.level == "info"
+        assert log.logger == "test_logger"
+        assert log.data == "Test log message"
+        assert log.meta == meta
