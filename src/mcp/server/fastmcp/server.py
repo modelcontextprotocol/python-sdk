@@ -552,7 +552,8 @@ def _convert_to_content(
 
     if not isinstance(result, str):
         try:
-            result = json.dumps(pydantic_core.to_jsonable_python(result), ensure_ascii=False)
+            result = json.dumps(pydantic_core.to_jsonable_python(result)
+                                , ensure_ascii=False)
         except Exception:
             result = str(result)
 
