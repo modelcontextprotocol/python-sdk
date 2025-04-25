@@ -7,7 +7,7 @@ import anyio
 import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
-from mcp.server.streamableHttp import (
+from mcp.server.streamable_http import (
     MCP_SESSION_ID_HEADER,
     StreamableHTTPServerTransport,
 )

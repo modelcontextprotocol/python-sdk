@@ -24,9 +24,9 @@ from starlette.responses import Response
 from starlette.routing import Mount
 
 from mcp.client.session import ClientSession
-from mcp.client.streamableHttp import streamablehttp_client
+from mcp.client.streamable_http import streamablehttp_client
 from mcp.server import Server
-from mcp.server.streamableHttp import (
+from mcp.server.streamable_http import (
     MCP_SESSION_ID_HEADER,
     SESSION_ID_PATTERN,
     StreamableHTTPServerTransport,
