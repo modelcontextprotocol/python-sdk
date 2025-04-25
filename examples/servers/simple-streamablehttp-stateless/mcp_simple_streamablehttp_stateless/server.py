@@ -141,8 +141,9 @@ def main(
                     read_stream,
                     write_stream,
                     app.create_initialization_options(),
-                    # This allows the server to run without waiting for initialization
-                    require_initialization=False,
+                    # Runs in standalone mode for stateless deployments
+                    # where clients perform initialization with any node
+                    standalone_mode=True,
                 )
 
             # Start server task

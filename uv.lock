@@ -489,7 +489,7 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "1.6.1.dev22+6c9c320"
+
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
