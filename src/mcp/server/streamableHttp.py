@@ -577,11 +577,6 @@ class StreamableHTTPServerTransport:
         """
 
         # Create the memory streams for this connection
-        read_stream: MemoryObjectReceiveStream[JSONRPCMessage | Exception]
-        read_stream_writer: MemoryObjectSendStream[JSONRPCMessage | Exception]
-
-        write_stream: MemoryObjectSendStream[JSONRPCMessage]
-        write_stream_reader: MemoryObjectReceiveStream[JSONRPCMessage]
 
         read_stream_writer, read_stream = anyio.create_memory_object_stream[
             JSONRPCMessage | Exception
@@ -605,10 +600,13 @@ class StreamableHTTPServerTransport:
                         if isinstance(
                             message.root, JSONRPCNotification | JSONRPCRequest
                         ):
-                            # Extract related_request_id from params if it exists
-                            if (params := getattr(message.root, "params", None)) and (
-                                related_id := params.get("related_request_id")
-                            ) is not None:
+                            # Extract related_request_id from meta if it exists
+                            if (
+                                (params := getattr(message.root, "params", None))
+                                and (meta := params.get("_meta"))
+                                and (related_id := meta.get("related_request_id"))
+                                is not None
+                            ):
                                 target_request_id = str(related_id)
                         else:
                             target_request_id = str(message.root.id)
