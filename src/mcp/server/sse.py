@@ -123,12 +123,16 @@ class SseServerTransport:
         async def handle_see_disconnect(message: Message) -> None:
             logger.debug(f"Disconnect sse {session_id}")
             del self._read_stream_writers[session_id]
+            await read_stream.aclose()
+            await read_stream_writer.aclose()
+            await write_stream.aclose()
+            await write_stream_reader.aclose()
 
         async with anyio.create_task_group() as tg:
             response = EventSourceResponse(
                 content=sse_stream_reader,
                 data_sender_callable=sse_writer,
-                client_close_handler_callable=handle_see_disconnect,  # type: ignore
+                client_close_handler_callable=handle_see_disconnect  # type: ignore
             )
             logger.debug("Starting SSE response task")
             tg.start_soon(response, scope, receive, send)
