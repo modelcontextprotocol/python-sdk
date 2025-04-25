@@ -141,16 +141,13 @@ def main(
                     read_stream,
                     write_stream,
                     app.create_initialization_options(),
-                    # This allows the server to run without waiting for initialization
-                    require_initialization=False,
+                    # Runs in standalone mode for stateless deployments
+                    # where clients perform initialization with any node
+                    standalone_mode=True,
                 )
 
             # Start server task
             task_group.start_soon(run_server)
-
-            # Small delay to allow the server task to start
-            # This helps prevent race conditions in stateless mode
-            await anyio.sleep(0.001)
 
             # Handle the HTTP request and return the response
             await http_transport.handle_request(scope, receive, send)

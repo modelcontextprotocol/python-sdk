@@ -58,7 +58,6 @@ class NotificationParams(BaseModel):
         model_config = ConfigDict(extra="allow")
 
     meta: Meta | None = Field(alias="_meta", default=None)
-    related_request_id: RequestId | None = None
     """
     This parameter name is reserved by MCP to allow clients and servers to attach
     additional metadata to their notifications.
