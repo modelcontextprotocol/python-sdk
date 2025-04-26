@@ -38,25 +38,16 @@ class ToolManager:
     ) -> Tool:
         """Add a tool to the server."""
         tool = Tool.from_function(fn, name=name, description=description)
+        return self._add_tool(tool)
+
+    def _add_tool(self, tool: Tool) -> Tool:
         existing = self._tools.get(tool.name)
         if existing:
             if self.warn_on_duplicate_tools:
                 logger.warning(f"Tool already exists: {tool.name}")
-            return existing
+                return existing
         self._tools[tool.name] = tool
         return tool
-
-    def add_tool(
-        self,
-        tool: Tool
-    ) -> Tool:
-    existing = self._tools.get(tool.name)
-    if existing:
-        if self.warn_on_duplicate_tools:
-            logger.warning(f"Tool already exists: {tool.name}")
-            return existing
-    self._tools[tool.name] = tool
-    return tool
 
     async def call_tool(
         self,
