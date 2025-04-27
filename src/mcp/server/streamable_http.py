@@ -24,6 +24,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+from mcp.shared.message import SessionMessage
 from mcp.types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
@@ -125,10 +126,10 @@ class StreamableHTTPServerTransport:
     """
 
     # Server notification streams for POST requests as well as standalone SSE stream
-    _read_stream_writer: MemoryObjectSendStream[JSONRPCMessage | Exception] | None = (
+    _read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception] | None = (
         None
     )
-    _write_stream_reader: MemoryObjectReceiveStream[JSONRPCMessage] | None = None
+    _write_stream_reader: MemoryObjectReceiveStream[SessionMessage] | None = None
 
     def __init__(
         self,
@@ -378,7 +379,8 @@ class StreamableHTTPServerTransport:
                 await response(scope, receive, send)
 
                 # Process the message after sending the response
-                await writer.send(message)
+                session_message = SessionMessage(message)
+                await writer.send(session_message)
 
                 return
 
@@ -394,7 +396,8 @@ class StreamableHTTPServerTransport:
 
             if self.is_json_response_enabled:
                 # Process the message
-                await writer.send(message)
+                session_message = SessionMessage(message)
+                await writer.send(session_message)
                 try:
                     # Process messages from the request-specific stream
                     # We need to collect all messages until we get a response
@@ -500,7 +503,8 @@ class StreamableHTTPServerTransport:
                     async with anyio.create_task_group() as tg:
                         tg.start_soon(response, scope, receive, send)
                         # Then send the message to be processed by the server
-                        await writer.send(message)
+                        session_message = SessionMessage(message)
+                        await writer.send(session_message)
                 except Exception:
                     logger.exception("SSE response error")
                     # Clean up the request stream if something goes wrong
@@ -516,7 +520,7 @@ class StreamableHTTPServerTransport:
             )
             await response(scope, receive, send)
             if writer:
-                await writer.send(err)
+                await writer.send(Exception(err))
             return
 
     async def _handle_get_request(self, request: Request, send: Send) -> None:
@@ -794,8 +798,8 @@ class StreamableHTTPServerTransport:
         self,
     ) -> AsyncGenerator[
         tuple[
-            MemoryObjectReceiveStream[JSONRPCMessage | Exception],
-            MemoryObjectSendStream[JSONRPCMessage],
+            MemoryObjectReceiveStream[SessionMessage | Exception],
+            MemoryObjectSendStream[SessionMessage],
         ],
         None,
     ]:
@@ -808,10 +812,10 @@ class StreamableHTTPServerTransport:
         # Create the memory streams for this connection
 
         read_stream_writer, read_stream = anyio.create_memory_object_stream[
-            JSONRPCMessage | Exception
+            SessionMessage | Exception
         ](0)
         write_stream, write_stream_reader = anyio.create_memory_object_stream[
-            JSONRPCMessage
+            SessionMessage
         ](0)
 
         # Store the streams
@@ -823,8 +827,9 @@ class StreamableHTTPServerTransport:
             # Create a message router that distributes messages to request streams
             async def message_router():
                 try:
-                    async for message in write_stream_reader:
+                    async for session_message in write_stream_reader:
                         # Determine which request stream(s) should receive this message
+                        message = session_message.message
                         target_request_id = None
                         if isinstance(
                             message.root, JSONRPCNotification | JSONRPCRequest

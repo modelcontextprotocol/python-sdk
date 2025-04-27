@@ -47,6 +47,7 @@ from pydantic import AnyUrl
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
+from mcp.shared.message import SessionMessage
 from mcp.shared.session import (
     BaseSession,
     RequestResponder,
@@ -82,8 +83,8 @@ class ServerSession(
 
     def __init__(
         self,
-        read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception],
-        write_stream: MemoryObjectSendStream[types.JSONRPCMessage],
+        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
+        write_stream: MemoryObjectSendStream[SessionMessage],
         init_options: InitializationOptions,
         standalone_mode: bool = False,
     ) -> None:

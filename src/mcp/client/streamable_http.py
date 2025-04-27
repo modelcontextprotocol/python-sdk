@@ -15,6 +15,7 @@ import anyio
 import httpx
 from httpx_sse import EventSource, aconnect_sse
 
+from mcp.shared.message import SessionMessage
 from mcp.types import (
     ErrorData,
     JSONRPCError,
@@ -52,10 +53,10 @@ async def streamablehttp_client(
     """
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream[
-        JSONRPCMessage | Exception
+        SessionMessage | Exception
     ](0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream[
-        JSONRPCMessage
+        SessionMessage
     ](0)
 
     async def get_stream():
@@ -86,7 +87,8 @@ async def streamablehttp_client(
                         try:
                             message = JSONRPCMessage.model_validate_json(sse.data)
                             logger.debug(f"GET message: {message}")
-                            await read_stream_writer.send(message)
+                            session_message = SessionMessage(message)
+                            await read_stream_writer.send(session_message)
                         except Exception as exc:
                             logger.error(f"Error parsing GET message: {exc}")
                             await read_stream_writer.send(exc)
@@ -100,7 +102,8 @@ async def streamablehttp_client(
         nonlocal session_id
         try:
             async with write_stream_reader:
-                async for message in write_stream_reader:
+                async for session_message in write_stream_reader:
+                    message = session_message.message
                     # Add session ID to headers if we have one
                     post_headers = request_headers.copy()
                     if session_id:
@@ -141,9 +144,10 @@ async def streamablehttp_client(
                                         message="Session terminated",
                                     ),
                                 )
-                                await read_stream_writer.send(
+                                session_message = SessionMessage(
                                     JSONRPCMessage(jsonrpc_error)
                                 )
+                                await read_stream_writer.send(session_message)
                                 continue
                         response.raise_for_status()
 
@@ -163,7 +167,8 @@ async def streamablehttp_client(
                                 json_message = JSONRPCMessage.model_validate_json(
                                     content
                                 )
-                                await read_stream_writer.send(json_message)
+                                session_message = SessionMessage(json_message)
+                                await read_stream_writer.send(session_message)
                             except Exception as exc:
                                 logger.error(f"Error parsing JSON response: {exc}")
                                 await read_stream_writer.send(exc)
@@ -175,10 +180,14 @@ async def streamablehttp_client(
                                 async for sse in event_source.aiter_sse():
                                     if sse.event == "message":
                                         try:
-                                            await read_stream_writer.send(
+                                            message = (
                                                 JSONRPCMessage.model_validate_json(
                                                     sse.data
                                                 )
+                                            )
+                                            session_message = SessionMessage(message)
+                                            await read_stream_writer.send(
+                                                session_message
                                             )
                                         except Exception as exc:
                                             logger.exception("Error parsing message")
