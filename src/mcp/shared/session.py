@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from typing_extensions import Self
 
 from mcp.shared.exceptions import McpError
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.types import (
     CancelledNotification,
     ClientNotification,
@@ -24,7 +24,6 @@ from mcp.types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
-    NotificationParams,
     RequestParams,
     ServerNotification,
     ServerRequest,
@@ -280,22 +279,14 @@ class BaseSession(
         """
         # Some transport implementations may need to set the related_request_id
         # to attribute to the notifications to the request that triggered them.
-        if related_request_id is not None and notification.root.params is not None:
-            # Create meta if it doesn't exist
-            if notification.root.params.meta is None:
-                meta_dict = {"related_request_id": related_request_id}
-
-            else:
-                meta_dict = notification.root.params.meta.model_dump(
-                    by_alias=True, mode="json", exclude_none=True
-                )
-                meta_dict["related_request_id"] = related_request_id
-            notification.root.params.meta = NotificationParams.Meta(**meta_dict)
         jsonrpc_notification = JSONRPCNotification(
             jsonrpc="2.0",
             **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
         )
-        session_message = SessionMessage(message=JSONRPCMessage(jsonrpc_notification))
+        session_message = SessionMessage(
+            message=JSONRPCMessage(jsonrpc_notification),
+            metadata=ServerMessageMetadata(related_request_id=related_request_id),
+        )
         await self._write_stream.send(session_message)
 
     async def _send_response(
