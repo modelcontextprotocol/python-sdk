@@ -144,11 +144,14 @@ class FastMCP:
     def instructions(self) -> str | None:
         return self._mcp_server.instructions
 
-    def run(self, transport: Literal["stdio", "sse"] = "stdio") -> None:
+    def run(
+        self, transport: Literal["stdio", "sse"] = "stdio", mount_path: str = ""
+    ) -> None:
         """Run the FastMCP server. Note this is a synchronous function.
 
         Args:
             transport: Transport protocol to use ("stdio" or "sse")
+            mount_path: Optional mount path for SSE transport
         """
         TRANSPORTS = Literal["stdio", "sse"]
         if transport not in TRANSPORTS.__args__:  # type: ignore
@@ -157,7 +160,7 @@ class FastMCP:
         if transport == "stdio":
             anyio.run(self.run_stdio_async)
         else:  # transport == "sse"
-            anyio.run(self.run_sse_async)
+            anyio.run(lambda: self.run_sse_async(mount_path))
 
     def _setup_handlers(self) -> None:
         """Set up core MCP protocol handlers."""
@@ -463,11 +466,11 @@ class FastMCP:
                 self._mcp_server.create_initialization_options(),
             )
 
-    async def run_sse_async(self) -> None:
+    async def run_sse_async(self, mount_path: str = "") -> None:
         """Run the server using SSE transport."""
         import uvicorn
 
-        starlette_app = self.sse_app()
+        starlette_app = self.sse_app(mount_path)
 
         config = uvicorn.Config(
             starlette_app,
@@ -504,8 +507,11 @@ class FastMCP:
         # Combine paths
         return mount_path + endpoint
 
-    def sse_app(self) -> Starlette:
+    def sse_app(self, mount_path: str = "") -> Starlette:
         """Return an instance of the SSE server app."""
+        # Update mount_path in settings if provided
+        if mount_path:
+            self.settings.mount_path = mount_path
         # Create normalized endpoint considering the mount path
         normalized_endpoint = self._normalize_path(
             self.settings.mount_path, self.settings.message_path

@@ -65,7 +65,7 @@ class TestServer:
             # Verify _normalize_path was called with correct args
             mock_normalize.assert_called_once_with("/", "/messages/")
 
-        # Test with custom mount path
+        # Test with custom mount path in settings
         mcp = FastMCP()
         mcp.settings.mount_path = "/custom"
         with patch.object(
@@ -74,10 +74,20 @@ class TestServer:
             mcp.sse_app()
             # Verify _normalize_path was called with correct args
             mock_normalize.assert_called_once_with("/custom", "/messages/")
+            
+        # Test with mount_path parameter
+        mcp = FastMCP()
+        with patch.object(
+            mcp, "_normalize_path", return_value="/param/messages/"
+        ) as mock_normalize:
+            mcp.sse_app(mount_path="/param")
+            # Verify _normalize_path was called with correct args
+            mock_normalize.assert_called_once_with("/param", "/messages/")
 
     @pytest.mark.anyio
     async def test_starlette_routes_with_mount_path(self):
         """Test that Starlette routes are correctly configured with mount path."""
+        # Test with mount path in settings
         mcp = FastMCP()
         mcp.settings.mount_path = "/api"
         app = mcp.sse_app()
@@ -90,6 +100,24 @@ class TestServer:
         assert len(sse_routes) == 1, "Should have one SSE route"
         assert len(mount_routes) == 1, "Should have one mount route"
 
+        # Verify path values
+        assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
+        assert (
+            mount_routes[0].path == "/messages"
+        ), "Mount route path should be /messages"
+        
+        # Test with mount path as parameter
+        mcp = FastMCP()
+        app = mcp.sse_app(mount_path="/param")
+        
+        # Find routes by type
+        sse_routes = [r for r in app.routes if isinstance(r, Route)]
+        mount_routes = [r for r in app.routes if isinstance(r, Mount)]
+        
+        # Verify routes exist
+        assert len(sse_routes) == 1, "Should have one SSE route"
+        assert len(mount_routes) == 1, "Should have one mount route"
+        
         # Verify path values
         assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
         assert (
