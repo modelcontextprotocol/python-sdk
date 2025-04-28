@@ -10,6 +10,10 @@ from typing import TextIO
 
 import anyio
 from anyio.abc import Process
+from anyio.streams.file import FileReadStream, FileWriteStream
+
+from typing import Optional, TextIO, Union
+from pathlib import Path
 
 
 def get_windows_executable_command(command: str) -> str:
@@ -43,48 +47,95 @@ def get_windows_executable_command(command: str) -> str:
         # (permissions, broken symlinks, etc.)
         return command
 
+class DummyProcess:
+    """
+    A fallback process wrapper for Windows to handle async I/O 
+    when using subprocess.Popen, which provides sync-only FileIO objects.
+    
+    This wraps stdin and stdout into async-compatible streams (FileReadStream, FileWriteStream),
+    so that MCP clients expecting async streams can work properly.
+    """
+    def __init__(self, popen_obj: subprocess.Popen):
+        self.popen = popen_obj
+        self.stdin_raw = popen_obj.stdin
+        self.stdout_raw = popen_obj.stdout
+        self.stderr = popen_obj.stderr
+
+        # Wrap into async-compatible AnyIO streams
+        self.stdin = FileWriteStream(self.stdin_raw)
+        self.stdout = FileReadStream(self.stdout_raw)
+
+    async def __aenter__(self):
+        """Support async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Terminate and wait on process exit inside a thread."""
+        self.popen.terminate()
+        await anyio.to_thread.run_sync(self.popen.wait)
+
+    async def wait(self):
+        """Async wait for process completion."""
+        return await anyio.to_thread.run_sync(self.popen.wait)
+
+    def terminate(self):
+        """Terminate the subprocess immediately."""
+        return self.popen.terminate()
+
+# ------------------------
+# Updated function
+# ------------------------
 
 async def create_windows_process(
     command: str,
     args: list[str],
-    env: dict[str, str] | None = None,
-    errlog: TextIO = sys.stderr,
-    cwd: Path | str | None = None,
+    env: Optional[dict[str, str]] = None,
+    errlog: Optional[TextIO] = sys.stderr,
+    cwd: Union[Path, str, None] = None,
 ):
     """
     Creates a subprocess in a Windows-compatible way.
-
-    Windows processes need special handling for console windows and
-    process creation flags.
+    
+    On Windows, asyncio.create_subprocess_exec has incomplete support 
+    (NotImplementedError when trying to open subprocesses). 
+    Therefore, we fallback to subprocess.Popen and wrap it for async usage.
 
     Args:
-        command: The command to execute
-        args: Command line arguments
-        env: Environment variables
-        errlog: Where to send stderr output
-        cwd: Working directory for the process
+        command (str): The executable to run
+        args (list[str]): List of command line arguments
+        env (dict[str, str] | None): Environment variables
+        errlog (TextIO | None): Where to send stderr output (defaults to sys.stderr)
+        cwd (Path | str | None): Working directory for the subprocess
 
     Returns:
-        A process handle
+        DummyProcess: Async-compatible subprocess with stdin and stdout streams
     """
     try:
-        # Try with Windows-specific flags to hide console window
-        process = await anyio.open_process(
+        # Try launching with creationflags to avoid opening a new console window
+        popen_obj = subprocess.Popen(
             [command, *args],
-            env=env,
-            # Ensure we don't create console windows for each process
-            creationflags=subprocess.CREATE_NO_WINDOW  # type: ignore
-            if hasattr(subprocess, "CREATE_NO_WINDOW")
-            else 0,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
             stderr=errlog,
+            env=env,
             cwd=cwd,
+            bufsize=0,  # Unbuffered output
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
         )
-        return process
-    except Exception:
-        # Don't raise, let's try to create the process without creation flags
-        process = await anyio.open_process([command, *args], env=env, stderr=errlog, cwd=cwd)
-        return process
+        return DummyProcess(popen_obj)
 
+    except Exception:
+        # If creationflags failed, fallback without them
+        popen_obj = subprocess.Popen(
+            [command, *args],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=errlog,
+            env=env,
+            cwd=cwd,
+            bufsize=0,
+        )
+        return DummyProcess(popen_obj)
 
 async def terminate_windows_process(process: Process):
     """
