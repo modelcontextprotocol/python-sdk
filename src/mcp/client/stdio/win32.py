@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import IO, TextIO
+from typing import BinaryIO, TextIO, cast
 
 import anyio
 from anyio import to_thread
@@ -58,18 +58,27 @@ class DummyProcess:
 
     def __init__(self, popen_obj: subprocess.Popen[bytes]):
         self.popen: subprocess.Popen[bytes] = popen_obj
-        self.stdin_raw: IO[bytes] | None = popen_obj.stdin
-        self.stdout_raw: IO[bytes] | None = popen_obj.stdout
-        self.stderr: IO[bytes] | None = popen_obj.stderr
+        self.stdin_raw = popen_obj.stdin  # type: ignore[assignment]
+        self.stdout_raw = popen_obj.stdout  # type: ignore[assignment]
+        self.stderr = popen_obj.stderr  # type: ignore[assignment]
 
-        self.stdin = FileWriteStream(self.stdin_raw) if self.stdin_raw else None
-        self.stdout = FileReadStream(self.stdout_raw) if self.stdout_raw else None
+        self.stdin = (
+            FileWriteStream(cast(BinaryIO, self.stdin_raw)) if self.stdin_raw else None
+        )
+        self.stdout = (
+            FileReadStream(cast(BinaryIO, self.stdout_raw)) if self.stdout_raw else None
+        )
 
     async def __aenter__(self):
         """Support async context manager entry."""
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: BaseException | None,
+        exc_val: BaseException | None,
+        exc_tb: object | None,
+    ) -> None:
         """Terminate and wait on process exit inside a thread."""
         self.popen.terminate()
         await to_thread.run_sync(self.popen.wait)
@@ -122,11 +131,7 @@ async def create_windows_process(
             env=env,
             cwd=cwd,
             bufsize=0,  # Unbuffered output
-            creationflags=(
-                subprocess.CREATE_NO_WINDOW
-                if hasattr(subprocess, "CREATE_NO_WINDOW")
-                else 0
-            ),
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         return DummyProcess(popen_obj)
 
