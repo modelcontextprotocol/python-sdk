@@ -6,15 +6,12 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import TextIO
+from typing import IO, TextIO
 
 import anyio
+from anyio import to_thread
 from anyio.abc import Process
 from anyio.streams.file import FileReadStream, FileWriteStream
-
-from typing import Optional, TextIO, Union
-from pathlib import Path
-
 
 def get_windows_executable_command(command: str) -> str:
     """
@@ -52,18 +49,18 @@ class DummyProcess:
     A fallback process wrapper for Windows to handle async I/O 
     when using subprocess.Popen, which provides sync-only FileIO objects.
     
-    This wraps stdin and stdout into async-compatible streams (FileReadStream, FileWriteStream),
+    This wraps stdin and stdout into async-compatible 
+    streams (FileReadStream, FileWriteStream),
     so that MCP clients expecting async streams can work properly.
     """
-    def __init__(self, popen_obj: subprocess.Popen):
-        self.popen = popen_obj
-        self.stdin_raw = popen_obj.stdin
-        self.stdout_raw = popen_obj.stdout
-        self.stderr = popen_obj.stderr
+    def __init__(self, popen_obj: subprocess.Popen[bytes]):
+        self.popen: subprocess.Popen[bytes] = popen_obj
+        self.stdin_raw: IO[bytes] | None = popen_obj.stdin
+        self.stdout_raw: IO[bytes] | None = popen_obj.stdout
+        self.stderr: IO[bytes] | None = popen_obj.stderr
 
-        # Wrap into async-compatible AnyIO streams
-        self.stdin = FileWriteStream(self.stdin_raw)
-        self.stdout = FileReadStream(self.stdout_raw)
+        self.stdin = FileWriteStream(self.stdin_raw) if self.stdin_raw else None
+        self.stdout = FileReadStream(self.stdout_raw) if self.stdout_raw else None
 
     async def __aenter__(self):
         """Support async context manager entry."""
@@ -72,11 +69,11 @@ class DummyProcess:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Terminate and wait on process exit inside a thread."""
         self.popen.terminate()
-        await anyio.to_thread.run_sync(self.popen.wait)
+        await to_thread.run_sync(self.popen.wait)
 
     async def wait(self):
         """Async wait for process completion."""
-        return await anyio.to_thread.run_sync(self.popen.wait)
+        return await to_thread.run_sync(self.popen.wait)
 
     def terminate(self):
         """Terminate the subprocess immediately."""
@@ -89,10 +86,10 @@ class DummyProcess:
 async def create_windows_process(
     command: str,
     args: list[str],
-    env: Optional[dict[str, str]] = None,
-    errlog: Optional[TextIO] = sys.stderr,
-    cwd: Union[Path, str, None] = None,
-):
+    env: dict[str, str] | None = None,
+    errlog: TextIO | None = sys.stderr,
+    cwd: Path | str | None = None,
+) -> DummyProcess:
     """
     Creates a subprocess in a Windows-compatible way.
     
@@ -120,7 +117,11 @@ async def create_windows_process(
             env=env,
             cwd=cwd,
             bufsize=0,  # Unbuffered output
-            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+            creationflags=(
+                subprocess.CREATE_NO_WINDOW 
+                if hasattr(subprocess, "CREATE_NO_WINDOW") 
+                else 0
+            ),
         )
         return DummyProcess(popen_obj)
 
