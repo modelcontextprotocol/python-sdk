@@ -15,13 +15,14 @@ import anyio
 import httpx
 from httpx_sse import EventSource, aconnect_sse
 
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
     ErrorData,
     JSONRPCError,
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
+    JSONRPCResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ async def streamablehttp_client(
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
 
     Yields:
-        Tuple of (read_stream, write_stream, terminate_callback)
+        Tuple of (read_stream, write_stream, terminate_callback, get_session_id_callback)
     """
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream[
@@ -104,10 +105,27 @@ async def streamablehttp_client(
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
                     message = session_message.message
+                    metadata = (
+                        session_message.metadata
+                        if isinstance(session_message.metadata, ClientMessageMetadata)
+                        else None
+                    )
+
                     # Add session ID to headers if we have one
                     post_headers = request_headers.copy()
                     if session_id:
                         post_headers[MCP_SESSION_ID_HEADER] = session_id
+
+                    # Check if this is a resumption request
+                    is_resumption = False
+                    original_request_id = None
+                    if metadata and metadata.resumption_token:
+                        # For resumption, use GET instead of POST
+                        is_resumption = True
+                        post_headers[LAST_EVENT_ID_HEADER] = metadata.resumption_token
+                        # Store the original request ID to map responses
+                        if isinstance(message.root, JSONRPCRequest):
+                            original_request_id = message.root.id
 
                     logger.debug(f"Sending client message: {message}")
 
@@ -122,92 +140,176 @@ async def streamablehttp_client(
                     ):
                         tg.start_soon(get_stream)
 
-                    async with client.stream(
-                        "POST",
-                        url,
-                        json=message.model_dump(
-                            by_alias=True, mode="json", exclude_none=True
-                        ),
-                        headers=post_headers,
-                    ) as response:
-                        if response.status_code == 202:
-                            logger.debug("Received 202 Accepted")
-                            continue
-                        # Check for 404 (session expired/invalid)
-                        if response.status_code == 404:
-                            if isinstance(message.root, JSONRPCRequest):
-                                jsonrpc_error = JSONRPCError(
-                                    jsonrpc="2.0",
-                                    id=message.root.id,
-                                    error=ErrorData(
-                                        code=32600,
-                                        message="Session terminated",
-                                    ),
-                                )
-                                session_message = SessionMessage(
-                                    JSONRPCMessage(jsonrpc_error)
-                                )
-                                await read_stream_writer.send(session_message)
-                                continue
-                        response.raise_for_status()
+                    if is_resumption:
+                        # For resumption, use GET with SSE
+                        async with aconnect_sse(
+                            client,
+                            "GET",
+                            url,
+                            headers=post_headers,
+                            timeout=httpx.Timeout(
+                                timeout.seconds, read=sse_read_timeout.seconds
+                            ),
+                        ) as event_source:
+                            event_source.response.raise_for_status()
+                            logger.debug("Resumption GET SSE connection established")
 
-                        # Extract session ID from response headers
-                        if is_initialization:
-                            new_session_id = response.headers.get(MCP_SESSION_ID_HEADER)
-                            if new_session_id:
-                                session_id = new_session_id
-                                logger.info(f"Received session ID: {session_id}")
+                            async for sse in event_source.aiter_sse():
+                                if sse.event == "message":
+                                    try:
+                                        message = JSONRPCMessage.model_validate_json(
+                                            sse.data
+                                        )
+                                        logger.debug(
+                                            f"Resumption GET message: {message}"
+                                        )
 
-                        # Handle different response types
-                        content_type = response.headers.get("content-type", "").lower()
-
-                        if content_type.startswith(CONTENT_TYPE_JSON):
-                            try:
-                                content = await response.aread()
-                                json_message = JSONRPCMessage.model_validate_json(
-                                    content
-                                )
-                                session_message = SessionMessage(json_message)
-                                await read_stream_writer.send(session_message)
-                            except Exception as exc:
-                                logger.error(f"Error parsing JSON response: {exc}")
-                                await read_stream_writer.send(exc)
-
-                        elif content_type.startswith(CONTENT_TYPE_SSE):
-                            # Parse SSE events from the response
-                            try:
-                                event_source = EventSource(response)
-                                async for sse in event_source.aiter_sse():
-                                    if sse.event == "message":
-                                        try:
-                                            message = (
-                                                JSONRPCMessage.model_validate_json(
-                                                    sse.data
-                                                )
+                                        # If this is a response and we have original_request_id, replace it
+                                        if (
+                                            original_request_id is not None
+                                            and isinstance(
+                                                message.root,
+                                                (JSONRPCResponse, JSONRPCError),
                                             )
-                                            session_message = SessionMessage(message)
-                                            await read_stream_writer.send(
-                                                session_message
+                                        ):
+                                            message.root.id = original_request_id
+
+                                        session_message = SessionMessage(message)
+                                        await read_stream_writer.send(session_message)
+
+                                        # Call resumption token callback if we have an ID
+                                        if (
+                                            sse.id
+                                            and metadata
+                                            and metadata.on_resumption_token_update
+                                        ):
+                                            await metadata.on_resumption_token_update(
+                                                sse.id
                                             )
-                                        except Exception as exc:
-                                            logger.exception("Error parsing message")
-                                            await read_stream_writer.send(exc)
-                                    else:
-                                        logger.warning(f"Unknown event: {sse.event}")
 
-                            except Exception as e:
-                                logger.exception("Error reading SSE stream:")
-                                await read_stream_writer.send(e)
-
-                        else:
-                            # For 202 Accepted with no body
+                                        # If this is a response or error, we're done
+                                        if isinstance(
+                                            message.root,
+                                            (JSONRPCResponse, JSONRPCError),
+                                        ):
+                                            break
+                                    except Exception as exc:
+                                        logger.error(
+                                            f"Error parsing resumption GET message: {exc}"
+                                        )
+                                        await read_stream_writer.send(exc)
+                                else:
+                                    logger.warning(
+                                        f"Unknown SSE event from resumption GET: {sse.event}"
+                                    )
+                    else:
+                        # Normal POST request
+                        async with client.stream(
+                            "POST",
+                            url,
+                            json=message.model_dump(
+                                by_alias=True, mode="json", exclude_none=True
+                            ),
+                            headers=post_headers,
+                        ) as response:
                             if response.status_code == 202:
                                 logger.debug("Received 202 Accepted")
                                 continue
+                            # Check for 404 (session expired/invalid)
+                            if response.status_code == 404:
+                                if isinstance(message.root, JSONRPCRequest):
+                                    jsonrpc_error = JSONRPCError(
+                                        jsonrpc="2.0",
+                                        id=message.root.id,
+                                        error=ErrorData(
+                                            code=32600,
+                                            message="Session terminated",
+                                        ),
+                                    )
+                                    session_message = SessionMessage(
+                                        JSONRPCMessage(jsonrpc_error)
+                                    )
+                                    await read_stream_writer.send(session_message)
+                                    continue
+                            response.raise_for_status()
 
-                            error_msg = f"Unexpected content type: {content_type}"
-                            logger.error(error_msg)
-                            await read_stream_writer.send(ValueError(error_msg))
+                            # Extract session ID from response headers
+                            if is_initialization:
+                                new_session_id = response.headers.get(
+                                    MCP_SESSION_ID_HEADER
+                                )
+                                if new_session_id:
+                                    session_id = new_session_id
+                                    logger.info(f"Received session ID: {session_id}")
+
+                            # Handle different response types
+                            content_type = response.headers.get(
+                                "content-type", ""
+                            ).lower()
+
+                            if content_type.startswith(CONTENT_TYPE_JSON):
+                                try:
+                                    content = await response.aread()
+                                    json_message = JSONRPCMessage.model_validate_json(
+                                        content
+                                    )
+                                    session_message = SessionMessage(json_message)
+                                    await read_stream_writer.send(session_message)
+                                except Exception as exc:
+                                    logger.error(f"Error parsing JSON response: {exc}")
+                                    await read_stream_writer.send(exc)
+
+                            elif content_type.startswith(CONTENT_TYPE_SSE):
+                                # Parse SSE events from the response
+                                try:
+                                    event_source = EventSource(response)
+                                    async for sse in event_source.aiter_sse():
+                                        if sse.event == "message":
+                                            try:
+                                                message = (
+                                                    JSONRPCMessage.model_validate_json(
+                                                        sse.data
+                                                    )
+                                                )
+                                                session_message = SessionMessage(
+                                                    message
+                                                )
+                                                await read_stream_writer.send(
+                                                    session_message
+                                                )
+
+                                                # Call the resumption token callback if we have an ID
+                                                if (
+                                                    sse.id
+                                                    and metadata
+                                                    and metadata.on_resumption_token_update
+                                                ):
+                                                    await metadata.on_resumption_token_update(
+                                                        sse.id
+                                                    )
+                                            except Exception as exc:
+                                                logger.exception(
+                                                    "Error parsing message"
+                                                )
+                                                await read_stream_writer.send(exc)
+                                        else:
+                                            logger.warning(
+                                                f"Unknown event: {sse.event}"
+                                            )
+
+                                except Exception as e:
+                                    logger.exception("Error reading SSE stream:")
+                                    await read_stream_writer.send(e)
+
+                            else:
+                                # For 202 Accepted with no body
+                                if response.status_code == 202:
+                                    logger.debug("Received 202 Accepted")
+                                    continue
+
+                                error_msg = f"Unexpected content type: {content_type}"
+                                logger.error(error_msg)
+                                await read_stream_writer.send(ValueError(error_msg))
 
         except Exception as exc:
             logger.error(f"Error in post_writer: {exc}")
@@ -240,6 +342,13 @@ async def streamablehttp_client(
         except Exception as exc:
             logger.warning(f"Session termination failed: {exc}")
 
+    def get_session_id() -> str | None:
+        """
+        Get the current session ID.
+        """
+        nonlocal session_id
+        return session_id
+
     async with anyio.create_task_group() as tg:
         try:
             logger.info(f"Connecting to StreamableHTTP endpoint: {url}")
@@ -259,7 +368,7 @@ async def streamablehttp_client(
             ) as client:
                 tg.start_soon(post_writer, client)
                 try:
-                    yield read_stream, write_stream, terminate_session
+                    yield read_stream, write_stream, terminate_session, get_session_id
                 finally:
                     tg.cancel_scope.cancel()
         finally:

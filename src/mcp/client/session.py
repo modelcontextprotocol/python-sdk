@@ -7,7 +7,12 @@ from pydantic import AnyUrl, TypeAdapter
 
 import mcp.types as types
 from mcp.shared.context import RequestContext
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import (
+    ClientMessageMetadata,
+    ResumptionToken,
+    ResumptionTokenUpdateCallback,
+    SessionMessage,
+)
 from mcp.shared.session import BaseSession, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
@@ -255,9 +260,18 @@ class ClientSession(
         )
 
     async def call_tool(
-        self, name: str, arguments: dict[str, Any] | None = None
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        on_resumption_token_update: ResumptionTokenUpdateCallback | None = None,
     ) -> types.CallToolResult:
         """Send a tools/call request."""
+        metadata = None
+        if on_resumption_token_update:
+            metadata = ClientMessageMetadata(
+                on_resumption_token_update=on_resumption_token_update,
+            )
+
         return await self.send_request(
             types.ClientRequest(
                 types.CallToolRequest(
@@ -266,6 +280,28 @@ class ClientSession(
                 )
             ),
             types.CallToolResult,
+            metadata=metadata,
+        )
+
+    async def resume_tool(
+        self,
+        resumption_token: ResumptionToken,
+    ) -> types.CallToolResult:
+        """Send a tools/call request with resumtion token to resume the tool."""
+
+        return await self.send_request(
+            types.ClientRequest(
+                types.CallToolRequest(
+                    method="tools/call",
+                    params=types.CallToolRequestParams(
+                        name="resume_from_token", arguments={}
+                    ),
+                )
+            ),
+            types.CallToolResult,
+            metadata=ClientMessageMetadata(
+                resumption_token=resumption_token,
+            ),
         )
 
     async def list_prompts(self) -> types.ListPromptsResult:

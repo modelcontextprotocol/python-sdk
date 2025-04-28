@@ -5,16 +5,24 @@ This module defines a wrapper type that combines JSONRPCMessage with metadata
 to support transport-specific features like resumability.
 """
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from mcp.types import JSONRPCMessage, RequestId
+
+ResumptionToken = str
+
+ResumptionTokenUpdateCallback = Callable[[ResumptionToken], Awaitable[None]]
 
 
 @dataclass
 class ClientMessageMetadata:
     """Metadata specific to client messages."""
 
-    resumption_token: str | None = None
+    resumption_token: ResumptionToken | None = None
+    on_resumption_token_update: Callable[[ResumptionToken], Awaitable[None]] | None = (
+        None
+    )
 
 
 @dataclass
