@@ -409,7 +409,6 @@ app = Starlette(
         # Using settings-based configuration
         Mount("/github", app=github_mcp.sse_app()),
         Mount("/browser", app=browser_mcp.sse_app()),
-        
         # Using direct mount path parameter
         Mount("/curl", app=curl_mcp.sse_app("/curl")),
         Mount("/search", app=search_mcp.sse_app("/search")),
