@@ -1,6 +1,4 @@
 import pytest
-from urllib.parse import urlparse, urlunparse
-
 from mcp.client.sse import custom_url_join
 
 
