@@ -62,7 +62,7 @@ INIT_REQUEST = {
 
 
 # Simple in-memory event store for testing
-class TestEventStore(EventStore):
+class SimpleEventStore(EventStore):
     """Simple in-memory event store for testing."""
 
     def __init__(self):
@@ -355,9 +355,9 @@ def basic_server(basic_server_port: int) -> Generator[None, None, None]:
 
 
 @pytest.fixture
-def event_store() -> TestEventStore:
+def event_store() -> SimpleEventStore:
     """Create a test event store."""
-    return TestEventStore()
+    return SimpleEventStore()
 
 
 @pytest.fixture
@@ -370,8 +370,8 @@ def event_server_port() -> int:
 
 @pytest.fixture
 def event_server(
-    event_server_port: int, event_store: TestEventStore
-) -> Generator[tuple[TestEventStore, str], None, None]:
+    event_server_port: int, event_store: SimpleEventStore
+) -> Generator[tuple[SimpleEventStore, str], None, None]:
     """Start a server with event store enabled."""
     proc = multiprocessing.Process(
         target=run_server,
