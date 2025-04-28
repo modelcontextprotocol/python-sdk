@@ -13,6 +13,7 @@ from anyio import to_thread
 from anyio.abc import Process
 from anyio.streams.file import FileReadStream, FileWriteStream
 
+
 def get_windows_executable_command(command: str) -> str:
     """
     Get the correct executable command normalized for Windows.
@@ -44,15 +45,17 @@ def get_windows_executable_command(command: str) -> str:
         # (permissions, broken symlinks, etc.)
         return command
 
+
 class DummyProcess:
     """
-    A fallback process wrapper for Windows to handle async I/O 
+    A fallback process wrapper for Windows to handle async I/O
     when using subprocess.Popen, which provides sync-only FileIO objects.
-    
-    This wraps stdin and stdout into async-compatible 
+
+    This wraps stdin and stdout into async-compatible
     streams (FileReadStream, FileWriteStream),
     so that MCP clients expecting async streams can work properly.
     """
+
     def __init__(self, popen_obj: subprocess.Popen[bytes]):
         self.popen: subprocess.Popen[bytes] = popen_obj
         self.stdin_raw: IO[bytes] | None = popen_obj.stdin
@@ -79,9 +82,11 @@ class DummyProcess:
         """Terminate the subprocess immediately."""
         return self.popen.terminate()
 
+
 # ------------------------
 # Updated function
 # ------------------------
+
 
 async def create_windows_process(
     command: str,
@@ -92,9 +97,9 @@ async def create_windows_process(
 ) -> DummyProcess:
     """
     Creates a subprocess in a Windows-compatible way.
-    
-    On Windows, asyncio.create_subprocess_exec has incomplete support 
-    (NotImplementedError when trying to open subprocesses). 
+
+    On Windows, asyncio.create_subprocess_exec has incomplete support
+    (NotImplementedError when trying to open subprocesses).
     Therefore, we fallback to subprocess.Popen and wrap it for async usage.
 
     Args:
@@ -118,8 +123,8 @@ async def create_windows_process(
             cwd=cwd,
             bufsize=0,  # Unbuffered output
             creationflags=(
-                subprocess.CREATE_NO_WINDOW 
-                if hasattr(subprocess, "CREATE_NO_WINDOW") 
+                subprocess.CREATE_NO_WINDOW
+                if hasattr(subprocess, "CREATE_NO_WINDOW")
                 else 0
             ),
         )
