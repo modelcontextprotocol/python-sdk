@@ -100,7 +100,7 @@ class TestFunctionResource:
             fn=lambda: MyModel(name="test"),
         )
         content = await resource.read()
-        assert content == '{"name": "test"}'
+        assert content == '{\n  "name": "test"\n}'
 
     @pytest.mark.anyio
     async def test_custom_type_conversion(self):
