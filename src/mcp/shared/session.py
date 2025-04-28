@@ -285,7 +285,9 @@ class BaseSession(
         )
         session_message = SessionMessage(
             message=JSONRPCMessage(jsonrpc_notification),
-            metadata=ServerMessageMetadata(related_request_id=related_request_id),
+            metadata=ServerMessageMetadata(related_request_id=related_request_id)
+            if related_request_id
+            else None,
         )
         await self._write_stream.send(session_message)
 
