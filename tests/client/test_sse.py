@@ -1,4 +1,5 @@
 import pytest
+
 from mcp.client.sse import custom_url_join
 
 
