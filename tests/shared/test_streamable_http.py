@@ -1067,7 +1067,11 @@ async def test_streamablehttp_client_resumption(event_server):
 
             # Resume the tool with the resumption token
             assert captured_resumption_token is not None
-            result = await session.resume_tool(captured_resumption_token)
+            result = await session.call_tool(
+                "long_running_with_checkpoints",
+                {},
+                resumption_token=captured_resumption_token,
+            )
 
             # We should get a complete result
             assert len(result.content) == 1

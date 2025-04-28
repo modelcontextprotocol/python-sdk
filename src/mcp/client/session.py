@@ -264,12 +264,14 @@ class ClientSession(
         name: str,
         arguments: dict[str, Any] | None = None,
         on_resumption_token_update: ResumptionTokenUpdateCallback | None = None,
+        resumption_token: ResumptionToken | None = None,
     ) -> types.CallToolResult:
         """Send a tools/call request."""
         metadata = None
-        if on_resumption_token_update:
+        if on_resumption_token_update or resumption_token:
             metadata = ClientMessageMetadata(
                 on_resumption_token_update=on_resumption_token_update,
+                resumption_token=resumption_token,
             )
 
         return await self.send_request(
@@ -281,27 +283,6 @@ class ClientSession(
             ),
             types.CallToolResult,
             metadata=metadata,
-        )
-
-    async def resume_tool(
-        self,
-        resumption_token: ResumptionToken,
-    ) -> types.CallToolResult:
-        """Send a tools/call request with resumtion token to resume the tool."""
-
-        return await self.send_request(
-            types.ClientRequest(
-                types.CallToolRequest(
-                    method="tools/call",
-                    params=types.CallToolRequestParams(
-                        name="resume_from_token", arguments={}
-                    ),
-                )
-            ),
-            types.CallToolResult,
-            metadata=ClientMessageMetadata(
-                resumption_token=resumption_token,
-            ),
         )
 
     async def list_prompts(self) -> types.ListPromptsResult:
