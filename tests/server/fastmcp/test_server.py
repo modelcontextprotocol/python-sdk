@@ -74,7 +74,7 @@ class TestServer:
             mcp.sse_app()
             # Verify _normalize_path was called with correct args
             mock_normalize.assert_called_once_with("/custom", "/messages/")
-            
+
         # Test with mount_path parameter
         mcp = FastMCP()
         with patch.object(
@@ -105,19 +105,19 @@ class TestServer:
         assert (
             mount_routes[0].path == "/messages"
         ), "Mount route path should be /messages"
-        
+
         # Test with mount path as parameter
         mcp = FastMCP()
         app = mcp.sse_app(mount_path="/param")
-        
+
         # Find routes by type
         sse_routes = [r for r in app.routes if isinstance(r, Route)]
         mount_routes = [r for r in app.routes if isinstance(r, Mount)]
-        
+
         # Verify routes exist
         assert len(sse_routes) == 1, "Should have one SSE route"
         assert len(mount_routes) == 1, "Should have one mount route"
-        
+
         # Verify path values
         assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
         assert (
