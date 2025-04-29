@@ -3,7 +3,6 @@
 from __future__ import annotations as _annotations
 
 import inspect
-import json
 import re
 from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from contextlib import (
@@ -15,7 +14,6 @@ from typing import Any, Generic, Literal
 
 import anyio
 import pydantic_core
-import uvicorn
 from pydantic import BaseModel, Field
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -466,6 +464,8 @@ class FastMCP:
 
     async def run_sse_async(self) -> None:
         """Run the server using SSE transport."""
+        import uvicorn
+
         starlette_app = self.sse_app()
 
         config = uvicorn.Config(
@@ -550,10 +550,7 @@ def _convert_to_content(
         return list(chain.from_iterable(_convert_to_content(item) for item in result))  # type: ignore[reportUnknownVariableType]
 
     if not isinstance(result, str):
-        try:
-            result = json.dumps(pydantic_core.to_jsonable_python(result))
-        except Exception:
-            result = str(result)
+        result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
 
     return [TextContent(type="text", text=result)]
 
