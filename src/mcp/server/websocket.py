@@ -7,7 +7,7 @@ from pydantic_core import ValidationError
 from starlette.types import Receive, Scope, Send
 from starlette.websockets import WebSocket
 
-import mcp.types as types
+from mcp import types
 
 logger = logging.getLogger(__name__)
 
