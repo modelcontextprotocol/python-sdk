@@ -185,7 +185,7 @@ class BaseSession(
         self._request_id = 0
         self._receive_request_type = receive_request_type
         self._receive_notification_type = receive_notification_type
-        self._read_timeout_seconds = read_timeout_seconds
+        self._session_read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
 
         self._exit_stack = AsyncExitStack()
@@ -213,10 +213,12 @@ class BaseSession(
         self,
         request: SendRequestT,
         result_type: type[ReceiveResultT],
+        request_read_timeout_seconds: timedelta | None = None,
     ) -> ReceiveResultT:
         """
         Sends a request and wait for a response. Raises an McpError if the
-        response contains an error.
+        response contains an error. If a request read timeout is provided, it
+        will take precedence over the session read timeout.
 
         Do not use this method to emit notifications! Use send_notification()
         instead.
@@ -243,12 +245,15 @@ class BaseSession(
 
         await self._write_stream.send(JSONRPCMessage(jsonrpc_request))
 
+        # request read timeout takes precedence over session read timeout
+        timeout = None
+        if request_read_timeout_seconds is not None:
+            timeout = request_read_timeout_seconds.total_seconds()
+        elif self._session_read_timeout_seconds is not None:
+            timeout = self._session_read_timeout_seconds.total_seconds()
+
         try:
-            with anyio.fail_after(
-                None
-                if self._read_timeout_seconds is None
-                else self._read_timeout_seconds.total_seconds()
-            ):
+            with anyio.fail_after(timeout):
                 response_or_error = await response_stream_reader.receive()
         except TimeoutError:
             raise McpError(
@@ -257,7 +262,7 @@ class BaseSession(
                     message=(
                         f"Timed out while waiting for response to "
                         f"{request.__class__.__name__}. Waited "
-                        f"{self._read_timeout_seconds} seconds."
+                        f"{timeout} seconds."
                     ),
                 )
             )
