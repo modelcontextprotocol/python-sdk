@@ -27,7 +27,7 @@ class ArgModelBase(BaseModel):
         That is, sub-models etc are not dumped - they are kept as pydantic models.
         """
         kwargs: dict[str, Any] = {}
-        for field_name in self.model_fields.keys():
+        for field_name in self.__class__.model_fields.keys():
             kwargs[field_name] = getattr(self, field_name)
         return kwargs
 
@@ -80,7 +80,7 @@ class FuncMetadata(BaseModel):
         dicts (JSON objects) as JSON strings, which can be pre-parsed here.
         """
         new_data = data.copy()  # Shallow copy
-        for field_name, _field_info in self.arg_model.model_fields.items():
+        for field_name in self.arg_model.model_fields.keys():
             if field_name not in data.keys():
                 continue
             if isinstance(data[field_name], str):

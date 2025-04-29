@@ -185,4 +185,4 @@ class TestResourceTemplate:
 
         assert isinstance(resource, FunctionResource)
         content = await resource.read()
-        assert content == "hello"
+        assert content == '"hello"'
