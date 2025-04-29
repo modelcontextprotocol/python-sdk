@@ -1,6 +1,6 @@
 from __future__ import annotations as _annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
 from mcp.server.fastmcp.exceptions import ToolError
@@ -35,9 +35,15 @@ class ToolManager:
         fn: Callable[..., Any],
         name: str | None = None,
         description: str | None = None,
+        skip_names: Sequence[str] = (),
     ) -> Tool:
         """Add a tool to the server."""
-        tool = Tool.from_function(fn, name=name, description=description)
+        tool = Tool.from_function(
+            fn,
+            name=name,
+            description=description,
+            skip_names=skip_names,
+        )
         existing = self._tools.get(tool.name)
         if existing:
             if self.warn_on_duplicate_tools:

@@ -244,6 +244,7 @@ class FastMCP:
         fn: AnyFunction,
         name: str | None = None,
         description: str | None = None,
+        skip_names: Sequence[str] = (),
     ) -> None:
         """Add a tool to the server.
 
@@ -254,11 +255,21 @@ class FastMCP:
             fn: The function to register as a tool
             name: Optional name for the tool (defaults to function name)
             description: Optional description of what the tool does
+            skip_names: A list of parameter names to skip. These will not be included in
+                the model.
         """
-        self._tool_manager.add_tool(fn, name=name, description=description)
+        self._tool_manager.add_tool(
+            fn,
+            name=name,
+            description=description,
+            skip_names=skip_names,
+        )
 
     def tool(
-        self, name: str | None = None, description: str | None = None
+        self,
+        name: str | None = None,
+        description: str | None = None,
+        skip_names: Sequence[str] = (),
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
 
@@ -269,6 +280,8 @@ class FastMCP:
         Args:
             name: Optional name for the tool (defaults to function name)
             description: Optional description of what the tool does
+            skip_names: A list of parameter names to skip. These will not be included in
+                the model.
 
         Example:
             @server.tool()
@@ -293,7 +306,7 @@ class FastMCP:
             )
 
         def decorator(fn: AnyFunction) -> AnyFunction:
-            self.add_tool(fn, name=name, description=description)
+            self.add_tool(fn, name=name, description=description, skip_names=skip_names)
             return fn
 
         return decorator

@@ -130,12 +130,12 @@ def func_metadata(
     dynamic_pydantic_model_params: dict[str, Any] = {}
     globalns = getattr(func, "__globals__", {})
     for param in params.values():
+        if param.name in skip_names:
+            continue
         if param.name.startswith("_"):
             raise InvalidSignature(
                 f"Parameter {param.name} of {func.__name__} cannot start with '_'"
             )
-        if param.name in skip_names:
-            continue
         annotation = param.annotation
 
         # `x: None` / `x: None = None`
