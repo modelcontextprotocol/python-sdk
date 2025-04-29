@@ -185,20 +185,22 @@ def main(
                 )
                 server_instances[http_transport.mcp_session_id] = http_transport
                 logger.info(f"Created new transport with session ID: {new_session_id}")
-            async with http_transport.connect() as streams:
-                read_stream, write_stream = streams
 
-                async def run_server():
-                    await app.run(
-                        read_stream,
-                        write_stream,
-                        app.create_initialization_options(),
-                    )
+                async def run_server(task_status=None):
+                    async with http_transport.connect() as streams:
+                        read_stream, write_stream = streams
+                        if task_status:
+                            task_status.started()
+                        await app.run(
+                            read_stream,
+                            write_stream,
+                            app.create_initialization_options(),
+                        )
 
                 if not task_group:
                     raise RuntimeError("Task group is not initialized")
 
-                task_group.start_soon(run_server)
+                await task_group.start(run_server)
 
                 # Handle the HTTP request and return the response
                 await http_transport.handle_request(scope, receive, send)

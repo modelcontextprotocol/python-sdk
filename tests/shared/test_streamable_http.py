@@ -231,29 +231,30 @@ def create_app(
                     event_store=event_store,
                 )
 
-                async with http_transport.connect() as streams:
-                    read_stream, write_stream = streams
-
-                    async def run_server():
+                async def run_server(task_status=None):
+                    async with http_transport.connect() as streams:
+                        read_stream, write_stream = streams
+                        if task_status:
+                            task_status.started()
                         await server.run(
                             read_stream,
                             write_stream,
                             server.create_initialization_options(),
                         )
 
-                    if task_group is None:
-                        response = Response(
-                            "Internal Server Error: Task group is not initialized",
-                            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-                        )
-                        await response(scope, receive, send)
-                        return
+                if task_group is None:
+                    response = Response(
+                        "Internal Server Error: Task group is not initialized",
+                        status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                    )
+                    await response(scope, receive, send)
+                    return
 
-                    # Store the instance before starting the task to prevent races
-                    server_instances[http_transport.mcp_session_id] = http_transport
-                    task_group.start_soon(run_server)
+                # Store the instance before starting the task to prevent races
+                server_instances[http_transport.mcp_session_id] = http_transport
+                await task_group.start(run_server)
 
-                    await http_transport.handle_request(scope, receive, send)
+                await http_transport.handle_request(scope, receive, send)
         else:
             response = Response(
                 "Bad Request: No valid session ID provided",
