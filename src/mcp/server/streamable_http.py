@@ -627,8 +627,8 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
         except Exception as e:
             logger.exception(f"Error in standalone SSE response: {e}")
-            # await sse_stream_writer.aclose()
-            # await sse_stream_reader.aclose()
+            await sse_stream_writer.aclose()
+            await sse_stream_reader.aclose()
             await self._clean_up_memory_streams(GET_STREAM_KEY)
 
     async def _handle_delete_request(self, request: Request, send: Send) -> None:
