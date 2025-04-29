@@ -9,6 +9,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools import ToolManager
 from mcp.server.session import ServerSessionT
 from mcp.shared.context import LifespanContextT
+from mcp.types import ToolAnnotations
 
 
 class TestAddTools:
@@ -331,19 +332,19 @@ class TestToolAnnotations:
             """Read data from a file."""
             return f"Data from {path}"
 
-        annotations = {
-            "title": "File Reader",
-            "readOnlyHint": True,
-            "openWorldHint": False,
-        }
+        annotations = ToolAnnotations(
+            title="File Reader",
+            readOnlyHint=True,
+            openWorldHint=False,
+        )
 
         manager = ToolManager()
         tool = manager.add_tool(read_data, annotations=annotations)
 
         assert tool.annotations is not None
-        assert tool.annotations["title"] == "File Reader"
-        assert tool.annotations["readOnlyHint"] is True
-        assert tool.annotations["openWorldHint"] is False
+        assert tool.annotations.title == "File Reader"
+        assert tool.annotations.readOnlyHint is True
+        assert tool.annotations.openWorldHint is False
 
     @pytest.mark.anyio
     async def test_tool_annotations_in_fastmcp(self):
@@ -351,7 +352,7 @@ class TestToolAnnotations:
 
         app = FastMCP()
 
-        @app.tool(annotations={"title": "Echo Tool", "readOnlyHint": True})
+        @app.tool(annotations=ToolAnnotations(title="Echo Tool", readOnlyHint=True))
         def echo(message: str) -> str:
             """Echo a message back."""
             return message

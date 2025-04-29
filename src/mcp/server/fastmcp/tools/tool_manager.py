@@ -7,6 +7,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools.base import Tool
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.shared.context import LifespanContextT
+from mcp.types import ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -35,7 +36,7 @@ class ToolManager:
         fn: Callable[..., Any],
         name: str | None = None,
         description: str | None = None,
-        annotations: dict[str, Any] | None = None,
+        annotations: ToolAnnotations | None = None,
     ) -> Tool:
         """Add a tool to the server."""
         tool = Tool.from_function(

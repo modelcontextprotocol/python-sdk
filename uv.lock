@@ -1,5 +1,4 @@
 version = 1
-revision = 1
 requires-python = ">=3.10"
 
 [options]
@@ -487,6 +486,7 @@ wheels = [
 
 [[package]]
 name = "mcp"
+version = "1.6.1.dev14+dd10fa1"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
@@ -496,7 +496,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "sse-starlette" },
     { name = "starlette" },
-    { name = "uvicorn" },
+    { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
 
 [package.optional-dependencies]
@@ -540,10 +540,9 @@ requires-dist = [
     { name = "sse-starlette", specifier = ">=1.6.1" },
     { name = "starlette", specifier = ">=0.27" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.12.4" },
-    { name = "uvicorn", specifier = ">=0.23.1" },
+    { name = "uvicorn", marker = "sys_platform != 'emscripten'", specifier = ">=0.23.1" },
     { name = "websockets", marker = "extra == 'ws'", specifier = ">=15.0.1" },
 ]
-provides-extras = ["cli", "rich", "ws"]
 
 [package.metadata.requires-dev]
 dev = [
