@@ -217,7 +217,8 @@ class BaseSession(
     ) -> ReceiveResultT:
         """
         Sends a request and wait for a response. Raises an McpError if the
-        response contains an error.
+        response contains an error. If a request read timeout is provided, it
+        will take precedence over the session read timeout.
 
         Do not use this method to emit notifications! Use send_notification()
         instead.
