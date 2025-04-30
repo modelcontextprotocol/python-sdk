@@ -7,6 +7,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools.base import Tool
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.shared.context import LifespanContextT
+from mcp.types import ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -35,9 +36,12 @@ class ToolManager:
         fn: Callable[..., Any],
         name: str | None = None,
         description: str | None = None,
+        annotations: ToolAnnotations | None = None,
     ) -> Tool:
         """Add a tool to the server."""
-        tool = Tool.from_function(fn, name=name, description=description)
+        tool = Tool.from_function(
+            fn, name=name, description=description, annotations=annotations
+        )
         existing = self._tools.get(tool.name)
         if existing:
             if self.warn_on_duplicate_tools:
