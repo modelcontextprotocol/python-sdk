@@ -53,6 +53,7 @@ dev = [
     "pytest-flakefinder>=1.1.0",
     "pytest-xdist>=3.6.1",
     "pytest-examples>=0.0.14",
+    "pytest-pretty>=1.2.0",
 ]
 docs = [
     "mkdocs>=1.6.1",
