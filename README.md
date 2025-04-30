@@ -43,6 +43,7 @@
     - [Writing MCP Clients](#writing-mcp-clients)
     - [MCP Primitives](#mcp-primitives)
     - [Server Capabilities](#server-capabilities)
+    - [Custom blocks](#custom-blocks)
   - [Documentation](#documentation)
   - [Contributing](#contributing)
   - [License](#license)
@@ -642,6 +643,38 @@ MCP servers declare capabilities during initialization:
 | `tools`     | `listChanged`                | Tool discovery and execution       |
 | `logging`   | -                            | Server logging configuration       |
 | `completion`| -                            | Argument completion suggestions    |
+
+### Custom blocks
+
+The SDK ships with a set of built-in blocks, but you can define additional
+kinds just as easily.  Implement a subclass of `Block` and register it with the
+registry helper:
+
+```python
+from mcp.blocks.base import Block
+from mcp.blocks.registry import register_block, get_block_class
+
+
+@register_block("sticker")
+class Badge(Block):
+    """A lightweight block that references a badge graphic."""
+
+    def __init__(self, url: str, label: str | None = None):
+        self.url = url
+        self.label = label
+
+
+# Later on ──────────────────────────────────────────────────────────
+payload = {"kind": "badge", "url": "gold.png", "label": "premium"}
+
+cls = get_block_class(payload["kind"])  # Resolve to *Badge*
+block = cls(**{k: v for k, v in payload.items() if k != "kind"})
+```
+
+> **Note**
+> Re-using an existing *kind* name replaces the previous class and raises a
+> `RuntimeWarning`.  Choose globally unique identifiers unless you intend to
+> override a built-in block.
 
 ## Documentation
 
