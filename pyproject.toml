@@ -114,7 +114,5 @@ filterwarnings = [
     # This should be fixed on Uvicorn's side.
     "ignore::DeprecationWarning:websockets",
     "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
-    "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel",
-    # this is a problem in starlette 0.27, which we're currently pinned to
-    "ignore:Please use `import python_multipart` instead.:PendingDeprecationWarning",
+    "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel"
 ]
