@@ -23,7 +23,7 @@ async def redis_dispatch():
     with patch("mcp.server.message_queue.redis.redis", fake_redis.FakeRedis):
         from mcp.server.message_queue.redis import RedisMessageDispatch
         
-        dispatch = RedisMessageDispatch()
+        dispatch = RedisMessageDispatch(session_ttl=5)  # Shorter TTL for testing
         try:
             yield dispatch
         finally:
@@ -44,6 +44,39 @@ async def test_session_exists(redis_dispatch):
 
     # After unsubscribing, session should not exist
     assert not await redis_dispatch.session_exists(session_id)
+
+
+@pytest.mark.anyio
+async def test_session_ttl(redis_dispatch):
+    """Test that session has proper TTL set."""
+    session_id = uuid4()
+    
+    async with redis_dispatch.subscribe(session_id, AsyncMock()):
+        session_key = redis_dispatch._session_key(session_id)
+        ttl = await redis_dispatch._redis.ttl(session_key)  # type: ignore
+        assert ttl > 0
+        assert ttl <= redis_dispatch._session_ttl
+
+
+@pytest.mark.anyio
+async def test_session_heartbeat(redis_dispatch):
+    """Test that session heartbeat refreshes TTL."""
+    session_id = uuid4()
+    
+    async with redis_dispatch.subscribe(session_id, AsyncMock()):
+        session_key = redis_dispatch._session_key(session_id)
+        
+        # Initial TTL
+        initial_ttl = await redis_dispatch._redis.ttl(session_key)  # type: ignore
+        assert initial_ttl > 0
+        
+        # Wait for heartbeat to run
+        await anyio.sleep(redis_dispatch._session_ttl / 2 + 0.5)
+        
+        # TTL should be refreshed
+        refreshed_ttl = await redis_dispatch._redis.ttl(session_key)  # type: ignore
+        assert refreshed_ttl > 0
+        assert refreshed_ttl <= redis_dispatch._session_ttl
 
 
 @pytest.mark.anyio
