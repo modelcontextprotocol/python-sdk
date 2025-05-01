@@ -30,18 +30,20 @@ class RedisMessageDispatch:
     """
 
     def __init__(
-        self, redis_url: str = "redis://localhost:6379/0", prefix: str = "mcp:pubsub:"
+        self, redis_url: str = "redis://localhost:6379/0", prefix: str = "mcp:pubsub:",
+        session_ttl: int = 3600  # 1 hour default TTL for sessions
     ) -> None:
         """Initialize Redis message dispatch.
 
         Args:
             redis_url: Redis connection string
             prefix: Key prefix for Redis channels to avoid collisions
+            session_ttl: TTL in seconds for session keys (default: 1 hour)
         """
         self._redis = redis.from_url(redis_url, decode_responses=True)  # type: ignore
         self._pubsub = self._redis.pubsub(ignore_subscribe_messages=True)  # type: ignore
         self._prefix = prefix
-        self._active_sessions_key = f"{prefix}active_sessions"
+        self._session_ttl = session_ttl
         # Maps session IDs to the callback and task group for that SSE session.
         self._session_state: dict[UUID, tuple[MessageCallback, TaskGroup]] = {}
         # Ensures only one polling task runs at a time for message handling
@@ -56,10 +58,16 @@ class RedisMessageDispatch:
         """Get the Redis channel for a session."""
         return f"{self._prefix}session:{session_id.hex}"
 
+    def _session_key(self, session_id: UUID) -> str:
+        """Get the Redis key for a session."""
+        return f"{self._prefix}session_active:{session_id.hex}"
+
     @asynccontextmanager
     async def subscribe(self, session_id: UUID, callback: MessageCallback):
         """Request-scoped context manager that subscribes to messages for a session."""
-        await self._redis.sadd(self._active_sessions_key, session_id.hex)
+        session_key = self._session_key(session_id)
+        await self._redis.setex(session_key, self._session_ttl, "1")  # type: ignore
+        
         channel = self._session_channel(session_id)
         await self._pubsub.subscribe(channel)  # type: ignore
 
@@ -67,15 +75,32 @@ class RedisMessageDispatch:
         async with anyio.create_task_group() as tg:
             self._session_state[session_id] = (callback, tg)
             tg.start_soon(self._listen_for_messages)
+            # Start heartbeat for this session
+            tg.start_soon(self._session_heartbeat, session_id)
             try:
                 yield
             finally:
                 with anyio.CancelScope(shield=True):
                     tg.cancel_scope.cancel()
                     await self._pubsub.unsubscribe(channel)  # type: ignore
-                    await self._redis.srem(self._active_sessions_key, session_id.hex)
+                    await self._redis.delete(session_key)  # type: ignore
                     del self._session_state[session_id]
                     logger.debug(f"Unsubscribed from Redis channel: {session_id}")
+
+    async def _session_heartbeat(self, session_id: UUID) -> None:
+        """Periodically refresh the TTL for a session."""
+        session_key = self._session_key(session_id)
+        while True:
+            await lowlevel.checkpoint()
+            try:
+                # Refresh TTL at half the TTL interval to avoid expiration
+                await anyio.sleep(self._session_ttl / 2)
+                with anyio.CancelScope(shield=True):
+                    await self._redis.expire(session_key, self._session_ttl)  # type: ignore
+            except anyio.get_cancelled_exc_class():
+                break
+            except Exception as e:
+                logger.error(f"Error refreshing TTL for session {session_id}: {e}")
 
     def _extract_session_id(self, channel: str) -> UUID | None:
         """Extract and validate session ID from channel."""
@@ -167,6 +192,5 @@ class RedisMessageDispatch:
 
     async def session_exists(self, session_id: UUID) -> bool:
         """Check if a session exists."""
-        return bool(
-            await self._redis.sismember(self._active_sessions_key, session_id.hex)  # type: ignore[attr-defined]
-        )
+        session_key = self._session_key(session_id)
+        return bool(await self._redis.exists(session_key))  # type: ignore
