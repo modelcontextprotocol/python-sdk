@@ -1,11 +1,13 @@
 import os
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Literal, TextIO
 
 import anyio
 import anyio.lowlevel
+import psutil
+from anyio.abc import Process
 from anyio.streams.memory import (
     MemoryObjectReceiveStream,
     MemoryObjectSendStream,
@@ -15,7 +17,11 @@ from pydantic import BaseModel, Field
 
 import mcp.types as types
 
-from .win32 import create_windows_process, get_windows_executable_command
+from .win32 import (
+    create_windows_process,
+    get_windows_executable_command,
+    terminate_windows_process,
+)
 
 # Environment variables to inherit by default
 DEFAULT_INHERITED_ENV_VARS = (
@@ -172,9 +178,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             yield read_stream, write_stream
         finally:
             # Clean up process to prevent any dangling orphaned processes
-            tg.cancel_scope.cancel()
-            process.terminate()
-            await process.wait()
+            await _terminate_process(process)
 
 
 def _get_executable_command(command: str) -> str:
@@ -212,3 +216,28 @@ async def _create_platform_compatible_process(
         )
 
     return process
+
+
+async def _terminate_process(process: Process):
+    """
+    Terminate the process and its children.
+
+    Note: On Windows, `process.terminate()` calls the Win32 `TerminateProcess` API,
+    which only terminates the specified process. Any child
+    processes remain running, which can lead to unclosed resources and may cause the
+    parent process to hang during shutdown. This function uses `psutil` to recursively
+    terminate the full process tree, ensuring a cleaner and more reliable shutdown.
+
+    Args:
+        process: The AnyIO process to terminate
+    """
+    with suppress(psutil.NoSuchProcess):
+        proc = psutil.Process(process.pid)
+        children = proc.children(recursive=True)
+        for child in children:
+            child.kill()
+    with suppress(ProcessLookupError):
+        if sys.platform == "win32":
+            await terminate_windows_process(process)
+        else:
+            process.terminate()
