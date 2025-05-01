@@ -142,30 +142,28 @@ def server(server_port: int) -> Generator[None, None, None]:
 
     yield
 
-    print("shutting down server gracefully")
-    # Try graceful shutdown first
-    proc.terminate()
-    try:
-        proc.join(timeout=5)
-    except Exception:
-        print("Graceful shutdown failed, forcing kill")
-        proc.kill()
-        proc.join(timeout=2)
-    
+    print("killing server")
+    # Signal the server to stop
+    proc.kill()
+    proc.join(timeout=2)
     if proc.is_alive():
         print("server process failed to terminate")
-        proc.kill()  # Force kill as last resort
 
 
+@pytest.fixture()
+async def http_client(server, server_url) -> AsyncGenerator[httpx.AsyncClient, None]:
+    """Create test client"""
+    async with httpx.AsyncClient(base_url=server_url) as client:
+        yield client
 
+
+# Tests
 @pytest.mark.anyio
-@pytest.mark.skip(
-    "fails in CI, but works locally. Need to investigate why."
-)
-async def test_raw_sse_connection(server, server_url) -> None:
+async def test_raw_sse_connection(http_client: httpx.AsyncClient) -> None:
     """Test the SSE connection establishment simply with an HTTP client."""
-    try:
-        async with httpx.AsyncClient(base_url=server_url) as http_client:
+    async with anyio.create_task_group():
+
+        async def connection_test() -> None:
             async with http_client.stream("GET", "/sse") as response:
                 assert response.status_code == 200
                 assert (
@@ -183,11 +181,12 @@ async def test_raw_sse_connection(server, server_url) -> None:
                         return
                     line_number += 1
 
-    except Exception as e:
-        pytest.fail(f"{e}")
+        # Add timeout to prevent test from hanging if it fails
+        with anyio.fail_after(3):
+            await connection_test()
+
 
 @pytest.mark.anyio
-
 async def test_sse_client_basic_connection(server: None, server_url: str) -> None:
     async with sse_client(server_url + "/sse") as streams:
         async with ClientSession(*streams) as session:
@@ -200,6 +199,7 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
             ping_result = await session.send_ping()
             assert isinstance(ping_result, EmptyResult)
 
+
 @pytest.fixture
 async def initialized_sse_client_session(
     server, server_url: str
@@ -211,9 +211,6 @@ async def initialized_sse_client_session(
 
 
 @pytest.mark.anyio
-@pytest.mark.skip(
-    "fails in CI, but works locally. Need to investigate why."
-)
 async def test_sse_client_happy_request_and_response(
     initialized_sse_client_session: ClientSession,
 ) -> None:
@@ -225,9 +222,6 @@ async def test_sse_client_happy_request_and_response(
 
 
 @pytest.mark.anyio
-@pytest.mark.skip(
-    "fails in CI, but works locally. Need to investigate why."
-)
 async def test_sse_client_exception_handling(
     initialized_sse_client_session: ClientSession,
 ) -> None:
