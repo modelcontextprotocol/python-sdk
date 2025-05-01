@@ -10,6 +10,7 @@ import uvicorn
 from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
+from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 from mcp.client.session import ClientSession
@@ -83,13 +84,18 @@ def make_server_app() -> Starlette:
     sse = SseServerTransport("/messages/")
     server = ServerTest()
 
-    async def handle_sse(request: Request) -> None:
-        async with sse.connect_sse(
-            request.scope, request.receive, request._send
-        ) as streams:
-            await server.run(
-                streams[0], streams[1], server.create_initialization_options()
-            )
+    async def handle_sse(request: Request) -> Response:
+        with anyio.CancelScope() as cancel_scope:
+            async with sse.connect_sse(
+                request.scope,
+                request.receive,
+                request._send,
+                lambda: cancel_scope.cancel(),
+            ) as streams:
+                await server.run(
+                    streams[0], streams[1], server.create_initialization_options()
+                )
+        return Response(status_code=200)
 
     app = Starlette(
         routes=[

@@ -32,6 +32,7 @@ See SseServerTransport class documentation for more details.
 """
 
 import logging
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import quote
@@ -43,7 +44,7 @@ from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.types import Receive, Scope, Send
+from starlette.types import Message, Receive, Scope, Send
 
 import mcp.types as types
 
@@ -79,7 +80,13 @@ class SseServerTransport:
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
 
     @asynccontextmanager
-    async def connect_sse(self, scope: Scope, receive: Receive, send: Send):
+    async def connect_sse(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        callback: Callable[[], None] | None = None,
+    ):
         if scope["type"] != "http":
             logger.error("connect_sse received non-HTTP request")
             raise ValueError("connect_sse can only handle HTTP requests")
@@ -120,9 +127,19 @@ class SseServerTransport:
                         }
                     )
 
+        async def client_close_handler(message: Message) -> None:
+            await read_stream_writer.aclose()
+            await write_stream_reader.aclose()
+            del self._read_stream_writers[session_id]
+            if callback:
+                callback()
+            logger.debug(f"Closed SSE session with ID: {session_id}")
+
         async with anyio.create_task_group() as tg:
             response = EventSourceResponse(
-                content=sse_stream_reader, data_sender_callable=sse_writer
+                content=sse_stream_reader,
+                data_sender_callable=sse_writer,
+                client_close_handler_callable=client_close_handler,  # type: ignore[arg-type]
             )
             logger.debug("Starting SSE response task")
             tg.start_soon(response, scope, receive, send)
