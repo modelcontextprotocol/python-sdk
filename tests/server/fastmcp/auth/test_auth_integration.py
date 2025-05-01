@@ -4,16 +4,13 @@ Integration tests for MCP authorization components.
 
 import base64
 import hashlib
-import json
 import secrets
 import time
 import unittest.mock
 from urllib.parse import parse_qs, urlparse
 
-import anyio
 import httpx
 import pytest
-from httpx_sse import aconnect_sse
 from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 
@@ -30,14 +27,10 @@ from mcp.server.auth.routes import (
     RevocationOptions,
     create_auth_routes,
 )
-from mcp.server.auth.settings import AuthSettings
-from mcp.server.fastmcp import FastMCP
-from mcp.server.streaming_asgi_transport import StreamingASGITransport
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthToken,
 )
-from mcp.types import JSONRPCRequest
 
 
 # Mock OAuth provider for testing
