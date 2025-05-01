@@ -17,13 +17,13 @@ import pydantic_core
 from pydantic import BaseModel, Field
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sse_starlette import EventSourceResponse
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.routing import Mount, Route, request_response  # type: ignore
+from starlette.routing import Mount, Route
+from starlette.types import Receive, Scope, Send
 
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import (
@@ -576,20 +576,19 @@ class FastMCP:
 
         sse = SseServerTransport(self.settings.message_path)
 
-        async def handle_sse(request: Request) -> EventSourceResponse:
+        async def handle_sse(scope: Scope, receive: Receive, send: Send):
             # Add client ID from auth context into request context if available
 
             async with sse.connect_sse(
-                request.scope,
-                request.receive,
-                request._send,  # type: ignore[reportPrivateUsage]
+                scope,
+                receive,
+                send,
             ) as streams:
                 await self._mcp_server.run(
                     streams[0],
                     streams[1],
                     self._mcp_server.create_initialization_options(),
                 )
-                return streams[2]
 
         # Create routes
         routes: list[Route | Mount] = []
@@ -629,7 +628,7 @@ class FastMCP:
             Route(
                 self.settings.sse_path,
                 endpoint=RequireAuthMiddleware(
-                    request_response(handle_sse), required_scopes
+                    handle_sse, required_scopes
                 ),
                 methods=["GET"],
             )

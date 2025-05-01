@@ -131,7 +131,7 @@ class SseServerTransport:
 
                 try:
                     logger.debug("Yielding read and write streams")
-                    yield (read_stream, write_stream, response)
+                    yield (read_stream, write_stream)
                 finally:
                     # Cleanup when connection closes
                     logger.debug(f"Cleaning up SSE session {session_id}")
