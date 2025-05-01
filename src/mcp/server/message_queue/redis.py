@@ -70,11 +70,12 @@ class RedisMessageDispatch:
             try:
                 yield
             finally:
-                tg.cancel_scope.cancel()
-                await self._pubsub.unsubscribe(channel)  # type: ignore
-                await self._redis.srem(self._active_sessions_key, session_id.hex)
-                del self._session_state[session_id]
-                logger.debug(f"Unsubscribed from Redis channel: {session_id}")
+                with anyio.CancelScope(shield=True):
+                    tg.cancel_scope.cancel()
+                    await self._pubsub.unsubscribe(channel)  # type: ignore
+                    await self._redis.srem(self._active_sessions_key, session_id.hex)
+                    del self._session_state[session_id]
+                    logger.debug(f"Unsubscribed from Redis channel: {session_id}")
 
     def _extract_session_id(self, channel: str) -> UUID | None:
         """Extract and validate session ID from channel."""
