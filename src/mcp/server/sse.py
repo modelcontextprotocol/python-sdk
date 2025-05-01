@@ -173,3 +173,4 @@ class SseServerTransport:
         response = Response("Accepted", status_code=202)
         await response(scope, receive, send)
         await writer.send(message)
+        
