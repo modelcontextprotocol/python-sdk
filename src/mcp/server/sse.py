@@ -129,8 +129,20 @@ class SseServerTransport:
                 logger.debug("Starting SSE response task")
                 tg.start_soon(response, scope, receive, send)
 
-                logger.debug("Yielding read and write streams")
-                yield (read_stream, write_stream, response)
+                try:
+                    logger.debug("Yielding read and write streams")
+                    yield (read_stream, write_stream, response)
+                finally:
+                    # Cleanup when connection closes
+                    logger.debug(f"Cleaning up SSE session {session_id}")
+                    try:
+                        # Remove session from tracking dictionary
+                        if session_id in self._read_stream_writers:
+                            del self._read_stream_writers[session_id]
+                        # Cancel any remaining tasks in the task group
+                        tg.cancel_scope.cancel()
+                    except Exception as e:
+                        logger.error(f"Error during SSE cleanup: {e}")
 
     async def handle_post_message(
         self, scope: Scope, receive: Receive, send: Send

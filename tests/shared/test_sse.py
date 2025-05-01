@@ -142,12 +142,19 @@ def server(server_port: int) -> Generator[None, None, None]:
 
     yield
 
-    print("killing server")
-    # Signal the server to stop
-    proc.kill()
-    proc.join(timeout=2)
+    print("shutting down server gracefully")
+    # Try graceful shutdown first
+    proc.terminate()
+    try:
+        proc.join(timeout=5)
+    except Exception:
+        print("Graceful shutdown failed, forcing kill")
+        proc.kill()
+        proc.join(timeout=2)
+    
     if proc.is_alive():
         print("server process failed to terminate")
+        proc.kill()  # Force kill as last resort
 
 
 
@@ -180,9 +187,7 @@ async def test_raw_sse_connection(server, server_url) -> None:
         pytest.fail(f"{e}")
 
 @pytest.mark.anyio
-@pytest.mark.skip(
-    "fails in CI, but works locally. Need to investigate why."
-)
+
 async def test_sse_client_basic_connection(server: None, server_url: str) -> None:
     async with sse_client(server_url + "/sse") as streams:
         async with ClientSession(*streams) as session:
