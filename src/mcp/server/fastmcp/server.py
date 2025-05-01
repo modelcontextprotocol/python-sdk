@@ -41,6 +41,7 @@ from mcp.types import (
     GetPromptResult,
     ImageContent,
     TextContent,
+    ToolAnnotations,
 )
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
@@ -180,6 +181,7 @@ class FastMCP:
                 name=info.name,
                 description=info.description,
                 inputSchema=info.parameters,
+                annotations=info.annotations,
             )
             for info in tools
         ]
@@ -248,6 +250,7 @@ class FastMCP:
         fn: AnyFunction,
         name: str | None = None,
         description: str | None = None,
+        annotations: ToolAnnotations | None = None,
     ) -> None:
         """Add a tool to the server.
 
@@ -258,11 +261,17 @@ class FastMCP:
             fn: The function to register as a tool
             name: Optional name for the tool (defaults to function name)
             description: Optional description of what the tool does
+            annotations: Optional ToolAnnotations providing additional tool information
         """
-        self._tool_manager.add_tool(fn, name=name, description=description)
+        self._tool_manager.add_tool(
+            fn, name=name, description=description, annotations=annotations
+        )
 
     def tool(
-        self, name: str | None = None, description: str | None = None
+        self,
+        name: str | None = None,
+        description: str | None = None,
+        annotations: ToolAnnotations | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
 
@@ -273,6 +282,7 @@ class FastMCP:
         Args:
             name: Optional name for the tool (defaults to function name)
             description: Optional description of what the tool does
+            annotations: Optional ToolAnnotations providing additional tool information
 
         Example:
             @server.tool()
@@ -297,7 +307,9 @@ class FastMCP:
             )
 
         def decorator(fn: AnyFunction) -> AnyFunction:
-            self.add_tool(fn, name=name, description=description)
+            self.add_tool(
+                fn, name=name, description=description, annotations=annotations
+            )
             return fn
 
         return decorator
