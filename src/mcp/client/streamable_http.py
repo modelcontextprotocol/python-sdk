@@ -35,7 +35,6 @@ logger = logging.getLogger(__name__)
 SessionMessageOrError = SessionMessage | Exception
 StreamWriter = MemoryObjectSendStream[SessionMessageOrError]
 StreamReader = MemoryObjectReceiveStream[SessionMessage]
-TerminateCallback = Callable[[], Awaitable[None]]
 GetSessionIdCallback = Callable[[], str | None]
 
 MCP_SESSION_ID = "mcp-session-id"
@@ -413,11 +412,11 @@ async def streamablehttp_client(
     headers: dict[str, Any] | None = None,
     timeout: timedelta = timedelta(seconds=30),
     sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
+    terminate_on_close: bool = True,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
         MemoryObjectSendStream[SessionMessage],
-        TerminateCallback,
         GetSessionIdCallback,
     ],
     None,
@@ -432,7 +431,6 @@ async def streamablehttp_client(
         Tuple containing:
             - read_stream: Stream for reading messages from the server
             - write_stream: Stream for sending messages to the server
-            - terminate_callback: Async function to terminate the session - send DELETE
             - get_session_id_callback: Function to retrieve the current session ID
     """
     transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout)
@@ -461,9 +459,6 @@ async def streamablehttp_client(
                         transport.handle_get_stream, client, read_stream_writer
                     )
 
-                async def terminate_session() -> None:
-                    await transport.terminate_session(client)
-
                 tg.start_soon(
                     transport.post_writer,
                     client,
@@ -477,10 +472,11 @@ async def streamablehttp_client(
                     yield (
                         read_stream,
                         write_stream,
-                        terminate_session,
                         transport.get_session_id,
                     )
                 finally:
+                    if transport.session_id and terminate_on_close:
+                        await transport.terminate_session(client)
                     tg.cancel_scope.cancel()
         finally:
             await read_stream_writer.aclose()

@@ -779,7 +779,6 @@ async def initialized_client_session(basic_server, basic_server_url):
         read_stream,
         write_stream,
         _,
-        _,
     ):
         async with ClientSession(
             read_stream,
@@ -795,7 +794,6 @@ async def test_streamablehttp_client_basic_connection(basic_server, basic_server
     async with streamablehttp_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
-        _,
         _,
     ):
         async with ClientSession(
@@ -854,7 +852,6 @@ async def test_streamablehttp_client_session_persistence(
         read_stream,
         write_stream,
         _,
-        _,
     ):
         async with ClientSession(
             read_stream,
@@ -884,7 +881,6 @@ async def test_streamablehttp_client_json_response(
     async with streamablehttp_client(f"{json_server_url}/mcp") as (
         read_stream,
         write_stream,
-        _,
         _,
     ):
         async with ClientSession(
@@ -928,7 +924,6 @@ async def test_streamablehttp_client_get_stream(basic_server, basic_server_url):
         read_stream,
         write_stream,
         _,
-        _,
     ):
         async with ClientSession(
             read_stream, write_stream, message_handler=message_handler
@@ -961,24 +956,36 @@ async def test_streamablehttp_client_session_termination(
 ):
     """Test client session termination functionality."""
 
+    captured_session_id = None
+
     # Create the streamablehttp_client with a custom httpx client to capture headers
     async with streamablehttp_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
-        terminate_session,
-        _,
+        get_session_id,
     ):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the session
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
+            captured_session_id = get_session_id()
+            assert captured_session_id is not None
 
             # Make a request to confirm session is working
             tools = await session.list_tools()
             assert len(tools.tools) == 3
 
-            # After exiting ClientSession context, explicitly terminate the session
-            await terminate_session()
+    headers = {}
+    if captured_session_id:
+        headers[MCP_SESSION_ID_HEADER] = captured_session_id
+
+    async with streamablehttp_client(f"{basic_server_url}/mcp", headers=headers) as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            # Attempt to make a request after termination
             with pytest.raises(
                 McpError,
                 match="Session terminated",
@@ -1015,10 +1022,9 @@ async def test_streamablehttp_client_resumption(event_server):
         captured_resumption_token = token
 
     # First, start the client session and begin the long-running tool
-    async with streamablehttp_client(f"{server_url}/mcp") as (
+    async with streamablehttp_client(f"{server_url}/mcp", terminate_on_close=False) as (
         read_stream,
         write_stream,
-        _,
         get_session_id,
     ):
         async with ClientSession(
@@ -1071,7 +1077,6 @@ async def test_streamablehttp_client_resumption(event_server):
     async with streamablehttp_client(f"{server_url}/mcp", headers=headers) as (
         read_stream,
         write_stream,
-        _,
         _,
     ):
         async with ClientSession(
