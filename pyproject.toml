@@ -27,6 +27,7 @@ dependencies = [
     "httpx-sse>=0.4",
     "pydantic>=2.7.2,<3.0.0",
     "starlette>=0.27",
+    "python-multipart>=0.0.9",
     "sse-starlette>=1.6.1",
     "pydantic-settings>=2.5.2",
     "uvicorn>=0.23.1; sys_platform != 'emscripten'",
