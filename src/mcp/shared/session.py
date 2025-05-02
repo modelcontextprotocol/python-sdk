@@ -242,7 +242,9 @@ class BaseSession(
             # TODO: Support progress callbacks
 
             await self._write_stream.send(
-                SessionMessage(message=JSONRPCMessage(jsonrpc_request))
+                SessionMessage(
+                    message=JSONRPCMessage(jsonrpc_request), metadata=metadata
+                )
             )
 
             # request read timeout takes precedence over session read timeout

@@ -38,6 +38,12 @@ from mcp.server.streamable_http import (
     StreamId,
 )
 from mcp.shared.exceptions import McpError
+from mcp.shared.message import (
+    ClientMessageMetadata,
+    ResumptionToken,
+    ResumptionTokenUpdateCallback,
+    SessionMessage,
+)
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     InitializeResult,
@@ -1031,11 +1037,20 @@ async def test_streamablehttp_client_resumption(event_server):
             async with anyio.create_task_group() as tg:
 
                 async def run_tool():
-                    # Call the special tool that sends periodic notifications
-                    await session.call_tool(
-                        "long_running_with_checkpoints",
-                        {},
+                    metadata = ClientMessageMetadata(
                         on_resumption_token_update=on_resumption_token_update,
+                    )
+                    await session.send_request(
+                        types.ClientRequest(
+                            types.CallToolRequest(
+                                method="tools/call",
+                                params=types.CallToolRequestParams(
+                                    name="long_running_with_checkpoints", arguments={}
+                                ),
+                            )
+                        ),
+                        types.CallToolResult,
+                        metadata=metadata,
                     )
 
                 tg.start_soon(run_tool)
@@ -1046,7 +1061,9 @@ async def test_streamablehttp_client_resumption(event_server):
                     await anyio.sleep(0.1)
                 tg.cancel_scope.cancel()
 
-    # Clear captured notifications
+    # Store pre notifications and clear the captured notifications
+    # for the post-resumption check
+    captured_notifications_pre = captured_notifications.copy()
     captured_notifications = []
 
     # Now resume the session with the same mcp-session-id
@@ -1067,10 +1084,21 @@ async def test_streamablehttp_client_resumption(event_server):
 
             # Resume the tool with the resumption token
             assert captured_resumption_token is not None
-            result = await session.call_tool(
-                "long_running_with_checkpoints",
-                {},
+
+            metadata = ClientMessageMetadata(
                 resumption_token=captured_resumption_token,
+            )
+            result = await session.send_request(
+                types.ClientRequest(
+                    types.CallToolRequest(
+                        method="tools/call",
+                        params=types.CallToolRequestParams(
+                            name="long_running_with_checkpoints", arguments={}
+                        ),
+                    )
+                ),
+                types.CallToolResult,
+                metadata=metadata,
             )
 
             # We should get a complete result
@@ -1087,4 +1115,8 @@ async def test_streamablehttp_client_resumption(event_server):
                 isinstance(n.root, types.LoggingMessageNotification)
                 and n.root.params.data == "Tool started"
                 for n in captured_notifications
+            )
+            # there is no intersection between pre and post notifications
+            assert not any(
+                n in captured_notifications_pre for n in captured_notifications
             )

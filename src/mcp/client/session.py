@@ -8,9 +8,6 @@ from pydantic import AnyUrl, TypeAdapter
 import mcp.types as types
 from mcp.shared.context import RequestContext
 from mcp.shared.message import (
-    ClientMessageMetadata,
-    ResumptionToken,
-    ResumptionTokenUpdateCallback,
     SessionMessage,
 )
 from mcp.shared.session import BaseSession, RequestResponder
@@ -264,38 +261,8 @@ class ClientSession(
         name: str,
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
-        on_resumption_token_update: ResumptionTokenUpdateCallback | None = None,
-        resumption_token: ResumptionToken | None = None,
     ) -> types.CallToolResult:
-        """Send a tools/call request to invoke or resume a tool operation.
-
-        This method supports two modes of operation:
-
-        Initial Invocation:
-          - Tool is executed from the beginning
-          - If on_resumption_token_update is provided, it will receive resumption tokens
-            if transport supports resumable operations
-
-        Resumption:
-          - Requires a resumption_token from a previous execution
-          - Continues execution from the specified resumption token
-
-        Args:
-            name: Tool name to call
-            arguments: Optional arguments dictionary for the tool
-            read_timeout_seconds: request read timeout
-            on_resumption_token_update: Optional callback that receives
-                resumption tokens during execution, which can be
-                used later to resume an interrupted operation
-            resumption_token: Optional token to resume from a specific token
-                (supported by some transports)
-        """
-        metadata = None
-        if on_resumption_token_update or resumption_token:
-            metadata = ClientMessageMetadata(
-                on_resumption_token_update=on_resumption_token_update,
-                resumption_token=resumption_token,
-            )
+        """Send a tools/call request."""
 
         return await self.send_request(
             types.ClientRequest(
@@ -306,7 +273,6 @@ class ClientSession(
             ),
             types.CallToolResult,
             request_read_timeout_seconds=read_timeout_seconds,
-            metadata=metadata,
         )
 
     async def list_prompts(self) -> types.ListPromptsResult:
