@@ -16,7 +16,7 @@ from typing import Any
 import anyio
 import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from httpx_sse import EventSource, aconnect_sse
+from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
@@ -26,13 +26,14 @@ from mcp.types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    RequestId,
 )
 
 logger = logging.getLogger(__name__)
 
 
-MessageOrError = SessionMessage | Exception
-StreamWriter = MemoryObjectSendStream[MessageOrError]
+SessionMessageOrError = SessionMessage | Exception
+StreamWriter = MemoryObjectSendStream[SessionMessageOrError]
 StreamReader = MemoryObjectReceiveStream[SessionMessage]
 
 
@@ -123,23 +124,21 @@ class StreamableHTTPTransport:
             and message.root.method == "notifications/initialized"
         )
 
-    def _extract_session_id_from_response(
+    def _maybe_extract_session_id_from_response(
         self,
         response: httpx.Response,
-        is_initialization: bool,
     ) -> None:
         """Extract and store session ID from response headers."""
-        if is_initialization:
-            new_session_id = response.headers.get(MCP_SESSION_ID)
-            if new_session_id:
-                self.session_id = new_session_id
-                logger.info(f"Received session ID: {self.session_id}")
+        new_session_id = response.headers.get(MCP_SESSION_ID)
+        if new_session_id:
+            self.session_id = new_session_id
+            logger.info(f"Received session ID: {self.session_id}")
 
     async def _handle_sse_event(
         self,
-        sse: Any,
+        sse: ServerSentEvent,
         read_stream_writer: StreamWriter,
-        original_request_id: Any | None = None,
+        original_request_id: RequestId | None = None,
         resumption_callback: Callable[[str], Awaitable[None]] | None = None,
     ) -> bool:
         """Handle an SSE event, returning True if the response is complete."""
@@ -161,7 +160,8 @@ class StreamableHTTPTransport:
                 if sse.id and resumption_callback:
                     await resumption_callback(sse.id)
 
-                # If this is a response or error, we're done
+                # If this is a response or error return True indicating completion
+                # Otherwise, return False to continue listening
                 return isinstance(message.root, JSONRPCResponse | JSONRPCError)
 
             except Exception as exc:
@@ -262,7 +262,8 @@ class StreamableHTTPTransport:
                 return
 
             response.raise_for_status()
-            self._extract_session_id_from_response(response, is_initialization)
+            if is_initialization:
+                self._maybe_extract_session_id_from_response(response)
 
             content_type = response.headers.get(CONTENT_TYPE, "").lower()
 
@@ -324,7 +325,7 @@ class StreamableHTTPTransport:
     async def _send_session_terminated_error(
         self,
         read_stream_writer: StreamWriter,
-        request_id: Any,
+        request_id: RequestId,
     ) -> None:
         """Send a session terminated error response."""
         jsonrpc_error = JSONRPCError(

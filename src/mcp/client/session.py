@@ -267,7 +267,29 @@ class ClientSession(
         on_resumption_token_update: ResumptionTokenUpdateCallback | None = None,
         resumption_token: ResumptionToken | None = None,
     ) -> types.CallToolResult:
-        """Send a tools/call request."""
+        """Send a tools/call request to invoke or resume a tool operation.
+
+        This method supports two modes of operation:
+
+        Initial Invocation:
+          - Tool is executed from the beginning
+          - If on_resumption_token_update is provided, it will receive resumption tokens
+            if transport supports resumable operations
+
+        Resumption:
+          - Requires a resumption_token from a previous execution
+          - Continues execution from the specified resumption token
+
+        Args:
+            name: Tool name to call
+            arguments: Optional arguments dictionary for the tool
+            read_timeout_seconds: request read timeout
+            on_resumption_token_update: Optional callback that receives
+                resumption tokens during execution, which can be
+                used later to resume an interrupted operation
+            resumption_token: Optional token to resume from a specific token
+                (supported by some transports)
+        """
         metadata = None
         if on_resumption_token_update or resumption_token:
             metadata = ClientMessageMetadata(
