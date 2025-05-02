@@ -2,8 +2,6 @@ import anyio
 import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
-from starlette.responses import Response
-from starlette.routing import Route
 
 
 def create_messages(
@@ -92,7 +90,8 @@ def main(port: int, transport: str) -> int:
     if transport == "sse":
         from mcp.server.sse import SseServerTransport
         from starlette.applications import Starlette
-        from starlette.routing import Mount
+        from starlette.responses import Response
+        from starlette.routing import Mount, Route
 
         sse = SseServerTransport("/messages/")
 

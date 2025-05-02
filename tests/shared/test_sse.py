@@ -9,6 +9,7 @@ import pytest
 import uvicorn
 from pydantic import AnyUrl
 from starlette.applications import Starlette
+from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
 
@@ -83,7 +84,7 @@ def make_server_app() -> Starlette:
     sse = SseServerTransport("/messages/")
     server = ServerTest()
 
-    async def handle_sse(request) -> None:
+    async def handle_sse(request: Request) -> Response:
         async with sse.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:
@@ -189,7 +190,7 @@ async def test_raw_sse_connection(http_client: httpx.AsyncClient) -> None:
 
 @pytest.mark.anyio
 async def test_sse_client_basic_connection(server: None, server_url: str) -> None:
-    async with sse_client(server_url + "/sse/") as streams:
+    async with sse_client(server_url + "/sse") as streams:
         async with ClientSession(*streams) as session:
             # Test initialization
             result = await session.initialize()
@@ -205,7 +206,7 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
 async def initialized_sse_client_session(
     server, server_url: str
 ) -> AsyncGenerator[ClientSession, None]:
-    async with sse_client(server_url + "/sse/", sse_read_timeout=0.5) as streams:
+    async with sse_client(server_url + "/sse", sse_read_timeout=0.5) as streams:
         async with ClientSession(*streams) as session:
             await session.initialize()
             yield session

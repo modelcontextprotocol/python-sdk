@@ -31,8 +31,8 @@ Example usage:
 ```
 
 Note: The handle_sse function must return a Response to avoid a "TypeError: 'NoneType'
-object is not callable" error when client disconnects. The example above shows the
-correct approach by returning an empty Response() after the SSE connection ends.
+object is not callable" error when client disconnects. The example above returns
+an empty Response() after the SSE connection ends to fix this.
 
 See SseServerTransport class documentation for more details.
 """
