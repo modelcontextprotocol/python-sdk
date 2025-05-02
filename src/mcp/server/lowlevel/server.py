@@ -480,11 +480,11 @@ class Server(Generic[LifespanResultT]):
         # but also make tracing exceptions much easier during testing and when using
         # in-process servers.
         raise_exceptions: bool = False,
-        # When True, the server runs in standalone mode for stateless deployments where
+        # When True, the server is stateless and
         # clients can perform initialization with any node. The client must still follow
         # the initialization lifecycle, but can do so with any available node
         # rather than requiring initialization for each connection.
-        standalone_mode: bool = False,
+        stateless: bool = False,
     ):
         async with AsyncExitStack() as stack:
             lifespan_context = await stack.enter_async_context(self.lifespan(self))
@@ -493,7 +493,7 @@ class Server(Generic[LifespanResultT]):
                     read_stream,
                     write_stream,
                     initialization_options,
-                    standalone_mode=standalone_mode,
+                    stateless=stateless,
                 )
             )
 

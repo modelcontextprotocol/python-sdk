@@ -560,11 +560,9 @@ class StreamableHTTPServerTransport:
         if not await self._validate_session(request, send):
             return
         # Handle resumability: check for Last-Event-ID header
-        if self._event_store:
-            last_event_id = request.headers.get(LAST_EVENT_ID_HEADER)
-            if last_event_id:
-                await self._replay_events(last_event_id, request, send)
-                return
+        if last_event_id := request.headers.get(LAST_EVENT_ID_HEADER):
+            await self._replay_events(last_event_id, request, send)
+            return
 
         headers = {
             "Cache-Control": "no-cache, no-transform",
