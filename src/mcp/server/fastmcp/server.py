@@ -87,7 +87,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # HTTP settings
     host: str = "0.0.0.0"
     port: int = 8000
-    sse_path: str = "/sse"
+    sse_path: str = "/sse/"
     message_path: str = "/messages/"
 
     # resource settings

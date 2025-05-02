@@ -161,7 +161,7 @@ async def test_raw_sse_connection(http_client: httpx.AsyncClient) -> None:
     async with anyio.create_task_group():
 
         async def connection_test() -> None:
-            async with http_client.stream("GET", "/sse") as response:
+            async with http_client.stream("GET", "/sse/") as response:
                 assert response.status_code == 200
                 assert (
                     response.headers["content-type"]
@@ -185,7 +185,7 @@ async def test_raw_sse_connection(http_client: httpx.AsyncClient) -> None:
 
 @pytest.mark.anyio
 async def test_sse_client_basic_connection(server: None, server_url: str) -> None:
-    async with sse_client(server_url + "/sse") as streams:
+    async with sse_client(server_url + "/sse/") as streams:
         async with ClientSession(*streams) as session:
             # Test initialization
             result = await session.initialize()
@@ -201,7 +201,7 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
 async def initialized_sse_client_session(
     server, server_url: str
 ) -> AsyncGenerator[ClientSession, None]:
-    async with sse_client(server_url + "/sse", sse_read_timeout=0.5) as streams:
+    async with sse_client(server_url + "/sse/", sse_read_timeout=0.5) as streams:
         async with ClientSession(*streams) as session:
             await session.initialize()
             yield session
