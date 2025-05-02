@@ -8,11 +8,13 @@ from mcp.types import RequestId, RequestParams
 
 SessionT = TypeVar("SessionT", bound=BaseSession[Any, Any, Any, Any, Any])
 LifespanContextT = TypeVar("LifespanContextT")
+RequestT = TypeVar("RequestT")
 
 
 @dataclass
-class RequestContext(Generic[SessionT, LifespanContextT]):
+class RequestContext(Generic[SessionT, LifespanContextT, RequestT]):
     request_id: RequestId
     meta: RequestParams.Meta | None
     session: SessionT
     lifespan_context: LifespanContextT
+    request: RequestT | None = None

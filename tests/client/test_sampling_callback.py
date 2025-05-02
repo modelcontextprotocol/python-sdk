@@ -29,7 +29,7 @@ async def test_sampling_callback():
     )
 
     async def sampling_callback(
-        context: RequestContext[ClientSession, None],
+        context: RequestContext[ClientSession, None, None],
         params: CreateMessageRequestParams,
     ) -> CreateMessageResult:
         return callback_return
