@@ -11,6 +11,7 @@ from exceptiongroup import BaseExceptionGroup, catch
 from httpx_sse import aconnect_sse
 
 import mcp.types as types
+from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +38,11 @@ async def sse_client(
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
     """
-    read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception]
-    read_stream_writer: MemoryObjectSendStream[types.JSONRPCMessage | Exception]
+    read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
+    read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
 
-    write_stream: MemoryObjectSendStream[types.JSONRPCMessage]
-    write_stream_reader: MemoryObjectReceiveStream[types.JSONRPCMessage]
+    write_stream: MemoryObjectSendStream[SessionMessage]
+    write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
@@ -127,13 +128,43 @@ async def sse_client(
                                         logger.debug(
                                             f"Sending client message: {message}"
                                         )
-                                        response = await client.post(
-                                            endpoint_url,
-                                            json=message.model_dump(
-                                                by_alias=True,
-                                                mode="json",
-                                                exclude_none=True,
-                                            ),
+
+                                        url_parsed = urlparse(url)
+                                        endpoint_parsed = urlparse(endpoint_url)
+                                        if (
+                                            url_parsed.netloc != endpoint_parsed.netloc
+                                            or url_parsed.scheme
+                                            != endpoint_parsed.scheme
+                                        ):
+                                            error_msg = (
+                                                "Endpoint origin does not match "
+                                                f"connection origin: {endpoint_url}"
+                                            )
+                                            logger.error(error_msg)
+                                            raise ValueError(error_msg)
+
+                                        task_status.started(endpoint_url)
+
+                                    case "message":
+                                        try:
+                                            message = types.JSONRPCMessage.model_validate_json(  # noqa: E501
+                                                sse.data
+                                            )
+                                            logger.debug(
+                                                f"Received server message: {message}"
+                                            )
+                                        except Exception as exc:
+                                            logger.error(
+                                                f"Error parsing server message: {exc}"
+                                            )
+                                            await read_stream_writer.send(exc)
+                                            continue
+
+                                        session_message = SessionMessage(message)
+                                        await read_stream_writer.send(session_message)
+                                    case _:
+                                        logger.warning(
+                                            f"Unknown SSE event: {sse.event}"
                                         )
                                         response.raise_for_status()
                                         logger.debug(
@@ -152,7 +183,26 @@ async def sse_client(
                         tg.start_soon(post_writer, endpoint_url)
 
                         try:
-                            yield read_stream, write_stream
+                            async with write_stream_reader:
+                                async for session_message in write_stream_reader:
+                                    logger.debug(
+                                        f"Sending client message: {session_message}"
+                                    )
+                                    response = await client.post(
+                                        endpoint_url,
+                                        json=session_message.message.model_dump(
+                                            by_alias=True,
+                                            mode="json",
+                                            exclude_none=True,
+                                        ),
+                                    )
+                                    response.raise_for_status()
+                                    logger.debug(
+                                        "Client message sent successfully: "
+                                        f"{response.status_code}"
+                                    )
+                        except Exception as exc:
+                            logger.error(f"Error in post_writer: {exc}")
                         finally:
                             tg.cancel_scope.cancel()
             finally:
