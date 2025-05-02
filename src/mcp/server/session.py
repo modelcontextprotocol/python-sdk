@@ -137,6 +137,10 @@ class ServerSession(
 
         return True
 
+    async def _receive_loop(self) -> None:
+        async with self._incoming_message_stream_writer:
+            await super()._receive_loop()
+
     async def _received_request(
         self, responder: RequestResponder[types.ClientRequest, types.ServerResult]
     ):

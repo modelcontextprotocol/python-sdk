@@ -19,8 +19,8 @@ from pydantic import BaseModel, Field
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
-from starlette.requests import Request
 from starlette.routing import Mount, Route
+from starlette.types import Receive, Scope, Send
 
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
@@ -481,12 +481,8 @@ class FastMCP:
         """Return an instance of the SSE server app."""
         sse = SseServerTransport(self.settings.message_path)
 
-        async def handle_sse(request: Request) -> None:
-            async with sse.connect_sse(
-                request.scope,
-                request.receive,
-                request._send,  # type: ignore[reportPrivateUsage]
-            ) as streams:
+        async def handle_sse(scope: Scope, receive: Receive, send: Send) -> None:
+            async with sse.connect_sse(scope, receive, send) as streams:
                 await self._mcp_server.run(
                     streams[0],
                     streams[1],

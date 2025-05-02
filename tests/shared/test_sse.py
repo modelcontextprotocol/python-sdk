@@ -9,8 +9,7 @@ import pytest
 import uvicorn
 from pydantic import AnyUrl
 from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.routing import Mount, Route
+from starlette.routing import Mount
 
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
@@ -83,17 +82,15 @@ def make_server_app() -> Starlette:
     sse = SseServerTransport("/messages/")
     server = ServerTest()
 
-    async def handle_sse(request: Request) -> None:
-        async with sse.connect_sse(
-            request.scope, request.receive, request._send
-        ) as streams:
+    async def handle_sse(scope, receive, send) -> None:
+        async with sse.connect_sse(scope, receive, send) as streams:
             await server.run(
                 streams[0], streams[1], server.create_initialization_options()
             )
 
     app = Starlette(
         routes=[
-            Route("/sse", endpoint=handle_sse),
+            Mount("/sse", app=handle_sse),
             Mount("/messages/", app=sse.handle_post_message),
         ]
     )

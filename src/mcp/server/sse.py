@@ -10,15 +10,13 @@ Example usage:
 
     # Create Starlette routes for SSE and message handling
     routes = [
-        Route("/sse", endpoint=handle_sse),
+        Mount("/sse", app=handle_sse),
         Mount("/messages/", app=sse.handle_post_message),
     ]
 
     # Define handler functions
-    async def handle_sse(request):
-        async with sse.connect_sse(
-            request.scope, request.receive, request._send
-        ) as streams:
+    async def handle_sse(scope, receive, send):
+        async with sse.connect_sse(scope, receive, send) as streams:
             await app.run(
                 streams[0], streams[1], app.create_initialization_options()
             )
@@ -27,6 +25,11 @@ Example usage:
     starlette_app = Starlette(routes=routes)
     uvicorn.run(starlette_app, host="0.0.0.0", port=port)
 ```
+
+Note: If you get a "TypeError: 'NoneType' object is not callable" error, 
+you need to change from Route("/sse", endpoint=handle_sse) to 
+Mount("/sse", app=handle_sse) and update the handle_sse signature to 
+accept (scope, receive, send) instead of (request). See examples for details.
 
 See SseServerTransport class documentation for more details.
 """
@@ -121,11 +124,21 @@ class SseServerTransport:
                     )
 
         async with anyio.create_task_group() as tg:
-            response = EventSourceResponse(
-                content=sse_stream_reader, data_sender_callable=sse_writer
-            )
+            async def response_wrapper(scope: Scope, receive: Receive, send: Send):
+                """
+                The EventSourceResponse returning signals a client close / disconnect.
+                In this case we close our side of the streams to signal the client that
+                the connection has been closed.
+                """
+                await EventSourceResponse(
+                    content=sse_stream_reader, data_sender_callable=sse_writer
+                )(scope, receive, send)
+                await read_stream_writer.aclose()
+                await write_stream_reader.aclose()
+                logging.debug(f"Client session disconnected {session_id}")
+
             logger.debug("Starting SSE response task")
-            tg.start_soon(response, scope, receive, send)
+            tg.start_soon(response_wrapper, scope, receive, send)
 
             logger.debug("Yielding read and write streams")
             yield (read_stream, write_stream)
