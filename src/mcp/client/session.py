@@ -255,7 +255,10 @@ class ClientSession(
         )
 
     async def call_tool(
-        self, name: str, arguments: dict[str, Any] | None = None
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: timedelta | None = None,
     ) -> types.CallToolResult:
         """Send a tools/call request."""
         return await self.send_request(
@@ -266,6 +269,7 @@ class ClientSession(
                 )
             ),
             types.CallToolResult,
+            request_read_timeout_seconds=read_timeout_seconds,
         )
 
     async def list_prompts(self) -> types.ListPromptsResult:
