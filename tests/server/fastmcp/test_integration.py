@@ -96,7 +96,7 @@ def server(server_port: int) -> Generator[None, None, None]:
 
 @pytest.mark.anyio
 async def test_fastmcp_without_auth(server: None, server_url: str) -> None:
-    """Test that FastMCP works without authentication when auth settings are not provided."""
+    """Test that FastMCP works when auth settings are not provided."""
     # Connect to the server
     async with sse_client(server_url + "/sse") as streams:
         async with ClientSession(*streams) as session:
