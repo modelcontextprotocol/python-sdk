@@ -7,7 +7,7 @@ and session management.
 """
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
@@ -35,7 +35,8 @@ logger = logging.getLogger(__name__)
 SessionMessageOrError = SessionMessage | Exception
 StreamWriter = MemoryObjectSendStream[SessionMessageOrError]
 StreamReader = MemoryObjectReceiveStream[SessionMessage]
-
+TerminateCallback = Callable[[], Awaitable[None]]
+GetSessionIdCallback = Callable[[], str | None]
 
 MCP_SESSION_ID = "mcp-session-id"
 LAST_EVENT_ID = "last-event-id"
@@ -412,7 +413,15 @@ async def streamablehttp_client(
     headers: dict[str, Any] | None = None,
     timeout: timedelta = timedelta(seconds=30),
     sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
-):
+) -> AsyncGenerator[
+    tuple[
+        MemoryObjectReceiveStream[SessionMessage | Exception],
+        MemoryObjectSendStream[SessionMessage],
+        TerminateCallback,
+        GetSessionIdCallback,
+    ],
+    None,
+]:
     """
     Client transport for StreamableHTTP.
 
@@ -420,8 +429,11 @@ async def streamablehttp_client(
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
 
     Yields:
-        Tuple of (read_stream, write_stream, terminate_callback,
-                  get_session_id_callback)
+        Tuple containing:
+            - read_stream: Stream for reading messages from the server
+            - write_stream: Stream for sending messages to the server
+            - terminate_callback: Async function to terminate the session - send DELETE
+            - get_session_id_callback: Function to retrieve the current session ID
     """
     transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout)
 
