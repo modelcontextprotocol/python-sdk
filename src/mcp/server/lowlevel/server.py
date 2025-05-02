@@ -576,14 +576,12 @@ class Server(Generic[LifespanResultT]):
             assert type(notify) in self.notification_handlers
 
             handler = self.notification_handlers[type(notify)]
-            logger.debug(
-                f"Dispatching notification of type " f"{type(notify).__name__}"
-            )
+            logger.debug(f"Dispatching notification of type {type(notify).__name__}")
 
             try:
                 await handler(notify)
             except Exception as err:
-                logger.error(f"Uncaught exception in notification handler: " f"{err}")
+                logger.error(f"Uncaught exception in notification handler: {err}")
 
 
 async def _ping_handler(request: types.PingRequest) -> types.ServerResult:
