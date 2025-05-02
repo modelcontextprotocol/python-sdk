@@ -41,6 +41,7 @@ AnyFunction: TypeAlias = Callable[..., Any]
 class RequestParams(BaseModel):
     class Meta(BaseModel):
         progressToken: ProgressToken | None = None
+        extra_metadata: dict[str, Any] | None = None
         """
         If specified, the caller requests out-of-band progress notifications for
         this request (as represented by notifications/progress). The value of this

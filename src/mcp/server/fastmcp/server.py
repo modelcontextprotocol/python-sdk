@@ -588,6 +588,7 @@ class FastMCP:
                     streams[0],
                     streams[1],
                     self._mcp_server.create_initialization_options(),
+                    extra_metadata={"http_request": request},
                 )
 
         # Create routes
@@ -644,6 +645,15 @@ class FastMCP:
         return Starlette(
             debug=self.settings.debug, routes=routes, middleware=middleware
         )
+
+    def get_http_request(self) -> Request | None:
+        ctx = self.get_context()
+        if (ctx.request_context and
+            ctx.request_context.meta and
+            hasattr(ctx.request_context.meta, "extra_metadata")):
+            req: Request = ctx.request_context.meta.extra_metadata.get("http_request")  # type: ignore
+            return req
+        return None
 
     async def list_prompts(self) -> list[MCPPrompt]:
         """List all available prompts."""
