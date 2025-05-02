@@ -684,7 +684,6 @@ class StreamableHTTPServerTransport:
                 await self._write_stream.aclose()
         except Exception as e:
             logger.debug(f"Error closing streams: {e}")
-            pass
 
     async def _handle_unsupported_request(self, request: Request, send: Send) -> None:
         """Handle unsupported HTTP methods."""
@@ -925,4 +924,3 @@ class StreamableHTTPServerTransport:
                     await write_stream.aclose()
                 except Exception as e:
                     logger.debug(f"Error closing streams: {e}")
-                    pass
