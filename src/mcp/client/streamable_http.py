@@ -7,7 +7,7 @@ and session management.
 """
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
@@ -16,7 +16,7 @@ from typing import Any
 import anyio
 import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from httpx_sse import EventSource, aconnect_sse
+from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
@@ -26,15 +26,16 @@ from mcp.types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    RequestId,
 )
 
 logger = logging.getLogger(__name__)
 
 
-MessageOrError = SessionMessage | Exception
-StreamWriter = MemoryObjectSendStream[MessageOrError]
+SessionMessageOrError = SessionMessage | Exception
+StreamWriter = MemoryObjectSendStream[SessionMessageOrError]
 StreamReader = MemoryObjectReceiveStream[SessionMessage]
-
+GetSessionIdCallback = Callable[[], str | None]
 
 MCP_SESSION_ID = "mcp-session-id"
 LAST_EVENT_ID = "last-event-id"
@@ -123,23 +124,21 @@ class StreamableHTTPTransport:
             and message.root.method == "notifications/initialized"
         )
 
-    def _extract_session_id_from_response(
+    def _maybe_extract_session_id_from_response(
         self,
         response: httpx.Response,
-        is_initialization: bool,
     ) -> None:
         """Extract and store session ID from response headers."""
-        if is_initialization:
-            new_session_id = response.headers.get(MCP_SESSION_ID)
-            if new_session_id:
-                self.session_id = new_session_id
-                logger.info(f"Received session ID: {self.session_id}")
+        new_session_id = response.headers.get(MCP_SESSION_ID)
+        if new_session_id:
+            self.session_id = new_session_id
+            logger.info(f"Received session ID: {self.session_id}")
 
     async def _handle_sse_event(
         self,
-        sse: Any,
+        sse: ServerSentEvent,
         read_stream_writer: StreamWriter,
-        original_request_id: Any | None = None,
+        original_request_id: RequestId | None = None,
         resumption_callback: Callable[[str], Awaitable[None]] | None = None,
     ) -> bool:
         """Handle an SSE event, returning True if the response is complete."""
@@ -161,7 +160,8 @@ class StreamableHTTPTransport:
                 if sse.id and resumption_callback:
                     await resumption_callback(sse.id)
 
-                # If this is a response or error, we're done
+                # If this is a response or error return True indicating completion
+                # Otherwise, return False to continue listening
                 return isinstance(message.root, JSONRPCResponse | JSONRPCError)
 
             except Exception as exc:
@@ -262,7 +262,8 @@ class StreamableHTTPTransport:
                 return
 
             response.raise_for_status()
-            self._extract_session_id_from_response(response, is_initialization)
+            if is_initialization:
+                self._maybe_extract_session_id_from_response(response)
 
             content_type = response.headers.get(CONTENT_TYPE, "").lower()
 
@@ -324,7 +325,7 @@ class StreamableHTTPTransport:
     async def _send_session_terminated_error(
         self,
         read_stream_writer: StreamWriter,
-        request_id: Any,
+        request_id: RequestId,
     ) -> None:
         """Send a session terminated error response."""
         jsonrpc_error = JSONRPCError(
@@ -411,7 +412,15 @@ async def streamablehttp_client(
     headers: dict[str, Any] | None = None,
     timeout: timedelta = timedelta(seconds=30),
     sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
-):
+    terminate_on_close: bool = True,
+) -> AsyncGenerator[
+    tuple[
+        MemoryObjectReceiveStream[SessionMessage | Exception],
+        MemoryObjectSendStream[SessionMessage],
+        GetSessionIdCallback,
+    ],
+    None,
+]:
     """
     Client transport for StreamableHTTP.
 
@@ -419,8 +428,10 @@ async def streamablehttp_client(
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
 
     Yields:
-        Tuple of (read_stream, write_stream, terminate_callback,
-                  get_session_id_callback)
+        Tuple containing:
+            - read_stream: Stream for reading messages from the server
+            - write_stream: Stream for sending messages to the server
+            - get_session_id_callback: Function to retrieve the current session ID
     """
     transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout)
 
@@ -448,9 +459,6 @@ async def streamablehttp_client(
                         transport.handle_get_stream, client, read_stream_writer
                     )
 
-                async def terminate_session() -> None:
-                    await transport.terminate_session(client)
-
                 tg.start_soon(
                     transport.post_writer,
                     client,
@@ -464,10 +472,11 @@ async def streamablehttp_client(
                     yield (
                         read_stream,
                         write_stream,
-                        terminate_session,
                         transport.get_session_id,
                     )
                 finally:
+                    if transport.session_id and terminate_on_close:
+                        await transport.terminate_session(client)
                     tg.cancel_scope.cancel()
         finally:
             await read_stream_writer.aclose()

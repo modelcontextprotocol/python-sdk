@@ -8,9 +8,6 @@ from pydantic import AnyUrl, TypeAdapter
 import mcp.types as types
 from mcp.shared.context import RequestContext
 from mcp.shared.message import (
-    ClientMessageMetadata,
-    ResumptionToken,
-    ResumptionTokenUpdateCallback,
     SessionMessage,
 )
 from mcp.shared.session import BaseSession, RequestResponder
@@ -263,16 +260,9 @@ class ClientSession(
         self,
         name: str,
         arguments: dict[str, Any] | None = None,
-        on_resumption_token_update: ResumptionTokenUpdateCallback | None = None,
-        resumption_token: ResumptionToken | None = None,
+        read_timeout_seconds: timedelta | None = None,
     ) -> types.CallToolResult:
         """Send a tools/call request."""
-        metadata = None
-        if on_resumption_token_update or resumption_token:
-            metadata = ClientMessageMetadata(
-                on_resumption_token_update=on_resumption_token_update,
-                resumption_token=resumption_token,
-            )
 
         return await self.send_request(
             types.ClientRequest(
@@ -282,7 +272,7 @@ class ClientSession(
                 )
             ),
             types.CallToolResult,
-            metadata=metadata,
+            request_read_timeout_seconds=read_timeout_seconds,
         )
 
     async def list_prompts(self) -> types.ListPromptsResult:

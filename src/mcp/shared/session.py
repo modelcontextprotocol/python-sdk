@@ -185,9 +185,8 @@ class BaseSession(
         self._request_id = 0
         self._receive_request_type = receive_request_type
         self._receive_notification_type = receive_notification_type
-        self._read_timeout_seconds = read_timeout_seconds
+        self._session_read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
-
         self._exit_stack = AsyncExitStack()
 
     async def __aenter__(self) -> Self:
@@ -213,11 +212,13 @@ class BaseSession(
         self,
         request: SendRequestT,
         result_type: type[ReceiveResultT],
+        request_read_timeout_seconds: timedelta | None = None,
         metadata: MessageMetadata = None,
     ) -> ReceiveResultT:
         """
         Sends a request and wait for a response. Raises an McpError if the
-        response contains an error.
+        response contains an error. If a request read timeout is provided, it
+        will take precedence over the session read timeout.
 
         Do not use this method to emit notifications! Use send_notification()
         instead.
@@ -231,45 +232,52 @@ class BaseSession(
         ](1)
         self._response_streams[request_id] = response_stream
 
-        self._exit_stack.push_async_callback(lambda: response_stream.aclose())
-        self._exit_stack.push_async_callback(lambda: response_stream_reader.aclose())
-
-        jsonrpc_request = JSONRPCRequest(
-            jsonrpc="2.0",
-            id=request_id,
-            **request.model_dump(by_alias=True, mode="json", exclude_none=True),
-        )
-
-        # TODO: Support progress callbacks
-
-        session_message = SessionMessage(
-            message=JSONRPCMessage(jsonrpc_request), metadata=metadata
-        )
-        await self._write_stream.send(session_message)
-
         try:
-            with anyio.fail_after(
-                None
-                if self._read_timeout_seconds is None
-                else self._read_timeout_seconds.total_seconds()
-            ):
-                response_or_error = await response_stream_reader.receive()
-        except TimeoutError:
-            raise McpError(
-                ErrorData(
-                    code=httpx.codes.REQUEST_TIMEOUT,
-                    message=(
-                        f"Timed out while waiting for response to "
-                        f"{request.__class__.__name__}. Waited "
-                        f"{self._read_timeout_seconds} seconds."
-                    ),
+            jsonrpc_request = JSONRPCRequest(
+                jsonrpc="2.0",
+                id=request_id,
+                **request.model_dump(by_alias=True, mode="json", exclude_none=True),
+            )
+
+            # TODO: Support progress callbacks
+
+            await self._write_stream.send(
+                SessionMessage(
+                    message=JSONRPCMessage(jsonrpc_request), metadata=metadata
                 )
             )
 
-        if isinstance(response_or_error, JSONRPCError):
-            raise McpError(response_or_error.error)
-        else:
-            return result_type.model_validate(response_or_error.result)
+            # request read timeout takes precedence over session read timeout
+            timeout = None
+            if request_read_timeout_seconds is not None:
+                timeout = request_read_timeout_seconds.total_seconds()
+            elif self._session_read_timeout_seconds is not None:
+                timeout = self._session_read_timeout_seconds.total_seconds()
+
+            try:
+                with anyio.fail_after(timeout):
+                    response_or_error = await response_stream_reader.receive()
+            except TimeoutError:
+                raise McpError(
+                    ErrorData(
+                        code=httpx.codes.REQUEST_TIMEOUT,
+                        message=(
+                            f"Timed out while waiting for response to "
+                            f"{request.__class__.__name__}. Waited "
+                            f"{timeout} seconds."
+                        ),
+                    )
+                )
+
+            if isinstance(response_or_error, JSONRPCError):
+                raise McpError(response_or_error.error)
+            else:
+                return result_type.model_validate(response_or_error.result)
+
+        finally:
+            self._response_streams.pop(request_id, None)
+            await response_stream.aclose()
+            await response_stream_reader.aclose()
 
     async def send_notification(
         self,
