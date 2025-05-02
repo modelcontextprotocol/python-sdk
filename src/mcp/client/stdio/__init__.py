@@ -11,6 +11,7 @@ from anyio.streams.text import TextReceiveStream
 from pydantic import BaseModel, Field
 
 import mcp.types as types
+from mcp.shared.message import SessionMessage
 
 from .win32 import (
     create_windows_process,
@@ -98,11 +99,11 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
     """
-    read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception]
-    read_stream_writer: MemoryObjectSendStream[types.JSONRPCMessage | Exception]
+    read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
+    read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
 
-    write_stream: MemoryObjectSendStream[types.JSONRPCMessage]
-    write_stream_reader: MemoryObjectReceiveStream[types.JSONRPCMessage]
+    write_stream: MemoryObjectSendStream[SessionMessage]
+    write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
@@ -143,7 +144,8 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                             await read_stream_writer.send(exc)
                             continue
 
-                        await read_stream_writer.send(message)
+                        session_message = SessionMessage(message)
+                        await read_stream_writer.send(session_message)
         except anyio.ClosedResourceError:
             await anyio.lowlevel.checkpoint()
 
@@ -152,8 +154,10 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
 
         try:
             async with write_stream_reader:
-                async for message in write_stream_reader:
-                    json = message.model_dump_json(by_alias=True, exclude_none=True)
+                async for session_message in write_stream_reader:
+                    json = session_message.message.model_dump_json(
+                        by_alias=True, exclude_none=True
+                    )
                     await process.stdin.send(
                         (json + "\n").encode(
                             encoding=server.encoding,

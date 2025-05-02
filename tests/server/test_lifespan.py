@@ -10,6 +10,7 @@ from pydantic import TypeAdapter
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.lowlevel.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
+from mcp.shared.message import SessionMessage
 from mcp.types import (
     ClientCapabilities,
     Implementation,
@@ -82,41 +83,49 @@ async def test_lowlevel_server_lifespan():
             clientInfo=Implementation(name="test-client", version="0.1.0"),
         )
         await send_stream1.send(
-            JSONRPCMessage(
-                root=JSONRPCRequest(
-                    jsonrpc="2.0",
-                    id=1,
-                    method="initialize",
-                    params=TypeAdapter(InitializeRequestParams).dump_python(params),
+            SessionMessage(
+                JSONRPCMessage(
+                    root=JSONRPCRequest(
+                        jsonrpc="2.0",
+                        id=1,
+                        method="initialize",
+                        params=TypeAdapter(InitializeRequestParams).dump_python(params),
+                    )
                 )
             )
         )
         response = await receive_stream2.receive()
+        response = response.message
 
         # Send initialized notification
         await send_stream1.send(
-            JSONRPCMessage(
-                root=JSONRPCNotification(
-                    jsonrpc="2.0",
-                    method="notifications/initialized",
+            SessionMessage(
+                JSONRPCMessage(
+                    root=JSONRPCNotification(
+                        jsonrpc="2.0",
+                        method="notifications/initialized",
+                    )
                 )
             )
         )
 
         # Call the tool to verify lifespan context
         await send_stream1.send(
-            JSONRPCMessage(
-                root=JSONRPCRequest(
-                    jsonrpc="2.0",
-                    id=2,
-                    method="tools/call",
-                    params={"name": "check_lifespan", "arguments": {}},
+            SessionMessage(
+                JSONRPCMessage(
+                    root=JSONRPCRequest(
+                        jsonrpc="2.0",
+                        id=2,
+                        method="tools/call",
+                        params={"name": "check_lifespan", "arguments": {}},
+                    )
                 )
             )
         )
 
         # Get response and verify
         response = await receive_stream2.receive()
+        response = response.message
         assert response.root.result["content"][0]["text"] == "true"
 
         # Cancel server task
@@ -178,41 +187,49 @@ async def test_fastmcp_server_lifespan():
             clientInfo=Implementation(name="test-client", version="0.1.0"),
         )
         await send_stream1.send(
-            JSONRPCMessage(
-                root=JSONRPCRequest(
-                    jsonrpc="2.0",
-                    id=1,
-                    method="initialize",
-                    params=TypeAdapter(InitializeRequestParams).dump_python(params),
+            SessionMessage(
+                JSONRPCMessage(
+                    root=JSONRPCRequest(
+                        jsonrpc="2.0",
+                        id=1,
+                        method="initialize",
+                        params=TypeAdapter(InitializeRequestParams).dump_python(params),
+                    )
                 )
             )
         )
         response = await receive_stream2.receive()
+        response = response.message
 
         # Send initialized notification
         await send_stream1.send(
-            JSONRPCMessage(
-                root=JSONRPCNotification(
-                    jsonrpc="2.0",
-                    method="notifications/initialized",
+            SessionMessage(
+                JSONRPCMessage(
+                    root=JSONRPCNotification(
+                        jsonrpc="2.0",
+                        method="notifications/initialized",
+                    )
                 )
             )
         )
 
         # Call the tool to verify lifespan context
         await send_stream1.send(
-            JSONRPCMessage(
-                root=JSONRPCRequest(
-                    jsonrpc="2.0",
-                    id=2,
-                    method="tools/call",
-                    params={"name": "check_lifespan", "arguments": {}},
+            SessionMessage(
+                JSONRPCMessage(
+                    root=JSONRPCRequest(
+                        jsonrpc="2.0",
+                        id=2,
+                        method="tools/call",
+                        params={"name": "check_lifespan", "arguments": {}},
+                    )
                 )
             )
         )
 
         # Get response and verify
         response = await receive_stream2.receive()
+        response = response.message
         assert response.root.result["content"][0]["text"] == "true"
 
         # Cancel server task

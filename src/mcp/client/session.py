@@ -7,6 +7,7 @@ from pydantic import AnyUrl, TypeAdapter
 
 import mcp.types as types
 from mcp.shared.context import RequestContext
+from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
@@ -92,8 +93,8 @@ class ClientSession(
 ):
     def __init__(
         self,
-        read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception],
-        write_stream: MemoryObjectSendStream[types.JSONRPCMessage],
+        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
+        write_stream: MemoryObjectSendStream[SessionMessage],
         read_timeout_seconds: timedelta | None = None,
         sampling_callback: SamplingFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
@@ -260,6 +261,7 @@ class ClientSession(
         read_timeout_seconds: timedelta | None = None,
     ) -> types.CallToolResult:
         """Send a tools/call request."""
+
         return await self.send_request(
             types.ClientRequest(
                 types.CallToolRequest(
