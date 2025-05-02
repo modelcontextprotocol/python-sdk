@@ -6,7 +6,10 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
+
+from mcp.server import FastMCP
+from mcp.server import Server as LowLevelServer
 
 try:
     import typer
@@ -141,17 +144,48 @@ def _import_server(file: Path, server_object: str | None = None):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
+    def _check_server_object(server_object: Any, object_name: str):
+        """Helper function to check that the server object is supported
+
+        Args:
+            server_object: The server object to check.
+
+        Returns:
+            True if it's supported.
+        """
+        if not isinstance(server_object, FastMCP):
+            logger.error(
+                f"The server object {object_name} is of type "
+                f"{type(server_object)} (expecting {FastMCP})."
+            )
+            if isinstance(server_object, LowLevelServer):
+                logger.warning(
+                    "Note that only FastMCP server is supported. Low level "
+                    "Server class is not yet supported."
+                )
+            return False
+        return True
+
     # If no object specified, try common server names
     if not server_object:
         # Look for the most common server object names
         for name in ["mcp", "server", "app"]:
             if hasattr(module, name):
+                if not _check_server_object(getattr(module, name), f"{file}:{name}"):
+                    logger.error(
+                        f"Ignoring object '{file}:{name}' as it's not a valid "
+                        "server object"
+                    )
+                    continue
                 return getattr(module, name)
 
         logger.error(
             f"No server object found in {file}. Please either:\n"
             "1. Use a standard variable name (mcp, server, or app)\n"
-            "2. Specify the object name with file:object syntax",
+            "2. Specify the object name with file:object syntax"
+            "3. If the server creates the FastMCP object within main() "
+            "   or another function, refactor the FastMCP object to be a "
+            "   global variable named mcp, server, or app.",
             extra={"file": str(file)},
         )
         sys.exit(1)
@@ -177,6 +211,9 @@ def _import_server(file: Path, server_object: str | None = None):
             f"Server object '{server_object}' not found",
             extra={"file": str(file)},
         )
+        sys.exit(1)
+
+    if not _check_server_object(server, server_object):
         sys.exit(1)
 
     return server
