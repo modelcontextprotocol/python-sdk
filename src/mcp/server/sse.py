@@ -10,26 +10,29 @@ Example usage:
 
     # Create Starlette routes for SSE and message handling
     routes = [
-        Mount("/sse", app=handle_sse),
+        Route("/sse", endpoint=handle_sse, methods=["GET"]),
         Mount("/messages/", app=sse.handle_post_message),
     ]
 
     # Define handler functions
-    async def handle_sse(scope, receive, send):
-        async with sse.connect_sse(scope, receive, send) as streams:
+    async def handle_sse(request):
+        async with sse.connect_sse(
+            request.scope, request.receive, request._send
+        ) as streams:
             await app.run(
                 streams[0], streams[1], app.create_initialization_options()
             )
+        # Return empty response to avoid NoneType error
+        return Response()
 
     # Create and run Starlette app
     starlette_app = Starlette(routes=routes)
     uvicorn.run(starlette_app, host="0.0.0.0", port=port)
 ```
 
-Note: If you get a "TypeError: 'NoneType' object is not callable" error, 
-you need to change from Route("/sse", endpoint=handle_sse) to 
-Mount("/sse", app=handle_sse) and update the handle_sse signature to 
-accept (scope, receive, send) instead of (request). See examples for details.
+Note: The handle_sse function must return a Response to avoid a "TypeError: 'NoneType'
+object is not callable" error when client disconnects. The example above shows the
+correct approach by returning an empty Response() after the SSE connection ends.
 
 See SseServerTransport class documentation for more details.
 """
@@ -124,6 +127,7 @@ class SseServerTransport:
                     )
 
         async with anyio.create_task_group() as tg:
+
             async def response_wrapper(scope: Scope, receive: Receive, send: Send):
                 """
                 The EventSourceResponse returning signals a client close / disconnect.

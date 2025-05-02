@@ -9,7 +9,8 @@ import pytest
 import uvicorn
 from pydantic import AnyUrl
 from starlette.applications import Starlette
-from starlette.routing import Mount
+from starlette.responses import Response
+from starlette.routing import Mount, Route
 
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
@@ -82,15 +83,18 @@ def make_server_app() -> Starlette:
     sse = SseServerTransport("/messages/")
     server = ServerTest()
 
-    async def handle_sse(scope, receive, send) -> None:
-        async with sse.connect_sse(scope, receive, send) as streams:
+    async def handle_sse(request) -> None:
+        async with sse.connect_sse(
+            request.scope, request.receive, request._send
+        ) as streams:
             await server.run(
                 streams[0], streams[1], server.create_initialization_options()
             )
+        return Response()
 
     app = Starlette(
         routes=[
-            Mount("/sse", app=handle_sse),
+            Route("/sse", endpoint=handle_sse),
             Mount("/messages/", app=sse.handle_post_message),
         ]
     )
@@ -161,7 +165,7 @@ async def test_raw_sse_connection(http_client: httpx.AsyncClient) -> None:
     async with anyio.create_task_group():
 
         async def connection_test() -> None:
-            async with http_client.stream("GET", "/sse/") as response:
+            async with http_client.stream("GET", "/sse") as response:
                 assert response.status_code == 200
                 assert (
                     response.headers["content-type"]
