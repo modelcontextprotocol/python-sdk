@@ -8,10 +8,10 @@ from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
+from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     ClientResult,
-    JSONRPCMessage,
     ServerNotification,
     ServerRequest,
     Tool,
@@ -46,10 +46,10 @@ async def test_lowlevel_server_tool_annotations():
         ]
 
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        JSONRPCMessage
+        SessionMessage
     ](10)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        JSONRPCMessage
+        SessionMessage
     ](10)
 
     # Message handler for client
