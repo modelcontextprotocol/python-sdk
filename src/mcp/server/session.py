@@ -86,15 +86,17 @@ class ServerSession(
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
         write_stream: MemoryObjectSendStream[SessionMessage],
         init_options: InitializationOptions,
-        standalone_mode: bool = False,
+        stateless: bool = False,
     ) -> None:
         super().__init__(
             read_stream, write_stream, types.ClientRequest, types.ClientNotification
         )
-        if standalone_mode:
-            self._initialization_state = InitializationState.Initialized
-        else:
-            self._initialization_state = InitializationState.NotInitialized
+        self._initialization_state = (
+            InitializationState.Initialized
+            if stateless
+            else InitializationState.NotInitialized
+        )
+
         self._init_options = init_options
         self._incoming_message_stream_writer, self._incoming_message_stream_reader = (
             anyio.create_memory_object_stream[ServerRequestResponder](0)
