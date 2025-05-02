@@ -263,6 +263,7 @@ class ClientSession(
         self,
         name: str,
         arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: timedelta | None = None,
         on_resumption_token_update: ResumptionTokenUpdateCallback | None = None,
         resumption_token: ResumptionToken | None = None,
     ) -> types.CallToolResult:
@@ -282,6 +283,7 @@ class ClientSession(
                 )
             ),
             types.CallToolResult,
+            request_read_timeout_seconds=read_timeout_seconds,
             metadata=metadata,
         )
 
