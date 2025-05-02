@@ -10,7 +10,7 @@ Example usage:
 
     # Create Starlette routes for SSE and message handling
     routes = [
-        Route("/sse", endpoint=handle_sse),
+        Route("/sse", endpoint=handle_sse, methods=["GET"]),
         Mount("/messages/", app=sse.handle_post_message),
     ]
 
@@ -22,11 +22,17 @@ Example usage:
             await app.run(
                 streams[0], streams[1], app.create_initialization_options()
             )
+        # Return empty response to avoid NoneType error
+        return Response()
 
     # Create and run Starlette app
     starlette_app = Starlette(routes=routes)
     uvicorn.run(starlette_app, host="0.0.0.0", port=port)
 ```
+
+Note: The handle_sse function must return a Response to avoid a "TypeError: 'NoneType'
+object is not callable" error when client disconnects. The example above returns
+an empty Response() after the SSE connection ends to fix this.
 
 See SseServerTransport class documentation for more details.
 """
@@ -120,11 +126,22 @@ class SseServerTransport:
                     )
 
         async with anyio.create_task_group() as tg:
-            response = EventSourceResponse(
-                content=sse_stream_reader, data_sender_callable=sse_writer
-            )
+
+            async def response_wrapper(scope: Scope, receive: Receive, send: Send):
+                """
+                The EventSourceResponse returning signals a client close / disconnect.
+                In this case we close our side of the streams to signal the client that
+                the connection has been closed.
+                """
+                await EventSourceResponse(
+                    content=sse_stream_reader, data_sender_callable=sse_writer
+                )(scope, receive, send)
+                await read_stream_writer.aclose()
+                await write_stream_reader.aclose()
+                logging.debug(f"Client session disconnected {session_id}")
+
             logger.debug("Starting SSE response task")
-            tg.start_soon(response, scope, receive, send)
+            tg.start_soon(response_wrapper, scope, receive, send)
 
             logger.debug("Yielding read and write streams")
             yield (read_stream, write_stream)

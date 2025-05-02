@@ -104,9 +104,6 @@ class ServerSession(
         self._exit_stack.push_async_callback(
             lambda: self._incoming_message_stream_reader.aclose()
         )
-        self._exit_stack.push_async_callback(
-            lambda: self._incoming_message_stream_writer.aclose()
-        )
 
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
@@ -143,6 +140,10 @@ class ServerSession(
                     return False
 
         return True
+
+    async def _receive_loop(self) -> None:
+        async with self._incoming_message_stream_writer:
+            await super()._receive_loop()
 
     async def _received_request(
         self, responder: RequestResponder[types.ClientRequest, types.ServerResult]
