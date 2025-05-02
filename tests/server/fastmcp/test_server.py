@@ -697,6 +697,19 @@ class TestServerPrompts:
             assert content.text == "Hello, World!"
 
     @pytest.mark.anyio
+    async def test_get_prompt_with_description(self):
+        """Test getting a prompt through MCP protocol."""
+        mcp = FastMCP()
+
+        @mcp.prompt(description="Test prompt description")
+        def fn(name: str) -> str:
+            return f"Hello, {name}!"
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.get_prompt("fn", {"name": "World"})
+            assert result.description == "Test prompt description"
+
+    @pytest.mark.anyio
     async def test_get_prompt_with_resource(self):
         """Test getting a prompt that returns resource content."""
         mcp = FastMCP()
