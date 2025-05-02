@@ -47,9 +47,7 @@ async def sse_client(
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-    with catch({
-        Exception: handle_exception
-    }):
+    with catch({Exception: handle_exception}):
         async with anyio.create_task_group() as tg:
             try:
                 logger.info(f"Connecting to SSE endpoint: {remove_request_params(url)}")
@@ -99,72 +97,46 @@ async def sse_client(
                                                     sse.data
                                                 )
                                                 logger.debug(
-                                                    f"Received server message: "
+                                                    "Received server message: "
                                                     f"{message}"
+                                                    
                                                 )
                                             except Exception as exc:
                                                 logger.error(
-                                                    f"Error parsing server message: "
+                                                    "Error parsing server message: "
                                                     f"{exc}"
                                                 )
                                                 await read_stream_writer.send(exc)
                                                 continue
 
-                                            await read_stream_writer.send(message)
+                                            session_message = SessionMessage(message)
+                                            await read_stream_writer.send(
+                                                session_message
+                                            )
                                         case _:
                                             logger.warning(
                                                 f"Unknown SSE event: {sse.event}"
                                             )
                             except Exception as exc:
                                 logger.error(f"Error in sse_reader: {exc}")
-                                raise
+                                await read_stream_writer.send(exc)
                             finally:
                                 await read_stream_writer.aclose()
 
                         async def post_writer(endpoint_url: str):
                             try:
                                 async with write_stream_reader:
-                                    async for message in write_stream_reader:
+                                    async for session_message in write_stream_reader:
                                         logger.debug(
-                                            f"Sending client message: {message}"
+                                            f"Sending client message: {session_message}"
                                         )
-
-                                        url_parsed = urlparse(url)
-                                        endpoint_parsed = urlparse(endpoint_url)
-                                        if (
-                                            url_parsed.netloc != endpoint_parsed.netloc
-                                            or url_parsed.scheme
-                                            != endpoint_parsed.scheme
-                                        ):
-                                            error_msg = (
-                                                "Endpoint origin does not match "
-                                                f"connection origin: {endpoint_url}"
-                                            )
-                                            logger.error(error_msg)
-                                            raise ValueError(error_msg)
-
-                                        task_status.started(endpoint_url)
-
-                                    case "message":
-                                        try:
-                                            message = types.JSONRPCMessage.model_validate_json(  # noqa: E501
-                                                sse.data
-                                            )
-                                            logger.debug(
-                                                f"Received server message: {message}"
-                                            )
-                                        except Exception as exc:
-                                            logger.error(
-                                                f"Error parsing server message: {exc}"
-                                            )
-                                            await read_stream_writer.send(exc)
-                                            continue
-
-                                        session_message = SessionMessage(message)
-                                        await read_stream_writer.send(session_message)
-                                    case _:
-                                        logger.warning(
-                                            f"Unknown SSE event: {sse.event}"
+                                        response = await client.post(
+                                            endpoint_url,
+                                            json=session_message.message.model_dump(
+                                                by_alias=True,
+                                                mode="json",
+                                                exclude_none=True,
+                                            ),
                                         )
                                         response.raise_for_status()
                                         logger.debug(
@@ -183,26 +155,7 @@ async def sse_client(
                         tg.start_soon(post_writer, endpoint_url)
 
                         try:
-                            async with write_stream_reader:
-                                async for session_message in write_stream_reader:
-                                    logger.debug(
-                                        f"Sending client message: {session_message}"
-                                    )
-                                    response = await client.post(
-                                        endpoint_url,
-                                        json=session_message.message.model_dump(
-                                            by_alias=True,
-                                            mode="json",
-                                            exclude_none=True,
-                                        ),
-                                    )
-                                    response.raise_for_status()
-                                    logger.debug(
-                                        "Client message sent successfully: "
-                                        f"{response.status_code}"
-                                    )
-                        except Exception as exc:
-                            logger.error(f"Error in post_writer: {exc}")
+                            yield read_stream, write_stream
                         finally:
                             tg.cancel_scope.cancel()
             finally:
