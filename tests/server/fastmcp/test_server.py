@@ -635,14 +635,28 @@ class TestContextInjection:
 
                 assert mock_log.call_count == 4
                 mock_log.assert_any_call(
-                    level="debug", data="Debug message", logger=None
+                    level="debug",
+                    data="Debug message",
+                    logger=None,
+                    related_request_id="1",
                 )
-                mock_log.assert_any_call(level="info", data="Info message", logger=None)
                 mock_log.assert_any_call(
-                    level="warning", data="Warning message", logger=None
+                    level="info",
+                    data="Info message",
+                    logger=None,
+                    related_request_id="1",
                 )
                 mock_log.assert_any_call(
-                    level="error", data="Error message", logger=None
+                    level="warning",
+                    data="Warning message",
+                    logger=None,
+                    related_request_id="1",
+                )
+                mock_log.assert_any_call(
+                    level="error",
+                    data="Error message",
+                    logger=None,
+                    related_request_id="1",
                 )
 
     @pytest.mark.anyio
