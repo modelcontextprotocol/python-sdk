@@ -607,13 +607,13 @@ class FastMCP:
             self.settings.mount_path = mount_path
 
         # Create normalized endpoint considering the mount path
-        normalized_endpoint = self._normalize_path(
+        normalized_message_endpoint = self._normalize_path(
             self.settings.mount_path, self.settings.message_path
         )
         
         # Set up auth context and dependencies
 
-        sse = SseServerTransport(normalized_endpoint)
+        sse = SseServerTransport(normalized_message_endpoint)
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):
             # Add client ID from auth context into request context if available
