@@ -1,0 +1,32 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install main project dependencies
+        run: |
+          pip install -r requirements.txt || true
+
+      - name: Install dev dependencies
+        run: |
+          pip install -r requirements-dev.txt
+
+      - name: Run standalone SSE client-server test
+        run: |
+          python tests/test_sse_client_server_plain.py

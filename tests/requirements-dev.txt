@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+httpx
+httpx-sse
+sse-starlette
+anyio
