@@ -62,7 +62,7 @@ async def test_request_cancellation():
                 await anyio.sleep(10)  # Long enough to ensure we can cancel
                 return []
             raise ValueError(f"Unknown tool: {name}")
-        
+
         @server.cancel_notification()
         async def handle_cancel(requestId: str | int, reason: str | None):
             nonlocal ev_cancel_notified

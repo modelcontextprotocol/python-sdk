@@ -448,15 +448,13 @@ class Server(Generic[LifespanResultT]):
             logger.debug("Registering handler for CancelledNotification")
 
             async def handler(req: types.CancelledNotification):
-                await func(
-                    req.params.requestId, req.params.reason
-                )
+                await func(req.params.requestId, req.params.reason)
 
             self.notification_handlers[types.CancelledNotification] = handler
             return func
 
         return decorator
-    
+
     def completion(self):
         """Provides completions for prompts and resource templates"""
 

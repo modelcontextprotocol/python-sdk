@@ -140,7 +140,7 @@ class ClientSession(
                 )
             ),
             types.InitializeResult,
-            cancellable=False
+            cancellable=False,
         )
 
         if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:

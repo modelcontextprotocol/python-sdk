@@ -35,8 +35,10 @@ SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
 SendResultT = TypeVar("SendResultT", ClientResult, ServerResult)
 SendNotificationT = TypeVar("SendNotificationT", ClientNotification, ServerNotification)
 SendNotificationInternalT = TypeVar(
-    "SendNotificationInternalT", 
-    CancelledNotification, ClientNotification, ServerNotification
+    "SendNotificationInternalT",
+    CancelledNotification,
+    ClientNotification,
+    ServerNotification,
 )
 ReceiveRequestT = TypeVar("ReceiveRequestT", ClientRequest, ServerRequest)
 ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
@@ -269,14 +271,13 @@ class BaseSession(
                             notification = CancelledNotification(
                                 method="notifications/cancelled",
                                 params=CancelledNotificationParams(
-                                    requestId=request_id, 
-                                    reason="cancelled"
-                                )
+                                    requestId=request_id, reason="cancelled"
+                                ),
                             )
                             await self._send_notification_internal(
                                 notification, request_id
                             )
-                            
+
                         raise McpError(
                             ErrorData(code=32601, message="Request cancelled")
                         )
@@ -292,7 +293,7 @@ class BaseSession(
                         ),
                     )
                 )
-            
+
             if isinstance(response_or_error, JSONRPCError):
                 raise McpError(response_or_error.error)
             else:
