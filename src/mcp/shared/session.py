@@ -29,6 +29,7 @@ from mcp.types import (
     ServerNotification,
     ServerRequest,
     ServerResult,
+    REQUEST_CANCELLED,
 )
 
 SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
@@ -279,7 +280,7 @@ class BaseSession(
                             )
 
                         raise McpError(
-                            ErrorData(code=32601, message="Request cancelled")
+                            ErrorData(code=REQUEST_CANCELLED, message="Request cancelled")
                         )
 
             except TimeoutError:
