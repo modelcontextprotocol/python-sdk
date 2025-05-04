@@ -27,9 +27,10 @@ dependencies = [
     "httpx-sse>=0.4",
     "pydantic>=2.7.2,<3.0.0",
     "starlette>=0.27",
+    "python-multipart>=0.0.9",
     "sse-starlette>=1.6.1",
     "pydantic-settings>=2.5.2",
-    "uvicorn>=0.23.1",
+    "uvicorn>=0.23.1; sys_platform != 'emscripten'",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +54,7 @@ dev = [
     "pytest-flakefinder>=1.1.0",
     "pytest-xdist>=3.6.1",
     "pytest-examples>=0.0.14",
+    "pytest-pretty>=1.2.0",
 ]
 docs = [
     "mkdocs>=1.6.1",
@@ -89,8 +91,8 @@ venv = ".venv"
 strict = ["src/mcp/**/*.py"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
-ignore = []
+select = ["C4", "E", "F", "I", "PERF", "UP"]
+ignore = ["PERF203"]
 
 [tool.ruff]
 line-length = 88

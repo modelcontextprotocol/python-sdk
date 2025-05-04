@@ -3,6 +3,7 @@ import pytest
 
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
+from mcp.shared.message import SessionMessage
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
@@ -64,8 +65,10 @@ async def test_request_id_match() -> None:
             jsonrpc="2.0",
         )
 
-        await client_writer.send(JSONRPCMessage(root=init_req))
-        await server_reader.receive()  # Get init response but don't need to check it
+        await client_writer.send(SessionMessage(JSONRPCMessage(root=init_req)))
+        response = (
+            await server_reader.receive()
+        )  # Get init response but don't need to check it
 
         # Send initialized notification
         initialized_notification = JSONRPCNotification(
@@ -73,21 +76,23 @@ async def test_request_id_match() -> None:
             params=NotificationParams().model_dump(by_alias=True, exclude_none=True),
             jsonrpc="2.0",
         )
-        await client_writer.send(JSONRPCMessage(root=initialized_notification))
+        await client_writer.send(
+            SessionMessage(JSONRPCMessage(root=initialized_notification))
+        )
 
         # Send ping request with custom ID
         ping_request = JSONRPCRequest(
             id=custom_request_id, method="ping", params={}, jsonrpc="2.0"
         )
 
-        await client_writer.send(JSONRPCMessage(root=ping_request))
+        await client_writer.send(SessionMessage(JSONRPCMessage(root=ping_request)))
 
         # Read response
         response = await server_reader.receive()
 
         # Verify response ID matches request ID
         assert (
-            response.root.id == custom_request_id
+            response.message.root.id == custom_request_id
         ), "Response ID should match request ID"
 
         # Cancel server task

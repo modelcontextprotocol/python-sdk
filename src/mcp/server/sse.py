@@ -10,7 +10,7 @@ Example usage:
 
     # Create Starlette routes for SSE and message handling
     routes = [
-        Route("/sse", endpoint=handle_sse),
+        Route("/sse", endpoint=handle_sse, methods=["GET"]),
         Mount("/messages/", app=sse.handle_post_message),
     ]
 
@@ -22,11 +22,17 @@ Example usage:
             await app.run(
                 streams[0], streams[1], app.create_initialization_options()
             )
+        # Return empty response to avoid NoneType error
+        return Response()
 
     # Create and run Starlette app
     starlette_app = Starlette(routes=routes)
     uvicorn.run(starlette_app, host="0.0.0.0", port=port)
 ```
+
+Note: The handle_sse function must return a Response to avoid a "TypeError: 'NoneType'
+object is not callable" error when client disconnects. The example above returns
+an empty Response() after the SSE connection ends to fix this.
 
 See SseServerTransport class documentation for more details.
 """
@@ -46,6 +52,7 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 import mcp.types as types
+from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +70,7 @@ class SseServerTransport:
     """
 
     _endpoint: str
-    _read_stream_writers: dict[
-        UUID, MemoryObjectSendStream[types.JSONRPCMessage | Exception]
-    ]
+    _read_stream_writers: dict[UUID, MemoryObjectSendStream[SessionMessage | Exception]]
 
     def __init__(self, endpoint: str) -> None:
         """
@@ -85,11 +90,11 @@ class SseServerTransport:
             raise ValueError("connect_sse can only handle HTTP requests")
 
         logger.debug("Setting up SSE connection")
-        read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception]
-        read_stream_writer: MemoryObjectSendStream[types.JSONRPCMessage | Exception]
+        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
+        read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
 
-        write_stream: MemoryObjectSendStream[types.JSONRPCMessage]
-        write_stream_reader: MemoryObjectReceiveStream[types.JSONRPCMessage]
+        write_stream: MemoryObjectSendStream[SessionMessage]
+        write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
 
         read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
         write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
@@ -109,23 +114,34 @@ class SseServerTransport:
                 await sse_stream_writer.send({"event": "endpoint", "data": session_uri})
                 logger.debug(f"Sent endpoint event: {session_uri}")
 
-                async for message in write_stream_reader:
-                    logger.debug(f"Sending message via SSE: {message}")
+                async for session_message in write_stream_reader:
+                    logger.debug(f"Sending message via SSE: {session_message}")
                     await sse_stream_writer.send(
                         {
                             "event": "message",
-                            "data": message.model_dump_json(
+                            "data": session_message.message.model_dump_json(
                                 by_alias=True, exclude_none=True
                             ),
                         }
                     )
 
         async with anyio.create_task_group() as tg:
-            response = EventSourceResponse(
-                content=sse_stream_reader, data_sender_callable=sse_writer
-            )
+
+            async def response_wrapper(scope: Scope, receive: Receive, send: Send):
+                """
+                The EventSourceResponse returning signals a client close / disconnect.
+                In this case we close our side of the streams to signal the client that
+                the connection has been closed.
+                """
+                await EventSourceResponse(
+                    content=sse_stream_reader, data_sender_callable=sse_writer
+                )(scope, receive, send)
+                await read_stream_writer.aclose()
+                await write_stream_reader.aclose()
+                logging.debug(f"Client session disconnected {session_id}")
+
             logger.debug("Starting SSE response task")
-            tg.start_soon(response, scope, receive, send)
+            tg.start_soon(response_wrapper, scope, receive, send)
 
             logger.debug("Yielding read and write streams")
             yield (read_stream, write_stream)
@@ -169,7 +185,8 @@ class SseServerTransport:
             await writer.send(err)
             return
 
-        logger.debug(f"Sending message to writer: {message}")
+        session_message = SessionMessage(message)
+        logger.debug(f"Sending session message to writer: {session_message}")
         response = Response("Accepted", status_code=202)
         await response(scope, receive, send)
-        await writer.send(message)
+        await writer.send(session_message)
