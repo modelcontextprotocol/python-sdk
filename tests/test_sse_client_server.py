@@ -1,13 +1,3 @@
-import asyncio
-from typing import AsyncGenerator, List
-
-from fastapi import FastAPI
-from starlette.responses import StreamingResponse
-import uvicorn
-from threading import Thread
-import httpx
-from mcp.client.sse import aconnect_sse
-
 app = FastAPI()
 
 @app.get("/sse")
