@@ -14,6 +14,7 @@ from typing_extensions import Self
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.types import (
+    REQUEST_CANCELLED,
     CancelledNotification,
     CancelledNotificationParams,
     ClientNotification,
@@ -29,7 +30,6 @@ from mcp.types import (
     ServerNotification,
     ServerRequest,
     ServerResult,
-    REQUEST_CANCELLED,
 )
 
 SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
