@@ -38,4 +38,4 @@ async def test_aconnect_sse_server_response() -> None:
                     break
 
     assert messages == ["Hello 1", "Hello 2", "Hello 3"]
-    print("\n✅ Test passed! SSE connection via aconnect_sse worked correctly.")
+    print("\n Test passed! SSE connection via aconnect_sse worked correctly.")
