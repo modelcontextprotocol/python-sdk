@@ -256,11 +256,25 @@ class BaseSession(
             elif self._session_read_timeout_seconds is not None:
                 timeout = self._session_read_timeout_seconds.total_seconds()
 
-            response_or_error = None
-
             try:
-                with anyio.fail_after(timeout):
+                with anyio.fail_after(timeout) as scope:
                     response_or_error = await response_stream_reader.receive()
+
+                    if scope.cancel_called:
+                        with anyio.CancelScope(shield=True):
+                            notification = CancelledNotification(
+                                method="notifications/cancelled",
+                                params=CancelledNotificationParams(
+                                    requestId=request_id, 
+                                    reason="cancelled"
+                                )
+                            )
+                            await self._send_notification_internal(notification, request_id)
+                            
+                        raise McpError(
+                            ErrorData(code=32601, message="request cancelled")
+                        )
+
             except TimeoutError:
                 raise McpError(
                     ErrorData(
@@ -272,21 +286,7 @@ class BaseSession(
                         ),
                     )
                 )
-            except anyio.get_cancelled_exc_class():
-                with anyio.CancelScope(shield=True):
-                    notification = CancelledNotification(
-                        method="notifications/cancelled",
-                        params=CancelledNotificationParams(
-                            requestId=request_id, 
-                            reason="cancelled"
-                        )
-                    )
-                    await self._send_notification_internal(notification, request_id, )
-
-            if response_or_error is None:
-                raise McpError(
-                    ErrorData(code=32601, message="request cancelled")
-                )
+            
             if isinstance(response_or_error, JSONRPCError):
                 raise McpError(response_or_error.error)
             else:

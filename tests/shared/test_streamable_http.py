@@ -989,7 +989,7 @@ async def test_streamablehttp_client_session_termination(
             # Attempt to make a request after termination
             with pytest.raises(
                 McpError,
-                match="request cancelled",
+                match="Session terminated",
             ):
                 await session.list_tools()
 
