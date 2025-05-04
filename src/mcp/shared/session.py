@@ -34,7 +34,10 @@ from mcp.types import (
 SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
 SendResultT = TypeVar("SendResultT", ClientResult, ServerResult)
 SendNotificationT = TypeVar("SendNotificationT", ClientNotification, ServerNotification)
-SendNotificationInternalT = TypeVar("SendNotificationInternalT", CancelledNotification, ClientNotification, ServerNotification)
+SendNotificationInternalT = TypeVar(
+    "SendNotificationInternalT", 
+    CancelledNotification, ClientNotification, ServerNotification
+)
 ReceiveRequestT = TypeVar("ReceiveRequestT", ClientRequest, ServerRequest)
 ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 ReceiveNotificationT = TypeVar(
