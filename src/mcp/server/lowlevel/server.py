@@ -445,7 +445,7 @@ class Server(Generic[LifespanResultT]):
         def decorator(
             func: Callable[[str | int, str | None], Awaitable[None]],
         ):
-            logger.debug("Registering handler for ProgressNotification")
+            logger.debug("Registering handler for CancelledNotification")
 
             async def handler(req: types.CancelledNotification):
                 await func(
