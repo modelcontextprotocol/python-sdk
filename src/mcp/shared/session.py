@@ -270,7 +270,9 @@ class BaseSession(
                                     reason="cancelled"
                                 )
                             )
-                            await self._send_notification_internal(notification, request_id)
+                            await self._send_notification_internal(
+                                notification, request_id
+                            )
                             
                         raise McpError(
                             ErrorData(code=32601, message="Request cancelled")
