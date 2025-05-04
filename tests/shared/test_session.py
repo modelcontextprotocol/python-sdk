@@ -50,6 +50,7 @@ async def test_request_cancellation():
 
     ev_tool_called = anyio.Event()
     ev_cancelled = anyio.Event()
+    ev_cancel_notified = anyio.Event()
     request_id = None
 
     # Start the request in a separate task so we can cancel it
@@ -66,6 +67,11 @@ async def test_request_cancellation():
                 await anyio.sleep(10)  # Long enough to ensure we can cancel
                 return []
             raise ValueError(f"Unknown tool: {name}")
+        
+        @server.cancel_notification()
+        async def handle_cancel(requestId: str | int, reason: str | None):
+            nonlocal ev_cancel_notified
+            ev_cancel_notified.set()
 
         # Register the tool so it shows up in list_tools
         @server.list_tools()
@@ -120,6 +126,9 @@ async def test_request_cancellation():
                     )
                 )
             )
+
+            with anyio.fail_after(1):
+                await ev_cancel_notified.wait()
 
             # Give cancellation time to process
             with anyio.fail_after(1):
