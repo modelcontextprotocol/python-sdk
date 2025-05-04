@@ -280,7 +280,9 @@ class BaseSession(
                             )
 
                         raise McpError(
-                            ErrorData(code=REQUEST_CANCELLED, message="Request cancelled")
+                            ErrorData(
+                                code=REQUEST_CANCELLED, message="Request cancelled"
+                            )
                         )
 
             except TimeoutError:
