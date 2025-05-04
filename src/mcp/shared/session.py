@@ -15,6 +15,7 @@ from mcp.shared.exceptions import McpError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.types import (
     CancelledNotification,
+    CancelledNotificationParams,
     ClientNotification,
     ClientRequest,
     ClientResult,
@@ -33,6 +34,7 @@ from mcp.types import (
 SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
 SendResultT = TypeVar("SendResultT", ClientResult, ServerResult)
 SendNotificationT = TypeVar("SendNotificationT", ClientNotification, ServerNotification)
+SendNotificationInternalT = TypeVar("SendNotificationInternalT", CancelledNotification, ClientNotification, ServerNotification)
 ReceiveRequestT = TypeVar("ReceiveRequestT", ClientRequest, ServerRequest)
 ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 ReceiveNotificationT = TypeVar(
@@ -254,6 +256,8 @@ class BaseSession(
             elif self._session_read_timeout_seconds is not None:
                 timeout = self._session_read_timeout_seconds.total_seconds()
 
+            response_or_error = None
+
             try:
                 with anyio.fail_after(timeout):
                     response_or_error = await response_stream_reader.receive()
@@ -268,7 +272,21 @@ class BaseSession(
                         ),
                     )
                 )
+            except anyio.get_cancelled_exc_class():
+                with anyio.CancelScope(shield=True):
+                    notification = CancelledNotification(
+                        method="notifications/cancelled",
+                        params=CancelledNotificationParams(
+                            requestId=request_id, 
+                            reason="cancelled"
+                        )
+                    )
+                    await self._send_notification_internal(notification, request_id, )
 
+            if response_or_error is None:
+                raise McpError(
+                    ErrorData(code=32601, message="request cancelled")
+                )
             if isinstance(response_or_error, JSONRPCError):
                 raise McpError(response_or_error.error)
             else:
@@ -282,6 +300,13 @@ class BaseSession(
     async def send_notification(
         self,
         notification: SendNotificationT,
+        related_request_id: RequestId | None = None,
+    ) -> None:
+        await self._send_notification_internal(notification, related_request_id)
+
+    async def _send_notification_internal(
+        self,
+        notification: SendNotificationInternalT,
         related_request_id: RequestId | None = None,
     ) -> None:
         """
