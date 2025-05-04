@@ -51,7 +51,6 @@ async def test_request_cancellation():
     ev_tool_called = anyio.Event()
     ev_cancelled = anyio.Event()
     ev_cancel_notified = anyio.Event()
-    request_id = None
 
     # Start the request in a separate task so we can cancel it
     def make_server() -> Server:
@@ -60,9 +59,8 @@ async def test_request_cancellation():
         # Register the tool handler
         @server.call_tool()
         async def handle_call_tool(name: str, arguments: dict | None) -> list:
-            nonlocal request_id, ev_tool_called
+            nonlocal ev_tool_called
             if name == "slow_tool":
-                request_id = server.request_context.request_id
                 ev_tool_called.set()
                 await anyio.sleep(10)  # Long enough to ensure we can cancel
                 return []
@@ -116,16 +114,7 @@ async def test_request_cancellation():
             with anyio.fail_after(1):  # Timeout after 1 second
                 await ev_tool_called.wait()
 
-            # Send cancellation notification
-            assert request_id is not None
-            await client_session.send_notification(
-                ClientNotification(
-                    CancelledNotification(
-                        method="notifications/cancelled",
-                        params=CancelledNotificationParams(requestId=request_id),
-                    )
-                )
-            )
+            tg.cancel_scope.cancel()
 
             with anyio.fail_after(1):
                 await ev_cancel_notified.wait()
