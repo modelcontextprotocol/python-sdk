@@ -441,6 +441,22 @@ class Server(Generic[LifespanResultT]):
 
         return decorator
 
+    def cancel_notification(self):
+        def decorator(
+            func: Callable[[str | int, str | None], Awaitable[None]],
+        ):
+            logger.debug("Registering handler for ProgressNotification")
+
+            async def handler(req: types.CancelledNotification):
+                await func(
+                    req.params.requestId, req.params.reason
+                )
+
+            self.notification_handlers[types.CancelledNotification] = handler
+            return func
+
+        return decorator
+    
     def completion(self):
         """Provides completions for prompts and resource templates"""
 
@@ -587,12 +603,14 @@ class Server(Generic[LifespanResultT]):
             assert type(notify) in self.notification_handlers
 
             handler = self.notification_handlers[type(notify)]
-            logger.debug(f"Dispatching notification of type {type(notify).__name__}")
+            print(f"Dispatching notification of type {type(notify).__name__}")
 
             try:
                 await handler(notify)
             except Exception as err:
                 logger.error(f"Uncaught exception in notification handler: {err}")
+        else:
+            print(f"Not handling {notify}")
 
 
 async def _ping_handler(request: types.PingRequest) -> types.ServerResult:
