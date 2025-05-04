@@ -216,6 +216,7 @@ class BaseSession(
         result_type: type[ReceiveResultT],
         request_read_timeout_seconds: timedelta | None = None,
         metadata: MessageMetadata = None,
+        cancellable: bool = True,
     ) -> ReceiveResultT:
         """
         Sends a request and wait for a response. Raises an McpError if the
@@ -260,7 +261,7 @@ class BaseSession(
                 with anyio.fail_after(timeout) as scope:
                     response_or_error = await response_stream_reader.receive()
 
-                    if scope.cancel_called:
+                    if cancellable and scope.cancel_called:
                         with anyio.CancelScope(shield=True):
                             notification = CancelledNotification(
                                 method="notifications/cancelled",
