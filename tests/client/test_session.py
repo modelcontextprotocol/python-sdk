@@ -261,6 +261,8 @@ async def test_client_session_progress():
         SessionMessage
     ](1)
 
+    send_notification_count = 10
+
     async def mock_server():
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
@@ -273,24 +275,16 @@ async def test_client_session_progress():
         assert request.root.params.meta.progressToken is not None
 
         progress_token = request.root.params.meta.progressToken
-
         notifications = [
             types.ServerNotification(
                 root=types.ProgressNotification(
                     params=types.ProgressNotificationParams(
-                        progressToken=progress_token, progress=1
+                        progressToken=progress_token, progress=i
                     ),
                     method="notifications/progress",
                 )
-            ),
-            types.ServerNotification(
-                root=types.ProgressNotification(
-                    params=types.ProgressNotificationParams(
-                        progressToken=progress_token, progress=2
-                    ),
-                    method="notifications/progress",
-                )
-            ),
+            )
+            for i in range(send_notification_count)
         ]
         result = ServerResult(types.CallToolResult(content=[]))
 
@@ -358,4 +352,4 @@ async def test_client_session_progress():
     # Assert the result
     assert isinstance(result, types.CallToolResult)
     assert len(result.content) == 0
-    assert progress_count == 2
+    assert progress_count == send_notification_count
