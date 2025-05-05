@@ -1,6 +1,5 @@
 fastapi
-uvicorn
 httpx
-httpx-sse
+uvicorn
 sse-starlette
 anyio
