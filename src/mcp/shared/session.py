@@ -250,28 +250,30 @@ class BaseSession(
         send_request = None
 
         if progress_callback is not None:
-            if request.root.params is not None:
+            if request.root.params is None:
+                progress_id = self._progress_id
+                new_params = RequestParams(
+                    _meta=RequestParams.Meta(progressToken=progress_id)
+                )
+            else:
                 if (
                     request.root.params.meta is None
                     or request.root.params.meta.progressToken is None
                 ):
                     progress_id = self._progress_id
-                    self._progress_id = progress_id + 1
                     new_params = request.root.params.model_copy(
                         update={"meta": RequestParams.Meta(progressToken=progress_id)}
                     )
-                    new_root = request.root.model_copy(update={"params": new_params})
-                    send_request = request.model_copy(update={"root": new_root})
-                    self._in_progress[progress_id] = progress_callback
                 else:
                     raise ValueError(
                         "Request has progressToken and progress_callback provided "
                         "via send_request method only one or other is supported"
                     )
-            else:
-                raise ValueError(
-                    f"{type(request.root).__name__} does not support progress"
-                )
+
+            new_root = request.root.model_copy(update={"params": new_params})
+            send_request = request.model_copy(update={"root": new_root})
+            self._progress_id = progress_id + 1
+            self._in_progress[progress_id] = progress_callback
 
         if send_request is None:
             send_request = request
