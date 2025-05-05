@@ -416,12 +416,16 @@ async def test_sse_client_timeout(
 
 
 @pytest.mark.anyio
-async def test_raw_sse_connection_with_relative_endpoint(http_client_with_relative_endpoint: httpx.AsyncClient) -> None:
+async def test_raw_sse_connection_with_relative_endpoint(
+    http_client_with_relative_endpoint: httpx.AsyncClient,
+) -> None:
     """Test the SSE connection establishment with a relative endpoint URL."""
     async with anyio.create_task_group():
 
         async def connection_test() -> None:
-            async with http_client_with_relative_endpoint.stream("GET", "/sse") as response:
+            async with http_client_with_relative_endpoint.stream(
+                "GET", "/sse"
+            ) as response:
                 assert response.status_code == 200
                 assert (
                     response.headers["content-type"]
@@ -448,12 +452,16 @@ async def test_raw_sse_connection_with_relative_endpoint(http_client_with_relati
 
 
 @pytest.mark.anyio
-async def test_raw_sse_connection_with_absolute_endpoint(http_client_with_absolute_endpoint: httpx.AsyncClient) -> None:
+async def test_raw_sse_connection_with_absolute_endpoint(
+    http_client_with_absolute_endpoint: httpx.AsyncClient,
+) -> None:
     """Test the SSE connection establishment with an absolute endpoint URL."""
     async with anyio.create_task_group():
 
         async def connection_test() -> None:
-            async with http_client_with_absolute_endpoint.stream("GET", "/sse") as response:
+            async with http_client_with_absolute_endpoint.stream(
+                "GET", "/sse"
+            ) as response:
                 assert response.status_code == 200
                 assert (
                     response.headers["content-type"]
