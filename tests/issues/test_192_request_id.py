@@ -65,7 +65,7 @@ async def test_request_id_match() -> None:
             jsonrpc="2.0",
         )
 
-        await client_writer.send(SessionMessage(JSONRPCMessage(root=init_req)))
+        await client_writer.send(SessionMessage(message=JSONRPCMessage(root=init_req)))
         response = (
             await server_reader.receive()
         )  # Get init response but don't need to check it
@@ -77,7 +77,7 @@ async def test_request_id_match() -> None:
             jsonrpc="2.0",
         )
         await client_writer.send(
-            SessionMessage(JSONRPCMessage(root=initialized_notification))
+            SessionMessage(message=JSONRPCMessage(root=initialized_notification))
         )
 
         # Send ping request with custom ID
@@ -85,7 +85,7 @@ async def test_request_id_match() -> None:
             id=custom_request_id, method="ping", params={}, jsonrpc="2.0"
         )
 
-        await client_writer.send(SessionMessage(JSONRPCMessage(root=ping_request)))
+        await client_writer.send(SessionMessage(message=JSONRPCMessage(root=ping_request)))
 
         # Read response
         response = await server_reader.receive()

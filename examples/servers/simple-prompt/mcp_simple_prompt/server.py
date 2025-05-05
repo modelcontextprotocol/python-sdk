@@ -88,12 +88,11 @@ def main(port: int, transport: str) -> int:
         )
 
     if transport == "sse":
+        from mcp.server.message_queue.redis import RedisMessageDispatch
         from mcp.server.sse import SseServerTransport
         from starlette.applications import Starlette
         from starlette.responses import Response
         from starlette.routing import Mount, Route
-
-        from mcp.server.message_queue.redis import RedisMessageDispatch
 
         message_dispatch = RedisMessageDispatch("redis://localhost:6379/0")
 

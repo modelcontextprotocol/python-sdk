@@ -60,7 +60,7 @@ async def websocket_client(
                 async for raw_text in ws:
                     try:
                         message = types.JSONRPCMessage.model_validate_json(raw_text)
-                        session_message = SessionMessage(message)
+                        session_message = SessionMessage(message=message)
                         await read_stream_writer.send(session_message)
                     except ValidationError as exc:
                         # If JSON parse or model validation fails, send the exception

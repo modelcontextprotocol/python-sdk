@@ -2,10 +2,12 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import anyio
-from pydantic import ValidationError
 import pytest
+from pydantic import ValidationError
 
 import mcp.types as types
+from mcp.server.message_queue.redis import RedisMessageDispatch
+from mcp.shared.message import SessionMessage
 
 # Set up fakeredis for testing
 try:
@@ -97,7 +99,7 @@ async def test_subscribe_unsubscribe(redis_dispatch):
 
 
 @pytest.mark.anyio
-async def test_publish_message_valid_json(redis_dispatch):
+async def test_publish_message_valid_json(redis_dispatch: RedisMessageDispatch):
     """Test publishing a valid JSON-RPC message."""
     session_id = uuid4()
     callback = AsyncMock()
@@ -108,7 +110,9 @@ async def test_publish_message_valid_json(redis_dispatch):
     # Subscribe to messages
     async with redis_dispatch.subscribe(session_id, callback):
         # Publish message
-        published = await redis_dispatch.publish_message(session_id, message)
+        published = await redis_dispatch.publish_message(
+            session_id, SessionMessage(message=message)
+        )
         assert published
 
         # Give some time for the message to be processed
@@ -117,9 +121,11 @@ async def test_publish_message_valid_json(redis_dispatch):
         # Callback should have been called with the message
         callback.assert_called_once()
         call_args = callback.call_args[0][0]
-        assert isinstance(call_args, types.JSONRPCMessage)
-        assert isinstance(call_args.root, types.JSONRPCRequest)
-        assert call_args.root.method == "test"  # Access method through root attribute
+        assert isinstance(call_args, SessionMessage)
+        assert isinstance(call_args.message.root, types.JSONRPCRequest)
+        assert (
+            call_args.message.root.method == "test"
+        )  # Access method through root attribute
 
 
 @pytest.mark.anyio
@@ -177,7 +183,7 @@ async def test_extract_session_id(redis_dispatch):
 
 
 @pytest.mark.anyio
-async def test_multiple_sessions(redis_dispatch):
+async def test_multiple_sessions(redis_dispatch: RedisMessageDispatch):
     """Test handling multiple concurrent sessions."""
     session1 = uuid4()
     session2 = uuid4()
@@ -194,13 +200,17 @@ async def test_multiple_sessions(redis_dispatch):
             message1 = types.JSONRPCMessage.model_validate(
                 {"jsonrpc": "2.0", "method": "test1", "params": {}, "id": 1}
             )
-            await redis_dispatch.publish_message(session1, message1)
+            await redis_dispatch.publish_message(
+                session1, SessionMessage(message=message1)
+            )
 
             # Publish to session2
             message2 = types.JSONRPCMessage.model_validate(
                 {"jsonrpc": "2.0", "method": "test2", "params": {}, "id": 2}
             )
-            await redis_dispatch.publish_message(session2, message2)
+            await redis_dispatch.publish_message(
+                session2, SessionMessage(message=message2)
+            )
 
             # Give some time for messages to be processed
             await anyio.sleep(0.1)
@@ -210,10 +220,12 @@ async def test_multiple_sessions(redis_dispatch):
             callback2.assert_called_once()
 
             call1_args = callback1.call_args[0][0]
-            assert call1_args.root.method == "test1"
+            assert isinstance(call1_args, SessionMessage)
+            assert call1_args.message.root.method == "test1"  # type: ignore
 
             call2_args = callback2.call_args[0][0]
-            assert call2_args.root.method == "test2"
+            assert isinstance(call2_args, SessionMessage)
+            assert call2_args.message.root.method == "test2"  # type: ignore
 
 
 @pytest.mark.anyio
@@ -306,7 +318,10 @@ async def test_session_cancellation_isolation(redis_dispatch):
 
 @pytest.mark.anyio
 async def test_listener_task_handoff_on_cancellation(redis_dispatch):
-    """Test that the single listening task is properly handed off when a session is cancelled."""
+    """
+    Test that the single listening task is properly
+    handed off when a session is cancelled.
+    """
     session1 = uuid4()
     session2 = uuid4()
 

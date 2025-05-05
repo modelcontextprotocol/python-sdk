@@ -8,8 +8,8 @@ from anyio import CancelScope, CapacityLimiter, lowlevel
 from anyio.abc import TaskGroup
 from pydantic import ValidationError
 
-import mcp.types as types
 from mcp.server.message_queue.base import MessageCallback
+from mcp.shared.message import SessionMessage
 
 try:
     import redis.asyncio as redis
@@ -165,7 +165,7 @@ class RedisMessageDispatch:
             # Parse message or pass validation error to callback
             msg_or_error = None
             try:
-                msg_or_error = types.JSONRPCMessage.model_validate_json(data)
+                msg_or_error = SessionMessage.model_validate_json(data)
             except ValidationError as exc:
                 msg_or_error = exc
 
@@ -174,7 +174,7 @@ class RedisMessageDispatch:
             logger.error(f"Error in message handler for {session_id}: {e}")
 
     async def publish_message(
-        self, session_id: UUID, message: types.JSONRPCMessage | str
+        self, session_id: UUID, message: SessionMessage | str
     ) -> bool:
         """Publish a message for the specified session."""
         if not await self.session_exists(session_id):

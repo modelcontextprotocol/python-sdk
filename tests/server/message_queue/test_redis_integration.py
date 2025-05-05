@@ -168,13 +168,13 @@ async def test_redis_integration_tool_call(server: None, server_url: str) -> Non
 
             # Call a tool
             result = await session.call_tool("test_tool", {})
-            assert result.content[0].text == "Called test_tool"
+            assert result.content[0].text == "Called test_tool"  # type: ignore
 
 
 @pytest.mark.anyio
 async def test_redis_integration_session_lifecycle() -> None:
-    """Test that sessions are properly added to and removed from Redis using direct Redis access"""
-    # Create a fresh Redis instance with decode_responses=True to get str instead of bytes
+    """Test that sessions are properly added to and
+    removed from Redis using direct Redis access"""
     mock_redis = fake_redis.FakeRedis(decode_responses=True)
     active_sessions_key = "mcp:pubsub:active_sessions"
 
@@ -221,7 +221,6 @@ async def test_redis_integration_session_lifecycle() -> None:
 @pytest.mark.anyio
 async def test_redis_integration_message_publishing_direct() -> None:
     """Test message publishing through Redis channels using direct Redis access"""
-    # Create a fresh Redis instance with decode_responses=True to get str instead of bytes
     mock_redis = fake_redis.FakeRedis(decode_responses=True)
 
     # Mock Redis in RedisMessageDispatch
@@ -229,6 +228,7 @@ async def test_redis_integration_message_publishing_direct() -> None:
         "mcp.server.message_queue.redis.redis.from_url", return_value=mock_redis
     ):
         from mcp.server.message_queue.redis import RedisMessageDispatch
+        from mcp.shared.message import SessionMessage
         from mcp.types import JSONRPCMessage, JSONRPCRequest
 
         # Create Redis message dispatch with our specific mock redis instance
@@ -258,7 +258,9 @@ async def test_redis_integration_message_publishing_direct() -> None:
             )
 
             # Publish the message
-            success = await message_dispatch.publish_message(session_id, test_message)
+            success = await message_dispatch.publish_message(
+                session_id, SessionMessage(message=test_message)
+            )
             assert success
 
             # Give some time for the message to be processed
@@ -270,6 +272,6 @@ async def test_redis_integration_message_publishing_direct() -> None:
                 len(messages_received) > 0
             ), "No messages were received through the callback"
             received_message = messages_received[0]
-            assert isinstance(received_message, JSONRPCMessage)
-            assert received_message.root.method == "test_method"
-            assert received_message.root.id == 1
+            assert isinstance(received_message, SessionMessage)
+            assert received_message.message.root.method == "test_method"
+            assert received_message.message.root.id == 1

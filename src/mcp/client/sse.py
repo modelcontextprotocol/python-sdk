@@ -98,7 +98,7 @@ async def sse_client(
                                             await read_stream_writer.send(exc)
                                             continue
 
-                                        session_message = SessionMessage(message)
+                                        session_message = SessionMessage(message=message)
                                         await read_stream_writer.send(session_message)
                                     case _:
                                         logger.warning(

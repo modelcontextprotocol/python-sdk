@@ -38,4 +38,4 @@ class SessionMessage(BaseModel):
     """A message with specific metadata for transport-specific features."""
 
     message: JSONRPCMessage
-    metadata: MessageMetadata = None
+    metadata: MessageMetadata | None = None
