@@ -281,16 +281,15 @@ class BaseSession(
                         response_or_error = await response_stream_reader.receive()
 
                         if scope.cancel_called:
-                            with anyio.CancelScope(shield=True):
-                                notification = CancelledNotification(
-                                    method="notifications/cancelled",
-                                    params=CancelledNotificationParams(
-                                        requestId=request_id, reason="cancelled"
-                                    ),
-                                )
-                                await self._send_notification_internal(
-                                    notification, request_id
-                                )
+                            notification = CancelledNotification(
+                                method="notifications/cancelled",
+                                params=CancelledNotificationParams(
+                                    requestId=request_id, reason="cancelled"
+                                ),
+                            )
+                            await self._send_notification_internal(
+                                notification, request_id
+                            )
 
                             raise McpError(
                                 ErrorData(
