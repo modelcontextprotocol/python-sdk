@@ -85,7 +85,9 @@ async def test_request_id_match() -> None:
             id=custom_request_id, method="ping", params={}, jsonrpc="2.0"
         )
 
-        await client_writer.send(SessionMessage(message=JSONRPCMessage(root=ping_request)))
+        await client_writer.send(
+            SessionMessage(message=JSONRPCMessage(root=ping_request))
+        )
 
         # Read response
         response = await server_reader.receive()
