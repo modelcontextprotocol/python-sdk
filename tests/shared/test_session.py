@@ -124,8 +124,8 @@ async def test_request_cancellation():
 
 @pytest.mark.anyio
 async def test_request_cancellation_uncancellable():
-    """Test that asserts."""
-    # The tool is already registered in the fixture
+    """Test that asserts a call with cancellable=False is not cancelled on
+    server when cancel scope on client is set."""
 
     ev_tool_called = anyio.Event()
     ev_tool_commplete = anyio.Event()
