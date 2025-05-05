@@ -201,9 +201,10 @@ class SseServerTransport:
             await self._message_dispatch.publish_message(session_id, body.decode())
             return
 
-        session_message = SessionMessage(message)
         logger.debug(f"Publishing message for session {session_id}: {message}")
         response = Response("Accepted", status_code=202)
         await response(scope, receive, send)
-        await self._message_dispatch.publish_message(session_id, message)
-        logger.debug(f"Sending session message to writer: {session_message}")
+        await self._message_dispatch.publish_message(
+            session_id, SessionMessage(message=message)
+        )
+        logger.debug(f"Sending session message to writer: {message}")

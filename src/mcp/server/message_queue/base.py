@@ -6,11 +6,11 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
-import mcp.types as types
+from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
 
-MessageCallback = Callable[[types.JSONRPCMessage | Exception], Awaitable[None]]
+MessageCallback = Callable[[SessionMessage | Exception], Awaitable[None]]
 
 
 @runtime_checkable
@@ -22,7 +22,7 @@ class MessageDispatch(Protocol):
     """
 
     async def publish_message(
-        self, session_id: UUID, message: types.JSONRPCMessage | str
+        self, session_id: UUID, message: SessionMessage | str
     ) -> bool:
         """Publish a message for the specified session.
 
@@ -72,7 +72,7 @@ class InMemoryMessageDispatch:
         self._callbacks: dict[UUID, MessageCallback] = {}
 
     async def publish_message(
-        self, session_id: UUID, message: types.JSONRPCMessage | str
+        self, session_id: UUID, message: SessionMessage | str
     ) -> bool:
         """Publish a message for the specified session."""
         if session_id not in self._callbacks:
@@ -82,7 +82,7 @@ class InMemoryMessageDispatch:
         # Parse string messages or recreate original ValidationError
         if isinstance(message, str):
             try:
-                callback_argument = types.JSONRPCMessage.model_validate_json(message)
+                callback_argument = SessionMessage.model_validate_json(message)
             except ValidationError as exc:
                 callback_argument = exc
         else:

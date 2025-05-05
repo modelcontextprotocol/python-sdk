@@ -2,7 +2,6 @@
 
 from __future__ import annotations as _annotations
 
-from email import message
 import inspect
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
@@ -689,7 +688,10 @@ class FastMCP:
 
         # Create Starlette app with routes and middleware
         return Starlette(
-            debug=self.settings.debug, routes=routes, middleware=middleware, lifespan=lifespan
+            debug=self.settings.debug,
+            routes=routes,
+            middleware=middleware,
+            lifespan=lifespan,
         )
 
     async def list_prompts(self) -> list[MCPPrompt]:
