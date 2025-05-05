@@ -229,6 +229,18 @@ class BaseSession(
         response contains an error. If a request read timeout is provided, it
         will take precedence over the session read timeout.
 
+        If cancellable is set to False then the request will wait
+        request_read_timeout_seconds to complete and ignore any attempt to
+        cancel via the anyio.CancelScope within which this method was called.
+
+        If cancellable is set to True (default) if the anyio.CancelScope within
+        which this method was called is cancelled it will generate a
+        CancelationNotfication and send this to the server which should then abort
+        the task however this is not guaranteed.
+
+        For further information on the CancelNotification flow refer to
+        https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/cancellation
+
         Do not use this method to emit notifications! Use send_notification()
         instead.
         """

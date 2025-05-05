@@ -140,6 +140,11 @@ class ClientSession(
                 )
             ),
             types.InitializeResult,
+            # TODO should set a request_read_timeout_seconds as per
+            # guidance from BaseSession.send_request not obvious
+            # what subsequent process should be, refer the following
+            # specification for more details
+            # https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/cancellation
             cancellable=False,
         )
 
