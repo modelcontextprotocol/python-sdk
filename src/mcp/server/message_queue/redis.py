@@ -30,8 +30,10 @@ class RedisMessageDispatch:
     """
 
     def __init__(
-        self, redis_url: str = "redis://localhost:6379/0", prefix: str = "mcp:pubsub:",
-        session_ttl: int = 3600  # 1 hour default TTL for sessions
+        self,
+        redis_url: str = "redis://localhost:6379/0",
+        prefix: str = "mcp:pubsub:",
+        session_ttl: int = 3600,  # 1 hour default TTL for sessions
     ) -> None:
         """Initialize Redis message dispatch.
 
@@ -51,8 +53,8 @@ class RedisMessageDispatch:
         logger.debug(f"Redis message dispatch initialized: {redis_url}")
 
     async def close(self):
-        await self._pubsub.aclose() # type: ignore
-        await self._redis.aclose() # type: ignore
+        await self._pubsub.aclose()  # type: ignore
+        await self._redis.aclose()  # type: ignore
 
     def _session_channel(self, session_id: UUID) -> str:
         """Get the Redis channel for a session."""
@@ -67,7 +69,7 @@ class RedisMessageDispatch:
         """Request-scoped context manager that subscribes to messages for a session."""
         session_key = self._session_key(session_id)
         await self._redis.setex(session_key, self._session_ttl, "1")  # type: ignore
-        
+
         channel = self._session_channel(session_id)
         await self._pubsub.subscribe(channel)  # type: ignore
 

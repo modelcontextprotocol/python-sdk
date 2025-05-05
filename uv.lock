@@ -559,7 +559,6 @@ name = "mcp"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
-    { name = "fakeredis" },
     { name = "httpx" },
     { name = "httpx-sse" },
     { name = "pydantic" },
@@ -588,6 +587,7 @@ ws = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "fakeredis" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-examples" },
@@ -607,14 +607,13 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
-    { name = "fakeredis", specifier = "==2.28.1" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "httpx-sse", specifier = ">=0.4" },
     { name = "pydantic", specifier = ">=2.7.2,<3.0.0" },
     { name = "pydantic-settings", specifier = ">=2.5.2" },
     { name = "python-dotenv", marker = "extra == 'cli'", specifier = ">=1.0.0" },
-    { name = "redis", marker = "extra == 'redis'", specifier = ">=5.2.1" },
     { name = "python-multipart", specifier = ">=0.0.9" },
+    { name = "redis", marker = "extra == 'redis'", specifier = ">=5.2.1" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.9.4" },
     { name = "sse-starlette", specifier = ">=1.6.1" },
     { name = "starlette", specifier = ">=0.27" },
@@ -626,6 +625,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "fakeredis", specifier = "==2.28.1" },
     { name = "pyright", specifier = ">=1.1.391" },
     { name = "pytest", specifier = ">=8.3.4" },
     { name = "pytest-examples", specifier = ">=0.0.14" },

@@ -22,7 +22,7 @@ async def redis_dispatch():
     # Mock the redis module entirely within RedisMessageDispatch
     with patch("mcp.server.message_queue.redis.redis", fake_redis.FakeRedis):
         from mcp.server.message_queue.redis import RedisMessageDispatch
-        
+
         dispatch = RedisMessageDispatch(session_ttl=5)  # Shorter TTL for testing
         try:
             yield dispatch
@@ -50,7 +50,7 @@ async def test_session_exists(redis_dispatch):
 async def test_session_ttl(redis_dispatch):
     """Test that session has proper TTL set."""
     session_id = uuid4()
-    
+
     async with redis_dispatch.subscribe(session_id, AsyncMock()):
         session_key = redis_dispatch._session_key(session_id)
         ttl = await redis_dispatch._redis.ttl(session_key)  # type: ignore
@@ -62,17 +62,17 @@ async def test_session_ttl(redis_dispatch):
 async def test_session_heartbeat(redis_dispatch):
     """Test that session heartbeat refreshes TTL."""
     session_id = uuid4()
-    
+
     async with redis_dispatch.subscribe(session_id, AsyncMock()):
         session_key = redis_dispatch._session_key(session_id)
-        
+
         # Initial TTL
         initial_ttl = await redis_dispatch._redis.ttl(session_key)  # type: ignore
         assert initial_ttl > 0
-        
+
         # Wait for heartbeat to run
         await anyio.sleep(redis_dispatch._session_ttl / 2 + 0.5)
-        
+
         # TTL should be refreshed
         refreshed_ttl = await redis_dispatch._redis.ttl(session_key)  # type: ignore
         assert refreshed_ttl > 0
@@ -237,12 +237,12 @@ async def test_session_cancellation_isolation(redis_dispatch):
     """Test that cancelling one session doesn't affect other sessions."""
     session1 = uuid4()
     session2 = uuid4()
-    
+
     # Create a blocking callback for session1 to ensure it's running when cancelled
     session1_event = anyio.Event()
     session1_started = anyio.Event()
     session1_cancelled = False
-    
+
     async def blocking_callback1(msg):
         session1_started.set()
         try:
@@ -258,6 +258,7 @@ async def test_session_cancellation_isolation(redis_dispatch):
     async with redis_dispatch.subscribe(session2, callback2):
         # Start session1 with a blocking callback
         async with anyio.create_task_group() as tg:
+
             async def session1_runner():
                 async with redis_dispatch.subscribe(session1, blocking_callback1):
                     # Publish a message to trigger the blocking callback
@@ -265,38 +266,38 @@ async def test_session_cancellation_isolation(redis_dispatch):
                         {"jsonrpc": "2.0", "method": "test", "params": {}, "id": 1}
                     )
                     await redis_dispatch.publish_message(session1, message)
-                    
+
                     # Wait for the callback to start
                     await session1_started.wait()
-                    
+
                     # Keep the context alive while we test cancellation
                     await anyio.sleep_forever()
-            
+
             tg.start_soon(session1_runner)
-            
+
             # Wait for session1's callback to start
             await session1_started.wait()
-            
+
             # Cancel session1
             tg.cancel_scope.cancel()
-            
+
             # Give some time for cancellation to propagate
             await anyio.sleep(0.1)
-            
+
             # Verify session1 was cancelled
             assert session1_cancelled
             assert session1 not in redis_dispatch._session_state
-            
+
             # Verify session2 is still active and can receive messages
             assert await redis_dispatch.session_exists(session2)
             message2 = types.JSONRPCMessage.model_validate(
                 {"jsonrpc": "2.0", "method": "test2", "params": {}, "id": 2}
             )
             await redis_dispatch.publish_message(session2, message2)
-            
+
             # Give some time for the message to be processed
             await anyio.sleep(0.1)
-            
+
             # Verify session2 received the message
             callback2.assert_called_once()
             call_args = callback2.call_args[0][0]
@@ -308,22 +309,22 @@ async def test_listener_task_handoff_on_cancellation(redis_dispatch):
     """Test that the single listening task is properly handed off when a session is cancelled."""
     session1 = uuid4()
     session2 = uuid4()
-    
+
     session1_messages_received = 0
     session2_messages_received = 0
-    
+
     async def callback1(msg):
         nonlocal session1_messages_received
         session1_messages_received += 1
-    
+
     async def callback2(msg):
         nonlocal session2_messages_received
         session2_messages_received += 1
-    
+
     # Create a cancel scope for session1
     async with anyio.create_task_group() as tg:
         session1_cancel_scope: anyio.CancelScope | None = None
-        
+
         async def session1_runner():
             nonlocal session1_cancel_scope
             with anyio.CancelScope() as cancel_scope:
@@ -331,14 +332,14 @@ async def test_listener_task_handoff_on_cancellation(redis_dispatch):
                 async with redis_dispatch.subscribe(session1, callback1):
                     # Keep session alive until cancelled
                     await anyio.sleep_forever()
-        
+
         # Start session1
         tg.start_soon(session1_runner)
-        
+
         # Wait for session1 to be established
         await anyio.sleep(0.1)
         assert session1 in redis_dispatch._session_state
-        
+
         # Send message to session1 to verify it's working
         message1 = types.JSONRPCMessage.model_validate(
             {"jsonrpc": "2.0", "method": "test1", "params": {}, "id": 1}
@@ -346,42 +347,42 @@ async def test_listener_task_handoff_on_cancellation(redis_dispatch):
         await redis_dispatch.publish_message(session1, message1)
         await anyio.sleep(0.1)
         assert session1_messages_received == 1
-        
+
         # Start session2 while session1 is still active
         async with redis_dispatch.subscribe(session2, callback2):
             # Both sessions should be active
             assert session1 in redis_dispatch._session_state
             assert session2 in redis_dispatch._session_state
-            
+
             # Cancel session1
             assert session1_cancel_scope is not None
             session1_cancel_scope.cancel()
-            
+
             # Wait for cancellation to complete
             await anyio.sleep(0.1)
-            
+
             # Session1 should be gone, session2 should remain
             assert session1 not in redis_dispatch._session_state
             assert session2 in redis_dispatch._session_state
-            
+
             # Send message to session2 to verify the listener was handed off
             message2 = types.JSONRPCMessage.model_validate(
                 {"jsonrpc": "2.0", "method": "test2", "params": {}, "id": 2}
             )
             await redis_dispatch.publish_message(session2, message2)
             await anyio.sleep(0.1)
-            
+
             # Session2 should have received the message
             assert session2_messages_received == 1
-            
+
             # Session1 shouldn't receive any more messages
             assert session1_messages_received == 1
-            
+
             # Send another message to verify the listener is still working
             message3 = types.JSONRPCMessage.model_validate(
                 {"jsonrpc": "2.0", "method": "test3", "params": {}, "id": 3}
             )
             await redis_dispatch.publish_message(session2, message3)
             await anyio.sleep(0.1)
-            
+
             assert session2_messages_received == 2

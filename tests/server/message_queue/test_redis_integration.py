@@ -65,14 +65,14 @@ def make_redis_server_app() -> Starlette:
     """Create test Starlette app with SSE transport and Redis message dispatch"""
     # Create a mock Redis instance
     mock_redis = fake_redis.FakeRedis()
-    
+
     # Patch the redis module within RedisMessageDispatch
     with patch("mcp.server.message_queue.redis.redis", mock_redis):
         from mcp.server.message_queue.redis import RedisMessageDispatch
-        
+
         # Create Redis message dispatch with mock redis
         message_dispatch = RedisMessageDispatch("redis://localhost:6379/0")
-        
+
         # Create SSE transport with Redis message dispatch
         sse = SseServerTransport("/messages/", message_dispatch=message_dispatch)
         server = RedisTestServer()
@@ -147,7 +147,9 @@ async def http_client(server, server_url) -> AsyncGenerator[httpx.AsyncClient, N
 
 
 @pytest.mark.anyio
-async def test_redis_integration_basic_connection(server: None, server_url: str) -> None:
+async def test_redis_integration_basic_connection(
+    server: None, server_url: str
+) -> None:
     """Test that a basic SSE connection works with Redis message dispatch"""
     async with sse_client(server_url + "/sse") as streams:
         async with ClientSession(*streams) as session:
@@ -163,7 +165,7 @@ async def test_redis_integration_tool_call(server: None, server_url: str) -> Non
         async with ClientSession(*streams) as session:
             # Initialize session
             await session.initialize()
-            
+
             # Call a tool
             result = await session.call_tool("test_tool", {})
             assert result.content[0].text == "Called test_tool"
@@ -175,38 +177,41 @@ async def test_redis_integration_session_lifecycle() -> None:
     # Create a fresh Redis instance with decode_responses=True to get str instead of bytes
     mock_redis = fake_redis.FakeRedis(decode_responses=True)
     active_sessions_key = "mcp:pubsub:active_sessions"
-    
+
     # Mock Redis in RedisMessageDispatch
-    with patch("mcp.server.message_queue.redis.redis.from_url", return_value=mock_redis):
+    with patch(
+        "mcp.server.message_queue.redis.redis.from_url", return_value=mock_redis
+    ):
         from mcp.server.message_queue.redis import RedisMessageDispatch
-        
+
         # Create Redis message dispatch with our specific mock redis instance
         message_dispatch = RedisMessageDispatch("redis://localhost:6379/0")
-        
+
         # Create a mock callback
         async def mock_callback(message):
             pass
-        
+
         # Test session subscription and unsubscription
         from uuid import uuid4
+
         session_id = uuid4()
-        
+
         # Subscribe to a session
         async with message_dispatch.subscribe(session_id, mock_callback):
             # Give a moment for the session to be added
             await anyio.sleep(0.05)
-            
+
             # Check that session was added to Redis
             active_sessions = await mock_redis.smembers(active_sessions_key)
             assert len(active_sessions) == 1
             assert list(active_sessions)[0] == session_id.hex
-            
+
             # Verify session exists
             assert await message_dispatch.session_exists(session_id)
-        
+
         # Give a moment for cleanup
         await anyio.sleep(0.05)
-        
+
         # After context exit, verify the session was removed
         final_sessions = await mock_redis.smembers(active_sessions_key)
         assert len(final_sessions) == 0
@@ -218,45 +223,52 @@ async def test_redis_integration_message_publishing_direct() -> None:
     """Test message publishing through Redis channels using direct Redis access"""
     # Create a fresh Redis instance with decode_responses=True to get str instead of bytes
     mock_redis = fake_redis.FakeRedis(decode_responses=True)
-    
+
     # Mock Redis in RedisMessageDispatch
-    with patch("mcp.server.message_queue.redis.redis.from_url", return_value=mock_redis):
+    with patch(
+        "mcp.server.message_queue.redis.redis.from_url", return_value=mock_redis
+    ):
         from mcp.server.message_queue.redis import RedisMessageDispatch
         from mcp.types import JSONRPCMessage, JSONRPCRequest
-        
+
         # Create Redis message dispatch with our specific mock redis instance
         message_dispatch = RedisMessageDispatch("redis://localhost:6379/0")
-        
+
         # Messages received through the callback
         messages_received = []
-        
+
         async def message_callback(message):
             messages_received.append(message)
-        
+
         # Use a UUID for session ID
         from uuid import uuid4
+
         session_id = uuid4()
-        
+
         # Subscribe to the session
         async with message_dispatch.subscribe(session_id, message_callback):
             # Give a moment for subscription to be fully set up and start listener task
             await anyio.sleep(0.05)
-            
+
             # Create a test message
             test_message = JSONRPCMessage(
-                root=JSONRPCRequest(jsonrpc="2.0", id=1, method="test_method", params={})
+                root=JSONRPCRequest(
+                    jsonrpc="2.0", id=1, method="test_method", params={}
+                )
             )
-            
+
             # Publish the message
             success = await message_dispatch.publish_message(session_id, test_message)
             assert success
-            
+
             # Give some time for the message to be processed
             # Use a shorter sleep since we're in controlled test environment
             await anyio.sleep(0.1)
-            
+
             # Verify that the message was received
-            assert len(messages_received) > 0, "No messages were received through the callback"
+            assert (
+                len(messages_received) > 0
+            ), "No messages were received through the callback"
             received_message = messages_received[0]
             assert isinstance(received_message, JSONRPCMessage)
             assert received_message.root.method == "test_method"
