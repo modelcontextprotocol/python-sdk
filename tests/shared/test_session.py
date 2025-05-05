@@ -9,7 +9,6 @@ from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import (
-    ClientRequest,
     EmptyResult,
 )
 
@@ -88,20 +87,10 @@ async def test_request_cancellation():
 
         return server
 
-    async def make_request(client_session):
+    async def make_request(client_session: ClientSession):
         nonlocal ev_cancelled
         try:
-            await client_session.send_request(
-                ClientRequest(
-                    types.CallToolRequest(
-                        method="tools/call",
-                        params=types.CallToolRequestParams(
-                            name="slow_tool", arguments={}
-                        ),
-                    )
-                ),
-                types.CallToolResult,
-            )
+            await client_session.call_tool("slow_tool")
             pytest.fail("Request should have been cancelled")
         except McpError as e:
             # Expected - request was cancelled
