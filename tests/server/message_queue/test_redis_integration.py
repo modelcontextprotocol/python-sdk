@@ -273,5 +273,5 @@ async def test_redis_integration_message_publishing_direct() -> None:
             ), "No messages were received through the callback"
             received_message = messages_received[0]
             assert isinstance(received_message, SessionMessage)
-            assert received_message.message.root.method == "test_method"
-            assert received_message.message.root.id == 1
+            assert received_message.message.root.method == "test_method"  # type: ignore
+            assert received_message.message.root.id == 1  # type: ignore
