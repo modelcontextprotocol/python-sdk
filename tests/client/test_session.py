@@ -250,3 +250,112 @@ async def test_client_session_default_client_info():
 
     # Assert that the default client info was sent
     assert received_client_info == DEFAULT_CLIENT_INFO
+
+
+@pytest.mark.anyio
+async def test_client_session_progress():
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        SessionMessage
+    ](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        SessionMessage
+    ](1)
+
+    async def mock_server():
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        request = ClientRequest.model_validate(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(request.root, types.CallToolRequest)
+        assert request.root.params.meta
+        assert request.root.params.meta.progressToken is not None
+
+        progress_token = request.root.params.meta.progressToken
+
+        notifications = [
+            types.ServerNotification(
+                root=types.ProgressNotification(
+                    params=types.ProgressNotificationParams(
+                        progressToken=progress_token, progress=1
+                    ),
+                    method="notifications/progress",
+                )
+            ),
+            types.ServerNotification(
+                root=types.ProgressNotification(
+                    params=types.ProgressNotificationParams(
+                        progressToken=progress_token, progress=2
+                    ),
+                    method="notifications/progress",
+                )
+            ),
+        ]
+        result = ServerResult(types.CallToolResult(content=[]))
+
+        async with server_to_client_send:
+            for notification in notifications:
+                await server_to_client_send.send(
+                    SessionMessage(
+                        JSONRPCMessage(
+                            types.JSONRPCNotification(
+                                jsonrpc="2.0",
+                                **notification.model_dump(
+                                    by_alias=True, mode="json", exclude_none=True
+                                ),
+                            )
+                        )
+                    )
+                )
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=jsonrpc_request.root.id,
+                            result=result.model_dump(
+                                by_alias=True, mode="json", exclude_none=True
+                            ),
+                        )
+                    )
+                )
+            )
+
+    # Create a message handler to catch exceptions
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult]
+        | types.ServerNotification
+        | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
+
+    progress_count = 0
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=message_handler,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+
+        async def progress_callback(params: types.ProgressNotificationParams):
+            nonlocal progress_count
+            progress_count = progress_count + 1
+
+        result = await session.call_tool(
+            "tool_with_progress", progress_callback=progress_callback
+        )
+
+    # Assert the result
+    assert isinstance(result, types.CallToolResult)
+    assert len(result.content) == 0
+    assert progress_count == 2

@@ -35,6 +35,13 @@ class LoggingFnT(Protocol):
     ) -> None: ...
 
 
+class ProgressFnT(Protocol):
+    async def __call__(
+        self,
+        params: types.ProgressNotificationParams,
+    ) -> None: ...
+
+
 class MessageHandlerFnT(Protocol):
     async def __call__(
         self,
@@ -91,6 +98,9 @@ class ClientSession(
         types.ServerNotification,
     ]
 ):
+    _progress_id: int
+    _in_progress: dict[types.ProgressToken, ProgressFnT]
+
     def __init__(
         self,
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -114,6 +124,8 @@ class ClientSession(
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
+        self._progress_id = 0
+        self._in_progress = {}
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability()
@@ -259,19 +271,37 @@ class ClientSession(
         name: str,
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> types.CallToolResult:
         """Send a tools/call request."""
 
-        return await self.send_request(
-            types.ClientRequest(
-                types.CallToolRequest(
-                    method="tools/call",
-                    params=types.CallToolRequestParams(name=name, arguments=arguments),
-                )
-            ),
-            types.CallToolResult,
-            request_read_timeout_seconds=read_timeout_seconds,
-        )
+        if progress_callback is None:
+            progress_id = None
+            call_params = types.CallToolRequestParams(name=name, arguments=arguments)
+        else:
+            progress_id = self._progress_id
+            self._progress_id = progress_id + 1
+
+            call_meta = types.RequestParams.Meta(progressToken=progress_id)
+            call_params = types.CallToolRequestParams(
+                name=name, arguments=arguments, _meta=call_meta
+            )
+            self._in_progress[progress_id] = progress_callback
+
+        try:
+            return await self.send_request(
+                types.ClientRequest(
+                    types.CallToolRequest(
+                        method="tools/call",
+                        params=call_params,
+                    )
+                ),
+                types.CallToolResult,
+                request_read_timeout_seconds=read_timeout_seconds,
+            )
+        finally:
+            if progress_id is not None:
+                self._in_progress.pop(progress_id, None)
 
     async def list_prompts(self) -> types.ListPromptsResult:
         """Send a prompts/list request."""
@@ -384,5 +414,9 @@ class ClientSession(
         match notification.root:
             case types.LoggingMessageNotification(params=params):
                 await self._logging_callback(params)
+            case types.ProgressNotification(params=params):
+                if params.progressToken in self._in_progress:
+                    progress_callback = self._in_progress[params.progressToken]
+                    await progress_callback(params)
             case _:
                 pass
