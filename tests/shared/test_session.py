@@ -121,6 +121,7 @@ async def test_request_cancellation():
             with anyio.fail_after(1):
                 await ev_tool_cancelled.wait()
 
+
 @pytest.mark.anyio
 async def test_request_cancellation_uncancellable():
     """Test that asserts."""
@@ -141,7 +142,7 @@ async def test_request_cancellation_uncancellable():
             if name == "slow_tool":
                 ev_tool_called.set()
                 with anyio.CancelScope():
-                    with anyio.fail_after(10): # Long enough to ensure we can cancel
+                    with anyio.fail_after(10):  # Long enough to ensure we can cancel
                         await ev_cancelled.wait()
                     ev_tool_commplete.set()
                     return []
