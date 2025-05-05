@@ -118,14 +118,14 @@ async def test_request_cancellation():
             with anyio.fail_after(1):  # Timeout after 1 second
                 await ev_tool_called.wait()
 
-            # cancel the task via task group
+            # Cancel the task via task group
             tg.cancel_scope.cancel()
 
             # Give cancellation time to process
             with anyio.fail_after(1):
                 await ev_cancelled.wait()
 
-            # check server cancel notification received
+            # Check server cancel notification received
             with anyio.fail_after(1):
                 await ev_cancel_notified.wait()
 
