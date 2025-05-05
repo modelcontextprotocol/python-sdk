@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 
 import anyio
 import pytest
@@ -165,7 +166,11 @@ async def test_request_cancellation_uncancellable():
     async def make_request(client_session: ClientSession):
         nonlocal ev_cancelled
         try:
-            await client_session.call_tool("slow_tool", cancellable=False)
+            await client_session.call_tool(
+                "slow_tool",
+                cancellable=False,
+                read_timeout_seconds=timedelta(seconds=10),
+            )
         except McpError:
             pytest.fail("Request should not have been cancelled")
 
