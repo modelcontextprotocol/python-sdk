@@ -165,7 +165,7 @@ async def test_request_cancellation_uncancellable():
         nonlocal ev_cancelled
         try:
             await client_session.call_tool("slow_tool", cancellable=False)
-        except McpError as e:
+        except McpError:
             pytest.fail("Request should not have been cancelled")
 
     async with create_connected_server_and_client_session(
