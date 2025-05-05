@@ -2,10 +2,11 @@ import multiprocessing
 import socket
 import time
 from collections.abc import AsyncGenerator, Generator
+from contextlib import asynccontextmanager
 from unittest.mock import patch
+from uuid import uuid4
 
 import anyio
-import httpx
 import pytest
 import uvicorn
 from starlette.applications import Starlette
@@ -15,6 +16,7 @@ from starlette.routing import Mount, Route
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.server import Server
+from mcp.server.message_queue.redis import RedisMessageDispatch
 from mcp.server.sse import SseServerTransport
 from mcp.types import TextContent, Tool
 
@@ -64,7 +66,7 @@ class RedisTestServer(Server):
 def make_redis_server_app() -> Starlette:
     """Create test Starlette app with SSE transport and Redis message dispatch"""
     # Create a mock Redis instance
-    mock_redis = fake_redis.FakeRedis()
+    mock_redis = fake_redis.FakeRedis(decode_responses=True)
 
     # Patch the redis module within RedisMessageDispatch
     with patch("mcp.server.message_queue.redis.redis", mock_redis):
@@ -85,11 +87,20 @@ def make_redis_server_app() -> Starlette:
                     streams[0], streams[1], server.create_initialization_options()
                 )
 
+        @asynccontextmanager
+        async def close_redis(app: Starlette) -> AsyncGenerator[None, None]:
+            try:
+                yield
+            finally:
+                await message_dispatch.close()
+                await mock_redis.aclose()  # type: ignore
+
         app = Starlette(
             routes=[
                 Route("/sse", endpoint=handle_sse),
                 Mount("/messages/", app=sse.handle_post_message),
-            ]
+            ],
+            lifespan=close_redis,
         )
 
         return app
@@ -133,17 +144,10 @@ def server(server_port: int) -> Generator[None, None, None]:
     yield
 
     # Signal the server to stop
-    proc.kill()
+    proc.terminate()
     proc.join(timeout=2)
     if proc.is_alive():
         print("server process failed to terminate")
-
-
-@pytest.fixture()
-async def http_client(server, server_url) -> AsyncGenerator[httpx.AsyncClient, None]:
-    """Create test client"""
-    async with httpx.AsyncClient(base_url=server_url) as client:
-        yield client
 
 
 @pytest.mark.anyio
@@ -172,106 +176,70 @@ async def test_redis_integration_tool_call(server: None, server_url: str) -> Non
 
 
 @pytest.mark.anyio
-async def test_redis_integration_session_lifecycle() -> None:
-    """Test that sessions are properly added to and
-    removed from Redis using direct Redis access"""
-    mock_redis = fake_redis.FakeRedis(decode_responses=True)
-    active_sessions_key = "mcp:pubsub:active_sessions"
+async def test_redis_integration_session_lifecycle(
+    message_dispatch: RedisMessageDispatch,
+) -> None:
+    # Create a mock callback
+    async def mock_callback(message):
+        pass
 
-    # Mock Redis in RedisMessageDispatch
-    with patch(
-        "mcp.server.message_queue.redis.redis.from_url", return_value=mock_redis
-    ):
-        from mcp.server.message_queue.redis import RedisMessageDispatch
+    # Test session subscription and unsubscription
+    session_id = uuid4()
 
-        # Create Redis message dispatch with our specific mock redis instance
-        message_dispatch = RedisMessageDispatch("redis://localhost:6379/0")
+    # Subscribe to a session
+    async with message_dispatch.subscribe(session_id, mock_callback):
+        session_key = message_dispatch._session_key(session_id)
+        assert await message_dispatch._redis.exists(session_key) == 1  # type: ignore
+        assert await message_dispatch.session_exists(session_id)
 
-        # Create a mock callback
-        async def mock_callback(message):
-            pass
-
-        # Test session subscription and unsubscription
-        from uuid import uuid4
-
-        session_id = uuid4()
-
-        # Subscribe to a session
-        async with message_dispatch.subscribe(session_id, mock_callback):
-            # Give a moment for the session to be added
-            await anyio.sleep(0.05)
-
-            # Check that session was added to Redis
-            active_sessions = await mock_redis.smembers(active_sessions_key)
-            assert len(active_sessions) == 1
-            assert list(active_sessions)[0] == session_id.hex
-
-            # Verify session exists
-            assert await message_dispatch.session_exists(session_id)
-
-        # Give a moment for cleanup
-        await anyio.sleep(0.05)
-
-        # After context exit, verify the session was removed
-        final_sessions = await mock_redis.smembers(active_sessions_key)
-        assert len(final_sessions) == 0
-        assert not await message_dispatch.session_exists(session_id)
+    assert await message_dispatch._redis.exists(session_key) == 0  # type: ignore
+    assert not await message_dispatch.session_exists(session_id)
 
 
 @pytest.mark.anyio
-async def test_redis_integration_message_publishing_direct() -> None:
+async def test_redis_integration_message_publishing_direct(
+    message_dispatch: RedisMessageDispatch,
+) -> None:
     """Test message publishing through Redis channels using direct Redis access"""
-    mock_redis = fake_redis.FakeRedis(decode_responses=True)
+    from mcp.shared.message import SessionMessage
+    from mcp.types import JSONRPCMessage, JSONRPCRequest
 
-    # Mock Redis in RedisMessageDispatch
-    with patch(
-        "mcp.server.message_queue.redis.redis.from_url", return_value=mock_redis
-    ):
-        from mcp.server.message_queue.redis import RedisMessageDispatch
-        from mcp.shared.message import SessionMessage
-        from mcp.types import JSONRPCMessage, JSONRPCRequest
+    # Messages received through the callback
+    messages_received = []
 
-        # Create Redis message dispatch with our specific mock redis instance
-        message_dispatch = RedisMessageDispatch("redis://localhost:6379/0")
+    async def message_callback(message):
+        messages_received.append(message)
 
-        # Messages received through the callback
-        messages_received = []
+    # Use a UUID for session ID
+    from uuid import uuid4
 
-        async def message_callback(message):
-            messages_received.append(message)
+    session_id = uuid4()
 
-        # Use a UUID for session ID
-        from uuid import uuid4
+    # Subscribe to the session
+    async with message_dispatch.subscribe(session_id, message_callback):
+        # Give a moment for subscription to be fully set up and start listener task
+        await anyio.sleep(0.05)
 
-        session_id = uuid4()
+        # Create a test message
+        test_message = JSONRPCMessage(
+            root=JSONRPCRequest(jsonrpc="2.0", id=1, method="test_method", params={})
+        )
 
-        # Subscribe to the session
-        async with message_dispatch.subscribe(session_id, message_callback):
-            # Give a moment for subscription to be fully set up and start listener task
-            await anyio.sleep(0.05)
+        # Publish the message
+        success = await message_dispatch.publish_message(
+            session_id, SessionMessage(message=test_message)
+        )
+        assert success
 
-            # Create a test message
-            test_message = JSONRPCMessage(
-                root=JSONRPCRequest(
-                    jsonrpc="2.0", id=1, method="test_method", params={}
-                )
-            )
+        # Give some time for the message to be processed
+        # Use a shorter sleep since we're in controlled test environment
+        await anyio.sleep(0.1)
 
-            # Publish the message
-            success = await message_dispatch.publish_message(
-                session_id, SessionMessage(message=test_message)
-            )
-            assert success
-
-            # Give some time for the message to be processed
-            # Use a shorter sleep since we're in controlled test environment
-            await anyio.sleep(0.1)
-
-            # Verify that the message was received
-            assert (
-                len(messages_received) > 0
-            ), "No messages were received through the callback"
-            received_message = messages_received[0]
-            assert isinstance(received_message, SessionMessage)
-            assert received_message.message.root.method == "test_method"  # type: ignore
-            assert received_message.message.root.id == 1  # type: ignore
+        # Verify that the message was received
+        assert (
+            len(messages_received) > 0
+        ), "No messages were received through the callback"
+        received_message = messages_received[0]
+        assert isinstance(received_message, SessionMessage)
+        assert received_message.message.root.method == "test_method"  # type: ignore
+        assert received_message.message.root.id == 1  # type: ignore
