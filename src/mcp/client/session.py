@@ -260,6 +260,7 @@ class ClientSession(
         name: str,
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
+        cancellable: bool = True,
     ) -> types.CallToolResult:
         """Send a tools/call request."""
 
@@ -272,6 +273,7 @@ class ClientSession(
             ),
             types.CallToolResult,
             request_read_timeout_seconds=read_timeout_seconds,
+            cancellable=cancellable,
         )
 
     async def list_prompts(self) -> types.ListPromptsResult:

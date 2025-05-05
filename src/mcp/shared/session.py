@@ -263,39 +263,40 @@ class BaseSession(
             elif self._session_read_timeout_seconds is not None:
                 timeout = self._session_read_timeout_seconds.total_seconds()
 
-            try:
-                with anyio.fail_after(timeout) as scope:
-                    response_or_error = await response_stream_reader.receive()
+            with anyio.CancelScope(shield=not cancellable):
+                try:
+                    with anyio.fail_after(timeout) as scope:
+                        response_or_error = await response_stream_reader.receive()
 
-                    if cancellable and scope.cancel_called:
-                        with anyio.CancelScope(shield=True):
-                            notification = CancelledNotification(
-                                method="notifications/cancelled",
-                                params=CancelledNotificationParams(
-                                    requestId=request_id, reason="cancelled"
-                                ),
-                            )
-                            await self._send_notification_internal(
-                                notification, request_id
+                        if scope.cancel_called:
+                            with anyio.CancelScope(shield=True):
+                                notification = CancelledNotification(
+                                    method="notifications/cancelled",
+                                    params=CancelledNotificationParams(
+                                        requestId=request_id, reason="cancelled"
+                                    ),
+                                )
+                                await self._send_notification_internal(
+                                    notification, request_id
+                                )
+
+                            raise McpError(
+                                ErrorData(
+                                    code=REQUEST_CANCELLED, message="Request cancelled"
+                                )
                             )
 
-                        raise McpError(
-                            ErrorData(
-                                code=REQUEST_CANCELLED, message="Request cancelled"
-                            )
+                except TimeoutError:
+                    raise McpError(
+                        ErrorData(
+                            code=httpx.codes.REQUEST_TIMEOUT,
+                            message=(
+                                f"Timed out while waiting for response to "
+                                f"{request.__class__.__name__}. Waited "
+                                f"{timeout} seconds."
+                            ),
                         )
-
-            except TimeoutError:
-                raise McpError(
-                    ErrorData(
-                        code=httpx.codes.REQUEST_TIMEOUT,
-                        message=(
-                            f"Timed out while waiting for response to "
-                            f"{request.__class__.__name__}. Waited "
-                            f"{timeout} seconds."
-                        ),
                     )
-                )
 
             if isinstance(response_or_error, JSONRPCError):
                 raise McpError(response_or_error.error)
