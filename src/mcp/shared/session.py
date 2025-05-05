@@ -3,7 +3,7 @@ from collections.abc import Callable
 from contextlib import AsyncExitStack
 from datetime import timedelta
 from types import TracebackType
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Protocol, TypeVar
 
 import anyio
 import httpx
@@ -24,6 +24,9 @@ from mcp.types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    ProgressNotification,
+    ProgressNotificationParams,
+    ProgressToken,
     RequestParams,
     ServerNotification,
     ServerRequest,
@@ -38,6 +41,14 @@ ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 ReceiveNotificationT = TypeVar(
     "ReceiveNotificationT", ClientNotification, ServerNotification
 )
+
+
+class ProgressFnT(Protocol):
+    async def __call__(
+        self,
+        params: ProgressNotificationParams,
+    ) -> None: ...
+
 
 RequestId = str | int
 
@@ -168,7 +179,9 @@ class BaseSession(
         RequestId, MemoryObjectSendStream[JSONRPCResponse | JSONRPCError]
     ]
     _request_id: int
+    _progress_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
+    _in_progress: dict[ProgressToken, ProgressFnT]
 
     def __init__(
         self,
@@ -187,6 +200,8 @@ class BaseSession(
         self._receive_notification_type = receive_notification_type
         self._session_read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
+        self._progress_id = 0
+        self._in_progress = {}
         self._exit_stack = AsyncExitStack()
 
     async def __aenter__(self) -> Self:
@@ -214,11 +229,15 @@ class BaseSession(
         result_type: type[ReceiveResultT],
         request_read_timeout_seconds: timedelta | None = None,
         metadata: MessageMetadata = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
         """
         Sends a request and wait for a response. Raises an McpError if the
         response contains an error. If a request read timeout is provided, it
         will take precedence over the session read timeout.
+
+        If progress_callback is provided any progress notifications sent from the
+        receiver will be passed back to the sender
 
         Do not use this method to emit notifications! Use send_notification()
         instead.
@@ -226,6 +245,27 @@ class BaseSession(
 
         request_id = self._request_id
         self._request_id = request_id + 1
+
+        progress_id = None
+        send_request = None
+
+        if progress_callback is not None:
+            if request.root.params is not None:
+                progress_id = self._progress_id
+                self._progress_id = progress_id + 1
+                new_params = request.root.params.model_copy(
+                    update={"meta": RequestParams.Meta(progressToken=progress_id)}
+                )
+                new_root = request.root.model_copy(update={"params": new_params})
+                send_request = request.model_copy(update={"root": new_root})
+                self._in_progress[progress_id] = progress_callback
+            else:
+                raise ValueError(
+                    f"{type(request.root).__name__} does not support progress"
+                )
+
+        if send_request is None:
+            send_request = request
 
         response_stream, response_stream_reader = anyio.create_memory_object_stream[
             JSONRPCResponse | JSONRPCError
@@ -236,10 +276,10 @@ class BaseSession(
             jsonrpc_request = JSONRPCRequest(
                 jsonrpc="2.0",
                 id=request_id,
-                **request.model_dump(by_alias=True, mode="json", exclude_none=True),
+                **send_request.model_dump(
+                    by_alias=True, mode="json", exclude_none=True
+                ),
             )
-
-            # TODO: Support progress callbacks
 
             await self._write_stream.send(
                 SessionMessage(
@@ -276,6 +316,8 @@ class BaseSession(
 
         finally:
             self._response_streams.pop(request_id, None)
+            if progress_id is not None:
+                self._in_progress.pop(progress_id, None)
             await response_stream.aclose()
             await response_stream_reader.aclose()
 
@@ -364,6 +406,20 @@ class BaseSession(
                             if cancelled_id in self._in_flight:
                                 await self._in_flight[cancelled_id].cancel()
                         else:
+                            match notification.root:
+                                case ProgressNotification(params=params):
+                                    if params.progressToken in self._in_progress:
+                                        progress_callback = self._in_progress[
+                                            params.progressToken
+                                        ]
+                                        await progress_callback(params)
+                                    else:
+                                        logging.warning(
+                                            "Unknown progress token %s",
+                                            params.progressToken,
+                                        )
+                                case _:
+                                    pass
                             await self._received_notification(notification)
                             await self._handle_incoming(notification)
                     except Exception as e:
