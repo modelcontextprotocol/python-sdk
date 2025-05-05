@@ -46,6 +46,7 @@ async def test_request_cancellation():
     # The tool is already registered in the fixture
 
     ev_tool_called = anyio.Event()
+    ev_tool_cancelled = anyio.Event()
     ev_cancelled = anyio.Event()
     ev_cancel_notified = anyio.Event()
 
@@ -56,11 +57,17 @@ async def test_request_cancellation():
         # Register the tool handler
         @server.call_tool()
         async def handle_call_tool(name: str, arguments: dict | None) -> list:
-            nonlocal ev_tool_called
+            nonlocal ev_tool_called, ev_tool_cancelled
             if name == "slow_tool":
                 ev_tool_called.set()
-                await anyio.sleep(10)  # Long enough to ensure we can cancel
-                return []
+                with anyio.CancelScope():
+                    try:
+                        await anyio.sleep(10)  # Long enough to ensure we can cancel
+                        return []
+                    except anyio.get_cancelled_exc_class() as err:
+                        ev_tool_cancelled.set()
+                        raise err
+
             raise ValueError(f"Unknown tool: {name}")
 
         @server.cancel_notification()
@@ -111,11 +118,17 @@ async def test_request_cancellation():
             with anyio.fail_after(1):  # Timeout after 1 second
                 await ev_tool_called.wait()
 
+            # cancel the task via task group
             tg.cancel_scope.cancel()
-
-            with anyio.fail_after(1):
-                await ev_cancel_notified.wait()
 
             # Give cancellation time to process
             with anyio.fail_after(1):
                 await ev_cancelled.wait()
+
+            # check server cancel notification received
+            with anyio.fail_after(1):
+                await ev_cancel_notified.wait()
+
+            # Give cancellation time to process on server
+            with anyio.fail_after(1):
+                await ev_tool_cancelled.wait()
