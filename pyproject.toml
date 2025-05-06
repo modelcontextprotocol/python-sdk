@@ -48,6 +48,7 @@ dev-dependencies = [
     "trio>=0.26.2",
     "pytest-flakefinder>=1.1.0",
     "pytest-xdist>=3.6.1",
+    "sse-starlette>=2.3.4",
 ]
 
 [build-system]

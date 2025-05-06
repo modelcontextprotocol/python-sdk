@@ -132,7 +132,7 @@ class SseServerTransport:
             response = EventSourceResponse(
                 content=sse_stream_reader,
                 data_sender_callable=sse_writer,
-                client_close_handler_callable=handle_see_disconnect  # type: ignore
+                client_close_handler_callable=handle_see_disconnect,
             )
             logger.debug("Starting SSE response task")
             tg.start_soon(response, scope, receive, send)
