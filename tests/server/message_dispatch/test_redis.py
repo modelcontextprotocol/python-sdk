@@ -10,7 +10,6 @@ from mcp.server.message_queue.redis import RedisMessageDispatch
 from mcp.shared.message import SessionMessage
 
 
-
 @pytest.mark.anyio
 async def test_session_heartbeat(message_dispatch):
     """Test that session heartbeat refreshes TTL."""
