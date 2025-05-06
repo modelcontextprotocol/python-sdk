@@ -323,17 +323,20 @@ class BaseSession(
         notification: SendNotificationT,
         related_request_id: RequestId | None = None,
     ) -> None:
+        """
+        Emits a notification, which is a one-way message that does not expect
+        a response.
+        """
         await self._send_notification_internal(notification, related_request_id)
 
+    # this method is required as SendNotificationT type checking prevents
+    # internal use for sending cancelation - typechecking sorcery may be
+    # required
     async def _send_notification_internal(
         self,
         notification: SendNotificationInternalT,
         related_request_id: RequestId | None = None,
     ) -> None:
-        """
-        Emits a notification, which is a one-way message that does not expect
-        a response.
-        """
         # Some transport implementations may need to set the related_request_id
         # to attribute to the notifications to the request that triggered them.
         jsonrpc_notification = JSONRPCNotification(
