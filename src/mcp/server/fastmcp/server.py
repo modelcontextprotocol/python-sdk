@@ -589,6 +589,7 @@ class FastMCP:
                     streams[1],
                     self._mcp_server.create_initialization_options(),
                 )
+            return Response()
 
         # Create routes
         routes: list[Route | Mount] = []
@@ -624,19 +625,42 @@ class FastMCP:
                 )
             )
 
-        routes.append(
-            Route(
-                self.settings.sse_path,
-                endpoint=RequireAuthMiddleware(handle_sse, required_scopes),
-                methods=["GET"],
+        # When auth is not configured, we shouldn't require auth
+        if self._auth_server_provider:
+            # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
+            routes.append(
+                Route(
+                    self.settings.sse_path,
+                    endpoint=RequireAuthMiddleware(handle_sse, required_scopes),
+                    methods=["GET"],
+                )
             )
-        )
-        routes.append(
-            Mount(
-                self.settings.message_path,
-                app=RequireAuthMiddleware(sse.handle_post_message, required_scopes),
+            routes.append(
+                Mount(
+                    self.settings.message_path,
+                    app=RequireAuthMiddleware(sse.handle_post_message, required_scopes),
+                )
             )
-        )
+        else:
+            # Auth is disabled, no need for RequireAuthMiddleware
+            # Since handle_sse is an ASGI app, we need to create a compatible endpoint
+            async def sse_endpoint(request: Request) -> None:
+                # Convert the Starlette request to ASGI parameters
+                await handle_sse(request.scope, request.receive, request._send)  # type: ignore[reportPrivateUsage]
+
+            routes.append(
+                Route(
+                    self.settings.sse_path,
+                    endpoint=sse_endpoint,
+                    methods=["GET"],
+                )
+            )
+            routes.append(
+                Mount(
+                    self.settings.message_path,
+                    app=sse.handle_post_message,
+                )
+            )
         # mount these routes last, so they have the lowest route matching precedence
         routes.extend(self._custom_starlette_routes)
 

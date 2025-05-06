@@ -84,6 +84,7 @@ from mcp.server.session import ServerSession
 from mcp.server.stdio import stdio_server as stdio_server
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
+from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 
 logger = logging.getLogger(__name__)
@@ -471,19 +472,29 @@ class Server(Generic[LifespanResultT]):
 
     async def run(
         self,
-        read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception],
-        write_stream: MemoryObjectSendStream[types.JSONRPCMessage],
+        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
+        write_stream: MemoryObjectSendStream[SessionMessage],
         initialization_options: InitializationOptions,
         # When False, exceptions are returned as messages to the client.
         # When True, exceptions are raised, which will cause the server to shut down
         # but also make tracing exceptions much easier during testing and when using
         # in-process servers.
         raise_exceptions: bool = False,
+        # When True, the server is stateless and
+        # clients can perform initialization with any node. The client must still follow
+        # the initialization lifecycle, but can do so with any available node
+        # rather than requiring initialization for each connection.
+        stateless: bool = False,
     ):
         async with AsyncExitStack() as stack:
             lifespan_context = await stack.enter_async_context(self.lifespan(self))
             session = await stack.enter_async_context(
-                ServerSession(read_stream, write_stream, initialization_options)
+                ServerSession(
+                    read_stream,
+                    write_stream,
+                    initialization_options,
+                    stateless=stateless,
+                )
             )
 
             async with anyio.create_task_group() as tg:

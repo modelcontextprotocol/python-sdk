@@ -1,39 +1,19 @@
 import contextlib
 import logging
-from http import HTTPStatus
-from uuid import uuid4
 
 import anyio
 import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
-from mcp.server.streamable_http import (
-    MCP_SESSION_ID_HEADER,
+from mcp.server.streamableHttp import (
     StreamableHTTPServerTransport,
 )
-from pydantic import AnyUrl
 from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import Response
 from starlette.routing import Mount
 
-from .event_store import InMemoryEventStore
-
-# Configure logging
 logger = logging.getLogger(__name__)
-
 # Global task group that will be initialized in the lifespan
 task_group = None
-
-# Event store for resumability
-# The InMemoryEventStore enables resumability support for StreamableHTTP transport.
-# It stores SSE events with unique IDs, allowing clients to:
-#   1. Receive event IDs for each SSE message
-#   2. Resume streams by sending Last-Event-ID in GET requests
-#   3. Replay missed events after reconnection
-# Note: This in-memory implementation is for demonstration ONLY.
-# For production, use a persistent storage solution.
-event_store = InMemoryEventStore()
 
 
 @contextlib.asynccontextmanager
@@ -78,7 +58,7 @@ def main(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    app = Server("mcp-streamable-http-demo")
+    app = Server("mcp-streamable-http-stateless-demo")
 
     @app.call_tool()
     async def call_tool(
@@ -91,29 +71,15 @@ def main(
 
         # Send the specified number of notifications with the given interval
         for i in range(count):
-            # Include more detailed message for resumability demonstration
-            notification_msg = (
-                f"[{i+1}/{count}] Event from '{caller}' - "
-                f"Use Last-Event-ID to resume if disconnected"
-            )
             await ctx.session.send_log_message(
                 level="info",
-                data=notification_msg,
+                data=f"Notification {i+1}/{count} from caller: {caller}",
                 logger="notification_stream",
-                # Associates this notification with the original request
-                # Ensures notifications are sent to the correct response stream
-                # Without this, notifications will either go to:
-                # - a standalone SSE stream (if GET request is supported)
-                # - nowhere (if GET request isn't supported)
                 related_request_id=ctx.request_id,
             )
-            logger.debug(f"Sent notification {i+1}/{count} for caller: {caller}")
             if i < count - 1:  # Don't wait after the last notification
                 await anyio.sleep(interval)
 
-        # This will send a resource notificaiton though standalone SSE
-        # established by GET request
-        await ctx.session.send_resource_updated(uri=AnyUrl("http:///test_resource"))
         return [
             types.TextContent(
                 type="text",
@@ -156,60 +122,35 @@ def main(
             )
         ]
 
-    # We need to store the server instances between requests
-    server_instances = {}
-    # Lock to prevent race conditions when creating new sessions
-    session_creation_lock = anyio.Lock()
-
-    # ASGI handler for streamable HTTP connections
+    # ASGI handler for stateless HTTP connections
     async def handle_streamable_http(scope, receive, send):
-        request = Request(scope, receive)
-        request_mcp_session_id = request.headers.get(MCP_SESSION_ID_HEADER)
-        if (
-            request_mcp_session_id is not None
-            and request_mcp_session_id in server_instances
-        ):
-            transport = server_instances[request_mcp_session_id]
-            logger.debug("Session already exists, handling request directly")
-            await transport.handle_request(scope, receive, send)
-        elif request_mcp_session_id is None:
-            # try to establish new session
-            logger.debug("Creating new transport")
-            # Use lock to prevent race conditions when creating new sessions
-            async with session_creation_lock:
-                new_session_id = uuid4().hex
-                http_transport = StreamableHTTPServerTransport(
-                    mcp_session_id=new_session_id,
-                    is_json_response_enabled=json_response,
-                    event_store=event_store,  # Enable resumability
+        logger.debug("Creating new transport")
+        # Use lock to prevent race conditions when creating new sessions
+        http_transport = StreamableHTTPServerTransport(
+            mcp_session_id=None,
+            is_json_response_enabled=json_response,
+        )
+        async with http_transport.connect() as streams:
+            read_stream, write_stream = streams
+
+            if not task_group:
+                raise RuntimeError("Task group is not initialized")
+
+            async def run_server():
+                await app.run(
+                    read_stream,
+                    write_stream,
+                    app.create_initialization_options(),
+                    # Runs in standalone mode for stateless deployments
+                    # where clients perform initialization with any node
+                    standalone_mode=True,
                 )
-                server_instances[http_transport.mcp_session_id] = http_transport
-                logger.info(f"Created new transport with session ID: {new_session_id}")
 
-                async def run_server(task_status=None):
-                    async with http_transport.connect() as streams:
-                        read_stream, write_stream = streams
-                        if task_status:
-                            task_status.started()
-                        await app.run(
-                            read_stream,
-                            write_stream,
-                            app.create_initialization_options(),
-                        )
+            # Start server task
+            task_group.start_soon(run_server)
 
-                if not task_group:
-                    raise RuntimeError("Task group is not initialized")
-
-                await task_group.start(run_server)
-
-                # Handle the HTTP request and return the response
-                await http_transport.handle_request(scope, receive, send)
-        else:
-            response = Response(
-                "Bad Request: No valid session ID provided",
-                status_code=HTTPStatus.BAD_REQUEST,
-            )
-            await response(scope, receive, send)
+            # Handle the HTTP request and return the response
+            await http_transport.handle_request(scope, receive, send)
 
     # Create an ASGI application using the transport
     starlette_app = Starlette(

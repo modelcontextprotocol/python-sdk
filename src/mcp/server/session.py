@@ -47,6 +47,7 @@ from pydantic import AnyUrl
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
+from mcp.shared.message import SessionMessage
 from mcp.shared.session import (
     BaseSession,
     RequestResponder,
@@ -82,23 +83,26 @@ class ServerSession(
 
     def __init__(
         self,
-        read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception],
-        write_stream: MemoryObjectSendStream[types.JSONRPCMessage],
+        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
+        write_stream: MemoryObjectSendStream[SessionMessage],
         init_options: InitializationOptions,
+        stateless: bool = False,
     ) -> None:
         super().__init__(
             read_stream, write_stream, types.ClientRequest, types.ClientNotification
         )
-        self._initialization_state = InitializationState.NotInitialized
+        self._initialization_state = (
+            InitializationState.Initialized
+            if stateless
+            else InitializationState.NotInitialized
+        )
+
         self._init_options = init_options
         self._incoming_message_stream_writer, self._incoming_message_stream_reader = (
             anyio.create_memory_object_stream[ServerRequestResponder](0)
         )
         self._exit_stack.push_async_callback(
             lambda: self._incoming_message_stream_reader.aclose()
-        )
-        self._exit_stack.push_async_callback(
-            lambda: self._incoming_message_stream_writer.aclose()
         )
 
     @property
@@ -136,6 +140,10 @@ class ServerSession(
                     return False
 
         return True
+
+    async def _receive_loop(self) -> None:
+        async with self._incoming_message_stream_writer:
+            await super()._receive_loop()
 
     async def _received_request(
         self, responder: RequestResponder[types.ClientRequest, types.ServerResult]
