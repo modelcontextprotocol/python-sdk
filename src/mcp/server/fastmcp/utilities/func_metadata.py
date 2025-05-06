@@ -38,6 +38,7 @@ class ArgModelBase(BaseModel):
 
 class FuncMetadata(BaseModel):
     arg_model: Annotated[type[ArgModelBase], WithJsonSchema(None)]
+    outputSchema: dict[str, Any] | None = None
     # We can add things in the future like
     #  - Maybe some args are excluded from attempting to parse from JSON
     #  - Maybe some args are special (like context) for dependency injection
@@ -60,6 +61,11 @@ class FuncMetadata(BaseModel):
 
         arguments_parsed_dict |= arguments_to_pass_directly or {}
 
+        logger.info(
+            "Calling function with arguments: %s",
+            arguments_parsed_dict,
+        )
+        logger.info(f"Function is async: ${fn}")
         if fn_is_async:
             if isinstance(fn, Awaitable):
                 return await fn
@@ -172,7 +178,62 @@ def func_metadata(
         **dynamic_pydantic_model_params,
         __base__=ArgModelBase,
     )
-    resp = FuncMetadata(arg_model=arguments_model)
+
+    # Generate output schema from return type annotation
+    output_schema: dict[str, Any] | None = None
+    return_annotation = sig.return_annotation
+
+    if return_annotation is not inspect.Signature.empty:
+        try:
+            # Handle forward references
+            return_type = _get_typed_annotation(return_annotation, globalns)
+            logger.info(f"return_type: {return_type}")
+            # Special case for None
+            if return_type is type(None):  # noqa: E721
+                output_schema = {"type": "null"}
+            else:
+                # Create a temporary model to get the schema
+                class OutputModel(BaseModel):
+                    result: return_type  # type: ignore
+
+                    model_config = ConfigDict(
+                        arbitrary_types_allowed=True,
+                    )
+
+                # Extract the schema for the return type
+                full_schema = OutputModel.model_json_schema()
+
+                # If the return type is a complex type, use its schema definition
+                if "$defs" in full_schema and "result" in full_schema.get(
+                    "properties", {}
+                ):
+                    prop = full_schema["properties"]["result"]
+                    if isinstance(prop, dict) and "$ref" in prop:
+                        if isinstance(prop["$ref"], str):
+                            ref_name = prop["$ref"].split("/")[-1]
+                        else:
+                            raise TypeError("Expected to be a string")
+                        if ref_name in full_schema.get("$defs", {}):
+                            ref_schema = full_schema["$defs"][ref_name]
+                            output_schema = {
+                                "type": "object",
+                                "properties": ref_schema.get("properties", {}),
+                                "required": ref_schema.get("required", []),
+                            }
+                            # Optionally include title if present
+                            if "title" in ref_schema:
+                                output_schema["title"] = ref_schema["title"]
+                    else:
+                        output_schema = prop
+                else:
+                    # For simple types
+                    output_schema = full_schema["properties"]["result"]
+
+        except Exception as e:
+            # If we can't generate a schema, log the error but continue
+            logger.warning(f"Failed to generate output schema for {func.__name__}: {e}")
+
+    resp = FuncMetadata(arg_model=arguments_model, outputSchema=output_schema)
     return resp
 
 
@@ -194,6 +255,10 @@ def _get_typed_annotation(annotation: Any, globalns: dict[str, Any]) -> Any:
         if status is False:
             raise InvalidSignature(f"Unable to evaluate type annotation {annotation}")
 
+    # If the annotation is already a valid type, return it directly
+    if isinstance(annotation, type):
+        return annotation
+
     return annotation
 
 
@@ -210,5 +275,8 @@ def _get_typed_signature(call: Callable[..., Any]) -> inspect.Signature:
         )
         for param in signature.parameters.values()
     ]
-    typed_signature = inspect.Signature(typed_params)
+    typed_signature = inspect.Signature(
+        typed_params,
+        return_annotation=_get_typed_annotation(signature.return_annotation, globalns),
+    )
     return typed_signature

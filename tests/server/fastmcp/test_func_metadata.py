@@ -414,3 +414,144 @@ def test_str_vs_int():
     result = meta.pre_parse_json({"a": "123", "b": 123})
     assert result["a"] == "123"
     assert result["b"] == 123
+
+
+def test_output_schema_generation():
+    """Test automatic generation of output schemas from return type annotations."""
+
+    # Test with simple return types
+    def fn_returns_str() -> str:
+        """Function that returns a string."""
+        return "hello"
+
+    meta = func_metadata(fn_returns_str)
+    assert meta.outputSchema is not None
+    assert meta.outputSchema["type"] == "string"
+
+    def fn_returns_int() -> int:
+        """Function that returns an integer."""
+        return 42
+
+    meta = func_metadata(fn_returns_int)
+    assert meta.outputSchema is not None
+    assert meta.outputSchema["type"] == "integer"
+
+    def fn_returns_bool() -> bool:
+        """Function that returns a boolean."""
+        return True
+
+    meta = func_metadata(fn_returns_bool)
+    assert meta.outputSchema is not None
+    assert meta.outputSchema["type"] == "boolean"
+
+    # Test with container types
+    def fn_returns_list_of_str() -> list[str]:
+        """Function that returns a list of strings."""
+        return ["hello", "world"]
+
+    meta = func_metadata(fn_returns_list_of_str)
+    assert meta.outputSchema is not None
+    assert meta.outputSchema["type"] == "array"
+    assert meta.outputSchema["items"]["type"] == "string"
+
+    def fn_returns_dict_str_int() -> dict[str, int]:
+        """Function that returns a dictionary mapping strings to integers."""
+        return {"a": 1, "b": 2}
+
+    meta = func_metadata(fn_returns_dict_str_int)
+    assert meta.outputSchema is not None
+    assert meta.outputSchema["type"] == "object"
+    # Check that it's a dict with string keys and integer values
+    assert "additionalProperties" in meta.outputSchema
+    assert meta.outputSchema["additionalProperties"]["type"] == "integer"
+
+    # Test with optional types
+    def fn_returns_optional_str() -> str | None:
+        """Function that returns an optional string."""
+        return "hello"
+
+    meta = func_metadata(fn_returns_optional_str)
+    assert meta.outputSchema is not None
+    assert "anyOf" in meta.outputSchema or "oneOf" in meta.outputSchema
+    # The schema should allow either string or null
+
+    # Test with union types
+    def fn_returns_union() -> str | int:
+        """Function that returns either a string or an integer."""
+        return "hello"
+
+    meta = func_metadata(fn_returns_union)
+    assert meta.outputSchema is not None
+    assert "anyOf" in meta.outputSchema or "oneOf" in meta.outputSchema
+    # The schema should allow either string or integer
+
+    # Test with Pydantic models
+    class UserProfile(BaseModel):
+        name: str
+        email: str
+        age: int
+        is_active: bool = True
+
+    def fn_returns_pydantic_model() -> UserProfile:
+        """Function that returns a Pydantic model."""
+        return UserProfile(name="John", email="john@example.com", age=30)
+
+    meta = func_metadata(fn_returns_pydantic_model)
+    assert meta.outputSchema is not None
+    assert meta.outputSchema["type"] == "object"
+    assert "properties" in meta.outputSchema
+    assert "name" in meta.outputSchema["properties"]
+    assert meta.outputSchema["properties"]["name"]["type"] == "string"
+    assert "email" in meta.outputSchema["properties"]
+    assert meta.outputSchema["properties"]["email"]["type"] == "string"
+    assert "age" in meta.outputSchema["properties"]
+    assert meta.outputSchema["properties"]["age"]["type"] == "integer"
+    assert "is_active" in meta.outputSchema["properties"]
+    assert meta.outputSchema["properties"]["is_active"]["type"] == "boolean"
+    assert "required" in meta.outputSchema
+    assert "name" in meta.outputSchema["required"]
+    assert "email" in meta.outputSchema["required"]
+    assert "age" in meta.outputSchema["required"]
+    assert "is_active" not in meta.outputSchema["required"]  # It has a default value
+
+    # Test with nested Pydantic models
+    class Address(BaseModel):
+        street: str
+        city: str
+        zip_code: str
+
+    class Person(BaseModel):
+        name: str
+        age: int
+        address: Address
+
+    def fn_returns_nested_model() -> Person:
+        """Function that returns a nested Pydantic model."""
+        return Person(
+            name="John",
+            age=30,
+            address=Address(street="123 Main St", city="Anytown", zip_code="12345"),
+        )
+
+    meta = func_metadata(fn_returns_nested_model)
+    assert meta.outputSchema is not None
+    assert meta.outputSchema["type"] == "object"
+    assert "properties" in meta.outputSchema
+    assert "address" in meta.outputSchema["properties"]
+
+    # Test with a function that has no return type annotation
+    def fn_no_return_type():
+        """Function with no return type annotation."""
+        return "hello"
+
+    meta = func_metadata(fn_no_return_type)
+    assert meta.outputSchema is None
+
+    # Test with a function that returns None
+    def fn_returns_none() -> None:
+        """Function that returns None."""
+        return None
+
+    meta = func_metadata(fn_returns_none)
+    assert meta.outputSchema is not None
+    assert meta.outputSchema["type"] == "null"

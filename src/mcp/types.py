@@ -646,6 +646,27 @@ class ImageContent(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class DataContent(BaseModel):
+    """Structured JSON content for a message or tool result."""
+
+    type: Literal["data"]
+    data: dict[str, Any]
+    """
+    The structured JSON data. This is a JSON serializable object.
+    """
+
+    schema_definition: dict[str, Any] | str | None = None
+    """
+    An optional schema describing the structure of the data.
+    - Can be a string (schema reference URI),
+    - A dictionary (full schema definition),
+    - Or omitted if no schema is provided.
+    """
+
+    annotations: Annotations | None = None
+    model_config = ConfigDict(extra="allow")
+
+
 class SamplingMessage(BaseModel):
     """Describes a message issued to or received from an LLM API."""
 
@@ -762,6 +783,8 @@ class Tool(BaseModel):
     """A human-readable description of the tool."""
     inputSchema: dict[str, Any]
     """A JSON Schema object defining the expected parameters for the tool."""
+    outputSchema: dict[str, Any] | None = None
+    """A JSON Schema object defining the expected structure of the tool's output."""
     annotations: ToolAnnotations | None = None
     """Optional additional tool information."""
     model_config = ConfigDict(extra="allow")
@@ -791,7 +814,7 @@ class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
 class CallToolResult(Result):
     """The server's response to a tool call."""
 
-    content: list[TextContent | ImageContent | EmbeddedResource]
+    content: list[TextContent | ImageContent | DataContent | EmbeddedResource]
     isError: bool = False
 
 

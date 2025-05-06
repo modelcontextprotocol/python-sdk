@@ -41,6 +41,7 @@ from mcp.types import (
     GetPromptResult,
     ImageContent,
     TextContent,
+    DataContent,
     ToolAnnotations,
 )
 from mcp.types import Prompt as MCPPrompt
@@ -169,14 +170,17 @@ class FastMCP:
         self._mcp_server.get_prompt()(self.get_prompt)
         self._mcp_server.list_resource_templates()(self.list_resource_templates)
 
+
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""
         tools = self._tool_manager.list_tools()
+        logger.info(f"list tools: {tools}")
         return [
             MCPTool(
                 name=info.name,
                 description=info.description,
                 inputSchema=info.parameters,
+                outputSchema=info.outputSchema,
                 annotations=info.annotations,
             )
             for info in tools
@@ -195,10 +199,11 @@ class FastMCP:
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any]
-    ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+    ) -> Sequence[TextContent | ImageContent | DataContent | EmbeddedResource]:
         """Call a tool by name with arguments."""
         context = self.get_context()
         result = await self._tool_manager.call_tool(name, arguments, context=context)
+        logger.info(f"call tool: {name} with args: {arguments} -> {result}")
         converted_result = _convert_to_content(result)
         return converted_result
 
@@ -260,7 +265,10 @@ class FastMCP:
             annotations: Optional ToolAnnotations providing additional tool information
         """
         self._tool_manager.add_tool(
-            fn, name=name, description=description, annotations=annotations
+            fn,
+            name=name,
+            description=description,
+            annotations=annotations,
         )
 
     def tool(
@@ -304,7 +312,10 @@ class FastMCP:
 
         def decorator(fn: AnyFunction) -> AnyFunction:
             self.add_tool(
-                fn, name=name, description=description, annotations=annotations
+                fn,
+                name=name,
+                description=description,
+                annotations=annotations,
             )
             return fn
 
@@ -547,12 +558,13 @@ class FastMCP:
 
 def _convert_to_content(
     result: Any,
-) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+) -> Sequence[TextContent | ImageContent | EmbeddedResource | DataContent]:
     """Convert a result to a sequence of content objects."""
     if result is None:
         return []
 
-    if isinstance(result, TextContent | ImageContent | EmbeddedResource):
+    # Handle existing content types
+    if isinstance(result, TextContent | ImageContent | EmbeddedResource | DataContent):
         return [result]
 
     if isinstance(result, Image):
@@ -561,9 +573,21 @@ def _convert_to_content(
     if isinstance(result, list | tuple):
         return list(chain.from_iterable(_convert_to_content(item) for item in result))  # type: ignore[reportUnknownVariableType]
 
+    # For non-string objects, convert to DataContent
     if not isinstance(result, str):
-        result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
+        # Try to convert to a JSON-serializable structure
+        try:
+            # Get the data as a dict/list structure
+            data = pydantic_core.to_jsonable_python(result)
+            # Create DataContent with the data
+            return [DataContent(type="data", data=data)]
+        except Exception as e:
+            logger.warning(f"Failed to convert result to DataContent: {e}")
+            # Fall back to string representation
+            result_str = pydantic_core.to_json(result, fallback=str, indent=2).decode()
+            return [TextContent(type="text", text=result_str)]
 
+    # For strings, use TextContent
     return [TextContent(type="text", text=result)]
 
 
