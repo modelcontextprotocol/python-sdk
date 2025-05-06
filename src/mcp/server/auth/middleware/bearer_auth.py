@@ -34,7 +34,9 @@ class BearerAuthBackend(AuthenticationBackend):
         self.provider = provider
 
     async def authenticate(self, conn: HTTPConnection):
-        auth_header = conn.headers.get("Authorization") or conn.headers.get("authorization")
+        auth_header = conn.headers.get("Authorization") or conn.headers.get(
+            "authorization"
+        )
         if not auth_header or not auth_header.startswith("Bearer "):
             return None
 
