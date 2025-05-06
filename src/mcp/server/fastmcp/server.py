@@ -47,6 +47,8 @@ from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.session import ServerSession, ServerSessionT
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
+from mcp.server.streamable_http import EventStore
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.shared.context import LifespanContextT, RequestContext
 from mcp.types import (
     AnyFunction,
@@ -89,6 +91,13 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     port: int = 8000
     sse_path: str = "/sse"
     message_path: str = "/messages/"
+    streamable_http_path: str = "/mcp"
+
+    # StreamableHTTP settings
+    json_response: bool = False
+    stateless_http: bool = (
+        False  # If True, uses true stateless mode (new transport per request)
+    )
 
     # resource settings
     warn_on_duplicate_resources: bool = True
@@ -130,6 +139,7 @@ class FastMCP:
         instructions: str | None = None,
         auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
         | None = None,
+        event_store: EventStore | None = None,
         **settings: Any,
     ):
         self.settings = Settings(**settings)
@@ -161,6 +171,7 @@ class FastMCP:
                 "is specified"
             )
         self._auth_server_provider = auth_server_provider
+        self._event_store = event_store
         self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
 
@@ -178,20 +189,24 @@ class FastMCP:
     def instructions(self) -> str | None:
         return self._mcp_server.instructions
 
-    def run(self, transport: Literal["stdio", "sse"] = "stdio") -> None:
+    def run(
+        self, transport: Literal["stdio", "sse", "streamable-http"] = "stdio"
+    ) -> None:
         """Run the FastMCP server. Note this is a synchronous function.
 
         Args:
-            transport: Transport protocol to use ("stdio" or "sse")
+            transport: Transport protocol to use ("stdio", "sse", or "streamable-http")
         """
-        TRANSPORTS = Literal["stdio", "sse"]
+        TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
         if transport not in TRANSPORTS.__args__:  # type: ignore
             raise ValueError(f"Unknown transport: {transport}")
 
         if transport == "stdio":
             anyio.run(self.run_stdio_async)
-        else:  # transport == "sse"
+        elif transport == "sse":
             anyio.run(self.run_sse_async)
+        else:  # transport == "streamable_http"
+            anyio.run(self.run_streamable_http_async)
 
     def _setup_handlers(self) -> None:
         """Set up core MCP protocol handlers."""
@@ -567,6 +582,21 @@ class FastMCP:
         server = uvicorn.Server(config)
         await server.serve()
 
+    async def run_streamable_http_async(self) -> None:
+        """Run the server using StreamableHTTP transport."""
+        import uvicorn
+
+        starlette_app = self.streamable_http_app()
+
+        config = uvicorn.Config(
+            starlette_app,
+            host=self.settings.host,
+            port=self.settings.port,
+            log_level=self.settings.log_level.lower(),
+        )
+        server = uvicorn.Server(config)
+        await server.serve()
+
     def sse_app(self) -> Starlette:
         """Return an instance of the SSE server app."""
         from starlette.middleware import Middleware
@@ -644,9 +674,9 @@ class FastMCP:
         else:
             # Auth is disabled, no need for RequireAuthMiddleware
             # Since handle_sse is an ASGI app, we need to create a compatible endpoint
-            async def sse_endpoint(request: Request) -> None:
+            async def sse_endpoint(request: Request) -> Response:
                 # Convert the Starlette request to ASGI parameters
-                await handle_sse(request.scope, request.receive, request._send)  # type: ignore[reportPrivateUsage]
+                return await handle_sse(request.scope, request.receive, request._send)  # type: ignore[reportPrivateUsage]
 
             routes.append(
                 Route(
@@ -667,6 +697,84 @@ class FastMCP:
         # Create Starlette app with routes and middleware
         return Starlette(
             debug=self.settings.debug, routes=routes, middleware=middleware
+        )
+
+    def streamable_http_app(self) -> Starlette:
+        """Return an instance of the StreamableHTTP server app."""
+        from starlette.middleware import Middleware
+        from starlette.routing import Mount
+
+        # Create session manager using the provided event store
+        session_manager = StreamableHTTPSessionManager(
+            app=self._mcp_server,
+            event_store=self._event_store,
+            json_response=self.settings.json_response,
+            stateless=self.settings.stateless_http,  # Use the stateless setting
+        )
+
+        # Create the ASGI handler
+        async def handle_streamable_http(
+            scope: Scope, receive: Receive, send: Send
+        ) -> None:
+            await session_manager.handle_request(scope, receive, send)
+
+        # Create routes
+        routes: list[Route | Mount] = []
+        middleware: list[Middleware] = []
+        required_scopes = []
+
+        # Add auth endpoints if auth provider is configured
+        if self._auth_server_provider:
+            assert self.settings.auth
+            from mcp.server.auth.routes import create_auth_routes
+
+            required_scopes = self.settings.auth.required_scopes or []
+
+            middleware = [
+                Middleware(
+                    AuthenticationMiddleware,
+                    backend=BearerAuthBackend(
+                        provider=self._auth_server_provider,
+                    ),
+                ),
+                Middleware(AuthContextMiddleware),
+            ]
+            routes.extend(
+                create_auth_routes(
+                    provider=self._auth_server_provider,
+                    issuer_url=self.settings.auth.issuer_url,
+                    service_documentation_url=self.settings.auth.service_documentation_url,
+                    client_registration_options=self.settings.auth.client_registration_options,
+                    revocation_options=self.settings.auth.revocation_options,
+                )
+            )
+
+        # Add the StreamableHTTP endpoint
+        if self._auth_server_provider:
+            # Auth is enabled, wrap with RequireAuthMiddleware
+            routes.append(
+                Mount(
+                    self.settings.streamable_http_path,
+                    app=RequireAuthMiddleware(handle_streamable_http, required_scopes),
+                )
+            )
+        else:
+            # Auth is disabled, no wrapper needed
+            routes.append(
+                Mount(
+                    self.settings.streamable_http_path,
+                    app=handle_streamable_http,
+                )
+            )
+
+        routes.extend(self._custom_starlette_routes)
+
+        # Create Starlette app with routes and middleware
+        return Starlette(
+            debug=self.settings.debug,
+            routes=routes,
+            middleware=middleware,
+            lifespan=lambda app: session_manager.run(),
         )
 
     async def list_prompts(self) -> list[MCPPrompt]:
