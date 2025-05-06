@@ -104,9 +104,11 @@ async def test_publish_message_invalid_json(message_dispatch):
 async def test_publish_to_nonexistent_session(message_dispatch: RedisMessageDispatch):
     """Test publishing to a session that doesn't exist."""
     session_id = uuid4()
-    message = SessionMessage(message=types.JSONRPCMessage.model_validate(
-        {"jsonrpc": "2.0", "method": "test", "params": {}, "id": 1}
-    ))
+    message = SessionMessage(
+        message=types.JSONRPCMessage.model_validate(
+            {"jsonrpc": "2.0", "method": "test", "params": {}, "id": 1}
+        )
+    )
 
     published = await message_dispatch.publish_message(session_id, message)
     assert not published

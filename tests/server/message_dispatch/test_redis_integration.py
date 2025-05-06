@@ -148,7 +148,9 @@ async def server_and_redis(redis_server_and_app, server_port: int):
                     await anyio.sleep(0.1)
                     attempt += 1
             else:
-                raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+                raise RuntimeError(
+                    f"Server failed to start after {max_attempts} attempts"
+                )
 
             # Yield Redis for tests
             try:

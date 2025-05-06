@@ -152,4 +152,3 @@ async def sse_client(
             await write_stream.aclose()
             await read_stream.aclose()
             await write_stream_reader.aclose()
-            
