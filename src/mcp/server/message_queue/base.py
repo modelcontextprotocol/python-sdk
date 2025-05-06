@@ -28,7 +28,7 @@ class MessageDispatch(Protocol):
 
         Args:
             session_id: The UUID of the session this message is for
-            message: The message to publish (JSONRPCMessage or str for invalid JSON)
+            message: The message to publish (SessionMessage or str for invalid JSON)
 
         Returns:
             bool: True if message was published, False if session not found

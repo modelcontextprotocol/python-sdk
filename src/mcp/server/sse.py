@@ -152,6 +152,8 @@ class SseServerTransport:
                 )(scope, receive, send)
                 await read_stream_writer.aclose()
                 await write_stream_reader.aclose()
+                await sse_stream_writer.aclose()
+                await sse_stream_reader.aclose()
                 logging.debug(f"Client session disconnected {session_id}")
 
             logger.debug("Starting SSE response task")

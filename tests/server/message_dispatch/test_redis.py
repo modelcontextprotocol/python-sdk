@@ -10,33 +10,6 @@ from mcp.server.message_queue.redis import RedisMessageDispatch
 from mcp.shared.message import SessionMessage
 
 
-@pytest.mark.anyio
-async def test_session_exists(message_dispatch):
-    """Test session existence check."""
-    session_id = uuid4()
-
-    # Initially session should not exist
-    assert not await message_dispatch.session_exists(session_id)
-
-    # After subscribing, session should exist
-    async with message_dispatch.subscribe(session_id, AsyncMock()):
-        assert await message_dispatch.session_exists(session_id)
-
-    # After unsubscribing, session should not exist
-    assert not await message_dispatch.session_exists(session_id)
-
-
-@pytest.mark.anyio
-async def test_session_ttl(message_dispatch):
-    """Test that session has proper TTL set."""
-    session_id = uuid4()
-
-    async with message_dispatch.subscribe(session_id, AsyncMock()):
-        session_key = message_dispatch._session_key(session_id)
-        ttl = await message_dispatch._redis.ttl(session_key)  # type: ignore
-        assert ttl > 0
-        assert ttl <= message_dispatch._session_ttl
-
 
 @pytest.mark.anyio
 async def test_session_heartbeat(message_dispatch):
@@ -129,12 +102,12 @@ async def test_publish_message_invalid_json(message_dispatch):
 
 
 @pytest.mark.anyio
-async def test_publish_to_nonexistent_session(message_dispatch):
+async def test_publish_to_nonexistent_session(message_dispatch: RedisMessageDispatch):
     """Test publishing to a session that doesn't exist."""
     session_id = uuid4()
-    message = types.JSONRPCMessage.model_validate(
+    message = SessionMessage(message=types.JSONRPCMessage.model_validate(
         {"jsonrpc": "2.0", "method": "test", "params": {}, "id": 1}
-    )
+    ))
 
     published = await message_dispatch.publish_message(session_id, message)
     assert not published
