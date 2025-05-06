@@ -1,8 +1,6 @@
-import pytest
-from mcp.server.fastmcp import FastMCP
+def test_get_prompt_returns_description():
+    from mcp.server.fastmcp import FastMCP
 
-@pytest.mark.asyncio
-async def test_get_prompt_returns_description():
     mcp = FastMCP("TestApp")
 
     @mcp.prompt()
@@ -10,7 +8,6 @@ async def test_get_prompt_returns_description():
         """This is a sample prompt description."""
         return "Sample prompt content."
 
-    prompt_info = await mcp.get_prompt("sample_prompt")
+    prompt_info = mcp.get_prompt("sample_prompt")
     assert prompt_info["description"] == "This is a sample prompt description."
     assert callable(prompt_info["function"])
-
