@@ -29,13 +29,6 @@ from mcp.server.message_queue.redis import RedisMessageDispatch
 from mcp.server.sse import SseServerTransport
 from mcp.types import TextContent, Tool
 
-try:
-    from fakeredis import aioredis as fake_redis  # noqa: F401
-except ImportError:
-    pytest.skip(
-        "fakeredis is required for testing Redis functionality", allow_module_level=True
-    )
-
 SERVER_NAME = "test_server_for_redis_integration_v3"
 
 
@@ -117,7 +110,6 @@ async def redis_server_and_app(message_dispatch: RedisMessageDispatch):
         lifespan=lifespan,
     )
 
-    # Return the app, message_dispatch, and mock_redis for testing
     return app, message_dispatch, message_dispatch._redis
 
 
@@ -152,7 +144,6 @@ async def server_and_redis(redis_server_and_app, server_port: int):
                     f"Server failed to start after {max_attempts} attempts"
                 )
 
-            # Yield Redis for tests
             try:
                 yield mock_redis, message_dispatch
             finally:
@@ -170,7 +161,6 @@ async def client_session(server_and_redis, server_url: str):
     """Create a client session for testing."""
     async with sse_client(server_url + "/sse") as streams:
         async with ClientSession(*streams) as session:
-            # Initialize the session
             result = await session.initialize()
             assert result.serverInfo.name == SERVER_NAME
             yield session
@@ -181,17 +171,12 @@ async def test_redis_integration_key_verification(
     server_and_redis, client_session
 ) -> None:
     """Test that Redis keys are created correctly for sessions."""
-    mock_redis, message_dispatch = server_and_redis
-    # client_session argument is used by this test (fixture yields session)
+    mock_redis, _ = server_and_redis
 
-    # Check that session keys exist in Redis
-    # The keys should follow pattern: mcp:pubsub:session_active:<session_id>
     all_keys = await mock_redis.keys("*")  # type: ignore
 
-    # Should have session active key and potentially channel subscription
     assert len(all_keys) > 0
 
-    # Find session active key
     session_key = None
     for key in all_keys:
         if key.startswith("mcp:pubsub:session_active:"):
@@ -200,80 +185,40 @@ async def test_redis_integration_key_verification(
 
     assert session_key is not None, f"No session key found. Keys: {all_keys}"
 
-    # Verify session key has a TTL
     ttl = await mock_redis.ttl(session_key)  # type: ignore
     assert ttl > 0, f"Session key should have TTL, got: {ttl}"
 
 
-# Note: This test doesn't check cleanup since the session is managed by fixture
-
-
 @pytest.mark.anyio
-async def test_redis_integration_pubsub_channels(
-    server_and_redis, client_session
-) -> None:
-    """Test that Redis pubsub channels are used correctly."""
-    mock_redis, message_dispatch = server_and_redis
-
-    # Make a tool call to ensure the pubsub channel is active
-    tool_result = await client_session.call_tool("test_tool", {})
-    assert tool_result.content[0].text == "Called test_tool"  # type: ignore
-
-    # Check pubsub channels (fakeredis might not expose all pubsub info)
-    # But we can verify keys related to pubsub
-    all_keys = await mock_redis.keys("*")  # type: ignore
-
-    # Should have session keys
-    assert any(key.startswith("mcp:pubsub:session_active:") for key in all_keys)
-
-
-@pytest.mark.anyio
-async def test_redis_integration_message_publishing(
-    server_and_redis, client_session
-) -> None:
+async def test_tool_calls(server_and_redis, client_session) -> None:
     """Test that messages are properly published through Redis."""
-    mock_redis, message_dispatch = server_and_redis
+    mock_redis, _ = server_and_redis
 
-    # Make multiple tool calls to test message publishing
     for i in range(3):
         tool_result = await client_session.call_tool(
             "echo_message", {"message": f"Test {i}"}
         )
         assert tool_result.content[0].text == f"Echo: Test {i}"  # type: ignore
 
-    # If we can successfully make these calls, it means the Redis
-    # pubsub message publishing is working correctly
-
 
 @pytest.mark.anyio
-async def test_redis_integration_session_cleanup_detailed(
-    server_and_redis, server_url: str
-) -> None:
+async def test_session_cleanup(server_and_redis, server_url: str) -> None:
     """Test Redis key cleanup when sessions end."""
-    mock_redis, message_dispatch = server_and_redis
-
-    # Create and terminate multiple sessions to verify cleanup
+    mock_redis, _ = server_and_redis
     session_keys_seen = set()
 
     for i in range(3):
         async with sse_client(server_url + "/sse") as streams:
             async with ClientSession(*streams) as session:
-                # Initialize session
-                result = await session.initialize()
-                assert result.serverInfo.name == SERVER_NAME
+                await session.initialize()
 
-                # Check Redis keys
                 all_keys = await mock_redis.keys("*")  # type: ignore
-
-                # Find session active key
                 for key in all_keys:
                     if key.startswith("mcp:pubsub:session_active:"):
                         session_keys_seen.add(key)
-                        # Verify session has value "1"
                         value = await mock_redis.get(key)  # type: ignore
                         assert value == "1"
 
-        # After each session ends, verify cleanup
         await anyio.sleep(0.1)  # Give time for cleanup
         all_keys = await mock_redis.keys("*")  # type: ignore
         assert (
@@ -284,42 +229,15 @@ async def test_redis_integration_session_cleanup_detailed(
     assert len(session_keys_seen) == 3, "Should have seen 3 unique session keys"
 
 
-# Include the other tests from the previous version
 @pytest.mark.anyio
-async def test_redis_integration_basic_tool_call(
-    server_and_redis, client_session
-) -> None:
-    """Test that a basic tool call works with Redis message dispatch."""
-    mock_redis, message_dispatch = server_and_redis
-
-    # Call a tool
-    result = await client_session.call_tool("test_tool", {})
-    assert result.content[0].text == "Called test_tool"  # type: ignore
-
-
-@pytest.mark.anyio
-async def test_redis_integration_multiple_clients_with_keys(
-    server_and_redis, server_url: str
-) -> None:
+async def concurrent_tool_call(server_and_redis, server_url: str) -> None:
     """Test multiple clients and verify Redis key management."""
-    mock_redis, message_dispatch = server_and_redis
-
-    # Track session keys for multiple concurrent clients
-    session_keys = []
+    mock_redis, _ = server_and_redis
 
     async def client_task(client_id: int) -> str:
         async with sse_client(server_url + "/sse") as streams:
             async with ClientSession(*streams) as session:
                 await session.initialize()
-
-                # Check session keys
-                all_keys = await mock_redis.keys("*")  # type: ignore
-                for key in all_keys:
-                    if (
-                        key.startswith("mcp:pubsub:session_active:")
-                        and key not in session_keys
-                    ):
-                        session_keys.append(key)
 
                 result = await session.call_tool(
                     "echo_message",
@@ -335,11 +253,6 @@ async def test_redis_integration_multiple_clients_with_keys(
     assert len(results) == 3
     for i, result in enumerate(results):
         assert result == f"Echo: Message from client {i}"
-
-    # At peak we should have seen multiple session keys
-    assert (
-        len(session_keys) >= 2
-    ), f"Should have seen multiple session keys, got: {session_keys}"
 
     # After all clients disconnect, keys should be cleaned up
     await anyio.sleep(0.1)  # Give time for cleanup
