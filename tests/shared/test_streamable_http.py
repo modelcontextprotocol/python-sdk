@@ -4,13 +4,10 @@ Tests for the StreamableHTTP server and client transport.
 Contains tests for both server and client sides of the StreamableHTTP transport.
 """
 
-import contextlib
 import multiprocessing
 import socket
 import time
 from collections.abc import Generator
-from http import HTTPStatus
-from uuid import uuid4
 
 import anyio
 import httpx
@@ -19,10 +16,7 @@ import requests
 import uvicorn
 from pydantic import AnyUrl
 from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import Response
 from starlette.routing import Mount
-from starlette.types import Receive, Scope, Send
 
 import mcp.types as types
 from mcp.client.session import ClientSession

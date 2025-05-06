@@ -140,7 +140,7 @@ def server(server_port: int) -> Generator[None, None, None]:
 
 @pytest.fixture()
 def streamable_http_server(http_server_port: int) -> Generator[None, None, None]:
-    """Start the StreamableHTTP server in a separate process and clean up after the test."""
+    """Start the StreamableHTTP server in a separate process."""
     proc = multiprocessing.Process(
         target=run_streamable_http_server, args=(http_server_port,), daemon=True
     )
