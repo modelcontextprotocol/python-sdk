@@ -1,5 +1,4 @@
-fastapi
-httpx
-uvicorn
-sse-starlette
-anyio
+
+pytest
+ruff
+mypy
