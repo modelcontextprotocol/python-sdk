@@ -132,6 +132,7 @@ class FastMCP:
         | None = None,
         **settings: Any,
     ):
+        self.settings: Settings
         self.settings = Settings(**settings)
 
         self._mcp_server = MCPServer(
