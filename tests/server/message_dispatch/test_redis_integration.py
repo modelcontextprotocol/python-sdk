@@ -131,32 +131,36 @@ async def server_and_redis(redis_server_and_app, server_port: int):
         app=app, host="127.0.0.1", port=server_port, log_level="error"
     )
     server = uvicorn.Server(config=config)
-    AppStatus.should_exit = False
-    AppStatus.should_exit_event = None
-    # Run server in a task group
-    async with anyio.create_task_group() as tg:
-        # Start server in background
-        tg.start_soon(server.serve)
+    try:
+        async with anyio.create_task_group() as tg:
+            # Start server in background
+            tg.start_soon(server.serve)
 
-        # Wait for server to be ready
-        max_attempts = 20
-        attempt = 0
-        while attempt < max_attempts:
+            # Wait for server to be ready
+            max_attempts = 20
+            attempt = 0
+            while attempt < max_attempts:
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        s.connect(("127.0.0.1", server_port))
+                        break
+                except ConnectionRefusedError:
+                    await anyio.sleep(0.1)
+                    attempt += 1
+            else:
+                raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+
+            # Yield Redis for tests
             try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.connect(("127.0.0.1", server_port))
-                    break
-            except ConnectionRefusedError:
-                await anyio.sleep(0.1)
-                attempt += 1
-        else:
-            raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
-
-        # Yield Redis for tests
-        try:
-            yield mock_redis, message_dispatch
-        finally:
-            server.should_exit = True
+                yield mock_redis, message_dispatch
+            finally:
+                server.should_exit = True
+    finally:
+        # These class variables are set top-level in starlette-sse
+        # It isn't designed to be run multiple times in a single
+        # Python process so we need to manually reset them.
+        AppStatus.should_exit = False
+        AppStatus.should_exit_event = None
 
 
 @pytest.fixture()
