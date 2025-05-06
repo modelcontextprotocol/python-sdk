@@ -236,7 +236,7 @@ class BaseSession(
         If cancellable is set to True (default) if the anyio.CancelScope within
         which this method was called is cancelled it will generate a
         CancelationNotfication and send this to the server which should then abort
-        the task however this is not guaranteed.
+        the task however the server is is not guaranteed to honour this request.
 
         For further information on the CancelNotification flow refer to
         https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/cancellation
