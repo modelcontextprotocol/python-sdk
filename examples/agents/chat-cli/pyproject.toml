@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp_chat_cli"
+version = "0.1.0"
+
+description = "Chat CLI for interacting with MCP agents"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = ["anyio>=4.5", "mcp"]
+
+[project.scripts]
+mcp-chat-cli = "mcp_chat_cli.cli:main"
+
+[tool.setuptools]
+packages = ["mcp_chat_cli"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.pyright]
+include = ["mcp_chat_cli"]
+venvPath = "."
+venv = ".venv"
+
+[tool.uv.sources]
+mcp = { path = "../../../" }
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"

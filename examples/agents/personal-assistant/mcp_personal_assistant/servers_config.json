@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "project-analyst": {
+      "command": "uv",
+      "args": ["run", "mcp-project-analyst"]
+    }
+  }
+}

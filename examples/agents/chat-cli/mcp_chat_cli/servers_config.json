@@ -1,0 +1,7 @@
+{
+  "mcpServer": {
+    "name": "personal-assistant",
+    "command": "uv",
+    "args": ["run", "mcp-personal-assistant"]
+  }
+}
