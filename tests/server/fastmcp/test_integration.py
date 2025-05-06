@@ -965,7 +965,7 @@ async def test_elicitation_feature(server: None, server_url: str) -> None:
     async def elicitation_callback(context, params):
         # Verify the elicitation parameters
         if params.message == "Tool wants to ask: What is your name?":
-            return ElicitResult(response={"answer": "Test User"})
+            return ElicitResult(content={"answer": "Test User"})
         else:
             raise ValueError("Unexpected elicitation message")
 

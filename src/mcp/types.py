@@ -1217,7 +1217,7 @@ class ElicitRequest(Request[ElicitRequestParams, Literal["elicitation/create"]])
 class ElicitResult(Result):
     """The client's response to an elicitation/create request from the server."""
 
-    response: dict[str, Any]
+    content: dict[str, Any]
     """The response from the client, matching the structure of requestedSchema."""
 
 
