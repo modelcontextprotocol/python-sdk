@@ -38,7 +38,7 @@ class TestRenderPrompt:
             return f"Hello, {name}! You're {age} years old."
 
         prompt = Prompt.from_function(fn)
-        assert await prompt.render(arguments=dict(name="World")) == [
+        assert await prompt.render(arguments={"name": "World"}) == [
             UserMessage(
                 content=TextContent(
                     type="text", text="Hello, World! You're 30 years old."
@@ -53,7 +53,7 @@ class TestRenderPrompt:
 
         prompt = Prompt.from_function(fn)
         with pytest.raises(ValueError):
-            await prompt.render(arguments=dict(age=40))
+            await prompt.render(arguments={"age": 40})
 
     @pytest.mark.anyio
     async def test_fn_returns_message(self):

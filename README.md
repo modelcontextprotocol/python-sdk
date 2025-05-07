@@ -194,7 +194,7 @@ mcp = FastMCP("My App", lifespan=app_lifespan)
 @mcp.tool()
 def query_db(ctx: Context) -> str:
     """Tool that uses initialized resources"""
-    db = ctx.request_context.lifespan_context["db"]
+    db = ctx.request_context.lifespan_context.db
     return db.query()
 ```
 
@@ -309,6 +309,33 @@ async def long_task(files: list[str], ctx: Context) -> str:
     return "Processing complete"
 ```
 
+### Authentication
+
+Authentication can be used by servers that want to expose tools accessing protected resources.
+
+`mcp.server.auth` implements an OAuth 2.0 server interface, which servers can use by
+providing an implementation of the `OAuthServerProvider` protocol.
+
+```
+mcp = FastMCP("My App",
+        auth_provider=MyOAuthServerProvider(),
+        auth=AuthSettings(
+            issuer_url="https://myapp.com",
+            revocation_options=RevocationOptions(
+                enabled=True,
+            ),
+            client_registration_options=ClientRegistrationOptions(
+                enabled=True,
+                valid_scopes=["myscope", "myotherscope"],
+                default_scopes=["myscope"],
+            ),
+            required_scopes=["myscope"],
+        ),
+)
+```
+
+See [OAuthServerProvider](mcp/server/auth/provider.py) for more details.
+
 ## Running Your Server
 
 ### Development Mode
@@ -384,6 +411,30 @@ app.router.routes.append(Host('mcp.acme.corp', app=mcp.sse_app()))
 ```
 
 For more information on mounting applications in Starlette, see the [Starlette documentation](https://www.starlette.io/routing/#submounting-routes).
+
+#### Message Dispatch Options
+
+By default, the SSE server uses an in-memory message dispatch system for incoming POST messages. For production deployments or distributed scenarios, you can use Redis or implement your own message dispatch system that conforms to the `MessageDispatch` protocol:
+
+```python
+# Using the built-in Redis message dispatch
+from mcp.server.fastmcp import FastMCP
+from mcp.server.message_queue import RedisMessageDispatch
+
+# Create a Redis message dispatch
+redis_dispatch = RedisMessageDispatch(
+    redis_url="redis://localhost:6379/0", prefix="mcp:pubsub:"
+)
+
+# Pass the message dispatch instance to the server
+mcp = FastMCP("My App", message_queue=redis_dispatch)
+```
+
+To use Redis, add the Redis dependency:
+
+```bash
+uv add "mcp[redis]"
+```
 
 ## Examples
 

@@ -4,8 +4,12 @@ import logging
 import pytest
 from pydantic import BaseModel
 
+from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools import ToolManager
+from mcp.server.session import ServerSessionT
+from mcp.shared.context import LifespanContextT
+from mcp.types import ToolAnnotations
 
 
 class TestAddTools:
@@ -194,8 +198,6 @@ class TestCallTools:
 
     @pytest.mark.anyio
     async def test_call_tool_with_complex_model(self):
-        from mcp.server.fastmcp import Context
-
         class MyShrimpTank(BaseModel):
             class Shrimp(BaseModel):
                 name: str
@@ -223,8 +225,6 @@ class TestCallTools:
 class TestToolSchema:
     @pytest.mark.anyio
     async def test_context_arg_excluded_from_schema(self):
-        from mcp.server.fastmcp import Context
-
         def something(a: int, ctx: Context) -> int:
             return a
 
@@ -241,7 +241,6 @@ class TestContextHandling:
     def test_context_parameter_detection(self):
         """Test that context parameters are properly detected in
         Tool.from_function()."""
-        from mcp.server.fastmcp import Context
 
         def tool_with_context(x: int, ctx: Context) -> str:
             return str(x)
@@ -256,10 +255,17 @@ class TestContextHandling:
         tool = manager.add_tool(tool_without_context)
         assert tool.context_kwarg is None
 
+        def tool_with_parametrized_context(
+            x: int, ctx: Context[ServerSessionT, LifespanContextT]
+        ) -> str:
+            return str(x)
+
+        tool = manager.add_tool(tool_with_parametrized_context)
+        assert tool.context_kwarg == "ctx"
+
     @pytest.mark.anyio
     async def test_context_injection(self):
         """Test that context is properly injected during tool execution."""
-        from mcp.server.fastmcp import Context, FastMCP
 
         def tool_with_context(x: int, ctx: Context) -> str:
             assert isinstance(ctx, Context)
@@ -276,7 +282,6 @@ class TestContextHandling:
     @pytest.mark.anyio
     async def test_context_injection_async(self):
         """Test that context is properly injected in async tools."""
-        from mcp.server.fastmcp import Context, FastMCP
 
         async def async_tool(x: int, ctx: Context) -> str:
             assert isinstance(ctx, Context)
@@ -293,7 +298,6 @@ class TestContextHandling:
     @pytest.mark.anyio
     async def test_context_optional(self):
         """Test that context is optional when calling tools."""
-        from mcp.server.fastmcp import Context
 
         def tool_with_context(x: int, ctx: Context | None = None) -> str:
             return str(x)
@@ -307,7 +311,6 @@ class TestContextHandling:
     @pytest.mark.anyio
     async def test_context_error_handling(self):
         """Test error handling when context injection fails."""
-        from mcp.server.fastmcp import Context, FastMCP
 
         def tool_with_context(x: int, ctx: Context) -> str:
             raise ValueError("Test error")
@@ -319,3 +322,43 @@ class TestContextHandling:
         ctx = mcp.get_context()
         with pytest.raises(ToolError, match="Error executing tool tool_with_context"):
             await manager.call_tool("tool_with_context", {"x": 42}, context=ctx)
+
+
+class TestToolAnnotations:
+    def test_tool_annotations(self):
+        """Test that tool annotations are correctly added to tools."""
+
+        def read_data(path: str) -> str:
+            """Read data from a file."""
+            return f"Data from {path}"
+
+        annotations = ToolAnnotations(
+            title="File Reader",
+            readOnlyHint=True,
+            openWorldHint=False,
+        )
+
+        manager = ToolManager()
+        tool = manager.add_tool(read_data, annotations=annotations)
+
+        assert tool.annotations is not None
+        assert tool.annotations.title == "File Reader"
+        assert tool.annotations.readOnlyHint is True
+        assert tool.annotations.openWorldHint is False
+
+    @pytest.mark.anyio
+    async def test_tool_annotations_in_fastmcp(self):
+        """Test that tool annotations are included in MCPTool conversion."""
+
+        app = FastMCP()
+
+        @app.tool(annotations=ToolAnnotations(title="Echo Tool", readOnlyHint=True))
+        def echo(message: str) -> str:
+            """Echo a message back."""
+            return message
+
+        tools = await app.list_tools()
+        assert len(tools) == 1
+        assert tools[0].annotations is not None
+        assert tools[0].annotations.title == "Echo Tool"
+        assert tools[0].annotations.readOnlyHint is True
