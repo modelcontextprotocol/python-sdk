@@ -84,7 +84,7 @@ async def test_lowlevel_server_lifespan():
         )
         await send_stream1.send(
             SessionMessage(
-                message=JSONRPCMessage(
+                JSONRPCMessage(
                     root=JSONRPCRequest(
                         jsonrpc="2.0",
                         id=1,
@@ -100,7 +100,7 @@ async def test_lowlevel_server_lifespan():
         # Send initialized notification
         await send_stream1.send(
             SessionMessage(
-                message=JSONRPCMessage(
+                JSONRPCMessage(
                     root=JSONRPCNotification(
                         jsonrpc="2.0",
                         method="notifications/initialized",
@@ -112,7 +112,7 @@ async def test_lowlevel_server_lifespan():
         # Call the tool to verify lifespan context
         await send_stream1.send(
             SessionMessage(
-                message=JSONRPCMessage(
+                JSONRPCMessage(
                     root=JSONRPCRequest(
                         jsonrpc="2.0",
                         id=2,
@@ -188,7 +188,7 @@ async def test_fastmcp_server_lifespan():
         )
         await send_stream1.send(
             SessionMessage(
-                message=JSONRPCMessage(
+                JSONRPCMessage(
                     root=JSONRPCRequest(
                         jsonrpc="2.0",
                         id=1,
@@ -204,7 +204,7 @@ async def test_fastmcp_server_lifespan():
         # Send initialized notification
         await send_stream1.send(
             SessionMessage(
-                message=JSONRPCMessage(
+                JSONRPCMessage(
                     root=JSONRPCNotification(
                         jsonrpc="2.0",
                         method="notifications/initialized",
@@ -216,7 +216,7 @@ async def test_fastmcp_server_lifespan():
         # Call the tool to verify lifespan context
         await send_stream1.send(
             SessionMessage(
-                message=JSONRPCMessage(
+                JSONRPCMessage(
                     root=JSONRPCRequest(
                         jsonrpc="2.0",
                         id=2,
