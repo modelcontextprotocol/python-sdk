@@ -201,12 +201,13 @@ class FastMCP:
         if transport not in TRANSPORTS.__args__:  # type: ignore
             raise ValueError(f"Unknown transport: {transport}")
 
-        if transport == "stdio":
-            anyio.run(self.run_stdio_async)
-        elif transport == "sse":
-            anyio.run(self.run_sse_async)
-        else:  # transport == "streamable_http"
-            anyio.run(self.run_streamable_http_async)
+        match transport:
+            case "stdio":
+                anyio.run(self.run_stdio_async)
+            case "sse":
+                anyio.run(self.run_sse_async)
+            case "streamable-http":
+                anyio.run(self.run_streamable_http_async)
 
     def _setup_handlers(self) -> None:
         """Set up core MCP protocol handlers."""
@@ -748,10 +749,6 @@ class FastMCP:
                     revocation_options=self.settings.auth.revocation_options,
                 )
             )
-
-        # Add the StreamableHTTP endpoint
-        if self._auth_server_provider:
-            # Auth is enabled, wrap with RequireAuthMiddleware
             routes.append(
                 Mount(
                     self.settings.streamable_http_path,

@@ -114,7 +114,7 @@ class StreamableHTTPSessionManager:
         """
         if self._task_group is None:
             raise RuntimeError(
-                "Task group is not initialized. Make sure to use the lifespan_hook."
+                "Task group is not initialized. Make sure to use the run()."
             )
 
         # Dispatch to the appropriate handler
@@ -145,14 +145,12 @@ class StreamableHTTPSessionManager:
             event_store=None,  # No event store in stateless mode
         )
 
-        # Run the server within the transport
-        async with http_transport.connect() as streams:
-            read_stream, write_stream = streams
-
-            # Start server in a new task
-            async def run_stateless_server(
-                *, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED
-            ):
+        # Start server in a new task
+        async def run_stateless_server(
+            *, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED
+        ):
+            async with http_transport.connect() as streams:
+                read_stream, write_stream = streams
                 task_status.started()
                 await self.app.run(
                     read_stream,
@@ -161,13 +159,13 @@ class StreamableHTTPSessionManager:
                     stateless=True,
                 )
 
-                # Assert task group is not None for type checking
-                assert self._task_group is not None
-                # Start the server task
-                await self._task_group.start(run_stateless_server)
+        # Assert task group is not None for type checking
+        assert self._task_group is not None
+        # Start the server task
+        await self._task_group.start(run_stateless_server)
 
-            # Handle the HTTP request and return the response
-            await http_transport.handle_request(scope, receive, send)
+        # Handle the HTTP request and return the response
+        await http_transport.handle_request(scope, receive, send)
 
     async def _handle_stateful_request(
         self,

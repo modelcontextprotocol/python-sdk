@@ -48,6 +48,20 @@ def http_server_url(http_server_port: int) -> str:
     return f"http://127.0.0.1:{http_server_port}"
 
 
+@pytest.fixture
+def stateless_http_server_port() -> int:
+    """Get a free port for testing the stateless StreamableHTTP server."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest.fixture
+def stateless_http_server_url(stateless_http_server_port: int) -> str:
+    """Get the stateless StreamableHTTP server URL for testing."""
+    return f"http://127.0.0.1:{stateless_http_server_port}"
+
+
 # Create a function to make the FastMCP server app
 def make_fastmcp_app():
     """Create a FastMCP server without auth settings."""
@@ -83,6 +97,23 @@ def make_fastmcp_streamable_http_app():
     return mcp, app
 
 
+def make_fastmcp_stateless_http_app():
+    """Create a FastMCP server with stateless StreamableHTTP transport."""
+    from starlette.applications import Starlette
+
+    mcp = FastMCP(name="StatelessServer", stateless_http=True)
+
+    # Add a simple tool
+    @mcp.tool(description="A simple echo tool")
+    def echo(message: str) -> str:
+        return f"Echo: {message}"
+
+    # Create the StreamableHTTP app
+    app: Starlette = mcp.streamable_http_app()
+
+    return mcp, app
+
+
 def run_server(server_port: int) -> None:
     """Run the server."""
     _, app = make_fastmcp_app()
@@ -104,6 +135,18 @@ def run_streamable_http_server(server_port: int) -> None:
         )
     )
     print(f"Starting StreamableHTTP server on port {server_port}")
+    server.run()
+
+
+def run_stateless_http_server(server_port: int) -> None:
+    """Run the stateless StreamableHTTP server."""
+    _, app = make_fastmcp_stateless_http_app()
+    server = uvicorn.Server(
+        config=uvicorn.Config(
+            app=app, host="127.0.0.1", port=server_port, log_level="error"
+        )
+    )
+    print(f"Starting stateless StreamableHTTP server on port {server_port}")
     server.run()
 
 
@@ -173,6 +216,45 @@ def streamable_http_server(http_server_port: int) -> Generator[None, None, None]
         print("StreamableHTTP server process failed to terminate")
 
 
+@pytest.fixture()
+def stateless_http_server(
+    stateless_http_server_port: int,
+) -> Generator[None, None, None]:
+    """Start the stateless StreamableHTTP server in a separate process."""
+    proc = multiprocessing.Process(
+        target=run_stateless_http_server,
+        args=(stateless_http_server_port,),
+        daemon=True,
+    )
+    print("Starting stateless StreamableHTTP server process")
+    proc.start()
+
+    # Wait for server to be running
+    max_attempts = 20
+    attempt = 0
+    print("Waiting for stateless StreamableHTTP server to start")
+    while attempt < max_attempts:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect(("127.0.0.1", stateless_http_server_port))
+                break
+        except ConnectionRefusedError:
+            time.sleep(0.1)
+            attempt += 1
+    else:
+        raise RuntimeError(
+            f"Stateless server failed to start after {max_attempts} attempts"
+        )
+
+    yield
+
+    print("Killing stateless StreamableHTTP server")
+    proc.kill()
+    proc.join(timeout=2)
+    if proc.is_alive():
+        print("Stateless StreamableHTTP server process failed to terminate")
+
+
 @pytest.mark.anyio
 async def test_fastmcp_without_auth(server: None, server_url: str) -> None:
     """Test that FastMCP works when auth settings are not provided."""
@@ -214,3 +296,30 @@ async def test_fastmcp_streamable_http(
             assert len(tool_result.content) == 1
             assert isinstance(tool_result.content[0], TextContent)
             assert tool_result.content[0].text == "Echo: hello"
+
+
+@pytest.mark.anyio
+async def test_fastmcp_stateless_streamable_http(
+    stateless_http_server: None, stateless_http_server_url: str
+) -> None:
+    """Test that FastMCP works with stateless StreamableHTTP transport."""
+    # Connect to the server using StreamableHTTP
+    async with streamablehttp_client(stateless_http_server_url + "/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "StatelessServer"
+            tool_result = await session.call_tool("echo", {"message": "hello"})
+            assert len(tool_result.content) == 1
+            assert isinstance(tool_result.content[0], TextContent)
+            assert tool_result.content[0].text == "Echo: hello"
+
+            for i in range(3):
+                tool_result = await session.call_tool("echo", {"message": f"test_{i}"})
+                assert len(tool_result.content) == 1
+                assert isinstance(tool_result.content[0], TextContent)
+                assert tool_result.content[0].text == f"Echo: test_{i}"
