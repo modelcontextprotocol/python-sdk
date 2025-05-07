@@ -44,7 +44,7 @@ class ProgressContext(
     current: float = field(default=0.0, init=False)
     message: str | None
 
-    async def progress(self, amount: float) -> None:
+    async def progress(self, amount: float, message: str | None = None) -> None:
         self.current += amount
 
         await self.session.send_progress_notification(
