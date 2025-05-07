@@ -47,7 +47,7 @@ class ProgressContext(
         self.current += amount
 
         await self.session.send_progress_notification(
-            self.progress_token, self.current, total=self.total, message=self.message
+            self.progress_token, self.current, total=self.total, message=message
         )
 
 
