@@ -89,6 +89,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # HTTP settings
     host: str = "0.0.0.0"
     port: int = 8000
+    mount_path: str = "/"  # Mount path (e.g. "/github", defaults to root path)
     sse_path: str = "/sse"
     message_path: str = "/messages/"
     streamable_http_path: str = "/mcp"
@@ -190,12 +191,15 @@ class FastMCP:
         return self._mcp_server.instructions
 
     def run(
-        self, transport: Literal["stdio", "sse", "streamable-http"] = "stdio"
+        self,
+        transport: Literal["stdio", "sse", "streamable-http"] = "stdio",
+        mount_path: str | None = None,
     ) -> None:
         """Run the FastMCP server. Note this is a synchronous function.
 
         Args:
             transport: Transport protocol to use ("stdio", "sse", or "streamable-http")
+            mount_path: Optional mount path for SSE transport
         """
         TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
         if transport not in TRANSPORTS.__args__:  # type: ignore
@@ -205,7 +209,7 @@ class FastMCP:
             case "stdio":
                 anyio.run(self.run_stdio_async)
             case "sse":
-                anyio.run(self.run_sse_async)
+                anyio.run(lambda: self.run_sse_async(mount_path))
             case "streamable-http":
                 anyio.run(self.run_streamable_http_async)
 
@@ -568,11 +572,11 @@ class FastMCP:
                 self._mcp_server.create_initialization_options(),
             )
 
-    async def run_sse_async(self) -> None:
+    async def run_sse_async(self, mount_path: str | None = None) -> None:
         """Run the server using SSE transport."""
         import uvicorn
 
-        starlette_app = self.sse_app()
+        starlette_app = self.sse_app(mount_path)
 
         config = uvicorn.Config(
             starlette_app,
@@ -598,14 +602,51 @@ class FastMCP:
         server = uvicorn.Server(config)
         await server.serve()
 
-    def sse_app(self) -> Starlette:
+    def _normalize_path(self, mount_path: str, endpoint: str) -> str:
+        """
+        Combine mount path and endpoint to return a normalized path.
+
+        Args:
+            mount_path: The mount path (e.g. "/github" or "/")
+            endpoint: The endpoint path (e.g. "/messages/")
+
+        Returns:
+            Normalized path (e.g. "/github/messages/")
+        """
+        # Special case: root path
+        if mount_path == "/":
+            return endpoint
+
+        # Remove trailing slash from mount path
+        if mount_path.endswith("/"):
+            mount_path = mount_path[:-1]
+
+        # Ensure endpoint starts with slash
+        if not endpoint.startswith("/"):
+            endpoint = "/" + endpoint
+
+        # Combine paths
+        return mount_path + endpoint
+
+    def sse_app(self, mount_path: str | None = None) -> Starlette:
         """Return an instance of the SSE server app."""
         from starlette.middleware import Middleware
         from starlette.routing import Mount, Route
 
+        # Update mount_path in settings if provided
+        if mount_path is not None:
+            self.settings.mount_path = mount_path
+
+        # Create normalized endpoint considering the mount path
+        normalized_message_endpoint = self._normalize_path(
+            self.settings.mount_path, self.settings.message_path
+        )
+
         # Set up auth context and dependencies
 
-        sse = SseServerTransport(self.settings.message_path)
+        sse = SseServerTransport(
+            normalized_message_endpoint,
+        )
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):
             # Add client ID from auth context into request context if available
