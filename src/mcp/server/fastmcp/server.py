@@ -603,7 +603,7 @@ class FastMCP:
         from starlette.routing import Mount, Route
 
         # Update mount_path in settings if provided
-        if mount_path:
+        if mount_path is not None:
             self.settings.mount_path = mount_path
 
         # Create normalized endpoint considering the mount path
