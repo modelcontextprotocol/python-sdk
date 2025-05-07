@@ -41,7 +41,6 @@ from mcp.types import (
     GetPromptResult,
     ImageContent,
     TextContent,
-    DataContent,
     ToolAnnotations,
 )
 from mcp.types import Prompt as MCPPrompt
@@ -170,7 +169,6 @@ class FastMCP:
         self._mcp_server.get_prompt()(self.get_prompt)
         self._mcp_server.list_resource_templates()(self.list_resource_templates)
 
-
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""
         tools = self._tool_manager.list_tools()
@@ -198,7 +196,7 @@ class FastMCP:
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any]
-    ) -> Sequence[TextContent | ImageContent | DataContent | EmbeddedResource]:
+    ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
         """Call a tool by name with arguments."""
         context = self.get_context()
         result = await self._tool_manager.call_tool(name, arguments, context=context)
@@ -556,13 +554,13 @@ class FastMCP:
 
 def _convert_to_content(
     result: Any,
-) -> Sequence[TextContent | ImageContent | EmbeddedResource | DataContent]:
+) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
     """Convert a result to a sequence of content objects."""
     if result is None:
         return []
 
     # Handle existing content types
-    if isinstance(result, TextContent | ImageContent | EmbeddedResource | DataContent):
+    if isinstance(result, TextContent | ImageContent | EmbeddedResource):
         return [result]
 
     if isinstance(result, Image):
@@ -573,19 +571,8 @@ def _convert_to_content(
 
     # For non-string objects, convert to DataContent
     if not isinstance(result, str):
-        # Try to convert to a JSON-serializable structure
-        try:
-            # Get the data as a dict/list structure
-            data = pydantic_core.to_jsonable_python(result)
-            # Create DataContent with the data
-            return [DataContent(type="data", data=data)]
-        except Exception as e:
-            logger.warning(f"Failed to convert result to DataContent: {e}")
-            # Fall back to string representation
-            result_str = pydantic_core.to_json(result, fallback=str, indent=2).decode()
-            return [TextContent(type="text", text=result_str)]
+        result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
 
-    # For strings, use TextContent
     return [TextContent(type="text", text=result)]
 
 
