@@ -78,7 +78,7 @@ def progress(
     if ctx.meta is None or ctx.meta.progressToken is None:
         raise ValueError("No progress token provided")
 
-    progress_ctx = ProgressContext(ctx.session, ctx.meta.progressToken, total, None)
+    progress_ctx = ProgressContext(ctx.session, ctx.meta.progressToken, total)
     try:
         yield progress_ctx
     finally:
