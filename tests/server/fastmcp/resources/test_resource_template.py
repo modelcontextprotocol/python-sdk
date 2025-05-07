@@ -185,7 +185,7 @@ class TestResourceTemplate:
 
         assert isinstance(resource, FunctionResource)
         content = await resource.read()
-        assert content == "hello"
+        assert content == '"hello"'
 
     def test_context_parameter_detection(self):
         """Test that context params are detected in ResourceTemplate.from_function()."""

@@ -1,5 +1,7 @@
 """Resource manager functionality."""
 
+from __future__ import annotations as _annotations
+
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -73,7 +75,7 @@ class ResourceManager:
     async def get_resource(
         self,
         uri: AnyUrl | str,
-        context: "Context[ServerSessionT, LifespanContextT] | None" = None,
+        context: Context[ServerSessionT, LifespanContextT] | None = None,
     ) -> Resource | None:
         """Get resource by URI, checking concrete resources first, then templates."""
         uri_str = str(uri)
