@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 import re
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, get_origin
 
 from pydantic import BaseModel, Field, validate_call
 
@@ -58,7 +58,9 @@ class ResourceTemplate(BaseModel):
 
             sig = inspect.signature(fn)
             for param_name, param in sig.parameters.items():
-                if param.annotation is Context:
+                if get_origin(param.annotation) is not None:
+                    continue
+                if issubclass(param.annotation, Context):
                     context_kwarg = param_name
                     break
 
