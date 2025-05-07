@@ -62,7 +62,7 @@ async def test_client_session_initialize():
         async with server_to_client_send:
             await server_to_client_send.send(
                 SessionMessage(
-                    message=JSONRPCMessage(
+                    JSONRPCMessage(
                         JSONRPCResponse(
                             jsonrpc="2.0",
                             id=jsonrpc_request.root.id,
@@ -153,7 +153,7 @@ async def test_client_session_custom_client_info():
         async with server_to_client_send:
             await server_to_client_send.send(
                 SessionMessage(
-                    message=JSONRPCMessage(
+                    JSONRPCMessage(
                         JSONRPCResponse(
                             jsonrpc="2.0",
                             id=jsonrpc_request.root.id,
@@ -220,7 +220,7 @@ async def test_client_session_default_client_info():
         async with server_to_client_send:
             await server_to_client_send.send(
                 SessionMessage(
-                    message=JSONRPCMessage(
+                    JSONRPCMessage(
                         JSONRPCResponse(
                             jsonrpc="2.0",
                             id=jsonrpc_request.root.id,

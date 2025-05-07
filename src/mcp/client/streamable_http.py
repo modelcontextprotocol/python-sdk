@@ -153,7 +153,7 @@ class StreamableHTTPTransport:
                 ):
                     message.root.id = original_request_id
 
-                session_message = SessionMessage(message=message)
+                session_message = SessionMessage(message)
                 await read_stream_writer.send(session_message)
 
                 # Call resumption token callback if we have an ID
@@ -286,7 +286,7 @@ class StreamableHTTPTransport:
         try:
             content = await response.aread()
             message = JSONRPCMessage.model_validate_json(content)
-            session_message = SessionMessage(message=message)
+            session_message = SessionMessage(message)
             await read_stream_writer.send(session_message)
         except Exception as exc:
             logger.error(f"Error parsing JSON response: {exc}")
@@ -333,7 +333,7 @@ class StreamableHTTPTransport:
             id=request_id,
             error=ErrorData(code=32600, message="Session terminated"),
         )
-        session_message = SessionMessage(message=JSONRPCMessage(jsonrpc_error))
+        session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
         await read_stream_writer.send(session_message)
 
     async def post_writer(

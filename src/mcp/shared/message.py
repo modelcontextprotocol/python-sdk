@@ -6,8 +6,7 @@ to support transport-specific features like resumability.
 """
 
 from collections.abc import Awaitable, Callable
-
-from pydantic import BaseModel
+from dataclasses import dataclass
 
 from mcp.types import JSONRPCMessage, RequestId
 
@@ -16,7 +15,8 @@ ResumptionToken = str
 ResumptionTokenUpdateCallback = Callable[[ResumptionToken], Awaitable[None]]
 
 
-class ClientMessageMetadata(BaseModel):
+@dataclass
+class ClientMessageMetadata:
     """Metadata specific to client messages."""
 
     resumption_token: ResumptionToken | None = None
@@ -25,7 +25,8 @@ class ClientMessageMetadata(BaseModel):
     )
 
 
-class ServerMessageMetadata(BaseModel):
+@dataclass
+class ServerMessageMetadata:
     """Metadata specific to server messages."""
 
     related_request_id: RequestId | None = None
@@ -34,8 +35,9 @@ class ServerMessageMetadata(BaseModel):
 MessageMetadata = ClientMessageMetadata | ServerMessageMetadata | None
 
 
-class SessionMessage(BaseModel):
+@dataclass
+class SessionMessage:
     """A message with specific metadata for transport-specific features."""
 
     message: JSONRPCMessage
-    metadata: MessageMetadata | None = None
+    metadata: MessageMetadata = None

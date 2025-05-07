@@ -88,15 +88,12 @@ def main(port: int, transport: str) -> int:
         )
 
     if transport == "sse":
-        from mcp.server.message_queue.redis import RedisMessageDispatch
         from mcp.server.sse import SseServerTransport
         from starlette.applications import Starlette
         from starlette.responses import Response
         from starlette.routing import Mount, Route
 
-        message_dispatch = RedisMessageDispatch("redis://localhost:6379/0")
-
-        sse = SseServerTransport("/messages/", message_dispatch=message_dispatch)
+        sse = SseServerTransport("/messages/")
 
         async def handle_sse(request):
             async with sse.connect_sse(
