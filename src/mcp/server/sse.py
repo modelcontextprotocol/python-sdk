@@ -6,6 +6,8 @@ This module implements a Server-Sent Events (SSE) transport layer for MCP server
 Example usage:
 ```
     # Create an SSE transport at an endpoint
+    from starlette.responses import Response
+
     sse = SseServerTransport("/messages/")
 
     # Create Starlette routes for SSE and message handling
@@ -22,6 +24,7 @@ Example usage:
             await app.run(
                 streams[0], streams[1], app.create_initialization_options()
             )
+        return Response("MCP SSE")
 
     # Create and run Starlette app
     starlette_app = Starlette(routes=routes)

@@ -47,6 +47,7 @@ def main(port: int, transport: str) -> int:
         from mcp.server.sse import SseServerTransport
         from starlette.applications import Starlette
         from starlette.routing import Mount, Route
+        from starlette.responses import Response
 
         sse = SseServerTransport("/messages/")
 
@@ -57,6 +58,7 @@ def main(port: int, transport: str) -> int:
                 await app.run(
                     streams[0], streams[1], app.create_initialization_options()
                 )
+            return Response("MCP SSE")
 
         starlette_app = Starlette(
             debug=True,
