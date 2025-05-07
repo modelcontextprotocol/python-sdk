@@ -13,8 +13,6 @@ from typing import Any, Callable, Generic, Literal, Sequence
 
 import anyio
 import pydantic_core
-import starlette
-import starlette.responses
 import uvicorn
 from pydantic import BaseModel, Field
 from pydantic.networks import AnyUrl
@@ -477,8 +475,8 @@ class FastMCP:
 
     async def run_sse_async(self) -> None:
         """Run the server using SSE transport."""
-        from starlette.responses import Response
         from starlette.applications import Starlette
+        from starlette.responses import Response
         from starlette.routing import Mount, Route
 
         sse = SseServerTransport("/messages/")
