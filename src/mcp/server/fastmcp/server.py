@@ -597,7 +597,7 @@ class FastMCP:
         # Combine paths
         return mount_path + endpoint
 
-    def sse_app(self, mount_path: str = "") -> Starlette:
+    def sse_app(self, mount_path: str | None = None) -> Starlette:
         """Return an instance of the SSE server app."""
         from starlette.middleware import Middleware
         from starlette.routing import Mount, Route
