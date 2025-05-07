@@ -180,7 +180,7 @@ class FastMCP:
         return self._mcp_server.instructions
 
     def run(
-        self, transport: Literal["stdio", "sse"] = "stdio", mount_path: str = ""
+        self, transport: Literal["stdio", "sse"] = "stdio", mount_path: str = None
     ) -> None:
         """Run the FastMCP server. Note this is a synchronous function.
 
