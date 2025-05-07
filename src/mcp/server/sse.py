@@ -6,6 +6,8 @@ This module implements a Server-Sent Events (SSE) transport layer for MCP server
 Example usage:
 ```
     # Create an SSE transport at an endpoint
+    from starlette.responses import Response
+
     sse = SseServerTransport("/messages/")
 
     # Create Starlette routes for SSE and message handling
@@ -22,6 +24,7 @@ Example usage:
             await app.run(
                 streams[0], streams[1], app.create_initialization_options()
             )
+        return Response("MCP SSE")
 
     # Create and run Starlette app
     starlette_app = Starlette(routes=routes)
@@ -43,7 +46,7 @@ from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.types import Receive, Scope, Send
+from starlette.types import Message, Receive, Scope, Send
 
 import mcp.types as types
 
@@ -120,9 +123,19 @@ class SseServerTransport:
                         }
                     )
 
+        async def handle_see_disconnect(message: Message) -> None:
+            logger.debug(f"Disconnect sse {session_id}")
+            del self._read_stream_writers[session_id]
+            await read_stream.aclose()
+            await read_stream_writer.aclose()
+            await write_stream.aclose()
+            await write_stream_reader.aclose()
+
         async with anyio.create_task_group() as tg:
             response = EventSourceResponse(
-                content=sse_stream_reader, data_sender_callable=sse_writer
+                content=sse_stream_reader,
+                data_sender_callable=sse_writer,
+                client_close_handler_callable=handle_see_disconnect,
             )
             logger.debug("Starting SSE response task")
             tg.start_soon(response, scope, receive, send)
