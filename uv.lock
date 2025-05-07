@@ -329,7 +329,6 @@ dependencies = [
     { name = "click" },
     { name = "httpx" },
     { name = "mcp" },
-    { name = "typer" },
 ]
 
 [package.dev-dependencies]
@@ -345,7 +344,6 @@ requires-dist = [
     { name = "click", specifier = ">=8.1.0" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", editable = "." },
-    { name = "typer", specifier = ">=0.12.4" },
 ]
 
 [package.metadata.requires-dev]
