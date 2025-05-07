@@ -23,7 +23,7 @@ async def test_stdio_client():
 
         async with write_stream:
             for message in messages:
-                session_message = SessionMessage(message=message)
+                session_message = SessionMessage(message)
                 await write_stream.send(session_message)
 
         read_messages = []

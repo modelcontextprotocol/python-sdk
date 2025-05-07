@@ -67,7 +67,7 @@ async def stdio_server(
                         await read_stream_writer.send(exc)
                         continue
 
-                    session_message = SessionMessage(message=message)
+                    session_message = SessionMessage(message)
                     await read_stream_writer.send(session_message)
         except anyio.ClosedResourceError:
             await anyio.lowlevel.checkpoint()
