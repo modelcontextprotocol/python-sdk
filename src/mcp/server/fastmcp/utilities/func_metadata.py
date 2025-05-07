@@ -61,11 +61,6 @@ class FuncMetadata(BaseModel):
 
         arguments_parsed_dict |= arguments_to_pass_directly or {}
 
-        logger.info(
-            "Calling function with arguments: %s",
-            arguments_parsed_dict,
-        )
-        logger.info(f"Function is async: ${fn}")
         if fn_is_async:
             if isinstance(fn, Awaitable):
                 return await fn
@@ -187,7 +182,6 @@ def func_metadata(
         try:
             # Handle forward references
             return_type = _get_typed_annotation(return_annotation, globalns)
-            logger.info(f"return_type: {return_type}")
             # Special case for None
             if return_type is type(None):  # noqa: E721
                 output_schema = {"type": "null"}

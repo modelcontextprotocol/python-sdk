@@ -3,7 +3,6 @@ from __future__ import annotations as _annotations
 import inspect
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, get_origin
-from mcp.server.fastmcp.utilities.logging import get_logger
 
 from pydantic import BaseModel, Field
 
@@ -15,8 +14,6 @@ if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
     from mcp.server.session import ServerSessionT
     from mcp.shared.context import LifespanContextT
-
-logger = get_logger(__name__)
 
 class Tool(BaseModel):
     """Internal tool registration info."""
@@ -76,8 +73,6 @@ class Tool(BaseModel):
         parameters = func_arg_metadata.arg_model.model_json_schema()
 
         output_schema = getattr(func_arg_metadata, "outputSchema", None)
-
-        logger.info(f"output schema: {output_schema}")
 
         return cls(
             fn=fn,

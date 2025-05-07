@@ -174,7 +174,6 @@ class FastMCP:
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""
         tools = self._tool_manager.list_tools()
-        logger.info(f"list tools: {tools}")
         return [
             MCPTool(
                 name=info.name,
@@ -203,7 +202,6 @@ class FastMCP:
         """Call a tool by name with arguments."""
         context = self.get_context()
         result = await self._tool_manager.call_tool(name, arguments, context=context)
-        logger.info(f"call tool: {name} with args: {arguments} -> {result}")
         converted_result = _convert_to_content(result)
         return converted_result
 
