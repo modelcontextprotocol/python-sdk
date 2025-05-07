@@ -42,7 +42,6 @@ class ProgressContext(
     progress_token: ProgressToken
     total: float | None
     current: float = field(default=0.0, init=False)
-    message: str | None
 
     async def progress(self, amount: float, message: str | None = None) -> None:
         self.current += amount
