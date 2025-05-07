@@ -556,7 +556,7 @@ class FastMCP:
                 self._mcp_server.create_initialization_options(),
             )
 
-    async def run_sse_async(self, mount_path: str = "") -> None:
+    async def run_sse_async(self, mount_path: str | None = None) -> None:
         """Run the server using SSE transport."""
         import uvicorn
 
