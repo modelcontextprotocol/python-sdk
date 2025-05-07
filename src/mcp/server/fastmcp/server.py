@@ -44,6 +44,7 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.lowlevel.server import Server as MCPServer
 from mcp.server.lowlevel.server import lifespan as default_lifespan
+from mcp.server.message_queue import MessageDispatch
 from mcp.server.session import ServerSession, ServerSessionT
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
@@ -90,6 +91,11 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     mount_path: str = "/"  # Mount path (e.g. "/github", defaults to root path)
     sse_path: str = "/sse"
     message_path: str = "/messages/"
+
+    # SSE message queue settings
+    message_dispatch: MessageDispatch | None = Field(
+        None, description="Custom message dispatch instance"
+    )
 
     # resource settings
     warn_on_duplicate_resources: bool = True
@@ -599,6 +605,13 @@ class FastMCP:
 
     def sse_app(self, mount_path: str | None = None) -> Starlette:
         """Return an instance of the SSE server app."""
+        message_dispatch = self.settings.message_dispatch
+        if message_dispatch is None:
+            from mcp.server.message_queue import InMemoryMessageDispatch
+
+            message_dispatch = InMemoryMessageDispatch()
+            logger.info("Using default in-memory message dispatch")
+
         from starlette.middleware import Middleware
         from starlette.routing import Mount, Route
 
@@ -613,7 +626,10 @@ class FastMCP:
         
         # Set up auth context and dependencies
 
-        sse = SseServerTransport(normalized_message_endpoint)
+        sse = SseServerTransport(
+          normalized_message_endpoint,
+          message_dispatch=message_dispatch
+        )
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):
             # Add client ID from auth context into request context if available
@@ -628,7 +644,14 @@ class FastMCP:
                     streams[1],
                     self._mcp_server.create_initialization_options(),
                 )
-            return Response()
+                return Response()
+
+        @asynccontextmanager
+        async def lifespan(app: Starlette):
+            try:
+                yield
+            finally:
+                await message_dispatch.close()
 
         # Create routes
         routes: list[Route | Mount] = []
@@ -705,7 +728,10 @@ class FastMCP:
 
         # Create Starlette app with routes and middleware
         return Starlette(
-            debug=self.settings.debug, routes=routes, middleware=middleware
+            debug=self.settings.debug,
+            routes=routes,
+            middleware=middleware,
+            lifespan=lifespan,
         )
 
     async def list_prompts(self) -> list[MCPPrompt]:
