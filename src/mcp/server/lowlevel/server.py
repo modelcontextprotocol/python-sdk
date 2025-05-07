@@ -400,7 +400,6 @@ class Server(Generic[LifespanResultT]):
                     Iterable[
                         types.TextContent
                         | types.ImageContent
-                        | types.DataContent
                         | types.EmbeddedResource
                     ]
                 ],
