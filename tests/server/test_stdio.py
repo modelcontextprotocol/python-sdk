@@ -4,6 +4,7 @@ import anyio
 import pytest
 
 from mcp.server.stdio import stdio_server
+from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 
@@ -29,7 +30,7 @@ async def test_stdio_server():
             async for message in read_stream:
                 if isinstance(message, Exception):
                     raise message
-                received_messages.append(message)
+                received_messages.append(message.message)
                 if len(received_messages) == 2:
                     break
 
@@ -50,7 +51,8 @@ async def test_stdio_server():
 
         async with write_stream:
             for response in responses:
-                await write_stream.send(response)
+                session_message = SessionMessage(response)
+                await write_stream.send(session_message)
 
     stdout.seek(0)
     output_lines = stdout.readlines()

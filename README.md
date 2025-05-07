@@ -309,6 +309,33 @@ async def long_task(files: list[str], ctx: Context) -> str:
     return "Processing complete"
 ```
 
+### Authentication
+
+Authentication can be used by servers that want to expose tools accessing protected resources.
+
+`mcp.server.auth` implements an OAuth 2.0 server interface, which servers can use by
+providing an implementation of the `OAuthServerProvider` protocol.
+
+```
+mcp = FastMCP("My App",
+        auth_provider=MyOAuthServerProvider(),
+        auth=AuthSettings(
+            issuer_url="https://myapp.com",
+            revocation_options=RevocationOptions(
+                enabled=True,
+            ),
+            client_registration_options=ClientRegistrationOptions(
+                enabled=True,
+                valid_scopes=["myscope", "myotherscope"],
+                default_scopes=["myscope"],
+            ),
+            required_scopes=["myscope"],
+        ),
+)
+```
+
+See [OAuthServerProvider](src/mcp/server/auth/provider.py) for more details.
+
 ## Running Your Server
 
 ### Development Mode
@@ -381,6 +408,43 @@ app = Starlette(
 
 # or dynamically mount as host
 app.router.routes.append(Host('mcp.acme.corp', app=mcp.sse_app()))
+```
+
+When mounting multiple MCP servers under different paths, you can configure the mount path in several ways:
+
+```python
+from starlette.applications import Starlette
+from starlette.routing import Mount
+from mcp.server.fastmcp import FastMCP
+
+# Create multiple MCP servers
+github_mcp = FastMCP("GitHub API")
+browser_mcp = FastMCP("Browser")
+curl_mcp = FastMCP("Curl")
+search_mcp = FastMCP("Search")
+
+# Method 1: Configure mount paths via settings (recommended for persistent configuration)
+github_mcp.settings.mount_path = "/github"
+browser_mcp.settings.mount_path = "/browser"
+
+# Method 2: Pass mount path directly to sse_app (preferred for ad-hoc mounting)
+# This approach doesn't modify the server's settings permanently
+
+# Create Starlette app with multiple mounted servers
+app = Starlette(
+    routes=[
+        # Using settings-based configuration
+        Mount("/github", app=github_mcp.sse_app()),
+        Mount("/browser", app=browser_mcp.sse_app()),
+        # Using direct mount path parameter
+        Mount("/curl", app=curl_mcp.sse_app("/curl")),
+        Mount("/search", app=search_mcp.sse_app("/search")),
+    ]
+)
+
+# Method 3: For direct execution, you can also pass the mount path to run()
+if __name__ == "__main__":
+    search_mcp.run(transport="sse", mount_path="/search")
 ```
 
 For more information on mounting applications in Starlette, see the [Starlette documentation](https://www.starlette.io/routing/#submounting-routes).
