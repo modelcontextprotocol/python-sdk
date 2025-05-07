@@ -51,7 +51,7 @@ async def test_stdio_server():
 
         async with write_stream:
             for response in responses:
-                session_message = SessionMessage(response)
+                session_message = SessionMessage(message=response)
                 await write_stream.send(session_message)
 
     stdout.seek(0)
