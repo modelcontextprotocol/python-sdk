@@ -334,7 +334,7 @@ mcp = FastMCP("My App",
 )
 ```
 
-See [OAuthServerProvider](mcp/server/auth/provider.py) for more details.
+See [OAuthServerProvider](src/mcp/server/auth/provider.py) for more details.
 
 ## Running Your Server
 
