@@ -6,7 +6,6 @@ import time
 from typing import Any
 
 import click
-import httpx
 from pydantic import AnyHttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.exceptions import HTTPException
@@ -25,6 +24,7 @@ from mcp.server.auth.provider import (
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
 from mcp.server.fastmcp.server import FastMCP
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from mcp.shared.httpx_utils import create_mcp_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +123,7 @@ class SimpleGitHubOAuthProvider(OAuthAuthorizationServerProvider):
         client_id = state_data["client_id"]
 
         # Exchange code for token with GitHub
-        async with httpx.AsyncClient() as client:
+        async with create_mcp_http_client() as client:
             response = await client.post(
                 self.settings.github_token_url,
                 data={
@@ -325,7 +325,7 @@ def create_simple_mcp_server(settings: ServerSettings) -> FastMCP:
         """
         github_token = get_github_token()
 
-        async with httpx.AsyncClient() as client:
+        async with create_mcp_http_client() as client:
             response = await client.get(
                 "https://api.github.com/user",
                 headers={

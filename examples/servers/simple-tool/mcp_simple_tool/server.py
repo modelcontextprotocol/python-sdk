@@ -1,8 +1,8 @@
 import anyio
 import click
-import httpx
 import mcp.types as types
 from mcp.server.lowlevel import Server
+from mcp.shared.httpx_utils import create_mcp_http_client
 
 
 async def fetch_website(
@@ -11,7 +11,7 @@ async def fetch_website(
     headers = {
         "User-Agent": "MCP Test Server (github.com/modelcontextprotocol/python-sdk)"
     }
-    async with httpx.AsyncClient(follow_redirects=True, headers=headers) as client:
+    async with create_mcp_http_client(headers=headers) as client:
         response = await client.get(url)
         response.raise_for_status()
         return [types.TextContent(type="text", text=response.text)]
