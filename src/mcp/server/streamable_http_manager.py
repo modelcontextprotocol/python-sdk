@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
 from collections.abc import AsyncIterator
 from http import HTTPStatus
 from typing import Any
@@ -37,6 +38,10 @@ class StreamableHTTPSessionManager:
     3. Connection management and lifecycle
     4. Request handling and transport setup
 
+    Important: Only one StreamableHTTPSessionManager instance should be created
+    per application. The instance cannot be reused after its run() context has
+    completed. If you need to restart the manager, create a new instance.
+
     Args:
         app: The MCP server instance
         event_store: Optional event store for resumability support.
@@ -67,6 +72,9 @@ class StreamableHTTPSessionManager:
 
         # The task group will be set during lifespan
         self._task_group = None
+        # Thread-safe tracking of run() calls
+        self._run_lock = threading.Lock()
+        self._has_started = False
 
     @contextlib.asynccontextmanager
     async def run(self) -> AsyncIterator[None]:
@@ -75,6 +83,10 @@ class StreamableHTTPSessionManager:
 
         This creates and manages the task group for all session operations.
 
+        Important: This method can only be called once per instance. The same
+        StreamableHTTPSessionManager instance cannot be reused after this
+        context manager exits. Create a new instance if you need to restart.
+
         Use this in the lifespan context manager of your Starlette app:
 
         @contextlib.asynccontextmanager
@@ -82,6 +94,15 @@ class StreamableHTTPSessionManager:
             async with session_manager.run():
                 yield
         """
+        # Thread-safe check to ensure run() is only called once
+        with self._run_lock:
+            if self._has_started:
+                raise RuntimeError(
+                    "StreamableHTTPSessionManager .run() can only be called "
+                    "once per instance. Create a new instance if you need to run again."
+                )
+            self._has_started = True
+
         async with anyio.create_task_group() as tg:
             # Store the task group for later use
             self._task_group = tg
@@ -113,9 +134,7 @@ class StreamableHTTPSessionManager:
             send: ASGI send function
         """
         if self._task_group is None:
-            raise RuntimeError(
-                "Task group is not initialized. Make sure to use the run()."
-            )
+            raise RuntimeError("Task group is not initialized. Make sure to use run().")
 
         # Dispatch to the appropriate handler
         if self.stateless:
