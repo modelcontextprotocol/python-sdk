@@ -1,7 +1,5 @@
 """Utilities for creating standardized httpx AsyncClient instances."""
 
-from __future__ import annotations
-
 from typing import Any
 
 import httpx
@@ -10,7 +8,7 @@ __all__ = ["create_mcp_http_client"]
 
 
 def create_mcp_http_client(
-    headers: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
     timeout: httpx.Timeout | None = None,
 ) -> httpx.AsyncClient:
     """Create a standardized httpx AsyncClient with MCP defaults.
