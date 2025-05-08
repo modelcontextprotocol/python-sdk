@@ -57,6 +57,7 @@ from mcp.types import (
     ImageContent,
     TextContent,
     ToolAnnotations,
+    PartialResult,
 )
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
@@ -952,13 +953,14 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         return self._request_context
 
     async def report_progress(
-        self, progress: float, total: float | None = None
+        self, progress: float, total: float | None = None, partial_result: PartialResult | None = None
     ) -> None:
         """Report progress for the current operation.
 
         Args:
             progress: Current progress value e.g. 24
             total: Optional total value e.g. 100
+            partial_result: Optional partial result to include with the progress notification
         """
 
         progress_token = (
@@ -967,11 +969,19 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
             else None
         )
 
+        partial_result = (
+            partial_result
+            if self.request_context.meta and self.request_context.meta.partialResults
+            else None
+        )
+
         if progress_token is None:
             return
+        
+        print(f"partial_result={partial_result}")
 
         await self.request_context.session.send_progress_notification(
-            progress_token=progress_token, progress=progress, total=total
+            progress_token=progress_token, progress=progress, total=total, partial_result=partial_result
         )
 
     async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:

@@ -47,7 +47,12 @@ class RequestParams(BaseModel):
         parameter is an opaque token that will be attached to any subsequent
         notifications. The receiver is not obligated to provide these notifications.
         """
-
+        partialResults: bool | None = None
+        """
+        If true, the caller is requesting that results be streamed via progress notifications.
+        When this is set to true, the final response may be empty as the complete result
+        will have been delivered through progress notifications.
+        """
         model_config = ConfigDict(extra="allow")
 
     meta: Meta | None = Field(alias="_meta", default=None)
@@ -322,6 +327,19 @@ class PingRequest(Request[RequestParams | None, Literal["ping"]]):
     method: Literal["ping"]
     params: RequestParams | None = None
 
+class PartialResult(BaseModel): 
+    chunk: dict[str, Any]
+    """The partial result data chunk."""
+    append: bool = False
+    """
+    If true, this chunk should be appended to previously received chunks.
+    If false, this chunk replaces any previously received chunks.
+    """
+    lastChunk: bool = False
+    """
+    If true, this is the final chunk of the result.
+    No further chunks will be sent for this operation.
+    """
 
 class ProgressNotificationParams(NotificationParams):
     """Parameters for progress notifications."""
@@ -338,6 +356,11 @@ class ProgressNotificationParams(NotificationParams):
     """
     total: float | None = None
     """Total number of items to process (or total progress required), if known."""
+    partialResult: PartialResult | None = None
+    """
+    If present, contains a partial result chunk for the operation.
+    This is used to stream results incrementally while an operation is still in progress.
+    """
     model_config = ConfigDict(extra="allow")
 
 

@@ -279,6 +279,7 @@ class ServerSession(
         progress: float,
         total: float | None = None,
         related_request_id: str | None = None,
+        partial_result: types.PartialResult | None = None,
     ) -> None:
         """Send a progress notification."""
         await self.send_notification(
@@ -289,6 +290,7 @@ class ServerSession(
                         progressToken=progress_token,
                         progress=progress,
                         total=total,
+                        partialResult=partial_result,
                     ),
                 )
             ),
