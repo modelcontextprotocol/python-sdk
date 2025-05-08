@@ -110,7 +110,6 @@ async def test_bidirectional_progress_notifications():
                     total=1.0,
                     message="Server progress 25%",
                 )
-                await anyio.sleep(0.2)
 
                 await serv_sesh.send_progress_notification(
                     progress_token=progressToken,
@@ -118,7 +117,6 @@ async def test_bidirectional_progress_notifications():
                     total=1.0,
                     message="Server progress 50%",
                 )
-                await anyio.sleep(0.2)
 
                 await serv_sesh.send_progress_notification(
                     progress_token=progressToken,
@@ -201,7 +199,7 @@ async def test_bidirectional_progress_notifications():
         )
 
         # Wait and exit
-        await anyio.sleep(1.0)
+        await anyio.sleep(0.5)
         tg.cancel_scope.cancel()
 
     # Verify client received progress updates from server
@@ -315,16 +313,9 @@ async def test_progress_context_manager():
         # Utilize progress context manager
         with progress(typed_context, total=100) as p:
             await p.progress(10, message="Loading configuration...")
-            await anyio.sleep(0.1)
-
             await p.progress(30, message="Connecting to database...")
-            await anyio.sleep(0.1)
-
             await p.progress(40, message="Fetching data...")
-            await anyio.sleep(0.1)
-
             await p.progress(20, message="Processing results...")
-            await anyio.sleep(0.1)
 
         # Wait for all messages to be processed
         await anyio.sleep(0.5)
