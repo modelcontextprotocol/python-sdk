@@ -104,7 +104,8 @@ class SseServerTransport:
         logger.debug(f"Created new session with ID: {session_id}")
 
         # Determine the full path for the message endpoint to be sent to the client.
-        # scope['root_path'] is the prefix where the current Starlette app instance is mounted.
+        # scope['root_path'] is the prefix where the current Starlette app
+        # instance is mounted.
         # e.g., "" if top-level, or "/api_prefix" if mounted under "/api_prefix".
         root_path = scope.get("root_path", "")
 
