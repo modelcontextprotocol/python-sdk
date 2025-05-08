@@ -66,7 +66,7 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 
 - Build MCP clients that can connect to any MCP server
 - Create MCP servers that expose resources, prompts and tools
-- Use standard transports like stdio and SSE
+- Use standard transports like stdio, SSE, and Streamable HTTP
 - Handle all MCP protocol messages and lifecycle events
 
 ## Installation
@@ -387,7 +387,39 @@ python server.py
 mcp run server.py
 ```
 
+### Streamable HTTP Transport
+
+> **Note**: Streamable HTTP transport is superseding SSE transport for production deployments.
+
+```python
+from mcp.server.fastmcp import FastMCP
+
+# Stateful server (maintains session state)
+mcp = FastMCP("StatefulServer")
+
+# Stateless server (no session persistence)
+mcp = FastMCP("StatelessServer", stateless_http=True)
+
+# Run server with streamable_http transport
+mcp.run(transport="streamable-http")
+```
+
+For low level server with Streamable HTTP implementations, see:
+- Stateful server: [`examples/servers/simple-streamablehttp/`](examples/servers/simple-streamablehttp/)
+- Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](examples/servers/simple-streamablehttp-stateless/)
+
+
+
+The streamable HTTP transport supports:
+- Stateful and stateless operation modes
+- Resumability with event stores
+- JSON or SSE response formats  
+- Better scalability for multi-node deployments
+
+
 ### Mounting to an Existing ASGI Server
+
+> **Note**: SSE transport is being superseded by streamable HTTP transport. Consider using streamable HTTP for production deployments.
 
 You can mount the SSE server to an existing ASGI server using the `sse_app` method. This allows you to integrate the SSE server with other ASGI applications.
 
@@ -621,7 +653,7 @@ if __name__ == "__main__":
 
 ### Writing MCP Clients
 
-The SDK provides a high-level client interface for connecting to MCP servers:
+The SDK provides a high-level client interface for connecting to MCP servers using various transports:
 
 ```python
 from mcp import ClientSession, StdioServerParameters, types
@@ -683,6 +715,24 @@ if __name__ == "__main__":
     import asyncio
 
     asyncio.run(run())
+```
+
+Clients can also connect using streamable HTTP transport:
+
+```python
+
+# Connect to a streamable HTTP server
+ async with streamablehttp_client(http_server_url + "/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        # Create a session using the client streams
+        async with ClientSession(read_stream, write_stream) as session:
+            # Initialize the connection
+            await session.initialize()
+            # Call a tool
+            tool_result = await session.call_tool("echo", {"message": "hello"})
 ```
 
 ### MCP Primitives
