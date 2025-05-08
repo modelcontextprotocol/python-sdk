@@ -175,6 +175,7 @@ class FastMCP:
         self._event_store = event_store
         self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
+        self._session_manager: StreamableHTTPSessionManager | None = None
 
         # Set up MCP protocol handlers
         self._setup_handlers()
@@ -189,6 +190,25 @@ class FastMCP:
     @property
     def instructions(self) -> str | None:
         return self._mcp_server.instructions
+
+    @property
+    def session_manager(self) -> StreamableHTTPSessionManager:
+        """Get the StreamableHTTP session manager.
+
+        This is exposed to enable advanced use cases like mounting multiple
+        FastMCP servers in a single FastAPI application.
+
+        Raises:
+            RuntimeError: If called before streamable_http_app() has been called.
+        """
+        if self._session_manager is None:
+            raise RuntimeError(
+                "Session manager can only be accessed after"
+                "calling streamable_http_app()."
+                "The session manager is created lazily"
+                "to avoid unnecessary initialization."
+            )
+        return self._session_manager
 
     def run(
         self,
@@ -746,19 +766,20 @@ class FastMCP:
         from starlette.middleware import Middleware
         from starlette.routing import Mount
 
-        # Create session manager using the provided event store
-        session_manager = StreamableHTTPSessionManager(
-            app=self._mcp_server,
-            event_store=self._event_store,
-            json_response=self.settings.json_response,
-            stateless=self.settings.stateless_http,  # Use the stateless setting
-        )
+        # Create session manager on first call (lazy initialization)
+        if self._session_manager is None:
+            self._session_manager = StreamableHTTPSessionManager(
+                app=self._mcp_server,
+                event_store=self._event_store,
+                json_response=self.settings.json_response,
+                stateless=self.settings.stateless_http,  # Use the stateless setting
+            )
 
         # Create the ASGI handler
         async def handle_streamable_http(
             scope: Scope, receive: Receive, send: Send
         ) -> None:
-            await session_manager.handle_request(scope, receive, send)
+            await self.session_manager.handle_request(scope, receive, send)
 
         # Create routes
         routes: list[Route | Mount] = []
@@ -807,12 +828,11 @@ class FastMCP:
 
         routes.extend(self._custom_starlette_routes)
 
-        # Create Starlette app with routes and middleware
         return Starlette(
             debug=self.settings.debug,
             routes=routes,
             middleware=middleware,
-            lifespan=lambda app: session_manager.run(),
+            lifespan=lambda app: self.session_manager.run(),
         )
 
     async def list_prompts(self) -> list[MCPPrompt]:
