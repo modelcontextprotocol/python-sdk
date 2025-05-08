@@ -5,7 +5,7 @@ import anyio
 import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
-from mcp.server.streamableHttp import (
+from mcp.server.streamable_http import (
     StreamableHTTPServerTransport,
 )
 from starlette.applications import Starlette
@@ -143,7 +143,7 @@ def main(
                     app.create_initialization_options(),
                     # Runs in standalone mode for stateless deployments
                     # where clients perform initialization with any node
-                    standalone_mode=True,
+                    stateless=True,
                 )
 
             # Start server task
