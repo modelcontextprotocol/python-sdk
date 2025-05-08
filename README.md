@@ -412,10 +412,13 @@ from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP(name="EchoServer", stateless_http=True)
 
+
 @mcp.tool(description="A simple echo tool")
 def echo(message: str) -> str:
     return f"Echo: {message}"
+```
 
+```python
 # main.py
 from fastapi import FastAPI
 from routers import echo
@@ -425,7 +428,6 @@ app = FastAPI()
 # Use the session manager's lifespan
 app = FastAPI(lifespan=lambda app: echo.mcp.session_manager.run())
 app.mount("/echo", echo.mcp.streamable_http_app())
-
 ```
 
 For low level server with Streamable HTTP implementations, see:
@@ -744,9 +746,13 @@ if __name__ == "__main__":
 Clients can also connect using streamable HTTP transport:
 
 ```python
+from mcp.client.streamable_http import streamablehttp_client
+from mcp import ClientSession
 
-# Connect to a streamable HTTP server
- async with streamablehttp_client(http_server_url + "/mcp") as (
+
+async def main():
+    # Connect to a streamable HTTP server
+    async with streamablehttp_client("example/mcp") as (
         read_stream,
         write_stream,
         _,
