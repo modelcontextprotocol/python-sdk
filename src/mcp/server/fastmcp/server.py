@@ -977,8 +977,6 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
 
         if progress_token is None:
             return
-        
-        print(f"partial_result={partial_result}")
 
         await self.request_context.session.send_progress_notification(
             progress_token=progress_token, progress=progress, total=total, partial_result=partial_result

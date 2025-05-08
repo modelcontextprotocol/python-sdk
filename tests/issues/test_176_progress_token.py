@@ -50,7 +50,7 @@ async def test_progress_token_zero_first_call():
     )
 
 async def test_progress_token_with_partial_results():
-    """Test that progress notifications work when progress_token is 0 on first call."""
+    """Test that progress notifications with partial results set to true"""
 
     # Create mock session with progress notification tracking
     mock_session = AsyncMock()
@@ -58,7 +58,7 @@ async def test_progress_token_with_partial_results():
 
     # Create request context with progress token and partialResults as True
     mock_meta = MagicMock()
-    mock_meta.progressToken = 0
+    mock_meta.progressToken = "progress-token"
     mock_meta.partialResults = True
     request_context = RequestContext(
         request_id="test-request",
@@ -80,11 +80,11 @@ async def test_progress_token_with_partial_results():
         mock_session.send_progress_notification.call_count == 3
     ), "All progress notifications should be sent"
     mock_session.send_progress_notification.assert_any_call(
-        progress_token=0, progress=0.0, total=10.0, partial_result=PartialResult(chunk={"content": [{"type": "text", "text": "TestData1"}]}, append=False, lastChunk=False)
+        progress_token="progress-token", progress=0.0, total=10.0, partial_result=PartialResult(chunk={"content": [{"type": "text", "text": "TestData1"}]}, append=False, lastChunk=False)
     )
     mock_session.send_progress_notification.assert_any_call(
-        progress_token=0, progress=5.0, total=10.0, partial_result=None
+        progress_token="progress-token", progress=5.0, total=10.0, partial_result=None
     )
     mock_session.send_progress_notification.assert_any_call(
-        progress_token=0, progress=10.0, total=10.0, partial_result=PartialResult(chunk={"content": [{"type": "text", "text": "TestData3"}]}, append=True, lastChunk=True)
+        progress_token="progress-token", progress=10.0, total=10.0, partial_result=PartialResult(chunk={"content": [{"type": "text", "text": "TestData3"}]}, append=True, lastChunk=True)
     )
