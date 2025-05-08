@@ -404,6 +404,30 @@ mcp = FastMCP("StatelessServer", stateless_http=True)
 mcp.run(transport="streamable-http")
 ```
 
+You can mount multiple FastMCP servers in a FastAPI application:
+
+```python
+# echo.py
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP(name="EchoServer", stateless_http=True)
+
+@mcp.tool(description="A simple echo tool")
+def echo(message: str) -> str:
+    return f"Echo: {message}"
+
+# main.py
+from fastapi import FastAPI
+from routers import echo
+
+app = FastAPI()
+
+# Use the session manager's lifespan
+app = FastAPI(lifespan=lambda app: echo.mcp.session_manager.run())
+app.mount("/echo", echo.mcp.streamable_http_app())
+
+```
+
 For low level server with Streamable HTTP implementations, see:
 - Stateful server: [`examples/servers/simple-streamablehttp/`](examples/servers/simple-streamablehttp/)
 - Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](examples/servers/simple-streamablehttp-stateless/)
