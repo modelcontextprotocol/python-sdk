@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import anyio
 import pytest
 
@@ -7,7 +9,13 @@ from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared.session import RequestResponder, SessionMessage
+from mcp.shared.context import RequestContext
+from mcp.shared.progress import progress
+from mcp.shared.session import (
+    BaseSession,
+    RequestResponder,
+    SessionMessage,
+)
 
 
 @pytest.mark.anyio
@@ -209,3 +217,142 @@ async def test_bidirectional_progress_notifications():
     assert server_progress_updates[0]["progress"] == 0.33
     assert server_progress_updates[0]["message"] == "Client progress 33%"
     assert server_progress_updates[2]["progress"] == 1.0
+
+
+@pytest.mark.anyio
+async def test_progress_context_manager():
+    """Test client using progress context manager for sending progress notifications."""
+    # Create memory streams for client/server
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        SessionMessage
+    ](5)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        SessionMessage
+    ](5)
+
+    # Track progress updates
+    server_progress_updates = []
+
+    server = Server(name="ProgressContextTestServer")
+
+    # Register progress handler
+    @server.progress_notification()
+    async def handle_progress(
+        progress_token: str | int,
+        progress: float,
+        total: float | None,
+        message: str | None,
+    ):
+        server_progress_updates.append(
+            {
+                "token": progress_token,
+                "progress": progress,
+                "total": total,
+                "message": message,
+            }
+        )
+
+    # Run server session to receive progress updates
+    async def run_server():
+        # Create a server session
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="ProgressContextTestServer",
+                server_version="0.1.0",
+                capabilities=server.get_capabilities(NotificationOptions(), {}),
+            ),
+        ) as server_session:
+            async for message in server_session.incoming_messages:
+                try:
+                    await server._handle_message(message, server_session, ())
+                except Exception as e:
+                    raise e
+
+    # Client message handler
+    async def handle_client_message(
+        message: RequestResponder[types.ServerRequest, types.ClientResult]
+        | types.ServerNotification
+        | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
+
+    # run client session
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=handle_client_message,
+        ) as client_session,
+        anyio.create_task_group() as tg,
+    ):
+        tg.start_soon(run_server)
+
+        await client_session.initialize()
+
+        progress_token = "client_token_456"
+
+        # Create request context
+        meta = types.RequestParams.Meta(progressToken=progress_token)
+        request_context = RequestContext(
+            request_id="test-request",
+            session=client_session,
+            meta=meta,
+            lifespan_context=None,
+        )
+
+        # cast for type checker
+        typed_context = cast(
+            RequestContext[
+                BaseSession[Any, Any, Any, Any, Any],
+                Any,
+            ],
+            request_context,
+        )
+
+        # Utilize progress context manager
+        with progress(typed_context, total=100) as p:
+            await p.progress(10, message="Loading configuration...")
+            await anyio.sleep(0.1)
+
+            await p.progress(30, message="Connecting to database...")
+            await anyio.sleep(0.1)
+
+            await p.progress(40, message="Fetching data...")
+            await anyio.sleep(0.1)
+
+            await p.progress(20, message="Processing results...")
+            await anyio.sleep(0.1)
+
+        # Wait for all messages to be processed
+        await anyio.sleep(0.5)
+        tg.cancel_scope.cancel()
+
+    # Verify progress updates were received by server
+    assert len(server_progress_updates) == 4
+
+    # first update
+    assert server_progress_updates[0]["token"] == progress_token
+    assert server_progress_updates[0]["progress"] == 10
+    assert server_progress_updates[0]["total"] == 100
+    assert server_progress_updates[0]["message"] == "Loading configuration..."
+
+    # second update
+    assert server_progress_updates[1]["token"] == progress_token
+    assert server_progress_updates[1]["progress"] == 40
+    assert server_progress_updates[1]["total"] == 100
+    assert server_progress_updates[1]["message"] == "Connecting to database..."
+
+    # third update
+    assert server_progress_updates[2]["token"] == progress_token
+    assert server_progress_updates[2]["progress"] == 80
+    assert server_progress_updates[2]["total"] == 100
+    assert server_progress_updates[2]["message"] == "Fetching data..."
+
+    # final update
+    assert server_progress_updates[3]["token"] == progress_token
+    assert server_progress_updates[3]["progress"] == 100
+    assert server_progress_updates[3]["total"] == 100
+    assert server_progress_updates[3]["message"] == "Processing results..."
