@@ -2,7 +2,7 @@ import anyio
 import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
-from mcp.shared.httpx_utils import create_mcp_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
 
 
 async def fetch_website(

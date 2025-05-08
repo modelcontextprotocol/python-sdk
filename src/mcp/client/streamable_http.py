@@ -18,7 +18,7 @@ import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
-from mcp.shared.httpx_utils import create_mcp_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
     ErrorData,
