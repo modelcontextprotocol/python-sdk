@@ -419,15 +419,30 @@ def echo(message: str) -> str:
 ```
 
 ```python
+# math.py
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP(name="MathServer", stateless_http=True)
+
+
+@mcp.tool(description="A simple add tool")
+def add_two(n: int) -> str:
+    return n + 2
+```
+
+```python
 # main.py
 from fastapi import FastAPI
-from routers import echo
+from mcp.echo import echo
+from mcp.math import math
+
 
 app = FastAPI()
 
 # Use the session manager's lifespan
 app = FastAPI(lifespan=lambda app: echo.mcp.session_manager.run())
 app.mount("/echo", echo.mcp.streamable_http_app())
+app.mount("/math", math.mcp.streamable_http_app())
 ```
 
 For low level server with Streamable HTTP implementations, see:
@@ -445,7 +460,7 @@ The streamable HTTP transport supports:
 
 ### Mounting to an Existing ASGI Server
 
-> **Note**: SSE transport is being superseded by streamable HTTP transport. Consider using streamable HTTP for production deployments.
+> **Note**: SSE transport is being superseded by [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http).
 
 You can mount the SSE server to an existing ASGI server using the `sse_app` method. This allows you to integrate the SSE server with other ASGI applications.
 
@@ -679,7 +694,7 @@ if __name__ == "__main__":
 
 ### Writing MCP Clients
 
-The SDK provides a high-level client interface for connecting to MCP servers using various transports:
+The SDK provides a high-level client interface for connecting to MCP servers using various [transports](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports):
 
 ```python
 from mcp import ClientSession, StdioServerParameters, types
@@ -743,7 +758,7 @@ if __name__ == "__main__":
     asyncio.run(run())
 ```
 
-Clients can also connect using streamable HTTP transport:
+Clients can also connect using [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http):
 
 ```python
 from mcp.client.streamable_http import streamablehttp_client
