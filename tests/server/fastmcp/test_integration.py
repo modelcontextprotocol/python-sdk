@@ -15,8 +15,8 @@ import uvicorn
 
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
-from mcp.server.fastmcp import FastMCP
-from mcp.types import InitializeResult, TextContent
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.types import ElicitResult, InitializeResult, TextContent
 
 
 @pytest.fixture
@@ -44,6 +44,23 @@ def make_fastmcp_app():
     @mcp.tool(description="A simple echo tool")
     def echo(message: str) -> str:
         return f"Echo: {message}"
+
+    # Add a tool that uses elicitation
+    @mcp.tool(description="A tool that uses elicitation")
+    async def ask_user(prompt: str, ctx: Context) -> str:
+        schema = {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+            },
+            "required": ["answer"],
+        }
+
+        response = await ctx.elicit(
+            message=f"Tool wants to ask: {prompt}",
+            requestedSchema=schema,
+        )
+        return f"User answered: {response['answer']}"
 
     # Create the SSE app
     app: Starlette = mcp.sse_app()
@@ -110,3 +127,36 @@ async def test_fastmcp_without_auth(server: None, server_url: str) -> None:
             assert len(tool_result.content) == 1
             assert isinstance(tool_result.content[0], TextContent)
             assert tool_result.content[0].text == "Echo: hello"
+
+
+@pytest.mark.anyio
+async def test_elicitation_feature(server: None, server_url: str) -> None:
+    """Test the elicitation feature."""
+
+    # Create a custom handler for elicitation requests
+    async def elicitation_callback(context, params):
+        # Verify the elicitation parameters
+        if params.message == "Tool wants to ask: What is your name?":
+            return ElicitResult(content={"answer": "Test User"})
+        else:
+            raise ValueError("Unexpected elicitation message")
+
+    # Connect to the server with our custom elicitation handler
+    async with sse_client(server_url + "/sse") as streams:
+        async with ClientSession(
+            *streams, elicitation_callback=elicitation_callback
+        ) as session:
+            # First initialize the session
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "NoAuthServer"
+
+            # Call the tool that uses elicitation
+            tool_result = await session.call_tool(
+                "ask_user", {"prompt": "What is your name?"}
+            )
+            # Verify the result
+            assert len(tool_result.content) == 1
+            assert isinstance(tool_result.content[0], TextContent)
+            # # The test should only succeed with the successful elicitation response
+            assert tool_result.content[0].text == "User answered: Test User"

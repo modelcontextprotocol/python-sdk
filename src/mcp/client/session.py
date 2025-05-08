@@ -22,6 +22,14 @@ class SamplingFnT(Protocol):
     ) -> types.CreateMessageResult | types.ErrorData: ...
 
 
+class ElicitationFnT(Protocol):
+    async def __call__(
+        self,
+        context: RequestContext["ClientSession", Any],
+        params: types.ElicitRequestParams,
+    ) -> types.ElicitResult | types.ErrorData: ...
+
+
 class ListRootsFnT(Protocol):
     async def __call__(
         self, context: RequestContext["ClientSession", Any]
@@ -62,6 +70,16 @@ async def _default_sampling_callback(
     )
 
 
+async def _default_elicitation_callback(
+    context: RequestContext["ClientSession", Any],
+    params: types.ElicitRequestParams,
+) -> types.ElicitResult | types.ErrorData:
+    return types.ErrorData(
+        code=types.INVALID_REQUEST,
+        message="Elicitation not supported",
+    )
+
+
 async def _default_list_roots_callback(
     context: RequestContext["ClientSession", Any],
 ) -> types.ListRootsResult | types.ErrorData:
@@ -97,6 +115,7 @@ class ClientSession(
         write_stream: MemoryObjectSendStream[SessionMessage],
         read_timeout_seconds: timedelta | None = None,
         sampling_callback: SamplingFnT | None = None,
+        elicitation_callback: ElicitationFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
@@ -111,12 +130,16 @@ class ClientSession(
         )
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
+        self._elicitation_callback = (
+            elicitation_callback or _default_elicitation_callback
+        )
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability()
+        elicitation = types.ElicitationCapability()
         roots = types.RootsCapability(
             # TODO: Should this be based on whether we
             # _will_ send notifications, or only whether
@@ -132,6 +155,7 @@ class ClientSession(
                         protocolVersion=types.LATEST_PROTOCOL_VERSION,
                         capabilities=types.ClientCapabilities(
                             sampling=sampling,
+                            elicitation=elicitation,
                             experimental=None,
                             roots=roots,
                         ),
@@ -352,6 +376,12 @@ class ClientSession(
             case types.CreateMessageRequest(params=params):
                 with responder:
                     response = await self._sampling_callback(ctx, params)
+                    client_response = ClientResponse.validate_python(response)
+                    await responder.respond(client_response)
+
+            case types.ElicitRequest(params=params):
+                with responder:
+                    response = await self._elicitation_callback(ctx, params)
                     client_response = ClientResponse.validate_python(response)
                     await responder.respond(client_response)
 
