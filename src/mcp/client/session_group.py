@@ -10,14 +10,57 @@ hook.
 
 import contextlib
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Any, TypeAlias
 
 from pydantic import BaseModel
 
 import mcp
 from mcp import types
+from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters
+from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.exceptions import McpError
+
+
+class SseServerParameters(BaseModel):
+    """Parameters for intializing a sse_client."""
+
+    # The endpoint URL.
+    url: str
+
+    # Optional headers to include in requests.
+    headers: dict[str, Any] | None = None
+
+    # HTTP timeout for regular operations.
+    timeout: float = 5
+
+    # Timeout for SSE read operations.
+    sse_read_timeout: float = 60 * 5
+
+
+class StreamableHttpParameters(BaseModel):
+    """Parameters for intializing a streamablehttp_client."""
+
+    # The endpoint URL.
+    url: str
+
+    # Optional headers to include in requests.
+    headers: dict[str, Any] | None = None
+
+    # HTTP timeout for regular operations.
+    timeout: timedelta = timedelta(seconds=30)
+
+    # Timeout for SSE read operations.
+    sse_read_timeout: timedelta = timedelta(seconds=60 * 5)
+
+    # Close the client session when the transport closes.
+    terminate_on_close: bool = True
+
+
+ServerParameters: TypeAlias = (
+    StdioServerParameters | SseServerParameters | StreamableHttpParameters
+)
 
 
 class ClientSessionGroup:
@@ -118,7 +161,7 @@ class ClientSessionGroup:
 
     async def connect_to_server(
         self,
-        server_params: StdioServerParameters,
+        server_params: ServerParameters,
     ) -> mcp.ClientSession:
         """Connects to a single MCP server."""
 
@@ -190,11 +233,32 @@ class ClientSessionGroup:
         return session
 
     async def _establish_session(
-        self, server_params: StdioServerParameters
+        self, server_params: ServerParameters
     ) -> tuple[types.Implementation, mcp.ClientSession]:
         """Establish a client session to an MCP server."""
-        client = mcp.stdio_client(server_params)
-        read, write = await self._exit_stack.enter_async_context(client)
+
+        # Create read and write streams that facilitate io with the server.
+        if isinstance(server_params, StdioServerParameters):
+            client = mcp.stdio_client(server_params)
+            read, write = await self._exit_stack.enter_async_context(client)
+        elif isinstance(server_params, SseServerParameters):
+            client = sse_client(
+                url=server_params.url,
+                headers=server_params.headers,
+                timeout=server_params.timeout,
+                sse_read_timeout=server_params.sse_read_timeout,
+            )
+            read, write = await self._exit_stack.enter_async_context(client)
+        else:
+            client = streamablehttp_client(
+                url=server_params.url,
+                headers=server_params.headers,
+                timeout=server_params.timeout,
+                sse_read_timeout=server_params.sse_read_timeout,
+                terminate_on_close=server_params.terminate_on_close,
+            )
+            read, write, _ = await self._exit_stack.enter_async_context(client)
+
         session = await self._exit_stack.enter_async_context(
             mcp.ClientSession(read, write)
         )

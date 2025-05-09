@@ -5,7 +5,11 @@ import pytest
 
 import mcp
 from mcp import types
-from mcp.client.session_group import ClientSessionGroup
+from mcp.client.session_group import (
+    ClientSessionGroup,
+    SseServerParameters,
+    StreamableHttpParameters,
+)
 from mcp.client.stdio import StdioServerParameters
 from mcp.shared.exceptions import McpError
 
@@ -17,12 +21,6 @@ def mock_exit_stack():
     # if only attribute access/existence is needed.
     # For AsyncExitStack, Mock or MagicMock is usually fine.
     return mock.MagicMock(spec=contextlib.AsyncExitStack)
-
-
-@pytest.fixture
-def mock_server_params():  # No mocker needed here
-    """Fixture for mocked StdioServerParameters."""
-    return mock.Mock(spec=StdioServerParameters)
 
 
 @pytest.mark.anyio
@@ -79,7 +77,7 @@ class TestClientSessionGroup:
             {"name": "value1", "args": {}},
         )
 
-    async def test_connect_to_server(self, mock_exit_stack, mock_server_params):
+    async def test_connect_to_server(self, mock_exit_stack):
         """Test connecting to a server and aggregating components."""
         # --- Mock Dependencies ---
         mock_server_info = mock.Mock(spec=types.Implementation)
@@ -102,7 +100,7 @@ class TestClientSessionGroup:
         with mock.patch.object(
             group, "_establish_session", return_value=(mock_server_info, mock_session)
         ):
-            await group.connect_to_server(mock_server_params)
+            await group.connect_to_server(StdioServerParameters(command="test"))
 
         # --- Assertions ---
         assert mock_session in group._sessions
@@ -120,9 +118,7 @@ class TestClientSessionGroup:
         mock_session.list_resources.assert_awaited_once()
         mock_session.list_prompts.assert_awaited_once()
 
-    async def test_connect_to_server_with_name_hook(
-        self, mock_exit_stack, mock_server_params
-    ):
+    async def test_connect_to_server_with_name_hook(self, mock_exit_stack):
         """Test connecting with a component name hook."""
         # --- Mock Dependencies ---
         mock_server_info = mock.Mock(spec=types.Implementation)
@@ -145,7 +141,7 @@ class TestClientSessionGroup:
         with mock.patch.object(
             group, "_establish_session", return_value=(mock_server_info, mock_session)
         ):
-            await group.connect_to_server(mock_server_params)
+            await group.connect_to_server(StdioServerParameters(command="test"))
 
         # --- Assertions ---
         assert mock_session in group._sessions
@@ -218,9 +214,7 @@ class TestClientSessionGroup:
         assert "res1" not in group._resources
         assert "prm1" not in group._prompts
 
-    async def test_connect_to_server_duplicate_tool_raises_error(
-        self, mock_exit_stack, mock_server_params
-    ):
+    async def test_connect_to_server_duplicate_tool_raises_error(self, mock_exit_stack):
         """Test McpError raised when connecting a server with a dup name."""
         # --- Setup Pre-existing State ---
         group = ClientSessionGroup(exit_stack=mock_exit_stack)
@@ -255,7 +249,7 @@ class TestClientSessionGroup:
                 "_establish_session",
                 return_value=(mock_server_info_new, mock_session_new),
             ):
-                await group.connect_to_server(mock_server_params)
+                await group.connect_to_server(StdioServerParameters(command="test"))
 
         # Assert details about the raised error
         assert excinfo.value.error.code == types.INVALID_PARAMS
@@ -269,9 +263,127 @@ class TestClientSessionGroup:
         )  # Ensure it's the original mock
 
     # No patching needed here
-    def test_disconnect_non_existent_server(self):  # No mock arguments needed
+    def test_disconnect_non_existent_server(self):
         """Test disconnecting a server that isn't connected."""
         session = mock.Mock(spec=mcp.ClientSession)
         group = ClientSessionGroup()
         with pytest.raises(McpError):
             group.disconnect_from_server(session)
+
+    @pytest.mark.parametrize(
+        "server_params_instance, client_type_name, patch_target_for_client_func",
+        [
+            (
+                StdioServerParameters(command="test_stdio_cmd"),
+                "stdio",
+                "mcp.client.session_group.mcp.stdio_client",
+            ),
+            (
+                SseServerParameters(url="http://test.com/sse", timeout=10),
+                "sse",
+                "mcp.client.session_group.sse_client",
+            ),  # url, headers, timeout, sse_read_timeout
+            (
+                StreamableHttpParameters(
+                    url="http://test.com/stream", terminate_on_close=False
+                ),
+                "streamablehttp",
+                "mcp.client.session_group.streamablehttp_client",
+            ),  # url, headers, timeout, sse_read_timeout, terminate_on_close
+        ],
+    )
+    async def test_establish_session_parameterized(
+        self,
+        server_params_instance,
+        client_type_name,  # Just for clarity or conditional logic if needed
+        patch_target_for_client_func,
+    ):
+        with mock.patch(
+            "mcp.client.session_group.mcp.ClientSession"
+        ) as mock_ClientSession_class:
+            with mock.patch(patch_target_for_client_func) as mock_specific_client_func:
+                mock_client_cm_instance = mock.AsyncMock(
+                    name=f"{client_type_name}ClientCM"
+                )
+                mock_read_stream = mock.AsyncMock(name=f"{client_type_name}Read")
+                mock_write_stream = mock.AsyncMock(name=f"{client_type_name}Write")
+
+                # streamablehttp_client's __aenter__ returns three values
+                if client_type_name == "streamablehttp":
+                    mock_extra_stream_val = mock.AsyncMock(name="StreamableExtra")
+                    mock_client_cm_instance.__aenter__.return_value = (
+                        mock_read_stream,
+                        mock_write_stream,
+                        mock_extra_stream_val,
+                    )
+                else:
+                    mock_client_cm_instance.__aenter__.return_value = (
+                        mock_read_stream,
+                        mock_write_stream,
+                    )
+
+                mock_client_cm_instance.__aexit__ = mock.AsyncMock(return_value=None)
+                mock_specific_client_func.return_value = mock_client_cm_instance
+
+                # --- Mock mcp.ClientSession (class) ---
+                # mock_ClientSession_class is already provided by the outer patch
+                mock_raw_session_cm = mock.AsyncMock(name="RawSessionCM")
+                mock_ClientSession_class.return_value = mock_raw_session_cm
+
+                mock_entered_session = mock.AsyncMock(name="EnteredSessionInstance")
+                mock_raw_session_cm.__aenter__.return_value = mock_entered_session
+                mock_raw_session_cm.__aexit__ = mock.AsyncMock(return_value=None)
+
+                # Mock session.initialize()
+                mock_initialize_result = mock.AsyncMock(name="InitializeResult")
+                mock_initialize_result.serverInfo = types.Implementation(
+                    name="foo", version="1"
+                )
+                mock_entered_session.initialize.return_value = mock_initialize_result
+
+                # --- Test Execution ---
+                group = ClientSessionGroup()
+                returned_server_info = None
+                returned_session = None
+
+                async with contextlib.AsyncExitStack() as stack:
+                    group._exit_stack = stack
+                    (
+                        returned_server_info,
+                        returned_session,
+                    ) = await group._establish_session(server_params_instance)
+
+                # --- Assertions ---
+                # 1. Assert the correct specific client function was called
+                if client_type_name == "stdio":
+                    mock_specific_client_func.assert_called_once_with(
+                        server_params_instance
+                    )
+                elif client_type_name == "sse":
+                    mock_specific_client_func.assert_called_once_with(
+                        url=server_params_instance.url,
+                        headers=server_params_instance.headers,
+                        timeout=server_params_instance.timeout,
+                        sse_read_timeout=server_params_instance.sse_read_timeout,
+                    )
+                elif client_type_name == "streamablehttp":
+                    mock_specific_client_func.assert_called_once_with(
+                        url=server_params_instance.url,
+                        headers=server_params_instance.headers,
+                        timeout=server_params_instance.timeout,
+                        sse_read_timeout=server_params_instance.sse_read_timeout,
+                        terminate_on_close=server_params_instance.terminate_on_close,
+                    )
+
+                mock_client_cm_instance.__aenter__.assert_awaited_once()
+
+                # 2. Assert ClientSession was called correctly
+                mock_ClientSession_class.assert_called_once_with(
+                    mock_read_stream, mock_write_stream
+                )
+                mock_raw_session_cm.__aenter__.assert_awaited_once()
+                mock_entered_session.initialize.assert_awaited_once()
+
+                # 3. Assert returned values
+                assert returned_server_info is mock_initialize_result.serverInfo
+                assert returned_session is mock_entered_session
