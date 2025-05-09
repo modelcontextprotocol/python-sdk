@@ -760,7 +760,7 @@ class Tool(BaseModel):
     """The name of the tool."""
     description: str | None = None
     """A human-readable description of the tool."""
-    inputSchema: dict[str, Any]
+    input_schema: dict[str, Any] = Field(..., alias='inputSchema')
     """A JSON Schema object defining the expected parameters for the tool."""
     annotations: ToolAnnotations | None = None
     """Optional additional tool information."""
