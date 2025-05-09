@@ -495,6 +495,7 @@ dependencies = [
     { name = "anyio" },
     { name = "httpx" },
     { name = "httpx-sse" },
+    { name = "psutil" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
@@ -538,6 +539,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "httpx-sse", specifier = ">=0.4" },
+    { name = "psutil", specifier = ">=5.9.0" },
     { name = "pydantic", specifier = ">=2.7.2,<3.0.0" },
     { name = "pydantic-settings", specifier = ">=2.5.2" },
     { name = "python-dotenv", marker = "extra == 'cli'", specifier = ">=1.0.0" },
@@ -1062,6 +1064,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/96/2d/02d4312c973c6050a18b314a5ad0b3210edb65a906f868e31c111dede4a6/pluggy-1.5.0.tar.gz", hash = "sha256:2cffa88e94fdc978c4c574f15f9e59b7f4201d439195c3715ca9e2486f1d0cf1", size = 67955 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/5f/e351af9a41f866ac3f1fac4ca0613908d9a41741cfcf2228f4ad853b697d/pluggy-1.5.0-py3-none-any.whl", hash = "sha256:44e1ad92c8ca002de6377e165f3e0f1be63266ab4d554740532335b9d75ea669", size = 20556 },
+]
+
+[[package]]
+name = "psutil"
+version = "5.9.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/b6/ea8a7728f096a597f0032564e8013b705aa992a0990becd773dcc4d7b4a7/psutil-5.9.0.tar.gz", hash = "sha256:869842dbd66bb80c3217158e629d6fceaecc3a3166d3d1faee515b05dd26ca25", size = 478322 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/89/48/2c6f566d35a38fb9f882e51d75425a6f1d097cb946e05b6aff98d450a151/psutil-5.9.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:90a58b9fcae2dbfe4ba852b57bd4a1dded6b990a33d6428c7614b7d48eccb492", size = 238624 },
+    { url = "https://files.pythonhosted.org/packages/11/46/e790221e8281af5163517a17a20c88b10a75a5642d9c5106a868f2879edd/psutil-5.9.0-cp310-cp310-manylinux_2_12_i686.manylinux2010_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:ff0d41f8b3e9ebb6b6110057e40019a432e96aae2008951121ba4e56040b84f3", size = 279343 },
+    { url = "https://files.pythonhosted.org/packages/6f/8a/d1810472a4950a31df385eafbc9bd20cde971814ff6533021dc565bf14ae/psutil-5.9.0-cp310-cp310-manylinux_2_12_x86_64.manylinux2010_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:742c34fff804f34f62659279ed5c5b723bb0195e9d7bd9907591de9f8f6558e2", size = 281400 },
+    { url = "https://files.pythonhosted.org/packages/61/93/4251cfa58e5bbd7f92e1bfb965a0c41376cbcbc83c524a8b60d2678f0edd/psutil-5.9.0-cp310-cp310-win32.whl", hash = "sha256:8293942e4ce0c5689821f65ce6522ce4786d02af57f13c0195b40e1edb1db61d", size = 241383 },
+    { url = "https://files.pythonhosted.org/packages/9f/c9/7fb339d6a04db3b4ab94671536d11e03b23c056d1604e50e564075a96cd8/psutil-5.9.0-cp310-cp310-win_amd64.whl", hash = "sha256:9b51917c1af3fa35a3f2dabd7ba96a2a4f19df3dec911da73875e1edaf22a40b", size = 245540 },
 ]
 
 [[package]]
