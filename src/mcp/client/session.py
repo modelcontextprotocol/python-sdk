@@ -140,6 +140,12 @@ class ClientSession(
                 )
             ),
             types.InitializeResult,
+            # TODO should set a request_read_timeout_seconds as per
+            # guidance from BaseSession.send_request not obvious
+            # what subsequent process should be, refer the following
+            # specification for more details
+            # https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/cancellation
+            cancellable=False,
         )
 
         if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
@@ -259,6 +265,7 @@ class ClientSession(
         name: str,
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
+        cancellable: bool = True,
     ) -> types.CallToolResult:
         """Send a tools/call request."""
 
@@ -271,6 +278,7 @@ class ClientSession(
             ),
             types.CallToolResult,
             request_read_timeout_seconds=read_timeout_seconds,
+            cancellable=cancellable,
         )
 
     async def list_prompts(self) -> types.ListPromptsResult:

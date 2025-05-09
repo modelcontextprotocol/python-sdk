@@ -14,7 +14,9 @@ from typing_extensions import Self
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.types import (
+    REQUEST_CANCELLED,
     CancelledNotification,
+    CancelledNotificationParams,
     ClientNotification,
     ClientRequest,
     ClientResult,
@@ -33,6 +35,12 @@ from mcp.types import (
 SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
 SendResultT = TypeVar("SendResultT", ClientResult, ServerResult)
 SendNotificationT = TypeVar("SendNotificationT", ClientNotification, ServerNotification)
+SendNotificationInternalT = TypeVar(
+    "SendNotificationInternalT",
+    CancelledNotification,
+    ClientNotification,
+    ServerNotification,
+)
 ReceiveRequestT = TypeVar("ReceiveRequestT", ClientRequest, ServerRequest)
 ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 ReceiveNotificationT = TypeVar(
@@ -214,11 +222,24 @@ class BaseSession(
         result_type: type[ReceiveResultT],
         request_read_timeout_seconds: timedelta | None = None,
         metadata: MessageMetadata = None,
+        cancellable: bool = True,
     ) -> ReceiveResultT:
         """
         Sends a request and wait for a response. Raises an McpError if the
         response contains an error. If a request read timeout is provided, it
         will take precedence over the session read timeout.
+
+        If cancellable is set to False then the request will wait
+        request_read_timeout_seconds to complete and ignore any attempt to
+        cancel via the anyio.CancelScope within which this method was called.
+
+        If cancellable is set to True (default) if the anyio.CancelScope within
+        which this method was called is cancelled it will generate a
+        CancelationNotfication and send this to the server which should then abort
+        the task however the server is is not guaranteed to honour this request.
+
+        For further information on the CancelNotification flow refer to
+        https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/cancellation
 
         Do not use this method to emit notifications! Use send_notification()
         instead.
@@ -254,20 +275,38 @@ class BaseSession(
             elif self._session_read_timeout_seconds is not None:
                 timeout = self._session_read_timeout_seconds.total_seconds()
 
-            try:
-                with anyio.fail_after(timeout):
-                    response_or_error = await response_stream_reader.receive()
-            except TimeoutError:
-                raise McpError(
-                    ErrorData(
-                        code=httpx.codes.REQUEST_TIMEOUT,
-                        message=(
-                            f"Timed out while waiting for response to "
-                            f"{request.__class__.__name__}. Waited "
-                            f"{timeout} seconds."
-                        ),
+            with anyio.CancelScope(shield=not cancellable):
+                try:
+                    with anyio.fail_after(timeout) as scope:
+                        response_or_error = await response_stream_reader.receive()
+
+                        if scope.cancel_called:
+                            notification = CancelledNotification(
+                                method="notifications/cancelled",
+                                params=CancelledNotificationParams(
+                                    requestId=request_id, reason="cancelled"
+                                ),
+                            )
+                            await self._send_notification_internal(
+                                notification, request_id
+                            )
+                            raise McpError(
+                                ErrorData(
+                                    code=REQUEST_CANCELLED, message="Request cancelled"
+                                )
+                            )
+
+                except TimeoutError:
+                    raise McpError(
+                        ErrorData(
+                            code=httpx.codes.REQUEST_TIMEOUT,
+                            message=(
+                                f"Timed out while waiting for response to "
+                                f"{request.__class__.__name__}. Waited "
+                                f"{timeout} seconds."
+                            ),
+                        )
                     )
-                )
 
             if isinstance(response_or_error, JSONRPCError):
                 raise McpError(response_or_error.error)
@@ -288,6 +327,16 @@ class BaseSession(
         Emits a notification, which is a one-way message that does not expect
         a response.
         """
+        await self._send_notification_internal(notification, related_request_id)
+
+    # this method is required as SendNotificationT type checking prevents
+    # internal use for sending cancelation - typechecking sorcery may be
+    # required
+    async def _send_notification_internal(
+        self,
+        notification: SendNotificationInternalT,
+        related_request_id: RequestId | None = None,
+    ) -> None:
         # Some transport implementations may need to set the related_request_id
         # to attribute to the notifications to the request that triggered them.
         jsonrpc_notification = JSONRPCNotification(

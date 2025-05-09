@@ -85,7 +85,7 @@ from mcp.server.stdio import stdio_server as stdio_server
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
-from mcp.shared.session import RequestResponder
+from mcp.shared.session import RequestId, RequestResponder
 
 logger = logging.getLogger(__name__)
 
@@ -427,7 +427,7 @@ class Server(Generic[LifespanResultT]):
 
     def progress_notification(self):
         def decorator(
-            func: Callable[[str | int, float, float | None], Awaitable[None]],
+            func: Callable[[types.ProgressToken, float, float | None], Awaitable[None]],
         ):
             logger.debug("Registering handler for ProgressNotification")
 
@@ -437,6 +437,20 @@ class Server(Generic[LifespanResultT]):
                 )
 
             self.notification_handlers[types.ProgressNotification] = handler
+            return func
+
+        return decorator
+
+    def cancel_notification(self):
+        def decorator(
+            func: Callable[[RequestId, str | None], Awaitable[None]],
+        ):
+            logger.debug("Registering handler for CancelledNotification")
+
+            async def handler(req: types.CancelledNotification):
+                await func(req.params.requestId, req.params.reason)
+
+            self.notification_handlers[types.CancelledNotification] = handler
             return func
 
         return decorator
