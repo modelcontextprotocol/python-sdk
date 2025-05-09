@@ -177,7 +177,7 @@ def build_metadata(
         issuer=issuer_url,
         authorization_endpoint=authorization_url,
         token_endpoint=token_url,
-        scopes_supported=None,
+        scopes_supported=client_registration_options.valid_scopes,
         response_types_supported=["code"],
         response_modes_supported=None,
         grant_types_supported=["authorization_code", "refresh_token"],
