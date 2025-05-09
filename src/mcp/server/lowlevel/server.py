@@ -37,7 +37,8 @@ Usage:
 3. Define notification handlers if needed:
    @server.progress_notification()
    async def handle_progress(
-       progress_token: str | int, progress: float, total: float | None
+       progress_token: str | int, progress: float, total: float | None,
+       message: str | None
    ) -> None:
        # Implementation
 
@@ -427,13 +428,18 @@ class Server(Generic[LifespanResultT]):
 
     def progress_notification(self):
         def decorator(
-            func: Callable[[str | int, float, float | None], Awaitable[None]],
+            func: Callable[
+                [str | int, float, float | None, str | None], Awaitable[None]
+            ],
         ):
             logger.debug("Registering handler for ProgressNotification")
 
             async def handler(req: types.ProgressNotification):
                 await func(
-                    req.params.progressToken, req.params.progress, req.params.total
+                    req.params.progressToken,
+                    req.params.progress,
+                    req.params.total,
+                    req.params.message,
                 )
 
             self.notification_handlers[types.ProgressNotification] = handler
