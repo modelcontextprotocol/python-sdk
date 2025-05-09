@@ -168,3 +168,8 @@ cython_debug/
 .vscode/
 .windsurfrules
 **/CLAUDE.local.md
+"examples/mcp_demo.zip" 
+"examples/mcp_demo/" 
+"mcp_client.py" 
+"mcp_server.py" 
+"tests/python-3.12.10-amd64.exe" 
