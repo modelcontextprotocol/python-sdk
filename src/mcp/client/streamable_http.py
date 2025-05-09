@@ -18,6 +18,7 @@ import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
     ErrorData,
@@ -446,12 +447,11 @@ async def streamablehttp_client(
         try:
             logger.info(f"Connecting to StreamableHTTP endpoint: {url}")
 
-            async with httpx.AsyncClient(
+            async with create_mcp_http_client(
                 headers=transport.request_headers,
                 timeout=httpx.Timeout(
                     transport.timeout.seconds, read=transport.sse_read_timeout.seconds
                 ),
-                follow_redirects=True,
             ) as client:
                 # Define callbacks that need access to tg
                 def start_get_stream() -> None:
