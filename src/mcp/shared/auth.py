@@ -100,6 +100,18 @@ class OAuthClientInformationFull(OAuthClientMetadata):
     client_secret_expires_at: int | None = None
 
 
+class OAuthClientInformation(BaseModel):
+    """
+    RFC 7591 OAuth 2.0 Dynamic Client Registration full response
+    (client information plus metadata).
+    """
+
+    client_id: str
+    client_secret: str | None = None
+    client_id_issued_at: int | None = None
+    client_secret_expires_at: int | None = None
+
+
 class OAuthMetadata(BaseModel):
     """
     RFC 8414 OAuth 2.0 Authorization Server Metadata.

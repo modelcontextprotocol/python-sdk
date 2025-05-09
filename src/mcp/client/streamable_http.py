@@ -18,6 +18,7 @@ import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
+from mcp.client.auth import OAuthAuthorization, OAuthClientProvider
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
@@ -37,6 +38,7 @@ SessionMessageOrError = SessionMessage | Exception
 StreamWriter = MemoryObjectSendStream[SessionMessageOrError]
 StreamReader = MemoryObjectReceiveStream[SessionMessage]
 GetSessionIdCallback = Callable[[], str | None]
+FinishAuthCallback = Callable[[str], Awaitable[None]]
 
 MCP_SESSION_ID = "mcp-session-id"
 LAST_EVENT_ID = "last-event-id"
@@ -82,6 +84,7 @@ class StreamableHTTPTransport:
         headers: dict[str, Any] | None = None,
         timeout: timedelta = timedelta(seconds=30),
         sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
+        auth_provider: OAuthClientProvider | None = None,
     ) -> None:
         """Initialize the StreamableHTTP transport.
 
@@ -90,12 +93,14 @@ class StreamableHTTPTransport:
             headers: Optional headers to include in requests.
             timeout: HTTP timeout for regular operations.
             sse_read_timeout: Timeout for SSE read operations.
+            oauth_provider: Optional OAuth provider for token management.
         """
         self.url = url
         self.headers = headers or {}
         self.timeout = timeout
         self.sse_read_timeout = sse_read_timeout
         self.session_id: str | None = None
+        self.auth = OAuthAuthorization(auth_provider, url) if auth_provider else None
         self.request_headers = {
             ACCEPT: f"{JSON}, {SSE}",
             CONTENT_TYPE: JSON,
@@ -183,7 +188,7 @@ class StreamableHTTPTransport:
             if not self.session_id:
                 return
 
-            headers = self._update_headers_with_session(self.request_headers)
+            headers = await self._get_request_headers()
 
             async with aconnect_sse(
                 client,
@@ -205,7 +210,7 @@ class StreamableHTTPTransport:
 
     async def _handle_resumption_request(self, ctx: RequestContext) -> None:
         """Handle a resumption request using GET with SSE."""
-        headers = self._update_headers_with_session(ctx.headers)
+        headers = await self._get_request_headers()
         if ctx.metadata and ctx.metadata.resumption_token:
             headers[LAST_EVENT_ID] = ctx.metadata.resumption_token
         else:
@@ -239,8 +244,8 @@ class StreamableHTTPTransport:
                     break
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
-        """Handle a  POST request with response processing."""
-        headers = self._update_headers_with_session(ctx.headers)
+        """Handle a POST request with response processing."""
+        headers = await self._get_request_headers()
         message = ctx.session_message.message
         is_initialization = self._is_initialization_request(message)
 
@@ -392,7 +397,7 @@ class StreamableHTTPTransport:
             return
 
         try:
-            headers = self._update_headers_with_session(self.request_headers)
+            headers = await self._get_request_headers()
             response = await client.delete(self.url, headers=headers)
 
             if response.status_code == 405:
@@ -406,6 +411,26 @@ class StreamableHTTPTransport:
         """Get the current session ID."""
         return self.session_id
 
+    async def _get_request_headers(self) -> dict[str, str]:
+        """Get the current request headers, including OAuth token if available.
+
+        Returns:
+            Dictionary of headers to use for the request.
+        """
+        headers = self.request_headers.copy()
+
+        if self.auth:
+            token = await self.auth.authorize()
+            if token:
+                headers["Authorization"] = f"Bearer {token.access_token}"
+
+        return self._update_headers_with_session(headers)
+
+    async def finish_auth(self, authorization_code: str) -> None:
+        if self.auth is None:
+            raise ValueError("OAuth provider not configured, cannot finish OAuth")
+        await self.auth.authorize(authorization_code)
+
 
 @asynccontextmanager
 async def streamablehttp_client(
@@ -414,11 +439,13 @@ async def streamablehttp_client(
     timeout: timedelta = timedelta(seconds=30),
     sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
     terminate_on_close: bool = True,
+    auth_provider: OAuthClientProvider | None = None,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
         MemoryObjectSendStream[SessionMessage],
         GetSessionIdCallback,
+        FinishAuthCallback,
     ],
     None,
 ]:
@@ -428,13 +455,32 @@ async def streamablehttp_client(
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
 
+    Args:
+        url: The endpoint URL.
+        headers: Optional headers to include in requests.
+        timeout: HTTP timeout for regular operations.
+        sse_read_timeout: Timeout for SSE read operations.
+        terminate_on_close: Whether to terminate the session on close.
+        auth_provider: Optional OAuth provider for token management.
+
     Yields:
         Tuple containing:
             - read_stream: Stream for reading messages from the server
             - write_stream: Stream for sending messages to the server
             - get_session_id_callback: Function to retrieve the current session ID
+            - finish_auth_callback: Function to call after the user has finished
+                authorizing via their user agent and is redirected back to the MCP
+                client application. This will exchange the authorization code for an
+                access token, enabling the next connection attempt to successfully
+                authenticate.
     """
-    transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout)
+    transport = StreamableHTTPTransport(
+        url,
+        headers,
+        timeout,
+        sse_read_timeout,
+        auth_provider=auth_provider,
+    )
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream[
         SessionMessage | Exception
@@ -473,6 +519,7 @@ async def streamablehttp_client(
                         read_stream,
                         write_stream,
                         transport.get_session_id,
+                        transport.finish_auth,
                     )
                 finally:
                     if transport.session_id and terminate_on_close:

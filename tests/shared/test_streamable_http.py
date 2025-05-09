@@ -711,6 +711,7 @@ async def initialized_client_session(basic_server, basic_server_url):
         read_stream,
         write_stream,
         _,
+        _,
     ):
         async with ClientSession(
             read_stream,
@@ -726,6 +727,7 @@ async def test_streamablehttp_client_basic_connection(basic_server, basic_server
     async with streamablehttp_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
+        _,
         _,
     ):
         async with ClientSession(
@@ -784,6 +786,7 @@ async def test_streamablehttp_client_session_persistence(
         read_stream,
         write_stream,
         _,
+        _,
     ):
         async with ClientSession(
             read_stream,
@@ -813,6 +816,7 @@ async def test_streamablehttp_client_json_response(
     async with streamablehttp_client(f"{json_server_url}/mcp") as (
         read_stream,
         write_stream,
+        _,
         _,
     ):
         async with ClientSession(
@@ -856,6 +860,7 @@ async def test_streamablehttp_client_get_stream(basic_server, basic_server_url):
         read_stream,
         write_stream,
         _,
+        _,
     ):
         async with ClientSession(
             read_stream, write_stream, message_handler=message_handler
@@ -895,6 +900,7 @@ async def test_streamablehttp_client_session_termination(
         read_stream,
         write_stream,
         get_session_id,
+        _,
     ):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the session
@@ -914,6 +920,7 @@ async def test_streamablehttp_client_session_termination(
     async with streamablehttp_client(f"{basic_server_url}/mcp", headers=headers) as (
         read_stream,
         write_stream,
+        _,
         _,
     ):
         async with ClientSession(read_stream, write_stream) as session:
@@ -958,6 +965,7 @@ async def test_streamablehttp_client_resumption(event_server):
         read_stream,
         write_stream,
         get_session_id,
+        _,
     ):
         async with ClientSession(
             read_stream, write_stream, message_handler=message_handler
@@ -1009,6 +1017,7 @@ async def test_streamablehttp_client_resumption(event_server):
     async with streamablehttp_client(f"{server_url}/mcp", headers=headers) as (
         read_stream,
         write_stream,
+        _,
         _,
     ):
         async with ClientSession(
