@@ -186,13 +186,8 @@ class OAuthAuthorization:
             resp = await client.get(
                 url, headers={"MCP-Protocol-Version": LATEST_PROTOCOL_VERSION}
             )
-            if resp.status_code == 404:
+            if resp.status_code != 200:
                 return None
-            elif resp.status_code != 200:
-                raise ValueError(
-                    f"Failed to discover OAuth metadata: HTTP {resp.status_code} "
-                    f"{resp.text}"
-                )
             return OAuthMetadata(**resp.json())
 
     async def register_client(
