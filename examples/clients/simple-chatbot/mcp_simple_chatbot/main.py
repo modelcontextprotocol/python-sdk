@@ -245,7 +245,7 @@ class LLMClient:
         }
         payload = {
             "messages": messages,
-            "model": "llama-3.2-90b-vision-preview",
+            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
             "temperature": 0.7,
             "max_tokens": 4096,
             "top_p": 1,
