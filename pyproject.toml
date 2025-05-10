@@ -30,6 +30,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "sse-starlette>=1.6.1",
     "pydantic-settings>=2.5.2",
+    "psutil>=7.0.0",
     "uvicorn>=0.23.1; sys_platform != 'emscripten'",
 ]
 
