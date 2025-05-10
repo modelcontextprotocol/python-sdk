@@ -1,4 +1,5 @@
 from .client.session import ClientSession
+from .client.session_group import ClientSessionGroup
 from .client.stdio import StdioServerParameters, stdio_client
 from .server.session import ServerSession
 from .server.stdio import stdio_server
@@ -63,6 +64,7 @@ __all__ = [
     "ClientRequest",
     "ClientResult",
     "ClientSession",
+    "ClientSessionGroup",
     "CreateMessageRequest",
     "CreateMessageResult",
     "ErrorData",
