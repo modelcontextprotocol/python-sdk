@@ -54,8 +54,14 @@ class TestClientSessionGroup:
         mock_session = mock.AsyncMock()
 
         # --- Prepare Session Group ---
-        mcp_session_group = ClientSessionGroup()
-        mcp_session_group._tool_to_session = {"my_tool": mock_session}
+        def hook(name, server_info):
+            return f"{(server_info.name)}-{name}"
+
+        mcp_session_group = ClientSessionGroup(component_name_hook=hook)
+        mcp_session_group._tools = {
+            "server1-my_tool": types.Tool(name="my_tool", inputSchema={})
+        }
+        mcp_session_group._tool_to_session = {"server1-my_tool": mock_session}
         text_content = types.TextContent(type="text", text="OK")
         mock_session.call_tool.return_value = types.CallToolResult(
             content=[text_content]
@@ -63,7 +69,7 @@ class TestClientSessionGroup:
 
         # --- Test Execution ---
         result = await mcp_session_group.call_tool(
-            name="my_tool",
+            name="server1-my_tool",
             args={
                 "name": "value1",
                 "args": {},
@@ -151,7 +157,7 @@ class TestClientSessionGroup:
         assert group.tools[expected_tool_name] == mock_tool
         assert group._tool_to_session[expected_tool_name] == mock_session
 
-    def test_disconnect_from_server(self):  # No mock arguments needed
+    async def test_disconnect_from_server(self):  # No mock arguments needed
         """Test disconnecting from a server."""
         # --- Test Setup ---
         group = ClientSessionGroup()
@@ -205,7 +211,7 @@ class TestClientSessionGroup:
         assert "prm1" in group._prompts
 
         # --- Test Execution ---
-        group.disconnect_from_server(mock_session)
+        await group.disconnect_from_server(mock_session)
 
         # --- Assertions ---
         assert mock_session not in group._sessions
@@ -223,8 +229,10 @@ class TestClientSessionGroup:
         group._tools[existing_tool_name] = mock.Mock(spec=types.Tool)
         group._tools[existing_tool_name].name = existing_tool_name
         # Need a dummy session associated with the existing tool
-        group._tool_to_session[existing_tool_name] = mock.MagicMock(
-            spec=mcp.ClientSession
+        mock_session = mock.MagicMock(spec=mcp.ClientSession)
+        group._tool_to_session[existing_tool_name] = mock_session
+        group._session_exit_stacks[mock_session] = mock.Mock(
+            spec=contextlib.AsyncExitStack
         )
 
         # --- Mock New Connection Attempt ---
@@ -254,7 +262,7 @@ class TestClientSessionGroup:
         # Assert details about the raised error
         assert excinfo.value.error.code == types.INVALID_PARAMS
         assert existing_tool_name in excinfo.value.error.message
-        assert "already exists in group tools" in excinfo.value.error.message
+        assert "already exist " in excinfo.value.error.message
 
         # Verify the duplicate tool was *not* added again (state should be unchanged)
         assert len(group._tools) == 1  # Should still only have the original
@@ -263,12 +271,12 @@ class TestClientSessionGroup:
         )  # Ensure it's the original mock
 
     # No patching needed here
-    def test_disconnect_non_existent_server(self):
+    async def test_disconnect_non_existent_server(self):
         """Test disconnecting a server that isn't connected."""
         session = mock.Mock(spec=mcp.ClientSession)
         group = ClientSessionGroup()
         with pytest.raises(McpError):
-            group.disconnect_from_server(session)
+            await group.disconnect_from_server(session)
 
     @pytest.mark.parametrize(
         "server_params_instance, client_type_name, patch_target_for_client_func",

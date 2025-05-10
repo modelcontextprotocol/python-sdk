@@ -9,11 +9,14 @@ hook.
 """
 
 import contextlib
+import logging
 from collections.abc import Callable
 from datetime import timedelta
+from types import TracebackType
 from typing import Any, TypeAlias
 
 from pydantic import BaseModel
+from typing_extensions import Self
 
 import mcp
 from mcp import types
@@ -72,6 +75,14 @@ class ClientSessionGroup:
     For auxiliary handlers, such as resource subscription, this is delegated to
     the client and can be accessed via the session. For example:
       mcp_session_group.get_session("server_name").subscribe_to_resource(...)
+
+    Example Usage:
+        name_fn = lambda name, server_info: f"{(server_info.name)}-{name}"
+        with async ClientSessionGroup(component_name_hook=name_fn) as group:
+            for server_params in server_params:
+                group.connect_to_server(server_param)
+            ...
+
     """
 
     class _ComponentNames(BaseModel):
@@ -90,6 +101,7 @@ class ClientSessionGroup:
     _sessions: dict[mcp.ClientSession, _ComponentNames]
     _tool_to_session: dict[str, mcp.ClientSession]
     _exit_stack: contextlib.AsyncExitStack
+    _session_exit_stacks: dict[mcp.ClientSession, contextlib.AsyncExitStack]
 
     # Optional fn consuming (component_name, serverInfo) for custom names.
     # This is provide a means to mitigate naming conflicts across servers.
@@ -99,7 +111,7 @@ class ClientSessionGroup:
 
     def __init__(
         self,
-        exit_stack: contextlib.AsyncExitStack = contextlib.AsyncExitStack(),
+        exit_stack: contextlib.AsyncExitStack | None = None,
         component_name_hook: _ComponentNameHook | None = None,
     ) -> None:
         """Initializes the MCP client."""
@@ -110,8 +122,31 @@ class ClientSessionGroup:
 
         self._sessions = {}
         self._tool_to_session = {}
-        self._exit_stack = exit_stack
+        self._exit_stack = exit_stack or contextlib.AsyncExitStack()
+        self._session_exit_stacks = {}
         self._component_name_hook = component_name_hook
+
+    async def __aenter__(self) -> Self:
+        # If ClientSessionGroup itself is managing the lifecycle of _exit_stack
+        # (i.e., it created it), it should enter it.
+        # If _exit_stack was passed in, it's assumed the caller manages
+        # its entry/exit.
+        # For simplicity and consistency with how AsyncExitStack is often used when
+        # provided as a dependency, we might not need to enter it here if it's
+        # managed externally. However, if this class is the primary owner, entering it
+        # ensures its 'aclose' is called even if passed in. Let's assume the
+        # passed-in stack is already entered by the caller if needed.
+        # For now, we just return self as the main stack's lifecycle is tied to aclose.
+        return self
+
+    async def __aexit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc_val: BaseException | None,
+        _exc_tb: TracebackType | None,
+    ) -> bool | None:
+        await self._exit_stack.aclose()
+        return None  # Do not suppress exceptio
 
     @property
     def prompts(self) -> dict[str, types.Prompt]:
@@ -131,33 +166,45 @@ class ClientSessionGroup:
     async def call_tool(self, name: str, args: dict[str, Any]) -> types.CallToolResult:
         """Executes a tool given its name and arguments."""
         session = self._tool_to_session[name]
-        return await session.call_tool(name, args)
+        session_tool_name = self.tools[name].name
+        return await session.call_tool(session_tool_name, args)
 
-    def disconnect_from_server(self, session: mcp.ClientSession) -> None:
+    async def disconnect_from_server(self, session: mcp.ClientSession) -> None:
         """Disconnects from a single MCP server."""
 
-        if session not in self._sessions:
+        session_known_for_components = session in self._sessions
+        session_known_for_stack = session in self._session_exit_stacks
+
+        if not session_known_for_components and not session_known_for_stack:
             raise McpError(
                 types.ErrorData(
                     code=types.INVALID_PARAMS,
-                    message="Provided session is not being managed.",
+                    message="Provided session is not managed or already disconnected.",
                 )
             )
-        component_names = self._sessions[session]
 
-        # Remove prompts associated with the session.
-        for name in component_names.prompts:
-            del self._prompts[name]
+        if session_known_for_components:
+            component_names = self._sessions.pop(session)  # Pop from _sessions tracking
 
-        # Remove resources associated with the session.
-        for name in component_names.resources:
-            del self._resources[name]
+            # Remove prompts associated with the session.
+            for name in component_names.prompts:
+                if name in self._prompts:
+                    del self._prompts[name]
+            # Remove resources associated with the session.
+            for name in component_names.resources:
+                if name in self._resources:
+                    del self._resources[name]
+            # Remove tools associated with the session.
+            for name in component_names.tools:
+                if name in self._tools:
+                    del self._tools[name]
+                if name in self._tool_to_session:
+                    del self._tool_to_session[name]
 
-        # Remove tools associated with the session.
-        for name in component_names.tools:
-            del self._tools[name]
-
-        del self._sessions[session]
+        # Clean up the session's resources via its dedicated exit stack
+        if session_known_for_stack:
+            session_stack_to_close = self._session_exit_stacks.pop(session)
+            await session_stack_to_close.aclose()
 
     async def connect_to_server(
         self,
@@ -181,47 +228,66 @@ class ClientSessionGroup:
         tool_to_session_temp: dict[str, mcp.ClientSession] = {}
 
         # Query the server for its prompts and aggregate to list.
-        prompts = (await session.list_prompts()).prompts
-        for prompt in prompts:
-            name = self._component_name(prompt.name, server_info)
-            if name in self._prompts:
-                raise McpError(
-                    types.ErrorData(
-                        code=types.INVALID_PARAMS,
-                        message=f"{name} already exists in group prompts.",
-                    )
-                )
-            prompts_temp[name] = prompt
-            component_names.prompts.add(name)
+        try:
+            prompts = (await session.list_prompts()).prompts
+            for prompt in prompts:
+                name = self._component_name(prompt.name, server_info)
+                prompts_temp[name] = prompt
+                component_names.prompts.add(name)
+        except McpError as err:
+            logging.warning(f"Could not fetch prompts: {err}")
 
         # Query the server for its resources and aggregate to list.
-        resources = (await session.list_resources()).resources
-        for resource in resources:
-            name = self._component_name(resource.name, server_info)
-            if name in self._resources:
-                raise McpError(
-                    types.ErrorData(
-                        code=types.INVALID_PARAMS,
-                        message=f"{name} already exists in group resources.",
-                    )
-                )
-            resources_temp[name] = resource
-            component_names.resources.add(name)
+        try:
+            resources = (await session.list_resources()).resources
+            for resource in resources:
+                name = self._component_name(resource.name, server_info)
+                resources_temp[name] = resource
+                component_names.resources.add(name)
+        except McpError as err:
+            logging.warning(f"Could not fetch resources: {err}")
 
         # Query the server for its tools and aggregate to list.
-        tools = (await session.list_tools()).tools
-        for tool in tools:
-            name = self._component_name(tool.name, server_info)
-            if name in self._tools:
-                raise McpError(
-                    types.ErrorData(
-                        code=types.INVALID_PARAMS,
-                        message=f"{name} already exists in group tools.",
-                    )
+        try:
+            tools = (await session.list_tools()).tools
+            for tool in tools:
+                name = self._component_name(tool.name, server_info)
+                tools_temp[name] = tool
+                tool_to_session_temp[name] = session
+                component_names.tools.add(name)
+        except McpError as err:
+            logging.warning(f"Could not fetch tools: {err}")
+
+        # Clean up exit stack for session if we couldn't retrieve anything
+        # from the server.
+        if not any((prompts_temp, resources_temp, tools_temp)):
+            del self._session_exit_stacks[session]
+
+        # Check for duplicates.
+        matching_prompts = prompts_temp.keys() & self._prompts.keys()
+        if matching_prompts:
+            raise McpError(
+                types.ErrorData(
+                    code=types.INVALID_PARAMS,
+                    message=f"{matching_prompts} already exist in group prompts.",
                 )
-            tools_temp[name] = tool
-            tool_to_session_temp[name] = session
-            component_names.tools.add(name)
+            )
+        matching_resources = resources_temp.keys() & self._resources.keys()
+        if matching_resources:
+            raise McpError(
+                types.ErrorData(
+                    code=types.INVALID_PARAMS,
+                    message=f"{matching_resources} already exist in group resources.",
+                )
+            )
+        matching_tools = tools_temp.keys() & self._tools.keys()
+        if matching_tools:
+            raise McpError(
+                types.ErrorData(
+                    code=types.INVALID_PARAMS,
+                    message=f"{matching_tools} already exist in group tools.",
+                )
+            )
 
         # Aggregate components.
         self._sessions[session] = component_names
@@ -237,33 +303,48 @@ class ClientSessionGroup:
     ) -> tuple[types.Implementation, mcp.ClientSession]:
         """Establish a client session to an MCP server."""
 
-        # Create read and write streams that facilitate io with the server.
-        if isinstance(server_params, StdioServerParameters):
-            client = mcp.stdio_client(server_params)
-            read, write = await self._exit_stack.enter_async_context(client)
-        elif isinstance(server_params, SseServerParameters):
-            client = sse_client(
-                url=server_params.url,
-                headers=server_params.headers,
-                timeout=server_params.timeout,
-                sse_read_timeout=server_params.sse_read_timeout,
-            )
-            read, write = await self._exit_stack.enter_async_context(client)
-        else:
-            client = streamablehttp_client(
-                url=server_params.url,
-                headers=server_params.headers,
-                timeout=server_params.timeout,
-                sse_read_timeout=server_params.sse_read_timeout,
-                terminate_on_close=server_params.terminate_on_close,
-            )
-            read, write, _ = await self._exit_stack.enter_async_context(client)
+        session_specific_stack = contextlib.AsyncExitStack()
+        try:
+            # Create read and write streams that facilitate io with the server.
+            if isinstance(server_params, StdioServerParameters):
+                client = mcp.stdio_client(server_params)
+                read, write = await self._exit_stack.enter_async_context(client)
+            elif isinstance(server_params, SseServerParameters):
+                client = sse_client(
+                    url=server_params.url,
+                    headers=server_params.headers,
+                    timeout=server_params.timeout,
+                    sse_read_timeout=server_params.sse_read_timeout,
+                )
+                read, write = await self._exit_stack.enter_async_context(client)
+            else:
+                client = streamablehttp_client(
+                    url=server_params.url,
+                    headers=server_params.headers,
+                    timeout=server_params.timeout,
+                    sse_read_timeout=server_params.sse_read_timeout,
+                    terminate_on_close=server_params.terminate_on_close,
+                )
+                read, write, _ = await self._exit_stack.enter_async_context(client)
 
-        session = await self._exit_stack.enter_async_context(
-            mcp.ClientSession(read, write)
-        )
-        result = await session.initialize()
-        return result.serverInfo, session
+            session = await self._exit_stack.enter_async_context(
+                mcp.ClientSession(read, write)
+            )
+            result = await session.initialize()
+
+            # Session successfully initialized.
+            # Store its stack and register the stack with the main group stack.
+            self._session_exit_stacks[session] = session_specific_stack
+            # session_specific_stack itself becomes a resource managed by the
+            # main _exit_stack.
+            await self._exit_stack.enter_async_context(session_specific_stack)
+
+            return result.serverInfo, session
+        except Exception:
+            # If anything during this setup fails, ensure the session-specific
+            # stack is closed.
+            await session_specific_stack.aclose()
+            raise
 
     def _component_name(self, name: str, server_info: types.Implementation) -> str:
         if self._component_name_hook:
