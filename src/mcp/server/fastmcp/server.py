@@ -251,6 +251,7 @@ class FastMCP:
                 name=info.name,
                 description=info.description,
                 inputSchema=info.parameters,
+                outputSchema=info.output,
                 annotations=info.annotations,
             )
             for info in tools

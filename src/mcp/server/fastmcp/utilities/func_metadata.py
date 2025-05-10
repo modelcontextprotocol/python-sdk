@@ -38,6 +38,7 @@ class ArgModelBase(BaseModel):
 
 class FuncMetadata(BaseModel):
     arg_model: Annotated[type[ArgModelBase], WithJsonSchema(None)]
+    output_model: Annotated[type[ArgModelBase], WithJsonSchema(None)]
     # We can add things in the future like
     #  - Maybe some args are excluded from attempting to parse from JSON
     #  - Maybe some args are special (like context) for dependency injection
@@ -128,6 +129,7 @@ def func_metadata(
     sig = _get_typed_signature(func)
     params = sig.parameters
     dynamic_pydantic_model_params: dict[str, Any] = {}
+    dynamic_pydantic_model_output: dict[str, Any] = {} 
     globalns = getattr(func, "__globals__", {})
     for param in params.values():
         if param.name.startswith("_"):
@@ -167,12 +169,20 @@ def func_metadata(
         dynamic_pydantic_model_params[param.name] = (field_info.annotation, field_info)
         continue
 
+    # dynamic_pydantic_model_output[]
+
     arguments_model = create_model(
         f"{func.__name__}Arguments",
         **dynamic_pydantic_model_params,
         __base__=ArgModelBase,
     )
-    resp = FuncMetadata(arg_model=arguments_model)
+
+    output_model = create_model(
+        f"{func.__name__}Output",
+        **dynamic_pydantic_model_output,
+        __base__=ArgModelBase
+    )
+    resp = FuncMetadata(arg_model=arguments_model, output_model=output_model)
     return resp
 
 
@@ -210,5 +220,5 @@ def _get_typed_signature(call: Callable[..., Any]) -> inspect.Signature:
         )
         for param in signature.parameters.values()
     ]
-    typed_signature = inspect.Signature(typed_params)
+    typed_signature = inspect.Signature(typed_params, return_annotation=signature.return_annotation)
     return typed_signature
