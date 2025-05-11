@@ -23,7 +23,7 @@ class Tool(BaseModel):
     name: str = Field(description="Name of the tool")
     description: str = Field(description="Description of what the tool does")
     parameters: dict[str, Any] = Field(description="JSON schema for tool parameters")
-    output: dict[str, Any] = Field(description="JSON schema for tool output")
+    output: dict[str, Any] | None = Field(description="JSON schema for tool output", default=None, )
     fn_metadata: FuncMetadata = Field(
         description="Metadata about the function including a pydantic model for tool"
         " arguments"
@@ -99,7 +99,7 @@ class Tool(BaseModel):
                 if self.context_kwarg is not None
                 else None,
             )
-            if self.output.get("type") == "object":
+            if self.output and self.output.get("type") == "object":
                 return DataContent(
                     type="data",
                     data=result,

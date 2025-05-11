@@ -46,7 +46,7 @@ class ArgModelBase(BaseModel):
 
 class FuncMetadata(BaseModel):
     arg_model: Annotated[type[ArgModelBase], WithJsonSchema(None)]
-    output_schema: dict[str, Any]
+    output_schema: dict[str, Any] | None
     # We can add things in the future like
     #  - Maybe some args are excluded from attempting to parse from JSON
     #  - Maybe some args are special (like context) for dependency injection
@@ -137,7 +137,7 @@ def func_metadata(
     sig = _get_typed_signature(func)
     params = sig.parameters
     dynamic_pydantic_model_params: dict[str, Any] = {}
-    output_schema: dict[str, Any] = {}
+    output_schema: dict[str, Any] | None = None
     globalns = getattr(func, "__globals__", {})
     for param in params.values():
         if param.name.startswith("_"):
