@@ -41,7 +41,7 @@ async def test_messages_are_executed_concurrently():
                 tg.start_soon(client_session.call_tool, "sleep")
                 tg.start_soon(client_session.read_resource, AnyUrl(_resource_name))
 
-       # Verify concurrent execution by checking for overlapping calls
+        # Verify concurrent execution by checking for overlapping calls
         active_calls = 0
         max_concurrent_calls = 0
         for call_type, timestamp in sorted(call_timestamps, key=lambda x: x[1]):
