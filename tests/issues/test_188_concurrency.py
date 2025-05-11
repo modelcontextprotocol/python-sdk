@@ -35,7 +35,6 @@ async def test_messages_are_executed_concurrently():
         return "slow"
 
     async with create_session(server._mcp_server) as client_session:
-        start_time = anyio.current_time()
         async with anyio.create_task_group() as tg:
             for _ in range(10):
                 tg.start_soon(client_session.call_tool, "sleep")
