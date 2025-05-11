@@ -8,6 +8,7 @@ import multiprocessing
 import socket
 import time
 from collections.abc import Generator
+from unittest.mock import AsyncMock
 
 import anyio
 import httpx
@@ -19,8 +20,9 @@ from starlette.applications import Starlette
 from starlette.routing import Mount
 
 import mcp.types as types
+from mcp.client.auth import OAuthClientProvider
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import StreamableHTTPTransport, streamablehttp_client
 from mcp.server import Server
 from mcp.server.streamable_http import (
     MCP_SESSION_ID_HEADER,
@@ -33,6 +35,7 @@ from mcp.server.streamable_http import (
     StreamId,
 )
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.shared.auth import OAuthToken
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import (
     ClientMessageMetadata,
@@ -711,6 +714,7 @@ async def initialized_client_session(basic_server, basic_server_url):
         read_stream,
         write_stream,
         _,
+        _,
     ):
         async with ClientSession(
             read_stream,
@@ -726,6 +730,7 @@ async def test_streamablehttp_client_basic_connection(basic_server, basic_server
     async with streamablehttp_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
+        _,
         _,
     ):
         async with ClientSession(
@@ -784,6 +789,7 @@ async def test_streamablehttp_client_session_persistence(
         read_stream,
         write_stream,
         _,
+        _,
     ):
         async with ClientSession(
             read_stream,
@@ -813,6 +819,7 @@ async def test_streamablehttp_client_json_response(
     async with streamablehttp_client(f"{json_server_url}/mcp") as (
         read_stream,
         write_stream,
+        _,
         _,
     ):
         async with ClientSession(
@@ -856,6 +863,7 @@ async def test_streamablehttp_client_get_stream(basic_server, basic_server_url):
         read_stream,
         write_stream,
         _,
+        _,
     ):
         async with ClientSession(
             read_stream, write_stream, message_handler=message_handler
@@ -895,6 +903,7 @@ async def test_streamablehttp_client_session_termination(
         read_stream,
         write_stream,
         get_session_id,
+        _,
     ):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the session
@@ -914,6 +923,7 @@ async def test_streamablehttp_client_session_termination(
     async with streamablehttp_client(f"{basic_server_url}/mcp", headers=headers) as (
         read_stream,
         write_stream,
+        _,
         _,
     ):
         async with ClientSession(read_stream, write_stream) as session:
@@ -958,6 +968,7 @@ async def test_streamablehttp_client_resumption(event_server):
         read_stream,
         write_stream,
         get_session_id,
+        _,
     ):
         async with ClientSession(
             read_stream, write_stream, message_handler=message_handler
@@ -1010,6 +1021,7 @@ async def test_streamablehttp_client_resumption(event_server):
         read_stream,
         write_stream,
         _,
+        _,
     ):
         async with ClientSession(
             read_stream, write_stream, message_handler=message_handler
@@ -1054,3 +1066,67 @@ async def test_streamablehttp_client_resumption(event_server):
             assert not any(
                 n in captured_notifications_pre for n in captured_notifications
             )
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_client_no_auth_headers(basic_server, basic_server_url):
+    """Test that no auth headers are added when no auth provider is configured."""
+    # Create client without auth provider
+
+    captured_headers = {}
+
+    async def capture_headers(request):
+        captured_headers.update(request.headers)
+        return httpx.Response(200)
+
+    async with httpx.AsyncClient(
+        base_url=basic_server_url,
+        transport=httpx.MockTransport(capture_headers),
+    ) as client:
+        # Create transport with auth provider
+        transport = StreamableHTTPTransport(
+            f"{basic_server_url}/mcp",
+        )
+
+        # Make a request using the client to trigger header capture
+        headers = await transport._get_request_headers()
+        await client.post("/mcp", headers=headers)
+        # Verify the Authorization header is correctly formatted
+        assert "authorization" not in captured_headers
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_client_auth_token_format(basic_server, basic_server_url):
+    """Test that auth tokens are correctly formatted in headers."""
+    # Create a mock OAuth provider that returns a test token
+    mock_provider = AsyncMock(spec=OAuthClientProvider)
+    mock_provider.get_token.return_value = OAuthToken(
+        access_token="test-token-123",
+        token_type="bearer",
+        expires_in=3600,
+        refresh_token="refresh-token-123",
+    )
+
+    # Create a custom httpx client to capture headers
+    captured_headers = {}
+
+    async def capture_headers(request):
+        captured_headers.update(request.headers)
+        return httpx.Response(200)
+
+    async with httpx.AsyncClient(
+        base_url=basic_server_url,
+        transport=httpx.MockTransport(capture_headers),
+    ) as client:
+        # Create transport with auth provider
+        transport = StreamableHTTPTransport(
+            f"{basic_server_url}/mcp",
+            auth_provider=mock_provider,
+        )
+
+        # Make a request using the client to trigger header capture
+        headers = await transport._get_request_headers()
+        await client.post("/mcp", headers=headers)
+
+        # Verify the Authorization header is correctly formatted
+        assert captured_headers["authorization"] == "Bearer test-token-123"
