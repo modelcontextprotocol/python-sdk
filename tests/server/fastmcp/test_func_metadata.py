@@ -443,7 +443,7 @@ def test_str_vs_int():
 def test_simple_function_output_schema():
     """Test JSON schema generation for simple return types."""
 
-    assert func_metadata(simple_no_annotation_fun).output_schema == None
+    assert func_metadata(simple_no_annotation_fun).output_schema is None
     assert func_metadata(simple_str_fun).output_schema == {
         "type": "string",
     }
