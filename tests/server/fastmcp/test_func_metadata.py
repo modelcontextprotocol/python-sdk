@@ -459,7 +459,7 @@ def test_simple_function_output_schema():
 
 
 def test_complex_function_output_schema():
-    """Test JSON schema generation for simple return types."""
+    """Test JSON schema generation for complex return types."""
 
     assert func_metadata(complex_model_fun).output_schema == {
         "type": "object",
