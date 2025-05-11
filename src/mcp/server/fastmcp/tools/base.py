@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
-from mcp.types import ToolAnnotations
+from mcp.types import DataContent, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -70,7 +70,7 @@ class Tool(BaseModel):
             skip_names=[context_kwarg] if context_kwarg is not None else [],
         )
         parameters = func_arg_metadata.arg_model.model_json_schema()
-        output = func_arg_metadata.output_model.model_json_schema()
+        output = func_arg_metadata.output_schema
 
         return cls(
             fn=fn,
@@ -91,7 +91,7 @@ class Tool(BaseModel):
     ) -> Any:
         """Run the tool with arguments."""
         try:
-            return await self.fn_metadata.call_fn_with_arg_validation(
+            result = await self.fn_metadata.call_fn_with_arg_validation(
                 self.fn,
                 self.is_async,
                 arguments,
@@ -99,5 +99,12 @@ class Tool(BaseModel):
                 if self.context_kwarg is not None
                 else None,
             )
+            if self.output.get("type") == "object":
+                return DataContent(
+                    type="data",
+                    data=result,
+                )
+            else:
+                return result
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e

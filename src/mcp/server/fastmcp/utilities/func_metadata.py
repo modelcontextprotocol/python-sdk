@@ -7,12 +7,20 @@ from typing import (
     ForwardRef,
 )
 
-from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, create_model
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    WithJsonSchema,
+    create_model,
+)
 from pydantic._internal._typing_extra import eval_type_backport
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
 from mcp.server.fastmcp.exceptions import InvalidSignature
+from mcp.server.fastmcp.utilities import types
 from mcp.server.fastmcp.utilities.logging import get_logger
 
 logger = get_logger(__name__)
@@ -38,7 +46,7 @@ class ArgModelBase(BaseModel):
 
 class FuncMetadata(BaseModel):
     arg_model: Annotated[type[ArgModelBase], WithJsonSchema(None)]
-    output_model: Annotated[type[ArgModelBase], WithJsonSchema(None)]
+    output_schema: dict[str, Any]
     # We can add things in the future like
     #  - Maybe some args are excluded from attempting to parse from JSON
     #  - Maybe some args are special (like context) for dependency injection
@@ -129,7 +137,7 @@ def func_metadata(
     sig = _get_typed_signature(func)
     params = sig.parameters
     dynamic_pydantic_model_params: dict[str, Any] = {}
-    dynamic_pydantic_model_output: dict[str, Any] = {} 
+    output_schema: dict[str, Any] = {}
     globalns = getattr(func, "__globals__", {})
     for param in params.values():
         if param.name.startswith("_"):
@@ -169,21 +177,22 @@ def func_metadata(
         dynamic_pydantic_model_params[param.name] = (field_info.annotation, field_info)
         continue
 
-    # dynamic_pydantic_model_output[]
-
     arguments_model = create_model(
         f"{func.__name__}Arguments",
         **dynamic_pydantic_model_params,
         __base__=ArgModelBase,
     )
 
-    output_model = create_model(
-        f"{func.__name__}Output",
-        **dynamic_pydantic_model_output,
-        __base__=ArgModelBase
-    )
-    resp = FuncMetadata(arg_model=arguments_model, output_model=output_model)
-    return resp
+    if sig.return_annotation is inspect.Parameter.empty:
+        pass
+    elif sig.return_annotation is None:
+        pass
+    elif sig.return_annotation is types.Image:
+        pass
+    else:
+        output_schema = TypeAdapter(sig.return_annotation).json_schema()
+
+    return FuncMetadata(arg_model=arguments_model, output_schema=output_schema)
 
 
 def _get_typed_annotation(annotation: Any, globalns: dict[str, Any]) -> Any:
@@ -220,5 +229,6 @@ def _get_typed_signature(call: Callable[..., Any]) -> inspect.Signature:
         )
         for param in signature.parameters.values()
     ]
-    typed_signature = inspect.Signature(typed_params, return_annotation=signature.return_annotation)
+    typed_return = _get_typed_annotation(signature.return_annotation, globalns)
+    typed_signature = inspect.Signature(typed_params, return_annotation=typed_return)
     return typed_signature

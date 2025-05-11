@@ -7,11 +7,11 @@ from pydantic import BaseModel, Field
 from mcp.server.fastmcp.utilities.func_metadata import func_metadata
 
 
-class SomeInputModelA(BaseModel):
+class SomeModelA(BaseModel):
     pass
 
 
-class SomeInputModelB(BaseModel):
+class SomeModelB(BaseModel):
     class InnerModel(BaseModel):
         x: int
 
@@ -46,15 +46,15 @@ def complex_arguments_fn(
         int, Field(1)
     ],
     unannotated,
-    my_model_a: SomeInputModelA,
-    my_model_a_forward_ref: "SomeInputModelA",
-    my_model_b: SomeInputModelB,
+    my_model_a: SomeModelA,
+    my_model_a_forward_ref: "SomeModelA",
+    my_model_b: SomeModelB,
     an_int_annotated_with_field_default: Annotated[
         int,
         Field(1, description="An int with a field"),
     ],
     unannotated_with_default=5,
-    my_model_a_with_default: SomeInputModelA = SomeInputModelA(),  # noqa: B008
+    my_model_a_with_default: SomeModelA = SomeModelA(),  # noqa: B008
     an_int_with_default: int = 1,
     must_be_none_with_default: None = None,
     an_int_with_equals_field: int = Field(1, ge=0),
@@ -83,6 +83,26 @@ def complex_arguments_fn(
         int_annotated_with_default,
     )
     return "ok!"
+
+
+def simple_str_fun() -> str:
+    return "ok"
+
+
+def simple_bool_fun() -> bool:
+    return True
+
+
+def simple_int_fun() -> int:
+    return 1
+
+
+def simple_float_fun() -> float:
+    return 1.0
+
+
+def complex_model_fun() -> SomeModelB:
+    return SomeModelB(how_many_shrimp=1, ok=SomeModelB.InnerModel(x=2), y=None)
 
 
 @pytest.mark.anyio
@@ -269,7 +289,7 @@ def test_complex_function_json_schema():
     # Normalize the my_model_a_with_default field to handle both pydantic formats
     if "allOf" in actual_schema["properties"]["my_model_a_with_default"]:
         normalized_schema["properties"]["my_model_a_with_default"] = {
-            "$ref": "#/$defs/SomeInputModelA",
+            "$ref": "#/$defs/SomeModelA",
             "default": {},
         }
 
@@ -281,12 +301,12 @@ def test_complex_function_json_schema():
                 "title": "InnerModel",
                 "type": "object",
             },
-            "SomeInputModelA": {
+            "SomeModelA": {
                 "properties": {},
-                "title": "SomeInputModelA",
+                "title": "SomeModelA",
                 "type": "object",
             },
-            "SomeInputModelB": {
+            "SomeModelB": {
                 "properties": {
                     "how_many_shrimp": {
                         "description": "How many shrimp in the tank???",
@@ -297,7 +317,7 @@ def test_complex_function_json_schema():
                     "y": {"title": "Y", "type": "null"},
                 },
                 "required": ["how_many_shrimp", "ok", "y"],
-                "title": "SomeInputModelB",
+                "title": "SomeModelB",
                 "type": "object",
             },
         },
@@ -341,9 +361,9 @@ def test_complex_function_json_schema():
                 "type": "integer",
             },
             "unannotated": {"title": "unannotated", "type": "string"},
-            "my_model_a": {"$ref": "#/$defs/SomeInputModelA"},
-            "my_model_a_forward_ref": {"$ref": "#/$defs/SomeInputModelA"},
-            "my_model_b": {"$ref": "#/$defs/SomeInputModelB"},
+            "my_model_a": {"$ref": "#/$defs/SomeModelA"},
+            "my_model_a_forward_ref": {"$ref": "#/$defs/SomeModelA"},
+            "my_model_b": {"$ref": "#/$defs/SomeModelB"},
             "an_int_annotated_with_field_default": {
                 "default": 1,
                 "description": "An int with a field",
@@ -356,7 +376,7 @@ def test_complex_function_json_schema():
                 "type": "string",
             },
             "my_model_a_with_default": {
-                "$ref": "#/$defs/SomeInputModelA",
+                "$ref": "#/$defs/SomeModelA",
                 "default": {},
             },
             "an_int_with_default": {
@@ -414,3 +434,49 @@ def test_str_vs_int():
     result = meta.pre_parse_json({"a": "123", "b": 123})
     assert result["a"] == "123"
     assert result["b"] == 123
+
+
+def test_simple_function_output_schema():
+    """Test JSON schema generation for simple return types."""
+
+    assert func_metadata(simple_str_fun).output_schema == {
+        "type": "string",
+    }
+    assert func_metadata(simple_bool_fun).output_schema == {
+        "type": "boolean",
+    }
+    assert func_metadata(simple_int_fun).output_schema == {
+        "type": "integer",
+    }
+    assert func_metadata(simple_float_fun).output_schema == {
+        "type": "number",
+    }
+
+
+def test_complex_function_output_schema():
+    """Test JSON schema generation for simple return types."""
+
+    assert func_metadata(complex_model_fun).output_schema == {
+        "type": "object",
+        "$defs": {
+            "InnerModel": {
+                "properties": {"x": {"title": "X", "type": "integer"}},
+                "required": [
+                    "x",
+                ],
+                "title": "InnerModel",
+                "type": "object",
+            }
+        },
+        "properties": {
+            "how_many_shrimp": {
+                "description": "How many shrimp in the tank???",
+                "title": "How Many Shrimp",
+                "type": "integer",
+            },
+            "ok": {"$ref": "#/$defs/InnerModel"},
+            "y": {"title": "Y", "type": "null"},
+        },
+        "required": ["how_many_shrimp", "ok", "y"],
+        "title": "SomeModelB",
+    }

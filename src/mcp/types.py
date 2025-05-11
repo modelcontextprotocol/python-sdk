@@ -646,6 +646,21 @@ class ImageContent(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class DataContent(BaseModel):
+    """Data content for a message."""
+
+    type: Literal["data"]
+    data: Any
+    """The JSON serializable object containing structured data."""
+    schema_: str | Any | None = Field(serialization_alias="schema", default=None)
+
+    """
+    Optional reference to a JSON schema that describes the structure of the data.
+    """
+    annotations: Annotations | None = None
+    model_config = ConfigDict(extra="allow")
+
+
 class SamplingMessage(BaseModel):
     """Describes a message issued to or received from an LLM API."""
 
@@ -793,7 +808,7 @@ class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
 class CallToolResult(Result):
     """The server's response to a tool call."""
 
-    content: list[TextContent | ImageContent | EmbeddedResource]
+    content: list[TextContent | DataContent | ImageContent | EmbeddedResource]
     isError: bool = False
 
 
