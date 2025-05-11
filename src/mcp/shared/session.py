@@ -314,7 +314,7 @@ class BaseSession(
                 jsonrpc="2.0",
                 id=request_id,
                 result=response.model_dump(
-                    by_alias=True, mode="json", exclude_none=True, exclude_unset=True
+                    by_alias=True, mode="json", exclude_none=True
                 ),
             )
             session_message = SessionMessage(message=JSONRPCMessage(jsonrpc_response))
