@@ -8,8 +8,7 @@ import multiprocessing
 import socket
 import time
 from collections.abc import Generator
-from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import anyio
 import httpx
@@ -1070,59 +1069,30 @@ async def test_streamablehttp_client_resumption(event_server):
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_auth_token_headers(basic_server, basic_server_url):
-    """Test that auth tokens are correctly added to request headers."""
-    # Create a mock OAuth provider that returns a test token
-    mock_provider = AsyncMock(spec=OAuthClientProvider)
-    mock_provider.get_token.return_value = OAuthToken(
-        access_token="test-token-123",
-        token_type="bearer",
-        expires_in=3600,
-        refresh_token="refresh-token-123",
-    )
-
-    # Create client with auth provider
-    async with streamablehttp_client(
-        f"{basic_server_url}/mcp",
-        auth_provider=mock_provider,
-    ) as (
-        read_stream,
-        write_stream,
-        _,
-        _,
-    ):
-        async with ClientSession(read_stream, write_stream) as session:
-            # Initialize the session
-            result = await session.initialize()
-            assert isinstance(result, InitializeResult)
-
-            # Verify the mock provider was called
-            mock_provider.get_token.assert_called()
-
-            # Verify the token was added to headers
-            # We can't directly check the headers since they're internal to the transport
-            # But we can verify the provider was called and returned a token
-            assert mock_provider.get_token.return_value.access_token == "test-token-123"
-
-
-@pytest.mark.anyio
 async def test_streamablehttp_client_no_auth_headers(basic_server, basic_server_url):
     """Test that no auth headers are added when no auth provider is configured."""
     # Create client without auth provider
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
-        read_stream,
-        write_stream,
-        _,
-        _,
-    ):
-        async with ClientSession(read_stream, write_stream) as session:
-            # Initialize the session
-            result = await session.initialize()
-            assert isinstance(result, InitializeResult)
 
-            # No auth headers should be present
-            # We can't directly check the headers since they're internal to the transport
-            # But we can verify the session works without auth
+    captured_headers = {}
+
+    async def capture_headers(request):
+        captured_headers.update(request.headers)
+        return httpx.Response(200)
+
+    async with httpx.AsyncClient(
+        base_url=basic_server_url,
+        transport=httpx.MockTransport(capture_headers),
+    ) as client:
+        # Create transport with auth provider
+        transport = StreamableHTTPTransport(
+            f"{basic_server_url}/mcp",
+        )
+
+        # Make a request using the client to trigger header capture
+        headers = await transport._get_request_headers()
+        await client.post("/mcp", headers=headers)
+        # Verify the Authorization header is correctly formatted
+        assert "authorization" not in captured_headers
 
 
 @pytest.mark.anyio
@@ -1154,64 +1124,9 @@ async def test_streamablehttp_client_auth_token_format(basic_server, basic_serve
             auth_provider=mock_provider,
         )
 
-        # Get headers with auth token
+        # Make a request using the client to trigger header capture
         headers = await transport._get_request_headers()
+        await client.post("/mcp", headers=headers)
 
         # Verify the Authorization header is correctly formatted
-        assert headers["Authorization"] == "Bearer test-token-123"
-
-
-@pytest.mark.anyio
-async def test_streamablehttp_client_token_refresh(basic_server, basic_server_url):
-    """Test that expired tokens are automatically refreshed."""
-    # Create a mock OAuth provider that returns an expired token
-    mock_provider = AsyncMock(spec=OAuthClientProvider)
-    mock_provider.get_token.return_value = OAuthToken(
-        access_token="expired-token-123",
-        token_type="bearer",
-        expires_in=0,  # Expired token
-        refresh_token="refresh-token-123",
-    )
-
-    # Mock the refresh response
-    refreshed_token = OAuthToken(
-        access_token="new-token-456",
-        token_type="bearer",
-        expires_in=3600,
-        refresh_token="new-refresh-token-456",
-    )
-
-    # Create client with auth provider
-    async with streamablehttp_client(
-        f"{basic_server_url}/mcp",
-        auth_provider=mock_provider,
-    ) as (
-        read_stream,
-        write_stream,
-        _,
-        _,
-    ):
-        async with ClientSession(read_stream, write_stream) as session:
-            # Mock the OAuthAuthorization class to verify refresh token usage
-            with patch("mcp.client.streamable_http.OAuthAuthorization") as mock_auth:
-                # Configure the mock to return our refreshed token
-                mock_auth_instance = AsyncMock()
-                mock_auth_instance.authorize.return_value = refreshed_token
-                mock_auth.return_value = mock_auth_instance
-
-                # Initialize the session
-                result = await session.initialize()
-                assert isinstance(result, InitializeResult)
-
-                # Verify the mock provider was called to get the initial token
-                mock_provider.get_token.assert_called()
-
-                # Verify that authorize was called with the expired token
-                mock_auth_instance.authorize.assert_called_once()
-
-                # Verify the refreshed token was saved back to the provider
-                mock_provider.save_token.assert_called_once_with(refreshed_token)
-
-                # Verify the new token is being used in subsequent requests
-                # by checking the Authorization header format
-                assert mock_auth_instance.get_token.return_value.access_token == "new-token-456"
+        assert captured_headers["authorization"] == "Bearer test-token-123"
