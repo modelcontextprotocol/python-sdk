@@ -85,6 +85,10 @@ def complex_arguments_fn(
     return "ok!"
 
 
+def simple_no_annotation_fun():
+    return "ok"
+
+
 def simple_str_fun() -> str:
     return "ok"
 
@@ -439,6 +443,7 @@ def test_str_vs_int():
 def test_simple_function_output_schema():
     """Test JSON schema generation for simple return types."""
 
+    assert func_metadata(simple_no_annotation_fun).output_schema == None
     assert func_metadata(simple_str_fun).output_schema == {
         "type": "string",
     }
