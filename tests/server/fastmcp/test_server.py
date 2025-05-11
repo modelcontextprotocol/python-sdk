@@ -1,9 +1,11 @@
 import base64
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 from pydantic import AnyUrl
+from starlette.routing import Mount, Route
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.prompts.base import EmbeddedResource, Message, UserMessage
@@ -30,6 +32,97 @@ class TestServer:
         mcp = FastMCP(instructions="Server instructions")
         assert mcp.name == "FastMCP"
         assert mcp.instructions == "Server instructions"
+
+    @pytest.mark.anyio
+    async def test_normalize_path(self):
+        """Test path normalization for mount paths."""
+        mcp = FastMCP()
+
+        # Test root path
+        assert mcp._normalize_path("/", "/messages/") == "/messages/"
+
+        # Test path with trailing slash
+        assert mcp._normalize_path("/github/", "/messages/") == "/github/messages/"
+
+        # Test path without trailing slash
+        assert mcp._normalize_path("/github", "/messages/") == "/github/messages/"
+
+        # Test endpoint without leading slash
+        assert mcp._normalize_path("/github", "messages/") == "/github/messages/"
+
+        # Test both with trailing/leading slashes
+        assert mcp._normalize_path("/api/", "/v1/") == "/api/v1/"
+
+    @pytest.mark.anyio
+    async def test_sse_app_with_mount_path(self):
+        """Test SSE app creation with different mount paths."""
+        # Test with default mount path
+        mcp = FastMCP()
+        with patch.object(
+            mcp, "_normalize_path", return_value="/messages/"
+        ) as mock_normalize:
+            mcp.sse_app()
+            # Verify _normalize_path was called with correct args
+            mock_normalize.assert_called_once_with("/", "/messages/")
+
+        # Test with custom mount path in settings
+        mcp = FastMCP()
+        mcp.settings.mount_path = "/custom"
+        with patch.object(
+            mcp, "_normalize_path", return_value="/custom/messages/"
+        ) as mock_normalize:
+            mcp.sse_app()
+            # Verify _normalize_path was called with correct args
+            mock_normalize.assert_called_once_with("/custom", "/messages/")
+
+        # Test with mount_path parameter
+        mcp = FastMCP()
+        with patch.object(
+            mcp, "_normalize_path", return_value="/param/messages/"
+        ) as mock_normalize:
+            mcp.sse_app(mount_path="/param")
+            # Verify _normalize_path was called with correct args
+            mock_normalize.assert_called_once_with("/param", "/messages/")
+
+    @pytest.mark.anyio
+    async def test_starlette_routes_with_mount_path(self):
+        """Test that Starlette routes are correctly configured with mount path."""
+        # Test with mount path in settings
+        mcp = FastMCP()
+        mcp.settings.mount_path = "/api"
+        app = mcp.sse_app()
+
+        # Find routes by type
+        sse_routes = [r for r in app.routes if isinstance(r, Route)]
+        mount_routes = [r for r in app.routes if isinstance(r, Mount)]
+
+        # Verify routes exist
+        assert len(sse_routes) == 1, "Should have one SSE route"
+        assert len(mount_routes) == 1, "Should have one mount route"
+
+        # Verify path values
+        assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
+        assert (
+            mount_routes[0].path == "/messages"
+        ), "Mount route path should be /messages"
+
+        # Test with mount path as parameter
+        mcp = FastMCP()
+        app = mcp.sse_app(mount_path="/param")
+
+        # Find routes by type
+        sse_routes = [r for r in app.routes if isinstance(r, Route)]
+        mount_routes = [r for r in app.routes if isinstance(r, Mount)]
+
+        # Verify routes exist
+        assert len(sse_routes) == 1, "Should have one SSE route"
+        assert len(mount_routes) == 1, "Should have one mount route"
+
+        # Verify path values
+        assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
+        assert (
+            mount_routes[0].path == "/messages"
+        ), "Mount route path should be /messages"
 
     @pytest.mark.anyio
     async def test_non_ascii_description(self):
@@ -518,8 +611,6 @@ class TestContextInjection:
 
     @pytest.mark.anyio
     async def test_context_logging(self):
-        from unittest.mock import patch
-
         import mcp.server.session
 
         """Test that context logging methods work."""
@@ -544,14 +635,28 @@ class TestContextInjection:
 
                 assert mock_log.call_count == 4
                 mock_log.assert_any_call(
-                    level="debug", data="Debug message", logger=None
+                    level="debug",
+                    data="Debug message",
+                    logger=None,
+                    related_request_id="1",
                 )
-                mock_log.assert_any_call(level="info", data="Info message", logger=None)
                 mock_log.assert_any_call(
-                    level="warning", data="Warning message", logger=None
+                    level="info",
+                    data="Info message",
+                    logger=None,
+                    related_request_id="1",
                 )
                 mock_log.assert_any_call(
-                    level="error", data="Error message", logger=None
+                    level="warning",
+                    data="Warning message",
+                    logger=None,
+                    related_request_id="1",
+                )
+                mock_log.assert_any_call(
+                    level="error",
+                    data="Error message",
+                    logger=None,
+                    related_request_id="1",
                 )
 
     @pytest.mark.anyio

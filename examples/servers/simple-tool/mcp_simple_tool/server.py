@@ -1,8 +1,8 @@
 import anyio
 import click
-import httpx
 import mcp.types as types
 from mcp.server.lowlevel import Server
+from mcp.shared._httpx_utils import create_mcp_http_client
 
 
 async def fetch_website(
@@ -11,7 +11,7 @@ async def fetch_website(
     headers = {
         "User-Agent": "MCP Test Server (github.com/modelcontextprotocol/python-sdk)"
     }
-    async with httpx.AsyncClient(follow_redirects=True, headers=headers) as client:
+    async with create_mcp_http_client(headers=headers) as client:
         response = await client.get(url)
         response.raise_for_status()
         return [types.TextContent(type="text", text=response.text)]
@@ -60,6 +60,7 @@ def main(port: int, transport: str) -> int:
     if transport == "sse":
         from mcp.server.sse import SseServerTransport
         from starlette.applications import Starlette
+        from starlette.responses import Response
         from starlette.routing import Mount, Route
 
         sse = SseServerTransport("/messages/")
@@ -71,11 +72,12 @@ def main(port: int, transport: str) -> int:
                 await app.run(
                     streams[0], streams[1], app.create_initialization_options()
                 )
+            return Response()
 
         starlette_app = Starlette(
             debug=True,
             routes=[
-                Route("/sse", endpoint=handle_sse),
+                Route("/sse", endpoint=handle_sse, methods=["GET"]),
                 Mount("/messages/", app=sse.handle_post_message),
             ],
         )
