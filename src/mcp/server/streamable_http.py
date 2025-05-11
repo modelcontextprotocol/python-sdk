@@ -51,6 +51,7 @@ LAST_EVENT_ID_HEADER = "last-event-id"
 # Content types
 CONTENT_TYPE_JSON = "application/json"
 CONTENT_TYPE_SSE = "text/event-stream"
+CONTENT_TYPE_ALL = "*/*"
 
 # Special key for the standalone GET stream
 GET_STREAM_KEY = "_GET_stream"
@@ -282,6 +283,9 @@ class StreamableHTTPServerTransport:
     def _check_accept_headers(self, request: Request) -> tuple[bool, bool]:
         """Check if the request accepts the required media types."""
         accept_header = request.headers.get("accept", "")
+        if accept_header == CONTENT_TYPE_ALL:
+            return True, True
+
         accept_types = [media_type.strip() for media_type in accept_header.split(",")]
 
         has_json = any(
