@@ -961,6 +961,72 @@ async def test_streamablehttp_client_session_termination(
 
 
 @pytest.mark.anyio
+async def test_streamablehttp_client_session_termination_204(
+    basic_server, basic_server_url, monkeypatch
+):
+    """Test client session termination functionality with a 204 response.
+
+    This test patches the httpx client to return a 204 response for DELETEs.
+    """
+
+    # Save the original delete method to restore later
+    original_delete = httpx.AsyncClient.delete
+
+    # Mock the client's delete method to return a 204
+    async def mock_delete(self, *args, **kwargs):
+        # Call the original method to get the real response
+        response = await original_delete(self, *args, **kwargs)
+
+        # Create a new response with 204 status code but same headers
+        mocked_response = httpx.Response(
+            204,
+            headers=response.headers,
+            content=response.content,
+            request=response.request,
+        )
+        return mocked_response
+
+    # Apply the patch to the httpx client
+    monkeypatch.setattr(httpx.AsyncClient, "delete", mock_delete)
+
+    captured_session_id = None
+
+    # Create the streamablehttp_client with a custom httpx client to capture headers
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        get_session_id,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            # Initialize the session
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            captured_session_id = get_session_id()
+            assert captured_session_id is not None
+
+            # Make a request to confirm session is working
+            tools = await session.list_tools()
+            assert len(tools.tools) == 4
+
+    headers = {}
+    if captured_session_id:
+        headers[MCP_SESSION_ID_HEADER] = captured_session_id
+
+    async with streamablehttp_client(f"{basic_server_url}/mcp", headers=headers) as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            # Attempt to make a request after termination
+            with pytest.raises(
+                McpError,
+                match="Session terminated",
+            ):
+                await session.list_tools()
+
+
+@pytest.mark.anyio
 async def test_streamablehttp_client_resumption(event_server):
     """Test client session to resume a long running tool."""
     _, server_url = event_server

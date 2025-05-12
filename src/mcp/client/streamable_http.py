@@ -410,7 +410,7 @@ class StreamableHTTPTransport:
 
             if response.status_code == 405:
                 logger.debug("Server does not allow session termination")
-            elif response.status_code != 200:
+            elif response.status_code not in (200, 204):
                 logger.warning(f"Session termination failed: {response.status_code}")
         except Exception as exc:
             logger.warning(f"Session termination failed: {exc}")
