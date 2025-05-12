@@ -75,7 +75,9 @@ class RequestContext:
 
 
 class AuthTokenProvider(Protocol):
-    """Protocol for providers that supply authentication tokens."""
+    """Protocol that can be extended to implement custom client-to-server authentication
+    The get_token method is invoked before each request to the MCP Server to retrieve a
+    fresh authentication token and update the request headers."""
 
     async def get_token(self) -> str:
         """Get an authentication token.
@@ -129,8 +131,9 @@ class StreamableHTTPTransport:
     async def _update_headers_with_token(
         self, base_headers: dict[str, str]
     ) -> dict[str, str]:
-        """Update headers with token if token provider is specified."""
-        if self.auth_token_provider is None:
+        """Update headers with token if token provider is specified and authorization
+        header is not present."""
+        if self.auth_token_provider is None or "Authorization" in base_headers:
             return base_headers
 
         token = await self.auth_token_provider.get_token()
@@ -473,6 +476,12 @@ async def streamablehttp_client(
 
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
+
+    `auth_token_provider` is an optional protocol that can be extended to implement
+    custom client-to-server authentication. Before each request to the MCP Server,
+    the get_token method is invoked to retrieve a fresh authentication token and
+    update the request headers. Note that if the passed in headers already
+    contain an authorization header, this provider will not be called.
 
     Yields:
         Tuple containing:

@@ -1279,6 +1279,32 @@ async def test_auth_token_provider_token_update(basic_server, basic_server_url):
             for i in range(3):
                 tools = await session.list_tools()
                 assert len(tools.tools) == 4
-                await anyio.sleep(0.1)  # Small delay to ensure token updates
 
     token_provider.get_token.call_count > 1
+
+
+@pytest.mark.anyio
+async def test_auth_token_provider_headers_not_overridden(
+    basic_server, basic_server_url
+):
+    """Test that auth token provider correctly sets Authorization header."""
+    # Create a mock token provider
+    token_provider = MockAuthTokenProvider("test-token-123")
+    token_provider.get_token = AsyncMock(return_value="test-token-123")
+
+    # Create client with token provider
+    async with streamablehttp_client(
+        f"{basic_server_url}/mcp",
+        auth_token_provider=token_provider,
+        headers={"Authorization": "test-token-123"},
+    ) as (read_stream, write_stream, _):
+        async with ClientSession(read_stream, write_stream) as session:
+            # Initialize the session
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+            # Make a request to verify headers
+            tools = await session.list_tools()
+            assert len(tools.tools) == 4
+
+    token_provider.get_token.assert_not_called()
