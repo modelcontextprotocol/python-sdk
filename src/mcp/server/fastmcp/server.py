@@ -35,7 +35,7 @@ from mcp.server.auth.settings import (
     AuthSettings,
 )
 from mcp.server.fastmcp.exceptions import ResourceError
-from mcp.server.fastmcp.prompts import Prompt, PromptManager
+from mcp.server.fastmcp.prompts import PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.fastmcp.tools import ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
