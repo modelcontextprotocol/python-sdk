@@ -54,7 +54,7 @@ def test_absolute_uv_path(mock_config_path: Path):
     """Test that the absolute path to uv is used when available."""
     # Mock the shutil.which function to return a fake path
     mock_uv_path = "/usr/local/bin/uv"
-    
+
     with patch("mcp.cli.claude.get_uv_path", return_value=mock_uv_path):
         # Setup
         server_name = "test_server"
@@ -71,5 +71,5 @@ def test_absolute_uv_path(mock_config_path: Path):
         # Verify the command is the absolute path
         server_config = config["mcpServers"][server_name]
         command = server_config["command"]
-        
+
         assert command == mock_uv_path
