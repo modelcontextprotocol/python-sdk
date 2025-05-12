@@ -33,7 +33,6 @@ from mcp.types import (
     ErrorData,
     JSONRPCError,
     JSONRPCMessage,
-    JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
     RequestId,

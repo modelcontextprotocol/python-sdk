@@ -47,7 +47,7 @@ from pydantic import AnyUrl
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
-from mcp.shared.message import SessionMessage, ServerMessageMetadata
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (
     BaseSession,
     RequestResponder,
