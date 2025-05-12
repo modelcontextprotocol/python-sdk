@@ -310,6 +310,8 @@ class StreamableHTTPTransport:
                         else None
                     ),
                 )
+                # If the SSE event indicates completion, like returning respose/error
+                # break the loop
                 if is_complete:
                     break
         except Exception as e:
