@@ -138,8 +138,9 @@ class FastMCP:
         self,
         name: str | None = None,
         instructions: str | None = None,
-        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
-        | None = None,
+        auth_server_provider: (
+            OAuthAuthorizationServerProvider[Any, Any, Any] | None
+        ) = None,
         event_store: EventStore | None = None,
         **settings: Any,
     ):
@@ -148,9 +149,11 @@ class FastMCP:
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
             instructions=instructions,
-            lifespan=lifespan_wrapper(self, self.settings.lifespan)
-            if self.settings.lifespan
-            else default_lifespan,
+            lifespan=(
+                lifespan_wrapper(self, self.settings.lifespan)
+                if self.settings.lifespan
+                else default_lifespan
+            ),
         )
         self._tool_manager = ToolManager(
             warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
@@ -481,13 +484,22 @@ class FastMCP:
 
         return decorator
 
-    def add_prompt(self, prompt: Prompt) -> None:
+    def add_prompt(
+        self,
+        prompt_or_fn: Prompt | Callable[..., Any],
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
         """Add a prompt to the server.
 
         Args:
-            prompt: A Prompt instance to add
+            prompt_or_fn: Either a Prompt object or a function to create a prompt from
+            name: Optional name for the prompt (only used if prompt_or_fn is a function)
+            description: Optional description of the prompt (only used if prompt_or_fn is a function)
         """
-        self._prompt_manager.add_prompt(prompt)
+        self._prompt_manager.add_prompt(
+            prompt_or_fn, name=name, description=description
+        )
 
     def prompt(
         self, name: str | None = None, description: str | None = None
@@ -533,8 +545,7 @@ class FastMCP:
             )
 
         def decorator(func: AnyFunction) -> AnyFunction:
-            prompt = Prompt.from_function(func, name=name, description=description)
-            self.add_prompt(prompt)
+            self.add_prompt(func, name=name, description=description)
             return func
 
         return decorator
