@@ -25,24 +25,18 @@ class PromptManager:
 
     def add_prompt(
         self,
-        prompt_or_fn: Prompt | Callable[..., Any],
+        fn: Callable[..., Any],
         name: str | None = None,
         description: str | None = None,
     ) -> Prompt:
         """Add a prompt to the manager.
 
         Args:
-            prompt_or_fn: Either a Prompt object or a function to create a prompt from
-            name: Optional name for the prompt (only used if prompt_or_fn is a function)
-            description: Optional description of the prompt (only used if prompt_or_fn is a function)
+            fn: Function to create a prompt from
+            name: Optional name for the prompt
+            description: Optional description of the prompt
         """
-        # If a function was provided, create a Prompt object from it
-        if callable(prompt_or_fn) and not isinstance(prompt_or_fn, Prompt):
-            prompt = Prompt.from_function(
-                prompt_or_fn, name=name, description=description
-            )
-        else:
-            prompt = prompt_or_fn
+        prompt = Prompt.from_function(fn, name=name, description=description)
 
         # Check for duplicates
         existing = self._prompts.get(prompt.name)

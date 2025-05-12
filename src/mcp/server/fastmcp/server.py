@@ -486,20 +486,18 @@ class FastMCP:
 
     def add_prompt(
         self,
-        prompt_or_fn: Prompt | Callable[..., Any],
+        fn: Callable[..., Any],
         name: str | None = None,
         description: str | None = None,
     ) -> None:
         """Add a prompt to the server.
 
         Args:
-            prompt_or_fn: Either a Prompt object or a function to create a prompt from
-            name: Optional name for the prompt (only used if prompt_or_fn is a function)
-            description: Optional description of the prompt (only used if prompt_or_fn is a function)
+            fn: Function to create a prompt from
+            name: Optional name for the prompt
+            description: Optional description of the prompt
         """
-        self._prompt_manager.add_prompt(
-            prompt_or_fn, name=name, description=description
-        )
+        self._prompt_manager.add_prompt(fn, name=name, description=description)
 
     def prompt(
         self, name: str | None = None, description: str | None = None
