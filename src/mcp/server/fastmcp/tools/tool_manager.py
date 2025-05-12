@@ -1,7 +1,7 @@
 from __future__ import annotations as _annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, overload
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools.base import Tool
@@ -31,17 +31,35 @@ class ToolManager:
         """List all registered tools."""
         return list(self._tools.values())
 
+    @overload
+    def add_tool(
+        self,
+        fn: Tool,
+    ) -> Tool: ...
+
+    @overload
     def add_tool(
         self,
         fn: Callable[..., Any],
         name: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+    ) -> Tool: ...
+
+    def add_tool(
+        self,
+        fn: Callable[..., Any] | Tool,
+        name: str | None = None,
+        description: str | None = None,
+        annotations: ToolAnnotations | None = None,
     ) -> Tool:
         """Add a tool to the server."""
-        tool = Tool.from_function(
-            fn, name=name, description=description, annotations=annotations
-        )
+        if isinstance(fn, Tool):
+            tool = fn
+        else:
+            tool = Tool.from_function(
+                fn, name=name, description=description, annotations=annotations
+            )
         existing = self._tools.get(tool.name)
         if existing:
             if self.warn_on_duplicate_tools:

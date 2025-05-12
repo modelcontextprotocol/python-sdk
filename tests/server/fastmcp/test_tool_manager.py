@@ -6,7 +6,8 @@ from pydantic import BaseModel
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.server.fastmcp.tools import ToolManager
+from mcp.server.fastmcp.tools import Tool, ToolManager
+from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.server.session import ServerSessionT
 from mcp.shared.context import LifespanContextT
 from mcp.types import ToolAnnotations
@@ -30,6 +31,30 @@ class TestAddTools:
         assert tool.is_async is False
         assert tool.parameters["properties"]["a"]["type"] == "integer"
         assert tool.parameters["properties"]["b"]["type"] == "integer"
+
+    def test_add_tool_directly(self):
+        manager = ToolManager()
+
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        class AddArguments(ArgModelBase):
+            a: int
+            b: int
+
+        fn_metadata = FuncMetadata(arg_model=AddArguments)
+
+        original_tool = Tool(
+            name="add",
+            description="Add two numbers.",
+            fn=add,
+            fn_metadata=fn_metadata,
+            is_async=False,
+            parameters=AddArguments.model_json_schema(),
+        )
+        manager.add_tool(original_tool)
+        saved_tool = manager.get_tool("add")
+        assert saved_tool == original_tool
 
     @pytest.mark.anyio
     async def test_async_function(self):

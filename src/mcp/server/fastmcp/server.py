@@ -10,7 +10,7 @@ from contextlib import (
     asynccontextmanager,
 )
 from itertools import chain
-from typing import Any, Generic, Literal
+from typing import Any, Generic, Literal, overload
 
 import anyio
 import pydantic_core
@@ -37,7 +37,7 @@ from mcp.server.auth.settings import (
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
-from mcp.server.fastmcp.tools import ToolManager
+from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.fastmcp.utilities.types import Image
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -315,9 +315,21 @@ class FastMCP:
             logger.error(f"Error reading resource {uri}: {e}")
             raise ResourceError(str(e))
 
+    @overload
+    def add_tool(self, fn: Tool) -> None: ...
+
+    @overload
     def add_tool(
         self,
         fn: AnyFunction,
+        name: str | None = None,
+        description: str | None = None,
+        annotations: ToolAnnotations | None = None,
+    ) -> None: ...
+
+    def add_tool(
+        self,
+        fn: AnyFunction | Tool,
         name: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
@@ -328,14 +340,17 @@ class FastMCP:
         with the Context type annotation. See the @tool decorator for examples.
 
         Args:
-            fn: The function to register as a tool
+            fn: The function to register as a tool or a Tool instance
             name: Optional name for the tool (defaults to function name)
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
         """
-        self._tool_manager.add_tool(
-            fn, name=name, description=description, annotations=annotations
-        )
+        if isinstance(fn, Tool):
+            self._tool_manager.add_tool(fn)
+        else:
+            self._tool_manager.add_tool(
+                fn, name=name, description=description, annotations=annotations
+            )
 
     def tool(
         self,
