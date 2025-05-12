@@ -426,7 +426,7 @@ mcp = FastMCP(name="MathServer", stateless_http=True)
 
 
 @mcp.tool(description="A simple add tool")
-def add_two(n: int) -> str:
+def add_two(n: int) -> int:
     return n + 2
 ```
 
@@ -461,6 +461,8 @@ The streamable HTTP transport supports:
 ### Mounting to an Existing ASGI Server
 
 > **Note**: SSE transport is being superseded by [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http).
+
+By default, SSE servers are mounted at `/sse` and Streamable HTTP servers are mounted at `/mcp`. You can customize these paths using the methods described below.
 
 You can mount the SSE server to an existing ASGI server using the `sse_app` method. This allows you to integrate the SSE server with other ASGI applications.
 
