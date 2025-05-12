@@ -11,7 +11,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import Any, Protocol
 
 import anyio
 import httpx
@@ -74,6 +74,18 @@ class RequestContext:
     sse_read_timeout: timedelta
 
 
+class AuthTokenProvider(Protocol):
+    """Protocol for providers that supply authentication tokens."""
+
+    async def get_token(self) -> str:
+        """Get an authentication token.
+
+        Returns:
+            str: The authentication token.
+        """
+        ...
+
+
 class StreamableHTTPTransport:
     """StreamableHTTP client transport implementation."""
 
@@ -83,6 +95,7 @@ class StreamableHTTPTransport:
         headers: dict[str, Any] | None = None,
         timeout: timedelta = timedelta(seconds=30),
         sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
+        auth_token_provider: AuthTokenProvider | None = None,
     ) -> None:
         """Initialize the StreamableHTTP transport.
 
@@ -102,6 +115,7 @@ class StreamableHTTPTransport:
             CONTENT_TYPE: JSON,
             **self.headers,
         }
+        self.auth_token_provider = auth_token_provider
 
     def _update_headers_with_session(
         self, base_headers: dict[str, str]
@@ -110,6 +124,24 @@ class StreamableHTTPTransport:
         headers = base_headers.copy()
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
+        return headers
+
+    async def _update_headers_with_token(
+        self, base_headers: dict[str, str]
+    ) -> dict[str, str]:
+        """Update headers with token if token provider is specified."""
+        if self.auth_token_provider is None:
+            return base_headers
+
+        token = await self.auth_token_provider.get_token()
+        headers = base_headers.copy()
+        headers["Authorization"] = f"Bearer {token}"
+        return headers
+
+    async def _update_headers(self, base_headers: dict[str, str]) -> dict[str, str]:
+        """Update headers with session ID and token if available."""
+        headers = self._update_headers_with_session(base_headers)
+        headers = await self._update_headers_with_token(headers)
         return headers
 
     def _is_initialization_request(self, message: JSONRPCMessage) -> bool:
@@ -184,7 +216,7 @@ class StreamableHTTPTransport:
             if not self.session_id:
                 return
 
-            headers = self._update_headers_with_session(self.request_headers)
+            headers = await self._update_headers(self.request_headers)
 
             async with aconnect_sse(
                 client,
@@ -206,7 +238,7 @@ class StreamableHTTPTransport:
 
     async def _handle_resumption_request(self, ctx: RequestContext) -> None:
         """Handle a resumption request using GET with SSE."""
-        headers = self._update_headers_with_session(ctx.headers)
+        headers = await self._update_headers(ctx.headers)
         if ctx.metadata and ctx.metadata.resumption_token:
             headers[LAST_EVENT_ID] = ctx.metadata.resumption_token
         else:
@@ -241,7 +273,7 @@ class StreamableHTTPTransport:
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
-        headers = self._update_headers_with_session(ctx.headers)
+        headers = await self._update_headers(ctx.headers)
         message = ctx.session_message.message
         is_initialization = self._is_initialization_request(message)
 
@@ -405,7 +437,7 @@ class StreamableHTTPTransport:
             return
 
         try:
-            headers = self._update_headers_with_session(self.request_headers)
+            headers = await self._update_headers(self.request_headers)
             response = await client.delete(self.url, headers=headers)
 
             if response.status_code == 405:
@@ -427,6 +459,7 @@ async def streamablehttp_client(
     timeout: timedelta = timedelta(seconds=30),
     sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
     terminate_on_close: bool = True,
+    auth_token_provider: AuthTokenProvider | None = None,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -447,7 +480,9 @@ async def streamablehttp_client(
             - write_stream: Stream for sending messages to the server
             - get_session_id_callback: Function to retrieve the current session ID
     """
-    transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout)
+    transport = StreamableHTTPTransport(
+        url, headers, timeout, sse_read_timeout, auth_token_provider
+    )
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream[
         SessionMessage | Exception
