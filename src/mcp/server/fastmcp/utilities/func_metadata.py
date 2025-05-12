@@ -183,13 +183,9 @@ def func_metadata(
         __base__=ArgModelBase,
     )
 
-    if sig.return_annotation is inspect.Parameter.empty:
-        pass
-    elif sig.return_annotation is None:
-        pass
-    elif sig.return_annotation is types.Image:
-        pass
-    else:
+    # TODO this could be moved to a constant or passed in as param as per skip_names
+    ignore = [inspect.Parameter.empty, None, types.Image]
+    if sig.return_annotation not in ignore:
         output_schema = TypeAdapter(sig.return_annotation).json_schema()
 
     return FuncMetadata(arg_model=arguments_model, output_schema=output_schema)
