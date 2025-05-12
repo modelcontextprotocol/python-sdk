@@ -1,9 +1,10 @@
 """Prompt management functionality."""
 
-from typing import Any, Callable
+from typing import Any
 
 from mcp.server.fastmcp.prompts.base import Message, Prompt
 from mcp.server.fastmcp.utilities.logging import get_logger
+from mcp.types import AnyFunction
 
 logger = get_logger(__name__)
 
@@ -25,7 +26,7 @@ class PromptManager:
 
     def add_prompt(
         self,
-        fn: Callable[..., Any],
+        fn: AnyFunction,
         name: str | None = None,
         description: str | None = None,
     ) -> Prompt:

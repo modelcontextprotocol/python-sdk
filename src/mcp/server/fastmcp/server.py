@@ -486,7 +486,7 @@ class FastMCP:
 
     def add_prompt(
         self,
-        fn: Callable[..., Any],
+        fn: AnyFunction,
         name: str | None = None,
         description: str | None = None,
     ) -> None:
