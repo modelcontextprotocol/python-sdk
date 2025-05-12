@@ -74,13 +74,14 @@ class RequestContext:
     sse_read_timeout: timedelta
 
 
-class AuthTokenProvider(Protocol):
-    """Protocol that can be extended to implement custom client-to-server authentication
-    The get_token method is invoked before each request to the MCP Server to retrieve a
-    fresh authentication token and update the request headers."""
+class AuthClientProvider(Protocol):
+    """Base class that can be extended to implement custom client-to-server
+    authentication"""
 
     async def get_token(self) -> str:
-        """Get an authentication token.
+        """Get a token for authenticating to an MCP server. The token is assumed to
+                be short-lived; clients may call this API multiple times per
+            request to an MCP server.
 
         Returns:
             str: The authentication token.
@@ -97,7 +98,7 @@ class StreamableHTTPTransport:
         headers: dict[str, Any] | None = None,
         timeout: timedelta = timedelta(seconds=30),
         sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
-        auth_token_provider: AuthTokenProvider | None = None,
+        auth_client_provider: AuthClientProvider | None = None,
     ) -> None:
         """Initialize the StreamableHTTP transport.
 
@@ -117,7 +118,7 @@ class StreamableHTTPTransport:
             CONTENT_TYPE: JSON,
             **self.headers,
         }
-        self.auth_token_provider = auth_token_provider
+        self.auth_client_provider = auth_client_provider
 
     def _update_headers_with_session(
         self, base_headers: dict[str, str]
@@ -133,10 +134,10 @@ class StreamableHTTPTransport:
     ) -> dict[str, str]:
         """Update headers with token if token provider is specified and authorization
         header is not present."""
-        if self.auth_token_provider is None or "Authorization" in base_headers:
+        if self.auth_client_provider is None or "Authorization" in base_headers:
             return base_headers
 
-        token = await self.auth_token_provider.get_token()
+        token = await self.auth_client_provider.get_token()
         headers = base_headers.copy()
         headers["Authorization"] = f"Bearer {token}"
         return headers
@@ -462,7 +463,7 @@ async def streamablehttp_client(
     timeout: timedelta = timedelta(seconds=30),
     sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
     terminate_on_close: bool = True,
-    auth_token_provider: AuthTokenProvider | None = None,
+    auth_client_provider: AuthClientProvider | None = None,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -477,7 +478,7 @@ async def streamablehttp_client(
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
 
-    `auth_token_provider` is an optional protocol that can be extended to implement
+    `auth_client_provider` is an optional protocol that can be extended to implement
     custom client-to-server authentication. Before each request to the MCP Server,
     the get_token method is invoked to retrieve a fresh authentication token and
     update the request headers. Note that if the passed in headers already
@@ -490,7 +491,7 @@ async def streamablehttp_client(
             - get_session_id_callback: Function to retrieve the current session ID
     """
     transport = StreamableHTTPTransport(
-        url, headers, timeout, sse_read_timeout, auth_token_provider
+        url, headers, timeout, sse_read_timeout, auth_client_provider
     )
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream[
