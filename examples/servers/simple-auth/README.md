@@ -66,11 +66,6 @@ uv run mcp-simple-auth --transport streamable-http
 Streamable HTTP transport provides endpoint:
 - `/mcp`
 
-### Compatibility Guide for Supporting Older Clients
-
-When using Streamable HTTP transport (`--transport streamable-http`), the server automatically supports both endpoints:
-- Newer clients use `/mcp` endpoint
-- Older clients use `/sse` endpoint
 
 This ensures backward compatibility without needing multiple server instances. When using SSE transport (`--transport sse`), only the `/sse` endpoint is available.
 
