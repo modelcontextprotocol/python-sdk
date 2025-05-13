@@ -1226,24 +1226,14 @@ async def test_streamablehttp_server_sampling(basic_server, basic_server_url):
             )
 
 
-class MockAuthClientProvider:
-    """Mock implementation of AuthClientProvider for testing."""
-
-    def __init__(self, token: str):
-        self.token = token
-
-    async def get_auth_headers(self) -> dict[str, str]:
-        return {"Authorization": "Bearer " + self.token}
-
-
 @pytest.mark.anyio
 async def test_auth_client_provider_headers(basic_server, basic_server_url):
     """Test that auth token provider correctly sets Authorization header."""
     # Create a mock token provider
-    client_provider = MockAuthClientProvider("test-token-123")
-    client_provider.get_auth_headers = AsyncMock(
-        return_value={"Authorization": "Bearer test-token-123"}
-    )
+    client_provider = AsyncMock()
+    client_provider.get_headers.return_value = {
+        "Authorization": "Bearer test-token-123"
+    }
 
     # Create client with token provider
     async with streamablehttp_client(
@@ -1258,17 +1248,17 @@ async def test_auth_client_provider_headers(basic_server, basic_server_url):
             tools = await session.list_tools()
             assert len(tools.tools) == 4
 
-    client_provider.get_auth_headers.assert_called()
+    client_provider.get_headers.assert_called()
 
 
 @pytest.mark.anyio
 async def test_auth_client_provider_called_per_request(basic_server, basic_server_url):
     """Test that auth token provider can return different tokens."""
     # Create a dynamic token provider
-    client_provider = MockAuthClientProvider("test-token-123")
-    client_provider.get_auth_headers = AsyncMock(
-        return_value={"Authorization": "Bearer test-token-123"}
-    )
+    client_provider = AsyncMock()
+    client_provider.get_headers.return_value = {
+        "Authorization": "Bearer test-token-123"
+    }
 
     # Create client with dynamic token provider
     async with streamablehttp_client(
@@ -1284,4 +1274,6 @@ async def test_auth_client_provider_called_per_request(basic_server, basic_serve
                 tools = await session.list_tools()
                 assert len(tools.tools) == 4
 
-    client_provider.get_auth_headers.call_count > 1
+    # list_tools is called 3 times, but get_auth_headers is also used during
+    # session initialization and setup. Verify it's called at least 3 times.
+    assert client_provider.get_headers.call_count > 3
