@@ -32,7 +32,7 @@ class TestAddTools:
         assert tool.parameters["properties"]["a"]["type"] == "integer"
         assert tool.parameters["properties"]["b"]["type"] == "integer"
 
-    def test_add_tool_directly(self):
+    def test_add_tool_instance(self):
         manager = ToolManager()
 
         def add(a: int, b: int) -> int:
@@ -54,7 +54,7 @@ class TestAddTools:
             context_kwarg=None,
             annotations=None,
         )
-        manager.add_tool(original_tool)
+        manager.add_tool_instance(original_tool)
         saved_tool = manager.get_tool("add")
         assert saved_tool == original_tool
 

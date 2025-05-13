@@ -10,7 +10,7 @@ from contextlib import (
     asynccontextmanager,
 )
 from itertools import chain
-from typing import Any, Generic, Literal, overload
+from typing import Any, Generic, Literal
 
 import anyio
 import pydantic_core
@@ -315,21 +315,13 @@ class FastMCP:
             logger.error(f"Error reading resource {uri}: {e}")
             raise ResourceError(str(e))
 
-    @overload
-    def add_tool(self, fn: Tool) -> None: ...
+    def add_tool_instance(self, tool: Tool) -> None:
+        """Add a Tool instance to the server."""
+        self._tool_manager.add_tool_instance(tool)
 
-    @overload
     def add_tool(
         self,
         fn: AnyFunction,
-        name: str | None = None,
-        description: str | None = None,
-        annotations: ToolAnnotations | None = None,
-    ) -> None: ...
-
-    def add_tool(
-        self,
-        fn: AnyFunction | Tool,
         name: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
@@ -340,17 +332,14 @@ class FastMCP:
         with the Context type annotation. See the @tool decorator for examples.
 
         Args:
-            fn: The function to register as a tool or a Tool instance
+            fn: The function to register as a tool
             name: Optional name for the tool (defaults to function name)
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
         """
-        if isinstance(fn, Tool):
-            self._tool_manager.add_tool(fn)
-        else:
-            self._tool_manager.add_tool(
-                fn, name=name, description=description, annotations=annotations
-            )
+        self._tool_manager.add_tool(
+            fn, name=name, description=description, annotations=annotations
+        )
 
     def tool(
         self,
