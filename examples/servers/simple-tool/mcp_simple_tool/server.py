@@ -64,6 +64,7 @@ def main(port: int, transport: str) -> int:
         from starlette.routing import Mount, Route
 
         sse = SseServerTransport("/messages/")
+
         async def handle_sse(request):
             async with sse.connect_sse(
                 request.scope, request.receive, request._send
