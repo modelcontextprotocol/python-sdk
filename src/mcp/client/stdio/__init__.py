@@ -181,6 +181,8 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                 await terminate_windows_process(process)
             else:
                 process.terminate()
+            await read_stream.aclose()
+            await write_stream.aclose()
 
 
 def _get_executable_command(command: str) -> str:
