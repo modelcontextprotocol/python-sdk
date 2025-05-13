@@ -223,7 +223,6 @@ class BaseSession(
         Do not use this method to emit notifications! Use send_notification()
         instead.
         """
-
         request_id = self._request_id
         self._request_id = request_id + 1
 
@@ -402,7 +401,11 @@ class BaseSession(
         """
 
     async def send_progress_notification(
-        self, progress_token: str | int, progress: float, total: float | None = None
+        self,
+        progress_token: str | int,
+        progress: float,
+        total: float | None = None,
+        message: str | None = None,
     ) -> None:
         """
         Sends a progress notification for a request that is currently being

@@ -952,13 +952,14 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         return self._request_context
 
     async def report_progress(
-        self, progress: float, total: float | None = None
+        self, progress: float, total: float | None = None, message: str | None = None
     ) -> None:
         """Report progress for the current operation.
 
         Args:
             progress: Current progress value e.g. 24
             total: Optional total value e.g. 100
+            message: Optional message e.g. Starting render...
         """
 
         progress_token = (
@@ -971,7 +972,10 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
             return
 
         await self.request_context.session.send_progress_notification(
-            progress_token=progress_token, progress=progress, total=total
+            progress_token=progress_token,
+            progress=progress,
+            total=total,
+            message=message,
         )
 
     async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:
