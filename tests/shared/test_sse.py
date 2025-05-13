@@ -80,16 +80,19 @@ class ServerTest(Server):
 # Test fixtures
 def make_server_app() -> Starlette:
     """Create test Starlette app with SSE transport"""
+    from starlette.responses import Response
+
     sse = SseServerTransport("/messages/")
     server = ServerTest()
 
-    async def handle_sse(request: Request) -> None:
+    async def handle_sse(request: Request) -> Response:
         async with sse.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:
             await server.run(
                 streams[0], streams[1], server.create_initialization_options()
             )
+        return Response("MCP SSE")
 
     app = Starlette(
         routes=[
