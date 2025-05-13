@@ -259,6 +259,7 @@ class ClientSession(
         name: str,
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
+        **meta
     ) -> types.CallToolResult:
         """Send a tools/call request."""
 
@@ -266,7 +267,7 @@ class ClientSession(
             types.ClientRequest(
                 types.CallToolRequest(
                     method="tools/call",
-                    params=types.CallToolRequestParams(name=name, arguments=arguments),
+                    params=types.CallToolRequestParams(name=name, arguments=arguments, _meta=meta),
                 )
             ),
             types.CallToolResult,
