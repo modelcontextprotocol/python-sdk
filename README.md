@@ -387,6 +387,8 @@ python server.py
 mcp run server.py
 ```
 
+Note that `mcp run` or `mcp dev` only supports server using FastMCP and not the low-level server variant.
+
 ### Streamable HTTP Transport
 
 > **Note**: Streamable HTTP transport is superseding SSE transport for production deployments.
@@ -693,6 +695,8 @@ if __name__ == "__main__":
 
     asyncio.run(run())
 ```
+
+Caution: The `mcp run` and `mcp dev` tool doesn't support low-level server.
 
 ### Writing MCP Clients
 
