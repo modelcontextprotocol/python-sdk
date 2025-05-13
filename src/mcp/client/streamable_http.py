@@ -42,7 +42,6 @@ GetSessionIdCallback = Callable[[], str | None]
 MCP_SESSION_ID = "mcp-session-id"
 LAST_EVENT_ID = "last-event-id"
 CONTENT_TYPE = "content-type"
-HEADER_CAPTURE = "[TESTING_HEADER_CAPTURE]"
 ACCEPT = "Accept"
 
 
@@ -273,16 +272,6 @@ class StreamableHTTPTransport:
                 if is_complete:
                     break
 
-    async def _is_testing_header_capture(self, response: httpx.Response) -> str | None:
-        try:
-            content = await response.aread()
-            if content.decode().startswith(HEADER_CAPTURE):
-                return content.decode()
-        except Exception as _:
-            return None
-
-        return None
-
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
         headers = await self._update_headers(ctx.headers)
@@ -306,23 +295,6 @@ class StreamableHTTPTransport:
                         message.root.id,
                     )
                 return
-
-            # To test if headers are being forwarded correctly, in unit tests
-            # we have a mock server that returns a 418 status code with the
-            # HEADER_CAPTURE prefix. If the response has this status code
-            # with the prefix, return the response content as part of the error message.
-            if response.status_code == 418:
-                test_error_message = await self._is_testing_header_capture(response)
-                # If this is coming from the test case return the response content
-                if test_error_message and isinstance(message.root, JSONRPCRequest):
-                    jsonrpc_error = JSONRPCError(
-                        jsonrpc="2.0",
-                        id=message.root.id,
-                        error=ErrorData(code=32600, message=test_error_message),
-                    )
-                    session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
-                    await ctx.read_stream_writer.send(session_message)
-                    return
 
             response.raise_for_status()
             if is_initialization:
