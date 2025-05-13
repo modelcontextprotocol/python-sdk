@@ -69,8 +69,9 @@ async def test_desktop(monkeypatch):
         content = result.contents[0]
         assert isinstance(content, TextResourceContents)
         assert isinstance(content.text, str)
-        assert "/fake/path/file1.txt" in content.text
-        assert "/fake/path/file2.txt" in content.text
+
+        assert Path("/fake/path/file1.txt").as_posix() in content.text
+        assert Path("/fake/path/file2.txt").as_posix() in content.text
 
 
 @pytest.mark.parametrize("example", find_examples("README.md"), ids=str)
