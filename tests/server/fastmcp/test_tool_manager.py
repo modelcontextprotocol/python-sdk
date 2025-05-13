@@ -51,6 +51,8 @@ class TestAddTools:
             fn_metadata=fn_metadata,
             is_async=False,
             parameters=AddArguments.model_json_schema(),
+            context_kwarg=None,
+            annotations=None,
         )
         manager.add_tool(original_tool)
         saved_tool = manager.get_tool("add")
