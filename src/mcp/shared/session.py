@@ -223,7 +223,6 @@ class BaseSession(
         Do not use this method to emit notifications! Use send_notification()
         instead.
         """
-
         request_id = self._request_id
         self._request_id = request_id + 1
 
