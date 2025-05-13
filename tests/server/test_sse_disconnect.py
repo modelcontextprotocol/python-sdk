@@ -46,9 +46,8 @@ async def test_sse_disconnect_handle():
         session_id = next(iter(transport._read_stream_writers.keys()))
         assert isinstance(session_id, UUID)
 
-        # Check that the writer is still open
-        writer = transport._read_stream_writers[session_id]
-        assert writer is not None
+    # Check that the session_id should be clean up
+    assert session_id not in transport._read_stream_writers
 
     # After context exits, session should be cleaned up
     assert len(transport._read_stream_writers) == 0

@@ -145,7 +145,12 @@ class SseServerTransport:
 
         async with anyio.create_task_group() as tg:
 
-            async def response_wrapper(scope: Scope, receive: Receive, send: Send):
+            async def response_wrapper(
+                scope: Scope,
+                receive: Receive,
+                send: Send,
+                transport: SseServerTransport,
+            ):
                 """
                 The EventSourceResponse returning signals a client close / disconnect.
                 In this case we close our side of the streams to signal the client that
@@ -156,10 +161,13 @@ class SseServerTransport:
                 )(scope, receive, send)
                 await read_stream_writer.aclose()
                 await write_stream_reader.aclose()
+                await read_stream.aclose()
+                await write_stream.aclose()
+                transport._read_stream_writers.pop(session_id)
                 logging.debug(f"Client session disconnected {session_id}")
 
             logger.debug("Starting SSE response task")
-            tg.start_soon(response_wrapper, scope, receive, send)
+            tg.start_soon(response_wrapper, scope, receive, send, self)
 
             logger.debug("Yielding read and write streams")
             yield (read_stream, write_stream)
