@@ -3,7 +3,7 @@
 import logging
 import secrets
 import time
-from typing import Any
+from typing import Any, Literal
 
 import click
 from pydantic import AnyHttpUrl
@@ -347,7 +347,13 @@ def create_simple_mcp_server(settings: ServerSettings) -> FastMCP:
 @click.command()
 @click.option("--port", default=8000, help="Port to listen on")
 @click.option("--host", default="localhost", help="Host to bind to")
-def main(port: int, host: str) -> int:
+@click.option(
+    "--transport",
+    default="sse",
+    type=click.Choice(["sse", "streamable-http"]),
+    help="Transport protocol to use ('sse' or 'streamable-http')",
+)
+def main(port: int, host: str, transport: Literal["sse", "streamable-http"]) -> int:
     """Run the simple GitHub MCP server."""
     logging.basicConfig(level=logging.INFO)
 
@@ -364,5 +370,6 @@ def main(port: int, host: str) -> int:
         return 1
 
     mcp_server = create_simple_mcp_server(settings)
-    mcp_server.run(transport="sse")
+    logger.info(f"Starting server with {transport} transport")
+    mcp_server.run(transport=transport)
     return 0

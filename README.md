@@ -318,7 +318,7 @@ providing an implementation of the `OAuthServerProvider` protocol.
 
 ```
 mcp = FastMCP("My App",
-        auth_provider=MyOAuthServerProvider(),
+        auth_server_provider=MyOAuthServerProvider(),
         auth=AuthSettings(
             issuer_url="https://myapp.com",
             revocation_options=RevocationOptions(
@@ -387,6 +387,8 @@ python server.py
 mcp run server.py
 ```
 
+Note that `mcp run` or `mcp dev` only supports server using FastMCP and not the low-level server variant.
+
 ### Streamable HTTP Transport
 
 > **Note**: Streamable HTTP transport is superseding SSE transport for production deployments.
@@ -426,7 +428,7 @@ mcp = FastMCP(name="MathServer", stateless_http=True)
 
 
 @mcp.tool(description="A simple add tool")
-def add_two(n: int) -> str:
+def add_two(n: int) -> int:
     return n + 2
 ```
 
@@ -461,6 +463,8 @@ The streamable HTTP transport supports:
 ### Mounting to an Existing ASGI Server
 
 > **Note**: SSE transport is being superseded by [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http).
+
+By default, SSE servers are mounted at `/sse` and Streamable HTTP servers are mounted at `/mcp`. You can customize these paths using the methods described below.
 
 You can mount the SSE server to an existing ASGI server using the `sse_app` method. This allows you to integrate the SSE server with other ASGI applications.
 
@@ -617,7 +621,7 @@ server = Server("example-server", lifespan=server_lifespan)
 # Access lifespan context in handlers
 @server.call_tool()
 async def query_db(name: str, arguments: dict) -> list:
-    ctx = server.request_context
+    ctx = server.get_context()
     db = ctx.lifespan_context["db"]
     return await db.query(arguments["query"])
 ```
@@ -691,6 +695,8 @@ if __name__ == "__main__":
 
     asyncio.run(run())
 ```
+
+Caution: The `mcp run` and `mcp dev` tool doesn't support low-level server.
 
 ### Writing MCP Clients
 

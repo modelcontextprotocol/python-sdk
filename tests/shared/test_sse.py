@@ -252,3 +252,69 @@ async def test_sse_client_timeout(
         return
 
     pytest.fail("the client should have timed out and returned an error already")
+
+
+def run_mounted_server(server_port: int) -> None:
+    app = make_server_app()
+    main_app = Starlette(routes=[Mount("/mounted_app", app=app)])
+    server = uvicorn.Server(
+        config=uvicorn.Config(
+            app=main_app, host="127.0.0.1", port=server_port, log_level="error"
+        )
+    )
+    print(f"starting server on {server_port}")
+    server.run()
+
+    # Give server time to start
+    while not server.started:
+        print("waiting for server to start")
+        time.sleep(0.5)
+
+
+@pytest.fixture()
+def mounted_server(server_port: int) -> Generator[None, None, None]:
+    proc = multiprocessing.Process(
+        target=run_mounted_server, kwargs={"server_port": server_port}, daemon=True
+    )
+    print("starting process")
+    proc.start()
+
+    # Wait for server to be running
+    max_attempts = 20
+    attempt = 0
+    print("waiting for server to start")
+    while attempt < max_attempts:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect(("127.0.0.1", server_port))
+                break
+        except ConnectionRefusedError:
+            time.sleep(0.1)
+            attempt += 1
+    else:
+        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+
+    yield
+
+    print("killing server")
+    # Signal the server to stop
+    proc.kill()
+    proc.join(timeout=2)
+    if proc.is_alive():
+        print("server process failed to terminate")
+
+
+@pytest.mark.anyio
+async def test_sse_client_basic_connection_mounted_app(
+    mounted_server: None, server_url: str
+) -> None:
+    async with sse_client(server_url + "/mounted_app/sse") as streams:
+        async with ClientSession(*streams) as session:
+            # Test initialization
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == SERVER_NAME
+
+            # Test ping
+            ping_result = await session.send_ping()
+            assert isinstance(ping_result, EmptyResult)
