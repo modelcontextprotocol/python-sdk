@@ -16,7 +16,6 @@ from mcp.shared.message import SessionMessage
 from .win32 import (
     create_windows_process,
     get_windows_executable_command,
-    terminate_windows_process,
 )
 
 # Environment variables to inherit by default
@@ -177,10 +176,13 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             yield read_stream, write_stream
         finally:
             # Clean up process to prevent any dangling orphaned processes
-            if sys.platform == "win32":
-                await terminate_windows_process(process)
-            else:
+            try:
                 process.terminate()
+                with anyio.fail_after(2.0):
+                    await process.wait()
+            except TimeoutError:
+                # Force kill if it doesn't terminate
+                process.kill()
 
 
 def _get_executable_command(command: str) -> str:
