@@ -100,9 +100,25 @@ class SseServerTransport:
         write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
         session_id = uuid4()
-        session_uri = f"{quote(self._endpoint)}?session_id={session_id.hex}"
         self._read_stream_writers[session_id] = read_stream_writer
         logger.debug(f"Created new session with ID: {session_id}")
+
+        # Determine the full path for the message endpoint to be sent to the client.
+        # scope['root_path'] is the prefix where the current Starlette app
+        # instance is mounted.
+        # e.g., "" if top-level, or "/api_prefix" if mounted under "/api_prefix".
+        root_path = scope.get("root_path", "")
+
+        # self._endpoint is the path *within* this app, e.g., "/messages".
+        # Concatenating them gives the full absolute path from the server root.
+        # e.g., "" + "/messages" -> "/messages"
+        # e.g., "/api_prefix" + "/messages" -> "/api_prefix/messages"
+        full_message_path_for_client = root_path.rstrip("/") + self._endpoint
+
+        # This is the URI (path + query) the client will use to POST messages.
+        client_post_uri_data = (
+            f"{quote(full_message_path_for_client)}?session_id={session_id.hex}"
+        )
 
         sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[
             dict[str, Any]
@@ -111,8 +127,10 @@ class SseServerTransport:
         async def sse_writer():
             logger.debug("Starting SSE writer")
             async with sse_stream_writer, write_stream_reader:
-                await sse_stream_writer.send({"event": "endpoint", "data": session_uri})
-                logger.debug(f"Sent endpoint event: {session_uri}")
+                await sse_stream_writer.send(
+                    {"event": "endpoint", "data": client_post_uri_data}
+                )
+                logger.debug(f"Sent endpoint event: {client_post_uri_data}")
 
                 async for session_message in write_stream_reader:
                     logger.debug(f"Sending message via SSE: {session_message}")
