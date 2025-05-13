@@ -25,7 +25,7 @@ from starlette.routing import Mount
 
 import mcp.types as types
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import HEADER_CAPTURE, streamablehttp_client
 from mcp.server import Server
 from mcp.server.streamable_http import (
     MCP_SESSION_ID_HEADER,
@@ -262,7 +262,7 @@ def create_header_capture_app() -> Starlette:
 
         # Return error response with headers in body
         response = Response(
-            "[TESTING_HEADER_CAPTURE]:" + json.dumps({"headers": headers}),
+            HEADER_CAPTURE + json.dumps({"headers": headers}),
             status_code=418,
         )
         await response(scope, receive, send)
@@ -279,7 +279,7 @@ def create_header_capture_app() -> Starlette:
 
 
 def _get_captured_headrs(str) -> dict[str, str]:
-    return json.loads(str.split("[TESTING_HEADER_CAPTURE]:")[1])["headers"]
+    return json.loads(str.split(HEADER_CAPTURE)[1])["headers"]
 
 
 def run_server(
@@ -356,21 +356,23 @@ def _start_basic_server(
 
     # Wait for server to be running
     max_attempts = 20
-    for attempt in range(max_attempts):
+    attempt = 0
+    while attempt < max_attempts:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect(("127.0.0.1", basic_server_port))
                 break
         except ConnectionRefusedError:
             time.sleep(0.1)
+            attempt += 1
     else:
         raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
 
-    try:
-        yield
-    finally:
-        proc.kill()
-        proc.join(timeout=2)
+    yield
+
+    # Clean up
+    proc.kill()
+    proc.join(timeout=2)
 
 
 @pytest.fixture

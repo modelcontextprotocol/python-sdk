@@ -42,6 +42,7 @@ GetSessionIdCallback = Callable[[], str | None]
 MCP_SESSION_ID = "mcp-session-id"
 LAST_EVENT_ID = "last-event-id"
 CONTENT_TYPE = "content-type"
+HEADER_CAPTURE = "[TESTING_HEADER_CAPTURE]"
 ACCEPT = "Accept"
 
 
@@ -275,7 +276,7 @@ class StreamableHTTPTransport:
     async def _is_testing_header_capture(self, response: httpx.Response) -> str | None:
         try:
             content = await response.aread()
-            if content.decode().startswith("[TESTING_HEADER_CAPTURE]"):
+            if content.decode().startswith(HEADER_CAPTURE):
                 return content.decode()
         except Exception as _:
             return None
@@ -306,6 +307,10 @@ class StreamableHTTPTransport:
                     )
                 return
 
+            # To test if headers are being forwarded correctly, in unit tests
+            # we have a mock server that returns a 418 status code with the
+            # HEADER_CAPTURE prefix. If the response has this status code
+            # with the prefix, return the response content as part of the error message.
             if response.status_code == 418:
                 test_error_message = await self._is_testing_header_capture(response)
                 # If this is coming from the test case return the response content
