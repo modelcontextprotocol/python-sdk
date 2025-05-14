@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/modelcontextprotocol-python-sdk-badge.png)](https://mseep.ai/app/modelcontextprotocol-python-sdk)
+
 # MCP Python SDK
 
 <div align="center">
