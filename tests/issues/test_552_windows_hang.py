@@ -8,6 +8,7 @@ from mcp.client.stdio import stdio_client
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="asyncio.timeout in 3.11+")
 @pytest.mark.anyio
 async def test_windows_process_creation():
     """
