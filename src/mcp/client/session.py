@@ -168,7 +168,11 @@ class ClientSession(
         )
 
     async def send_progress_notification(
-        self, progress_token: str | int, progress: float, total: float | None = None
+        self,
+        progress_token: str | int,
+        progress: float,
+        total: float | None = None,
+        message: str | None = None,
     ) -> None:
         """Send a progress notification."""
         await self.send_notification(
@@ -179,6 +183,7 @@ class ClientSession(
                         progressToken=progress_token,
                         progress=progress,
                         total=total,
+                        message=message,
                     ),
                 ),
             )
