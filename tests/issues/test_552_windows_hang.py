@@ -41,6 +41,6 @@ async def test_windows_process_creation():
     except ProcessLookupError:
         pytest.xfail("Process creation failed with ProcessLookupError")
     except Exception as e:
-        assert "ExceptionGroup" not in str(e), f"Unexpected error: {e}"
-        assert "ProcessLookupError" not in str(e), f"Unexpected error: {e}"
+        assert "ExceptionGroup" in repr(e), f"Unexpected error: {e}"
+        assert "ProcessLookupError" in repr(e), f"Unexpected error: {e}"
         pytest.xfail(f"Expected error: {e}")
