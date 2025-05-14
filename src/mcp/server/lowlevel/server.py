@@ -358,6 +358,7 @@ class Server(Generic[LifespanResultT]):
         def decorator(func: Callable[[AnyUrl], Awaitable[None]]):
             logger.debug("Registering handler for SubscribeRequest")
 
+            print('Registering handler for SubscribeRequest')
             async def handler(req: types.SubscribeRequest):
                 await func(req.params.uri)
                 return types.ServerResult(types.EmptyResult())
@@ -542,7 +543,8 @@ class Server(Generic[LifespanResultT]):
         lifespan_context: LifespanResultT,
         raise_exceptions: bool,
     ):
-        logger.info(f"Processing request of type {type(req).__name__}")
+        logger.info(f"Process request of type {type(req).__name__}")
+        logger.info(f"Request handlers {self.request_handlers}")
         if type(req) in self.request_handlers:
             handler = self.request_handlers[type(req)]
             logger.debug(f"Dispatching request of type {type(req).__name__}")

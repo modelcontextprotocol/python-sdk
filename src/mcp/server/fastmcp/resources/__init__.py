@@ -1,4 +1,5 @@
 from .base import Resource
+from .async_resource import AsyncResource, AsyncStatus
 from .resource_manager import ResourceManager
 from .templates import ResourceTemplate
 from .types import (
@@ -12,6 +13,8 @@ from .types import (
 
 __all__ = [
     "Resource",
+    "AsyncResource",
+    "AsyncStatus",
     "TextResource",
     "BinaryResource",
     "FunctionResource",

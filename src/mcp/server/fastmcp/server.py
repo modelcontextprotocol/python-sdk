@@ -161,6 +161,11 @@ class FastMCP:
         self._prompt_manager = PromptManager(
             warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts
         )
+        
+        # Connect the resource manager and tool manager
+        self._tool_manager.set_resource_manager(self._resource_manager)
+        self._resource_manager.set_mcp_server(self._mcp_server)
+        
         if (self.settings.auth is not None) != (auth_server_provider is not None):
             # TODO: after we support separate authorization servers (see
             # https://github.com/modelcontextprotocol/modelcontextprotocol/pull/284)
@@ -321,6 +326,7 @@ class FastMCP:
         name: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        async_supported: bool = False,
     ) -> None:
         """Add a tool to the server.
 
@@ -332,9 +338,11 @@ class FastMCP:
             name: Optional name for the tool (defaults to function name)
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
+            async_supported: Whether this tool supports asynchronous execution
         """
         self._tool_manager.add_tool(
-            fn, name=name, description=description, annotations=annotations
+            fn, name=name, description=description, annotations=annotations,
+            async_supported=async_supported
         )
 
     def tool(
@@ -342,6 +350,7 @@ class FastMCP:
         name: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        async_supported: bool = False,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
 
@@ -353,6 +362,7 @@ class FastMCP:
             name: Optional name for the tool (defaults to function name)
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
+            async_supported: Whether this tool supports asynchronous execution
 
         Example:
             @server.tool()
@@ -368,6 +378,16 @@ class FastMCP:
             async def async_tool(x: int, context: Context) -> str:
                 await context.report_progress(50, 100)
                 return str(x)
+                
+            @server.tool(async_supported=True)
+            async def long_running_tool(x: int, context: Context) -> str:
+                # This tool will be executed asynchronously
+                # The client will receive a resource URI immediately
+                # and can track progress through that resource
+                for i in range(100):
+                    await asyncio.sleep(0.1)
+                    await context.report_progress(i, 100)
+                return f"Processed {x}"
         """
         # Check if user passed function directly instead of calling decorator
         if callable(name):
@@ -378,7 +398,8 @@ class FastMCP:
 
         def decorator(fn: AnyFunction) -> AnyFunction:
             self.add_tool(
-                fn, name=name, description=description, annotations=annotations
+                fn, name=name, description=description, annotations=annotations,
+                async_supported=async_supported
             )
             return fn
 
@@ -917,14 +938,38 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         client_id = ctx.client_id
 
         return str(x)
+        
+    @server.tool(async_supported=True)
+    async def long_running_tool(x: int, ctx: Context) -> str:
+        # For async tools, the context.resource will be set to an AsyncResource
+        # that can be used to update progress and status
+        
+        total_steps = 100
+        for i in range(total_steps):
+            # Do some work
+            await asyncio.sleep(0.1)
+            
+            # Update progress through the AsyncResource
+            if ctx.resource:
+                await ctx.resource.update_progress(i, total_steps)
+            
+            # You can also use the standard progress reporting
+            await ctx.report_progress(i, total_steps)
+            
+        return f"Processed {x}"
     ```
 
     The context parameter name can be anything as long as it's annotated with Context.
     The context is optional - tools that don't need it can omit the parameter.
+    
+    For asynchronous tools (marked with async_supported=True), the context will have
+    a resource attribute set to an AsyncResource instance that can be used to update
+    progress and status information.
     """
 
     _request_context: RequestContext[ServerSessionT, LifespanContextT] | None
     _fastmcp: FastMCP | None
+    resource: Any = None  # Can hold a reference to an AsyncResource for async operations
 
     def __init__(
         self,

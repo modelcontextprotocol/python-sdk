@@ -1,11 +1,13 @@
 """Resource manager functionality."""
 
+import uuid
 from collections.abc import Callable
 from typing import Any
 
 from pydantic import AnyUrl
 
 from mcp.server.fastmcp.resources.base import Resource
+from mcp.server.fastmcp.resources.async_resource import AsyncResource
 from mcp.server.fastmcp.resources.templates import ResourceTemplate
 from mcp.server.fastmcp.utilities.logging import get_logger
 
@@ -19,6 +21,7 @@ class ResourceManager:
         self._resources: dict[str, Resource] = {}
         self._templates: dict[str, ResourceTemplate] = {}
         self.warn_on_duplicate_resources = warn_on_duplicate_resources
+        # self._mcp_server = None
 
     def add_resource(self, resource: Resource) -> Resource:
         """Add a resource to the manager.
@@ -93,3 +96,41 @@ class ResourceManager:
         """List all registered templates."""
         logger.debug("Listing templates", extra={"count": len(self._templates)})
         return list(self._templates.values())
+        
+    # def set_mcp_server(self, server: Any) -> None:
+    #     """Set the MCP server reference.
+        
+    #     This allows resources to notify the server when they change.
+        
+    #     Args:
+    #         server: The MCP server instance
+    #     """
+    #     self._mcp_server = server
+        
+    def create_async_resource(
+        self,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> AsyncResource:
+        """Create a new async resource.
+        
+        Args:
+            name: Optional name for the resource
+            description: Optional description of the resource
+            
+        Returns:
+            A new AsyncResource instance
+        """
+        resource_uri = f"resource://tasks/{uuid.uuid4()}"
+        resource = AsyncResource(
+            uri=AnyUrl(resource_uri),
+            name=name,
+            description=description,
+        )
+        
+        # # Set the MCP server reference if available
+        # if self._mcp_server:
+        #     resource.set_mcp_server(self._mcp_server)
+            
+        self.add_resource(resource)
+        return resource
