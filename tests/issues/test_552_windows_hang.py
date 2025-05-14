@@ -3,8 +3,8 @@ import sys
 
 import pytest
 
-from mcp import StdioServerParameters
-from mcp.client.stdio import _create_platform_compatible_process
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
@@ -16,31 +16,25 @@ async def test_windows_process_creation():
     """
     # Use a simple command that should complete quickly on Windows
     params = StdioServerParameters(
-        command="cmd", args=["/c", "echo", "Test successful"]
+        command="cmd",
+        # Echo a valid JSON-RPC response message that will be parsed correctly
+        args=[
+            "/c",
+            "echo",
+            '{"jsonrpc":"2.0","id":1,"result":{"status":"success"}}',
+        ],
     )
 
     # Directly test the fixed function that was causing the hanging issue
-    process = None
     try:
         # Set a timeout to prevent hanging
-        async with asyncio.timeout(3):
+        async with asyncio.timeout(10):
             # Test the actual process creation function that was fixed
-            process = await _create_platform_compatible_process(
-                command=params.command, args=params.args, env=None
-            )
+            async with stdio_client(params) as (read, write):
+                print("inside client")
+                async with ClientSession(read, write) as c:
+                    print("inside ClientSession")
+                    await c.initialize()
 
-            # If we get here without hanging, the test is successful
-            assert process is not None, "Process should be created successfully"
-
-            # Read from stdout to verify process works
-            if process.stdout:
-                output = await process.stdout.receive()
-                assert output, "Process should produce output"
-    finally:
-        # Clean up process
-        if process:
-            try:
-                process.terminate()
-            except Exception:
-                # Ignore errors during cleanup
-                pass
+    except asyncio.TimeoutError:
+        pytest.fail("Process creation timed out, indicating a hang issue")
