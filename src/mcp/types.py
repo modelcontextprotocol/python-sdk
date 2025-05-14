@@ -629,7 +629,7 @@ class GetPromptRequest(Request[GetPromptRequestParams, Literal["prompts/get"]]):
 class TextContent(BaseModel):
     """Text content for a message."""
 
-    type: Literal["text"]
+    type: Literal["text"] = "text"
     text: str
     """The text content of the message."""
     annotations: Annotations | None = None
@@ -639,7 +639,7 @@ class TextContent(BaseModel):
 class ImageContent(BaseModel):
     """Image content for a message."""
 
-    type: Literal["image"]
+    type: Literal["image"] = "image"
     data: str
     """The base64-encoded image data."""
     mimeType: str
@@ -667,7 +667,7 @@ class EmbeddedResource(BaseModel):
     of the LLM and/or the user.
     """
 
-    type: Literal["resource"]
+    type: Literal["resource"] = "resource"
     resource: TextResourceContents | BlobResourceContents
     annotations: Annotations | None = None
     model_config = ConfigDict(extra="allow")
