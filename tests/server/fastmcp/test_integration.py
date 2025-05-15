@@ -269,7 +269,7 @@ def run_server(server_port: int) -> None:
     server.run()
 
 
-def run_comprehensive_server(server_port: int) -> None:
+def run_everything_server(server_port: int) -> None:
     """Run the comprehensive server with all features."""
     _, app = make_everything_fastmcp_app()
     server = uvicorn.Server(
@@ -494,7 +494,7 @@ async def test_fastmcp_stateless_streamable_http(
 
 # Fixtures for comprehensive servers
 @pytest.fixture
-def comprehensive_server_port() -> int:
+def everything_server_port() -> int:
     """Get a free port for testing the comprehensive server."""
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -502,13 +502,13 @@ def comprehensive_server_port() -> int:
 
 
 @pytest.fixture
-def comprehensive_server_url(comprehensive_server_port: int) -> str:
+def everything_server_url(everything_server_port: int) -> str:
     """Get the comprehensive server URL for testing."""
-    return f"http://127.0.0.1:{comprehensive_server_port}"
+    return f"http://127.0.0.1:{everything_server_port}"
 
 
 @pytest.fixture
-def comprehensive_http_server_port() -> int:
+def everything_http_server_port() -> int:
     """Get a free port for testing the comprehensive StreamableHTTP server."""
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -516,16 +516,16 @@ def comprehensive_http_server_port() -> int:
 
 
 @pytest.fixture
-def comprehensive_http_server_url(comprehensive_http_server_port: int) -> str:
+def everything_http_server_url(everything_http_server_port: int) -> str:
     """Get the comprehensive StreamableHTTP server URL for testing."""
-    return f"http://127.0.0.1:{comprehensive_http_server_port}"
+    return f"http://127.0.0.1:{everything_http_server_port}"
 
 
 @pytest.fixture()
-def comprehensive_server(comprehensive_server_port: int) -> Generator[None, None, None]:
+def everything_server(everything_server_port: int) -> Generator[None, None, None]:
     """Start the comprehensive server in a separate process and clean up after."""
     proc = multiprocessing.Process(
-        target=run_comprehensive_server, args=(comprehensive_server_port,), daemon=True
+        target=run_everything_server, args=(everything_server_port,), daemon=True
     )
     print("Starting comprehensive server process")
     proc.start()
@@ -537,7 +537,7 @@ def comprehensive_server(comprehensive_server_port: int) -> Generator[None, None
     while attempt < max_attempts:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", comprehensive_server_port))
+                s.connect(("127.0.0.1", everything_server_port))
                 break
         except ConnectionRefusedError:
             time.sleep(0.1)
@@ -558,12 +558,12 @@ def comprehensive_server(comprehensive_server_port: int) -> Generator[None, None
 
 @pytest.fixture()
 def comprehensive_streamable_http_server(
-    comprehensive_http_server_port: int,
+    everything_http_server_port: int,
 ) -> Generator[None, None, None]:
     """Start the comprehensive StreamableHTTP server in a separate process."""
     proc = multiprocessing.Process(
         target=run_comprehensive_streamable_http_server,
-        args=(comprehensive_http_server_port,),
+        args=(everything_http_server_port,),
         daemon=True,
     )
     print("Starting comprehensive StreamableHTTP server process")
@@ -576,7 +576,7 @@ def comprehensive_streamable_http_server(
     while attempt < max_attempts:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", comprehensive_http_server_port))
+                s.connect(("127.0.0.1", everything_http_server_port))
                 break
         except ConnectionRefusedError:
             time.sleep(0.1)
@@ -631,7 +631,7 @@ class NotificationCollector:
 
 @pytest.mark.anyio
 async def test_fastmcp_all_features_sse(
-    comprehensive_server: None, comprehensive_server_url: str
+    everything_server: None, everything_server_url: str
 ) -> None:
     """Test all MCP features work correctly with SSE transport."""
 
@@ -658,7 +658,7 @@ async def test_fastmcp_all_features_sse(
         )
 
     # Connect to the server with callbacks
-    async with sse_client(comprehensive_server_url + "/sse") as streams:
+    async with sse_client(everything_server_url + "/sse") as streams:
         # Set up message handler to capture notifications
         async def message_handler(message):
             print(f"Received message: {message}")
@@ -674,7 +674,7 @@ async def test_fastmcp_all_features_sse(
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "AllFeaturesServer"
+            assert result.serverInfo.name == "EverythingServer"
 
             # Check server features are reported
             assert result.capabilities.prompts is not None
@@ -847,7 +847,7 @@ async def test_fastmcp_all_features_sse(
 
 @pytest.mark.anyio
 async def test_fastmcp_all_features_streamable_http(
-    comprehensive_streamable_http_server: None, comprehensive_http_server_url: str
+    comprehensive_streamable_http_server: None, everything_http_server_url: str
 ) -> None:
     """Test all MCP features work correctly with StreamableHTTP transport."""
 
@@ -874,7 +874,7 @@ async def test_fastmcp_all_features_streamable_http(
         )
 
     # Connect to the server using StreamableHTTP
-    async with streamablehttp_client(comprehensive_http_server_url + "/mcp") as (
+    async with streamablehttp_client(everything_http_server_url + "/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -895,7 +895,7 @@ async def test_fastmcp_all_features_streamable_http(
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "AllFeaturesServer"
+            assert result.serverInfo.name == "EverythingServer"
 
             # Check server features are reported
             assert result.capabilities.prompts is not None
