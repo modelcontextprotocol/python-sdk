@@ -8,7 +8,7 @@ from pydantic import AnyUrl, TypeAdapter
 import mcp.types as types
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
-from mcp.shared.session import BaseSession, ProgressCallbackFnT, RequestResponder
+from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
@@ -270,7 +270,7 @@ class ClientSession(
         name: str,
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
-        progress_callback: ProgressCallbackFnT | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> types.CallToolResult:
         """Send a tools/call request with optional progress callback support."""
 

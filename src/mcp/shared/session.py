@@ -43,20 +43,12 @@ ReceiveNotificationT = TypeVar(
 RequestId = str | int
 
 
-class ProgressCallbackFnT(Protocol):
+class ProgressFnT(Protocol):
     """Protocol for progress notification callbacks."""
 
     def __call__(
         self, progress: float, total: float | None, message: str | None
-    ) -> None:
-        """Called when progress updates are received.
-
-        Args:
-            progress: Current progress value
-            total: Total progress value (if known), None if indeterminate
-            message: Optional progress message
-        """
-        ...
+    ) -> None: ...
 
 
 class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
@@ -186,7 +178,7 @@ class BaseSession(
     ]
     _request_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
-    _progress_callbacks: dict[RequestId, ProgressCallbackFnT]
+    _progress_callbacks: dict[RequestId, ProgressFnT]
 
     def __init__(
         self,
@@ -233,7 +225,7 @@ class BaseSession(
         result_type: type[ReceiveResultT],
         request_read_timeout_seconds: timedelta | None = None,
         metadata: MessageMetadata = None,
-        progress_callback: ProgressCallbackFnT | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
         """
         Sends a request and wait for a response. Raises an McpError if the

@@ -286,9 +286,6 @@ class ServerSession(
         related_request_id: str | None = None,
     ) -> None:
         """Send a progress notification."""
-        print(
-            f"Sending progress notification: {progress_token}, {progress}, {total}, {message}"
-        )
         await self.send_notification(
             types.ServerNotification(
                 types.ProgressNotification(
