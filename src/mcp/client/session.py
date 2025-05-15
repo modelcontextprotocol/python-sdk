@@ -201,23 +201,29 @@ class ClientSession(
             types.EmptyResult,
         )
 
-    async def list_resources(self) -> types.ListResourcesResult:
+    async def list_resources(
+        self, cursor: str | None = None
+    ) -> types.ListResourcesResult:
         """Send a resources/list request."""
         return await self.send_request(
             types.ClientRequest(
                 types.ListResourcesRequest(
                     method="resources/list",
+                    cursor=cursor,
                 )
             ),
             types.ListResourcesResult,
         )
 
-    async def list_resource_templates(self) -> types.ListResourceTemplatesResult:
+    async def list_resource_templates(
+        self, cursor: str | None = None
+    ) -> types.ListResourceTemplatesResult:
         """Send a resources/templates/list request."""
         return await self.send_request(
             types.ClientRequest(
                 types.ListResourceTemplatesRequest(
                     method="resources/templates/list",
+                    cursor=cursor,
                 )
             ),
             types.ListResourceTemplatesResult,
@@ -278,12 +284,13 @@ class ClientSession(
             request_read_timeout_seconds=read_timeout_seconds,
         )
 
-    async def list_prompts(self) -> types.ListPromptsResult:
+    async def list_prompts(self, cursor: str | None = None) -> types.ListPromptsResult:
         """Send a prompts/list request."""
         return await self.send_request(
             types.ClientRequest(
                 types.ListPromptsRequest(
                     method="prompts/list",
+                    cursor=cursor,
                 )
             ),
             types.ListPromptsResult,
