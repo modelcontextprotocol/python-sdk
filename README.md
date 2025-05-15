@@ -443,9 +443,10 @@ from mcp.math import math
 # Create a combined lifespan to manage both session managers
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with echo.mcp.session_manager.run():
-        async with math.mcp.session_manager.run():
-            yield
+    async with contextlib.AsyncExitStack() as stack:
+        await stack.enter_async_context(echo.mcp.session_manager.run())
+        await stack.enter_async_context(math.mcp.session_manager.run())
+        yield
 
 
 app = FastAPI(lifespan=lifespan)
