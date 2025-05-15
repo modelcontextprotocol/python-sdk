@@ -46,7 +46,7 @@ RequestId = str | int
 class ProgressFnT(Protocol):
     """Protocol for progress notification callbacks."""
 
-    def __call__(
+    async def __call__(
         self, progress: float, total: float | None, message: str | None
     ) -> None: ...
 
@@ -392,7 +392,7 @@ class BaseSession(
                                 # call it with the progress information
                                 if progress_token in self._progress_callbacks:
                                     callback = self._progress_callbacks[progress_token]
-                                    callback(
+                                    await callback(
                                         notification.root.params.progress,
                                         notification.root.params.total,
                                         notification.root.params.message,

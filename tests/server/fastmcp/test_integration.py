@@ -655,10 +655,10 @@ async def call_all_mcp_features(
     # Test progress callback functionality
     progress_updates = []
 
-    def progress_callback(
+    async def progress_callback(
         progress: float, total: float | None, message: str | None
     ) -> None:
-        """Collect progress updates for testing."""
+        """Collect progress updates for testing (async version)."""
         progress_updates.append((progress, total, message))
         print(f"Progress: {progress}/{total} - {message}")
 
