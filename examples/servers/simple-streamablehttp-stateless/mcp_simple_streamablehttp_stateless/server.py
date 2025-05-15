@@ -1,37 +1,17 @@
 import contextlib
 import logging
+from collections.abc import AsyncIterator
 
 import anyio
 import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
-from mcp.server.streamable_http import (
-    StreamableHTTPServerTransport,
-)
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.applications import Starlette
 from starlette.routing import Mount
+from starlette.types import Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
-# Global task group that will be initialized in the lifespan
-task_group = None
-
-
-@contextlib.asynccontextmanager
-async def lifespan(app):
-    """Application lifespan context manager for managing task group."""
-    global task_group
-
-    async with anyio.create_task_group() as tg:
-        task_group = tg
-        logger.info("Application started, task group initialized!")
-        try:
-            yield
-        finally:
-            logger.info("Application shutting down, cleaning up resources...")
-            if task_group:
-                tg.cancel_scope.cancel()
-                task_group = None
-            logger.info("Resources cleaned up successfully.")
 
 
 @click.command()
@@ -122,35 +102,28 @@ def main(
             )
         ]
 
-    # ASGI handler for stateless HTTP connections
-    async def handle_streamable_http(scope, receive, send):
-        logger.debug("Creating new transport")
-        # Use lock to prevent race conditions when creating new sessions
-        http_transport = StreamableHTTPServerTransport(
-            mcp_session_id=None,
-            is_json_response_enabled=json_response,
-        )
-        async with http_transport.connect() as streams:
-            read_stream, write_stream = streams
+    # Create the session manager with true stateless mode
+    session_manager = StreamableHTTPSessionManager(
+        app=app,
+        event_store=None,
+        json_response=json_response,
+        stateless=True,
+    )
 
-            if not task_group:
-                raise RuntimeError("Task group is not initialized")
+    async def handle_streamable_http(
+        scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        await session_manager.handle_request(scope, receive, send)
 
-            async def run_server():
-                await app.run(
-                    read_stream,
-                    write_stream,
-                    app.create_initialization_options(),
-                    # Runs in standalone mode for stateless deployments
-                    # where clients perform initialization with any node
-                    stateless=True,
-                )
-
-            # Start server task
-            task_group.start_soon(run_server)
-
-            # Handle the HTTP request and return the response
-            await http_transport.handle_request(scope, receive, send)
+    @contextlib.asynccontextmanager
+    async def lifespan(app: Starlette) -> AsyncIterator[None]:
+        """Context manager for session manager."""
+        async with session_manager.run():
+            logger.info("Application started with StreamableHTTP session manager!")
+            try:
+                yield
+            finally:
+                logger.info("Application shutting down...")
 
     # Create an ASGI application using the transport
     starlette_app = Starlette(

@@ -4,13 +4,11 @@ Tests for the StreamableHTTP server and client transport.
 Contains tests for both server and client sides of the StreamableHTTP transport.
 """
 
-import contextlib
 import multiprocessing
 import socket
 import time
 from collections.abc import Generator
-from http import HTTPStatus
-from uuid import uuid4
+from typing import Any
 
 import anyio
 import httpx
@@ -19,8 +17,6 @@ import requests
 import uvicorn
 from pydantic import AnyUrl
 from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import Response
 from starlette.routing import Mount
 
 import mcp.types as types
@@ -37,6 +33,8 @@ from mcp.server.streamable_http import (
     StreamableHTTPServerTransport,
     StreamId,
 )
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import (
     ClientMessageMetadata,
@@ -143,6 +141,11 @@ class ServerTest(Server):
                     description="A long-running tool that sends periodic notifications",
                     inputSchema={"type": "object", "properties": {}},
                 ),
+                Tool(
+                    name="test_sampling_tool",
+                    description="A tool that triggers server-side sampling",
+                    inputSchema={"type": "object", "properties": {}},
+                ),
             ]
 
         @self.call_tool()
@@ -178,13 +181,41 @@ class ServerTest(Server):
 
                 return [TextContent(type="text", text="Completed!")]
 
+            elif name == "test_sampling_tool":
+                # Test sampling by requesting the client to sample a message
+                sampling_result = await ctx.session.create_message(
+                    messages=[
+                        types.SamplingMessage(
+                            role="user",
+                            content=types.TextContent(
+                                type="text", text="Server needs client sampling"
+                            ),
+                        )
+                    ],
+                    max_tokens=100,
+                    related_request_id=ctx.request_id,
+                )
+
+                # Return the sampling result in the tool response
+                response = (
+                    sampling_result.content.text
+                    if sampling_result.content.type == "text"
+                    else None
+                )
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"Response from sampling: {response}",
+                    )
+                ]
+
             return [TextContent(type="text", text=f"Called {name}")]
 
 
 def create_app(
     is_json_response_enabled=False, event_store: EventStore | None = None
 ) -> Starlette:
-    """Create a Starlette application for testing that matches the example server.
+    """Create a Starlette application for testing using the session manager.
 
     Args:
         is_json_response_enabled: If True, use JSON responses instead of SSE streams.
@@ -193,85 +224,20 @@ def create_app(
     # Create server instance
     server = ServerTest()
 
-    server_instances = {}
-    # Lock to prevent race conditions when creating new sessions
-    session_creation_lock = anyio.Lock()
-    task_group = None
+    # Create the session manager
+    session_manager = StreamableHTTPSessionManager(
+        app=server,
+        event_store=event_store,
+        json_response=is_json_response_enabled,
+    )
 
-    @contextlib.asynccontextmanager
-    async def lifespan(app):
-        """Application lifespan context manager for managing task group."""
-        nonlocal task_group
-
-        async with anyio.create_task_group() as tg:
-            task_group = tg
-            try:
-                yield
-            finally:
-                if task_group:
-                    tg.cancel_scope.cancel()
-                    task_group = None
-
-    async def handle_streamable_http(scope, receive, send):
-        request = Request(scope, receive)
-        request_mcp_session_id = request.headers.get(MCP_SESSION_ID_HEADER)
-
-        # Use existing transport if session ID matches
-        if (
-            request_mcp_session_id is not None
-            and request_mcp_session_id in server_instances
-        ):
-            transport = server_instances[request_mcp_session_id]
-
-            await transport.handle_request(scope, receive, send)
-        elif request_mcp_session_id is None:
-            async with session_creation_lock:
-                new_session_id = uuid4().hex
-
-                http_transport = StreamableHTTPServerTransport(
-                    mcp_session_id=new_session_id,
-                    is_json_response_enabled=is_json_response_enabled,
-                    event_store=event_store,
-                )
-
-                async def run_server(task_status=None):
-                    async with http_transport.connect() as streams:
-                        read_stream, write_stream = streams
-                        if task_status:
-                            task_status.started()
-                        await server.run(
-                            read_stream,
-                            write_stream,
-                            server.create_initialization_options(),
-                        )
-
-                if task_group is None:
-                    response = Response(
-                        "Internal Server Error: Task group is not initialized",
-                        status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-                    )
-                    await response(scope, receive, send)
-                    return
-
-                # Store the instance before starting the task to prevent races
-                server_instances[http_transport.mcp_session_id] = http_transport
-                await task_group.start(run_server)
-
-                await http_transport.handle_request(scope, receive, send)
-        else:
-            response = Response(
-                "Bad Request: No valid session ID provided",
-                status_code=HTTPStatus.BAD_REQUEST,
-            )
-            await response(scope, receive, send)
-
-    # Create an ASGI application
+    # Create an ASGI application that uses the session manager
     app = Starlette(
         debug=True,
         routes=[
-            Mount("/mcp", app=handle_streamable_http),
+            Mount("/mcp", app=session_manager.handle_request),
         ],
-        lifespan=lifespan,
+        lifespan=lambda app: session_manager.run(),
     )
 
     return app
@@ -823,7 +789,7 @@ async def test_streamablehttp_client_tool_invocation(initialized_client_session)
     """Test client tool invocation."""
     # First list tools
     tools = await initialized_client_session.list_tools()
-    assert len(tools.tools) == 3
+    assert len(tools.tools) == 4
     assert tools.tools[0].name == "test_tool"
 
     # Call the tool
@@ -864,7 +830,7 @@ async def test_streamablehttp_client_session_persistence(
 
             # Make multiple requests to verify session persistence
             tools = await session.list_tools()
-            assert len(tools.tools) == 3
+            assert len(tools.tools) == 4
 
             # Read a resource
             resource = await session.read_resource(uri=AnyUrl("foobar://test-persist"))
@@ -895,7 +861,7 @@ async def test_streamablehttp_client_json_response(
 
             # Check tool listing
             tools = await session.list_tools()
-            assert len(tools.tools) == 3
+            assert len(tools.tools) == 4
 
             # Call a tool and verify JSON response handling
             result = await session.call_tool("test_tool", {})
@@ -974,7 +940,73 @@ async def test_streamablehttp_client_session_termination(
 
             # Make a request to confirm session is working
             tools = await session.list_tools()
-            assert len(tools.tools) == 3
+            assert len(tools.tools) == 4
+
+    headers = {}
+    if captured_session_id:
+        headers[MCP_SESSION_ID_HEADER] = captured_session_id
+
+    async with streamablehttp_client(f"{basic_server_url}/mcp", headers=headers) as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            # Attempt to make a request after termination
+            with pytest.raises(
+                McpError,
+                match="Session terminated",
+            ):
+                await session.list_tools()
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_client_session_termination_204(
+    basic_server, basic_server_url, monkeypatch
+):
+    """Test client session termination functionality with a 204 response.
+
+    This test patches the httpx client to return a 204 response for DELETEs.
+    """
+
+    # Save the original delete method to restore later
+    original_delete = httpx.AsyncClient.delete
+
+    # Mock the client's delete method to return a 204
+    async def mock_delete(self, *args, **kwargs):
+        # Call the original method to get the real response
+        response = await original_delete(self, *args, **kwargs)
+
+        # Create a new response with 204 status code but same headers
+        mocked_response = httpx.Response(
+            204,
+            headers=response.headers,
+            content=response.content,
+            request=response.request,
+        )
+        return mocked_response
+
+    # Apply the patch to the httpx client
+    monkeypatch.setattr(httpx.AsyncClient, "delete", mock_delete)
+
+    captured_session_id = None
+
+    # Create the streamablehttp_client with a custom httpx client to capture headers
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        get_session_id,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            # Initialize the session
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            captured_session_id = get_session_id()
+            assert captured_session_id is not None
+
+            # Make a request to confirm session is working
+            tools = await session.list_tools()
+            assert len(tools.tools) == 4
 
     headers = {}
     if captured_session_id:
@@ -1122,4 +1154,72 @@ async def test_streamablehttp_client_resumption(event_server):
             # there is no intersection between pre and post notifications
             assert not any(
                 n in captured_notifications_pre for n in captured_notifications
+            )
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_server_sampling(basic_server, basic_server_url):
+    """Test server-initiated sampling request through streamable HTTP transport."""
+    print("Testing server sampling...")
+    # Variable to track if sampling callback was invoked
+    sampling_callback_invoked = False
+    captured_message_params = None
+
+    # Define sampling callback that returns a mock response
+    async def sampling_callback(
+        context: RequestContext[ClientSession, Any],
+        params: types.CreateMessageRequestParams,
+    ) -> types.CreateMessageResult:
+        nonlocal sampling_callback_invoked, captured_message_params
+        sampling_callback_invoked = True
+        captured_message_params = params
+        message_received = (
+            params.messages[0].content.text
+            if params.messages[0].content.type == "text"
+            else None
+        )
+
+        return types.CreateMessageResult(
+            role="assistant",
+            content=types.TextContent(
+                type="text",
+                text=f"Received message from server: {message_received}",
+            ),
+            model="test-model",
+            stopReason="endTurn",
+        )
+
+    # Create client with sampling callback
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(
+            read_stream,
+            write_stream,
+            sampling_callback=sampling_callback,
+        ) as session:
+            # Initialize the session
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+            # Call the tool that triggers server-side sampling
+            tool_result = await session.call_tool("test_sampling_tool", {})
+
+            # Verify the tool result contains the expected content
+            assert len(tool_result.content) == 1
+            assert tool_result.content[0].type == "text"
+            assert (
+                "Response from sampling: Received message from server"
+                in tool_result.content[0].text
+            )
+
+            # Verify sampling callback was invoked
+            assert sampling_callback_invoked
+            assert captured_message_params is not None
+            assert len(captured_message_params.messages) == 1
+            assert (
+                captured_message_params.messages[0].content.text
+                == "Server needs client sampling"
             )
