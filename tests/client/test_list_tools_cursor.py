@@ -9,50 +9,15 @@ from mcp.shared.memory import (
 pytestmark = pytest.mark.anyio
 
 
-async def test_list_tools_with_cursor_pagination():
-    """Test list_tools with cursor pagination using a server with many tools."""
+async def test_list_tools_cursor_parameter():
+    """Test that the cursor parameter is accepted in various forms.
+    
+    Note: FastMCP doesn't currently implement pagination, so these tests
+    only verify that the cursor parameter is accepted by the client.
+    """
     server = FastMCP("test")
 
-    # Create 100 tools to test pagination
-    num_tools = 100
-    for i in range(num_tools):
-
-        @server.tool(name=f"tool_{i}")
-        async def dummy_tool(index: int = i) -> str:
-            f"""Tool number {index}"""
-            return f"Result from tool {index}"
-
-        # Keep reference to avoid garbage collection
-        globals()[f"dummy_tool_{i}"] = dummy_tool
-
-    async with create_session(server._mcp_server) as client_session:
-        all_tools = []
-        cursor = None
-
-        # Paginate through all results
-        while True:
-            result = await client_session.list_tools(cursor=cursor)
-            all_tools.extend(result.tools)
-
-            if result.nextCursor is None:
-                break
-
-            cursor = result.nextCursor
-
-        # Verify we got all tools
-        assert len(all_tools) == num_tools
-
-        # Verify each tool is unique and has the correct name
-        tool_names = [tool.name for tool in all_tools]
-        expected_names = [f"tool_{i}" for i in range(num_tools)]
-        assert sorted(tool_names) == sorted(expected_names)
-
-
-async def test_list_tools_without_cursor():
-    """Test the list_tools method without cursor (backward compatibility)."""
-    server = FastMCP("test")
-
-    # Create a few tools
+    # Create a couple of test tools
     @server.tool(name="test_tool_1")
     async def test_tool_1() -> str:
         """First test tool"""
@@ -64,38 +29,18 @@ async def test_list_tools_without_cursor():
         return "Result 2"
 
     async with create_session(server._mcp_server) as client_session:
-        # Should work without cursor argument
-        result = await client_session.list_tools()
-        assert len(result.tools) == 2
-        tool_names = [tool.name for tool in result.tools]
-        assert "test_tool_1" in tool_names
-        assert "test_tool_2" in tool_names
-
-
-async def test_list_tools_cursor_parameter_accepted():
-    """Test that the cursor parameter is accepted by the client method."""
-    server = FastMCP("test")
-
-    # Create a few tools
-    for i in range(5):
-
-        @server.tool(name=f"tool_{i}")
-        async def dummy_tool(index: int = i) -> str:
-            f"""Tool number {index}"""
-            return f"Result from tool {index}"
-
-        globals()[f"dummy_tool_{i}"] = dummy_tool
-
-    async with create_session(server._mcp_server) as client_session:
-        # Test that cursor parameter is accepted
+        # Test without cursor parameter (omitted)
         result1 = await client_session.list_tools()
-        assert len(result1.tools) == 5
+        assert len(result1.tools) == 2
 
-        # Test with explicit None cursor
+        # Test with cursor=None
         result2 = await client_session.list_tools(cursor=None)
-        assert len(result2.tools) == 5
+        assert len(result2.tools) == 2
 
-        # Test with a cursor value (even though this server doesn't paginate)
-        result3 = await client_session.list_tools(cursor="some_cursor")
-        # The cursor is sent to the server, but this particular server ignores it
-        assert len(result3.tools) == 5
+        # Test with cursor as string
+        result3 = await client_session.list_tools(cursor="some_cursor_value")
+        assert len(result3.tools) == 2
+
+        # Test with empty string cursor
+        result4 = await client_session.list_tools(cursor="")
+        assert len(result4.tools) == 2
