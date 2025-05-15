@@ -92,15 +92,15 @@ def make_fastmcp_app():
     return mcp, app
 
 
-def make_comprehensive_fastmcp() -> FastMCP:
+def make_everything_fastmcp() -> FastMCP:
     """Create a FastMCP server with all features enabled for testing."""
     from mcp.server.fastmcp import Context
 
-    mcp = FastMCP(name="AllFeaturesServer")
+    mcp = FastMCP(name="EverythingServer")
 
     # Tool with context for logging and progress
     @mcp.tool(description="A tool that demonstrates logging and progress")
-    async def tool_with_context(message: str, ctx: Context, steps: int = 3) -> str:
+    async def tool_with_progress(message: str, ctx: Context, steps: int = 3) -> str:
         await ctx.info(f"Starting processing of '{message}' with {steps} steps")
 
         # Send progress notifications
@@ -139,8 +139,8 @@ def make_comprehensive_fastmcp() -> FastMCP:
         )
 
         await ctx.info(f"Received sampling result from model: {result.model}")
-        # Handle different content types safely
-        if hasattr(result.content, "text"):
+        # Handle different content types
+        if result.content.type == "text":
             return f"Sampling result: {result.content.text[:100]}..."
         else:
             return f"Sampling result: {str(result.content)[:100]}..."
@@ -201,11 +201,11 @@ def make_comprehensive_fastmcp() -> FastMCP:
     return mcp
 
 
-def make_comprehensive_fastmcp_app():
+def make_everything_fastmcp_app():
     """Create a comprehensive FastMCP server with SSE transport."""
     from starlette.applications import Starlette
 
-    mcp = make_comprehensive_fastmcp()
+    mcp = make_everything_fastmcp()
     # Create the SSE app
     app: Starlette = mcp.sse_app()
     return mcp, app
@@ -228,12 +228,12 @@ def make_fastmcp_streamable_http_app():
     return mcp, app
 
 
-def make_comprehensive_fastmcp_streamable_http_app():
+def make_everything_fastmcp_streamable_http_app():
     """Create a comprehensive FastMCP server with StreamableHTTP transport."""
     from starlette.applications import Starlette
 
     # Create a new instance with different name for HTTP transport
-    mcp = make_comprehensive_fastmcp()
+    mcp = make_everything_fastmcp()
     # We can't change the name after creation, so we'll use the same name
     # Create the StreamableHTTP app
     app: Starlette = mcp.streamable_http_app()
@@ -271,7 +271,7 @@ def run_server(server_port: int) -> None:
 
 def run_comprehensive_server(server_port: int) -> None:
     """Run the comprehensive server with all features."""
-    _, app = make_comprehensive_fastmcp_app()
+    _, app = make_everything_fastmcp_app()
     server = uvicorn.Server(
         config=uvicorn.Config(
             app=app, host="127.0.0.1", port=server_port, log_level="error"
@@ -295,7 +295,7 @@ def run_streamable_http_server(server_port: int) -> None:
 
 def run_comprehensive_streamable_http_server(server_port: int) -> None:
     """Run the comprehensive StreamableHTTP server with all features."""
-    _, app = make_comprehensive_fastmcp_streamable_http_app()
+    _, app = make_everything_fastmcp_streamable_http_app()
     server = uvicorn.Server(
         config=uvicorn.Config(
             app=app, host="127.0.0.1", port=server_port, log_level="error"
@@ -705,7 +705,7 @@ async def test_fastmcp_all_features_sse(
                 "steps": 3,
             }
             tool_result = await session.call_tool(
-                "tool_with_context",
+                "tool_with_progress",
                 params,
                 progress_callback=progress_callback,
             )
@@ -922,7 +922,7 @@ async def test_fastmcp_all_features_streamable_http(
                 print(f"HTTP Progress: {progress}/{total} - {message}")
 
             await session.call_tool(
-                "tool_with_context",
+                "tool_with_progress",
                 {
                     "message": "http_test",
                     "steps": 2,
