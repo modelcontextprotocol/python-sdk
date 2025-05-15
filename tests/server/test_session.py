@@ -110,7 +110,7 @@ async def test_server_capabilities():
 
 @pytest.mark.anyio
 async def test_server_session_initialize_with_older_protocol_version():
-    """Test that server accepts and responds with older protocol version (2024-11-05)."""
+    """Test that server accepts and responds with older protocol (2024-11-05)."""
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
         SessionMessage
     ](1)
