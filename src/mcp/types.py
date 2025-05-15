@@ -651,11 +651,26 @@ class ImageContent(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class AudioContent(BaseModel):
+    """Audio content for a message."""
+
+    type: Literal["audio"]
+    data: str
+    """The base64-encoded audio data."""
+    mimeType: str
+    """
+    The MIME type of the audio. Different providers may support different
+    audio types.
+    """
+    annotations: Annotations | None = None
+    model_config = ConfigDict(extra="allow")
+
+
 class SamplingMessage(BaseModel):
     """Describes a message issued to or received from an LLM API."""
 
     role: Role
-    content: TextContent | ImageContent
+    content: TextContent | ImageContent | AudioContent
     model_config = ConfigDict(extra="allow")
 
 
@@ -677,7 +692,7 @@ class PromptMessage(BaseModel):
     """Describes a message returned as part of a prompt."""
 
     role: Role
-    content: TextContent | ImageContent | EmbeddedResource
+    content: TextContent | ImageContent | AudioContent | EmbeddedResource
     model_config = ConfigDict(extra="allow")
 
 
@@ -796,7 +811,7 @@ class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
 class CallToolResult(Result):
     """The server's response to a tool call."""
 
-    content: list[TextContent | ImageContent | EmbeddedResource]
+    content: list[TextContent | ImageContent | AudioContent | EmbeddedResource]
     isError: bool = False
 
 
@@ -960,7 +975,7 @@ class CreateMessageResult(Result):
     """The client's response to a sampling/create_message request from the server."""
 
     role: Role
-    content: TextContent | ImageContent
+    content: TextContent | ImageContent | AudioContent
     model: str
     """The name of the model that generated the message."""
     stopReason: StopReason | None = None
