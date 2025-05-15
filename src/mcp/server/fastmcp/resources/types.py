@@ -77,7 +77,7 @@ class FunctionResource(Resource):
         description: str | None = None,
         mime_type: str | None = None,
     ) -> Self:
-        """Create a template from a function."""
+        """Create a FunctionResource from a function."""
         func_name = name or fn.__name__
         if func_name == "<lambda>":
             raise ValueError("You must provide a name for lambda functions")
