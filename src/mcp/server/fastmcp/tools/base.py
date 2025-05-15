@@ -34,6 +34,9 @@ class Tool(BaseModel):
     annotations: ToolAnnotations | None = Field(
         None, description="Optional annotations for the tool"
     )
+    async_supported: bool = Field(
+        False, description="Whether this tool supports asynchronous execution"
+    )
 
     @classmethod
     def from_function(
@@ -43,6 +46,7 @@ class Tool(BaseModel):
         description: str | None = None,
         context_kwarg: str | None = None,
         annotations: ToolAnnotations | None = None,
+        async_supported: bool = False,
     ) -> Tool:
         """Create a Tool from a function."""
         from mcp.server.fastmcp.server import Context
@@ -79,6 +83,7 @@ class Tool(BaseModel):
             is_async=is_async,
             context_kwarg=context_kwarg,
             annotations=annotations,
+            async_supported=async_supported,
         )
 
     async def run(
