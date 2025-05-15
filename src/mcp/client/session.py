@@ -322,12 +322,13 @@ class ClientSession(
             types.CompleteResult,
         )
 
-    async def list_tools(self) -> types.ListToolsResult:
+    async def list_tools(self, cursor: str | None = None) -> types.ListToolsResult:
         """Send a tools/list request."""
         return await self.send_request(
             types.ClientRequest(
                 types.ListToolsRequest(
                     method="tools/list",
+                    cursor=cursor,
                 )
             ),
             types.ListToolsResult,
