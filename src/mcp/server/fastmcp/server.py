@@ -35,7 +35,7 @@ from mcp.server.auth.settings import (
     AuthSettings,
 )
 from mcp.server.fastmcp.exceptions import ResourceError
-from mcp.server.fastmcp.prompts import Prompt, PromptManager
+from mcp.server.fastmcp.prompts import PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.fastmcp.tools import ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
@@ -138,8 +138,9 @@ class FastMCP:
         self,
         name: str | None = None,
         instructions: str | None = None,
-        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
-        | None = None,
+        auth_server_provider: (
+            OAuthAuthorizationServerProvider[Any, Any, Any] | None
+        ) = None,
         event_store: EventStore | None = None,
         **settings: Any,
     ):
@@ -483,13 +484,20 @@ class FastMCP:
 
         return decorator
 
-    def add_prompt(self, prompt: Prompt) -> None:
+    def add_prompt(
+        self,
+        fn: AnyFunction,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
         """Add a prompt to the server.
 
         Args:
-            prompt: A Prompt instance to add
+            fn: Function to create a prompt from
+            name: Optional name for the prompt
+            description: Optional description of the prompt
         """
-        self._prompt_manager.add_prompt(prompt)
+        self._prompt_manager.add_prompt(fn, name=name, description=description)
 
     def prompt(
         self, name: str | None = None, description: str | None = None
@@ -535,8 +543,7 @@ class FastMCP:
             )
 
         def decorator(func: AnyFunction) -> AnyFunction:
-            prompt = Prompt.from_function(func, name=name, description=description)
-            self.add_prompt(prompt)
+            self.add_prompt(func, name=name, description=description)
             return func
 
         return decorator
