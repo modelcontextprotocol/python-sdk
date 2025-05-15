@@ -9,8 +9,16 @@ from mcp.client.stdio import stdio_client
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
 @pytest.mark.skipif(sys.version_info < (3, 11), reason="asyncio.timeout in 3.11+")
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["/C", "echo", '{"jsonrpc": "2.0", "id": 1, "result": null}'],
+        ["dfghfgh"],
+        ["/C", "echo"],
+    ],
+)
 @pytest.mark.anyio
-async def test_windows_process_creation():
+async def test_windows_process_creation(args):
     """
     Test that directly tests the process creation function that was fixed in issue #552.
     This simpler test verifies that Windows process creation works without hanging.
@@ -19,11 +27,7 @@ async def test_windows_process_creation():
     params = StdioServerParameters(
         command="cmd",
         # Echo a valid JSON-RPC response message that will be parsed correctly
-        args=[
-            "/c",
-            "echo",
-            '{"jsonrpc":"2.0","id":1,"result":{"status":"success"}}',
-        ],
+        args=args,
     )
 
     # Directly test the fixed function that was causing the hanging issue
