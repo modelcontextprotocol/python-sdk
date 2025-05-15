@@ -327,7 +327,7 @@ from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP(
     "My App",
-    auth_provider=MyOAuthServerProvider(),
+    auth_server_provider=MyOAuthServerProvider(),
     auth=AuthSettings(
         issuer_url="https://myapp.com",
         revocation_options=RevocationOptions(
