@@ -10,7 +10,6 @@ import socket
 import time
 from collections.abc import Generator
 
-import anyio
 import pytest
 import uvicorn
 from pydantic import AnyUrl
@@ -20,6 +19,7 @@ from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.resources import FunctionResource
 from mcp.shared.context import RequestContext
 from mcp.types import (
     CreateMessageRequestParams,
@@ -27,6 +27,7 @@ from mcp.types import (
     GetPromptResult,
     InitializeResult,
     ReadResourceResult,
+    SamplingMessage,
     TextContent,
     TextResourceContents,
 )
@@ -123,8 +124,6 @@ def make_everything_fastmcp() -> FastMCP:
     # Tool with sampling capability
     @mcp.tool(description="A tool that uses sampling to generate content")
     async def sampling_tool(prompt: str, ctx: Context) -> str:
-        from mcp.types import SamplingMessage, TextContent
-
         await ctx.info(f"Requesting sampling for prompt: {prompt}")
 
         # Request sampling from the client
@@ -161,10 +160,6 @@ def make_everything_fastmcp() -> FastMCP:
         return f"Sent notifications and logs for: {message}"
 
     # Resource - static
-    from pydantic import AnyUrl
-
-    from mcp.server.fastmcp.resources import FunctionResource
-
     def get_static_info() -> str:
         return "This is static resource content"
 
@@ -293,7 +288,7 @@ def run_streamable_http_server(server_port: int) -> None:
     server.run()
 
 
-def run_comprehensive_streamable_http_server(server_port: int) -> None:
+def run_everything_streamable_http_server(server_port: int) -> None:
     """Run the comprehensive StreamableHTTP server with all features."""
     _, app = make_everything_fastmcp_streamable_http_app()
     server = uvicorn.Server(
@@ -492,7 +487,6 @@ async def test_fastmcp_stateless_streamable_http(
                 assert tool_result.content[0].text == f"Echo: test_{i}"
 
 
-# Fixtures for comprehensive servers
 @pytest.fixture
 def everything_server_port() -> int:
     """Get a free port for testing the comprehensive server."""
@@ -557,12 +551,12 @@ def everything_server(everything_server_port: int) -> Generator[None, None, None
 
 
 @pytest.fixture()
-def comprehensive_streamable_http_server(
+def everything_streamable_http_server(
     everything_http_server_port: int,
 ) -> Generator[None, None, None]:
     """Start the comprehensive StreamableHTTP server in a separate process."""
     proc = multiprocessing.Process(
-        target=run_comprehensive_streamable_http_server,
+        target=run_everything_streamable_http_server,
         args=(everything_http_server_port,),
         daemon=True,
     )
@@ -858,7 +852,7 @@ async def test_fastmcp_all_features_sse(
 
 @pytest.mark.anyio
 async def test_fastmcp_all_features_streamable_http(
-    comprehensive_streamable_http_server: None, everything_http_server_url: str
+    everything_streamable_http_server: None, everything_http_server_url: str
 ) -> None:
     """Test all MCP features work correctly with StreamableHTTP transport."""
 

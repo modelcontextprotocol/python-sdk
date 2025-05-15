@@ -384,19 +384,19 @@ class BaseSession(
                             cancelled_id = notification.root.params.requestId
                             if cancelled_id in self._in_flight:
                                 await self._in_flight[cancelled_id].cancel()
-                        # Handle progress notifications
-                        elif isinstance(notification.root, ProgressNotification):
-                            progress_token = notification.root.params.progressToken
-                            # If there is a progress callback for this token,
-                            # call it with the progress information
-                            if progress_token in self._progress_callbacks:
-                                callback = self._progress_callbacks[progress_token]
-                                callback(
-                                    notification.root.params.progress,
-                                    notification.root.params.total,
-                                    notification.root.params.message,
-                                )
                         else:
+                            # Handle progress notifications callback
+                            if isinstance(notification.root, ProgressNotification):
+                                progress_token = notification.root.params.progressToken
+                                # If there is a progress callback for this token,
+                                # call it with the progress information
+                                if progress_token in self._progress_callbacks:
+                                    callback = self._progress_callbacks[progress_token]
+                                    callback(
+                                        notification.root.params.progress,
+                                        notification.root.params.total,
+                                        notification.root.params.message,
+                                    )
                             await self._received_notification(notification)
                             await self._handle_incoming(notification)
                     except Exception as e:
