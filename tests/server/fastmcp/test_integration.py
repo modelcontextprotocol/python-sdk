@@ -264,7 +264,7 @@ def run_server(server_port: int) -> None:
     server.run()
 
 
-def run_everything_server(server_port: int) -> None:
+def run_everything_legacy_sse_http_server(server_port: int) -> None:
     """Run the comprehensive server with all features."""
     _, app = make_everything_fastmcp_app()
     server = uvicorn.Server(
@@ -288,7 +288,7 @@ def run_streamable_http_server(server_port: int) -> None:
     server.run()
 
 
-def run_everything_streamable_http_server(server_port: int) -> None:
+def run_everything_server(server_port: int) -> None:
     """Run the comprehensive StreamableHTTP server with all features."""
     _, app = make_everything_fastmcp_streamable_http_app()
     server = uvicorn.Server(
@@ -519,7 +519,9 @@ def everything_http_server_url(everything_http_server_port: int) -> str:
 def everything_server(everything_server_port: int) -> Generator[None, None, None]:
     """Start the comprehensive server in a separate process and clean up after."""
     proc = multiprocessing.Process(
-        target=run_everything_server, args=(everything_server_port,), daemon=True
+        target=run_everything_legacy_sse_http_server,
+        args=(everything_server_port,),
+        daemon=True,
     )
     print("Starting comprehensive server process")
     proc.start()
@@ -556,7 +558,7 @@ def everything_streamable_http_server(
 ) -> Generator[None, None, None]:
     """Start the comprehensive StreamableHTTP server in a separate process."""
     proc = multiprocessing.Process(
-        target=run_everything_streamable_http_server,
+        target=run_everything_server,
         args=(everything_http_server_port,),
         daemon=True,
     )
