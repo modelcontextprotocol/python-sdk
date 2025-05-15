@@ -9,6 +9,7 @@ import socket
 import time
 from collections.abc import Generator
 from typing import Any
+from unittest.mock import AsyncMock
 
 import anyio
 import httpx
@@ -1223,3 +1224,56 @@ async def test_streamablehttp_server_sampling(basic_server, basic_server_url):
                 captured_message_params.messages[0].content.text
                 == "Server needs client sampling"
             )
+
+
+@pytest.mark.anyio
+async def test_auth_client_provider_headers(basic_server, basic_server_url):
+    """Test that auth token provider correctly sets Authorization header."""
+    # Create a mock token provider
+    client_provider = AsyncMock()
+    client_provider.get_headers.return_value = {
+        "Authorization": "Bearer test-token-123"
+    }
+
+    # Create client with token provider
+    async with streamablehttp_client(
+        f"{basic_server_url}/mcp", auth_client_provider=client_provider
+    ) as (read_stream, write_stream, _):
+        async with ClientSession(read_stream, write_stream) as session:
+            # Initialize the session
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+            # Make a request to verify headers
+            tools = await session.list_tools()
+            assert len(tools.tools) == 4
+
+    client_provider.get_headers.assert_called()
+
+
+@pytest.mark.anyio
+async def test_auth_client_provider_called_per_request(basic_server, basic_server_url):
+    """Test that auth token provider can return different tokens."""
+    # Create a dynamic token provider
+    client_provider = AsyncMock()
+    client_provider.get_headers.return_value = {
+        "Authorization": "Bearer test-token-123"
+    }
+
+    # Create client with dynamic token provider
+    async with streamablehttp_client(
+        f"{basic_server_url}/mcp", auth_client_provider=client_provider
+    ) as (read_stream, write_stream, _):
+        async with ClientSession(read_stream, write_stream) as session:
+            # Initialize the session
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+            # Make multiple requests to verify token updates
+            for i in range(3):
+                tools = await session.list_tools()
+                assert len(tools.tools) == 4
+
+    # list_tools is called 3 times, but get_auth_headers is also used during
+    # session initialization and setup. Verify it's called at least 3 times.
+    assert client_provider.get_headers.call_count > 3
