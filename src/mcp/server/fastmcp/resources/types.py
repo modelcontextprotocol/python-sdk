@@ -4,7 +4,7 @@ import inspect
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 import anyio
 import anyio.to_thread
@@ -76,7 +76,7 @@ class FunctionResource(Resource):
         name: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
-    ):
+    ) -> Self:
         """Create a template from a function."""
         func_name = name or fn.__name__
         if func_name == "<lambda>":
@@ -87,7 +87,7 @@ class FunctionResource(Resource):
 
         return cls(
             uri=AnyUrl(uri),
-            name=name,
+            name=func_name,
             description=description or fn.__doc__ or "",
             mime_type=mime_type or "text/plain",
             fn=fn,
