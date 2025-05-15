@@ -651,14 +651,6 @@ class ImageContent(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class SamplingMessage(BaseModel):
-    """Describes a message issued to or received from an LLM API."""
-
-    role: Role
-    content: TextContent | ImageContent
-    model_config = ConfigDict(extra="allow")
-
-
 class EmbeddedResource(BaseModel):
     """
     The contents of a resource, embedded into a prompt or tool call result.
@@ -670,6 +662,14 @@ class EmbeddedResource(BaseModel):
     type: Literal["resource"]
     resource: TextResourceContents | BlobResourceContents
     annotations: Annotations | None = None
+    model_config = ConfigDict(extra="allow")
+
+
+class SamplingMessage(BaseModel):
+    """Describes a message issued to or received from an LLM API."""
+
+    role: Role
+    content: TextContent | ImageContent | EmbeddedResource
     model_config = ConfigDict(extra="allow")
 
 
@@ -960,7 +960,7 @@ class CreateMessageResult(Result):
     """The client's response to a sampling/create_message request from the server."""
 
     role: Role
-    content: TextContent | ImageContent
+    content: TextContent | ImageContent | EmbeddedResource
     model: str
     """The name of the model that generated the message."""
     stopReason: StopReason | None = None
