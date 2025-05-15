@@ -11,7 +11,7 @@ pytestmark = pytest.mark.anyio
 
 async def test_list_tools_cursor_parameter():
     """Test that the cursor parameter is accepted for list_tools.
-    
+
     Note: FastMCP doesn't currently implement pagination, so this test
     only verifies that the cursor parameter is accepted by the client.
     """

@@ -8,7 +8,7 @@ from pydantic import AnyUrl, TypeAdapter
 import mcp.types as types
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
-from mcp.shared.session import BaseSession, RequestResponder
+from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
@@ -270,18 +270,23 @@ class ClientSession(
         name: str,
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> types.CallToolResult:
-        """Send a tools/call request."""
+        """Send a tools/call request with optional progress callback support."""
 
         return await self.send_request(
             types.ClientRequest(
                 types.CallToolRequest(
                     method="tools/call",
-                    params=types.CallToolRequestParams(name=name, arguments=arguments),
+                    params=types.CallToolRequestParams(
+                        name=name,
+                        arguments=arguments,
+                    ),
                 )
             ),
             types.CallToolResult,
             request_read_timeout_seconds=read_timeout_seconds,
+            progress_callback=progress_callback,
         )
 
     async def list_prompts(self, cursor: str | None = None) -> types.ListPromptsResult:
