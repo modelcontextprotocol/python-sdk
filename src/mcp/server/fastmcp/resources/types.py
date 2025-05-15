@@ -4,7 +4,7 @@ import inspect
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Self
+from typing import Any
 
 import anyio
 import anyio.to_thread
