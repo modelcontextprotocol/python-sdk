@@ -441,6 +441,24 @@ class TestServerResources:
                 == base64.b64encode(b"Binary file data").decode()
             )
 
+    @pytest.mark.anyio
+    async def test_function_resource(self):
+        mcp = FastMCP()
+
+        @mcp.resource("function://test", name="test_get_data")
+        def get_data() -> str:
+            """get_data returns a string"""
+            return "Hello, world!"
+
+        async with client_session(mcp._mcp_server) as client:
+            resources = await client.list_resources()
+            assert len(resources.resources) == 1
+            resource = resources.resources[0]
+            assert resource.description == "get_data returns a string"
+            assert resource.uri == AnyUrl("function://test")
+            assert resource.name == "test_get_data"
+            assert resource.mimeType == "text/plain"
+
 
 class TestServerResourceTemplates:
     @pytest.mark.anyio
