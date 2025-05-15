@@ -13,14 +13,23 @@ from collections.abc import Generator
 import anyio
 import pytest
 import uvicorn
+from pydantic import AnyUrl
 
+import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.server.fastmcp import FastMCP
-import mcp.types as types
-from mcp.types import InitializeResult, TextContent, TextResourceContents
-from pydantic import AnyUrl
+from mcp.shared.context import RequestContext
+from mcp.types import (
+    CreateMessageRequestParams,
+    CreateMessageResult,
+    GetPromptResult,
+    InitializeResult,
+    ReadResourceResult,
+    TextContent,
+    TextResourceContents,
+)
 
 
 @pytest.fixture
@@ -625,15 +634,6 @@ async def test_fastmcp_all_features_sse(
     comprehensive_server: None, comprehensive_server_url: str
 ) -> None:
     """Test all MCP features work correctly with SSE transport."""
-    from mcp.types import (
-        GetPromptResult,
-        ReadResourceResult,
-        CreateMessageResult,
-        CreateMessageRequestParams,
-        SamplingMessage,
-        TextContent,
-    )
-    from mcp.shared.context import RequestContext
 
     # Create notification collector
     collector = NotificationCollector()
@@ -690,19 +690,37 @@ async def test_fastmcp_all_features_sse(
             assert tool_result.content[0].text == "Echo: hello"
 
             # 2. Tool with context (logging and progress)
-            # Test with progress token to capture progress notifications
+            # Test progress callback functionality
+            progress_updates = []
+
+            def progress_callback(
+                progress: float, total: float | None, message: str | None
+            ) -> None:
+                """Collect progress updates for testing."""
+                progress_updates.append((progress, total, message))
+                print(f"Progress: {progress}/{total} - {message}")
+
+            params = {
+                "message": "test",
+                "steps": 3,
+            }
             tool_result = await session.call_tool(
                 "tool_with_context",
-                {
-                    "message": "test",
-                    "steps": 3,
-                    "_meta": {"progressToken": "sse_test_token"},
-                },
+                params,
+                progress_callback=progress_callback,
             )
             assert len(tool_result.content) == 1
-            assert len(collector.progress_notifications) > 0
             assert isinstance(tool_result.content[0], TextContent)
             assert "Processed 'test' in 3 steps" in tool_result.content[0].text
+
+            # Verify progress callback was called
+            assert len(progress_updates) == 3
+            for i, (progress, total, message) in enumerate(progress_updates):
+                expected_progress = (i + 1) / 3
+                assert abs(progress - expected_progress) < 0.01
+                assert total == 1.0
+                assert message is not None
+                assert f"step {i + 1} of 3" in message
 
             # Verify we received log messages from the tool
             # Note: Progress notifications require special handling in the MCP client
@@ -832,15 +850,6 @@ async def test_fastmcp_all_features_streamable_http(
     comprehensive_streamable_http_server: None, comprehensive_http_server_url: str
 ) -> None:
     """Test all MCP features work correctly with StreamableHTTP transport."""
-    from mcp.types import (
-        GetPromptResult,
-        ReadResourceResult,
-        CreateMessageResult,
-        CreateMessageRequestParams,
-        SamplingMessage,
-        TextContent,
-    )
-    from mcp.shared.context import RequestContext
 
     # Create notification collector
     collector = NotificationCollector()
@@ -902,21 +911,33 @@ async def test_fastmcp_all_features_streamable_http(
             assert tool_result.content[0].text == "Echo: hello"
 
             # 2. Tool with context (logging and progress)
-            # Test with progress token to capture progress notifications
+            # Test progress callback functionality over HTTP
+            progress_updates_http = []
+
+            def progress_callback_http(
+                progress: float, total: float | None, message: str | None
+            ) -> None:
+                """Collect progress updates for HTTP testing."""
+                progress_updates_http.append((progress, total, message))
+                print(f"HTTP Progress: {progress}/{total} - {message}")
+
             await session.call_tool(
                 "tool_with_context",
                 {
                     "message": "http_test",
                     "steps": 2,
                 },
+                progress_callback=progress_callback_http,
             )
 
-            # Verify we received progress notifications
-            assert len(collector.progress_notifications) > 0
-            assert any(
-                p.progressToken == "http_test_token"
-                for p in collector.progress_notifications
-            )
+            # Verify progress callback was called over HTTP
+            assert len(progress_updates_http) == 2
+            for i, (progress, total, message) in enumerate(progress_updates_http):
+                expected_progress = (i + 1) / 2
+                assert abs(progress - expected_progress) < 0.01
+                assert total == 1.0
+                assert message is not None
+                assert f"step {i + 1} of 2" in message
 
             # 3. Test sampling tool
             sampling_result = await session.call_tool(

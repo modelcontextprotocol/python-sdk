@@ -963,7 +963,6 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
             total: Optional total value e.g. 100
             message: Optional message e.g. Starting render...
         """
-
         progress_token = (
             self.request_context.meta.progressToken
             if self.request_context.meta
