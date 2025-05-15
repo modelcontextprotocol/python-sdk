@@ -629,6 +629,204 @@ class NotificationCollector:
                 await self.handle_tool_list_changed(message.root.params)
 
 
+async def call_all_mcp_features(
+    session: ClientSession, collector: NotificationCollector
+) -> None:
+    """
+    Test all MCP features using the provided session.
+
+    Args:
+        session: The MCP client session to test with
+        collector: Notification collector for capturing server notifications
+    """
+    # Test initialization
+    result = await session.initialize()
+    assert isinstance(result, InitializeResult)
+    assert result.serverInfo.name == "EverythingServer"
+
+    # Check server features are reported
+    assert result.capabilities.prompts is not None
+    assert result.capabilities.resources is not None
+    assert result.capabilities.tools is not None
+    # Note: logging capability may be None if no tools use context logging
+
+    # Test tools
+    # 1. Simple echo tool
+    tool_result = await session.call_tool("echo", {"message": "hello"})
+    assert len(tool_result.content) == 1
+    assert isinstance(tool_result.content[0], TextContent)
+    assert tool_result.content[0].text == "Echo: hello"
+
+    # 2. Tool with context (logging and progress)
+    # Test progress callback functionality
+    progress_updates = []
+
+    def progress_callback(
+        progress: float, total: float | None, message: str | None
+    ) -> None:
+        """Collect progress updates for testing."""
+        progress_updates.append((progress, total, message))
+        print(f"Progress: {progress}/{total} - {message}")
+
+    test_message = "test"
+    steps = 3
+    params = {
+        "message": test_message,
+        "steps": steps,
+    }
+    tool_result = await session.call_tool(
+        "tool_with_progress",
+        params,
+        progress_callback=progress_callback,
+    )
+    assert len(tool_result.content) == 1
+    assert isinstance(tool_result.content[0], TextContent)
+    assert f"Processed '{test_message}' in {steps} steps" in tool_result.content[0].text
+
+    # Verify progress callback was called
+    assert len(progress_updates) == steps
+    for i, (progress, total, message) in enumerate(progress_updates):
+        expected_progress = (i + 1) / steps
+        assert abs(progress - expected_progress) < 0.01
+        assert total == 1.0
+        assert message is not None
+        assert f"step {i + 1} of {steps}" in message
+
+    # Verify we received log messages from the tool
+    # Note: Progress notifications require special handling in the MCP client
+    # that's not implemented by default, so we focus on testing logging
+    assert len(collector.log_messages) > 0
+
+    # 3. Test sampling tool
+    prompt = "What is the meaning of life?"
+    sampling_result = await session.call_tool("sampling_tool", {"prompt": prompt})
+    assert len(sampling_result.content) == 1
+    assert isinstance(sampling_result.content[0], TextContent)
+    assert "Sampling result:" in sampling_result.content[0].text
+    assert "This is a simulated LLM response" in sampling_result.content[0].text
+
+    # Verify we received log messages from the sampling tool
+    assert len(collector.log_messages) > 0
+    assert any(
+        "Requesting sampling for prompt" in msg.data for msg in collector.log_messages
+    )
+    assert any(
+        "Received sampling result from model" in msg.data
+        for msg in collector.log_messages
+    )
+
+    # 4. Test notification tool
+    notification_message = "test_notifications"
+    notification_result = await session.call_tool(
+        "notification_tool", {"message": notification_message}
+    )
+    assert len(notification_result.content) == 1
+    assert isinstance(notification_result.content[0], TextContent)
+    assert "Sent notifications and logs" in notification_result.content[0].text
+
+    # Verify we received various notification types
+    assert len(collector.log_messages) > 3  # Should have logs from both tools
+    assert len(collector.resource_notifications) > 0
+    assert len(collector.tool_notifications) > 0
+
+    # Check that we got different log levels
+    log_levels = [msg.level for msg in collector.log_messages]
+    assert "debug" in log_levels
+    assert "info" in log_levels
+    assert "warning" in log_levels
+
+    # Test resources
+    # 1. Static resource
+    resources = await session.list_resources()
+    # Try using string comparison since AnyUrl might not match directly
+    static_resource = next(
+        (r for r in resources.resources if str(r.uri) == "resource://static/info"),
+        None,
+    )
+    assert static_resource is not None
+    assert static_resource.name == "Static Info"
+
+    static_content = await session.read_resource(AnyUrl("resource://static/info"))
+    assert isinstance(static_content, ReadResourceResult)
+    assert len(static_content.contents) == 1
+    assert isinstance(static_content.contents[0], TextResourceContents)
+    assert static_content.contents[0].text == "This is static resource content"
+
+    # 2. Dynamic resource
+    resource_category = "test"
+    dynamic_content = await session.read_resource(
+        AnyUrl(f"resource://dynamic/{resource_category}")
+    )
+    assert isinstance(dynamic_content, ReadResourceResult)
+    assert len(dynamic_content.contents) == 1
+    assert isinstance(dynamic_content.contents[0], TextResourceContents)
+    assert (
+        f"Dynamic resource content for category: {resource_category}"
+        in dynamic_content.contents[0].text
+    )
+
+    # 3. Template resource
+    resource_id = "456"
+    template_content = await session.read_resource(
+        AnyUrl(f"resource://template/{resource_id}/data")
+    )
+    assert isinstance(template_content, ReadResourceResult)
+    assert len(template_content.contents) == 1
+    assert isinstance(template_content.contents[0], TextResourceContents)
+    assert (
+        f"Template resource data for ID: {resource_id}"
+        in template_content.contents[0].text
+    )
+
+    # Test prompts
+    # 1. Simple prompt
+    prompts = await session.list_prompts()
+    simple_prompt = next(
+        (p for p in prompts.prompts if p.name == "simple_prompt"), None
+    )
+    assert simple_prompt is not None
+
+    prompt_topic = "AI"
+    prompt_result = await session.get_prompt("simple_prompt", {"topic": prompt_topic})
+    assert isinstance(prompt_result, GetPromptResult)
+    assert len(prompt_result.messages) >= 1
+    # The actual message structure depends on the prompt implementation
+
+    # 2. Complex prompt
+    complex_prompt = next(
+        (p for p in prompts.prompts if p.name == "complex_prompt"), None
+    )
+    assert complex_prompt is not None
+
+    query = "What is AI?"
+    context = "technical"
+    complex_result = await session.get_prompt(
+        "complex_prompt", {"user_query": query, "context": context}
+    )
+    assert isinstance(complex_result, GetPromptResult)
+    assert len(complex_result.messages) >= 1
+
+
+async def sampling_callback(
+    context: RequestContext[ClientSession, None],
+    params: CreateMessageRequestParams,
+) -> CreateMessageResult:
+    # Simulate LLM response based on the input
+    if params.messages and isinstance(params.messages[0].content, TextContent):
+        input_text = params.messages[0].content.text
+    else:
+        input_text = "No input"
+    response_text = f"This is a simulated LLM response to: {input_text}"
+
+    model_name = "test-llm-model"
+    return CreateMessageResult(
+        role="assistant",
+        content=TextContent(type="text", text=response_text),
+        model=model_name,
+        stopReason="endTurn",
+    )
+
+
 @pytest.mark.anyio
 async def test_fastmcp_all_features_sse(
     everything_server: None, everything_server_url: str
@@ -639,23 +837,6 @@ async def test_fastmcp_all_features_sse(
     collector = NotificationCollector()
 
     # Create a sampling callback that simulates an LLM
-    async def sampling_callback(
-        context: RequestContext[ClientSession, None],
-        params: CreateMessageRequestParams,
-    ) -> CreateMessageResult:
-        # Simulate LLM response based on the input
-        if params.messages and isinstance(params.messages[0].content, TextContent):
-            input_text = params.messages[0].content.text
-        else:
-            input_text = "No input"
-        response_text = f"This is a simulated LLM response to: {input_text}"
-
-        return CreateMessageResult(
-            role="assistant",
-            content=TextContent(type="text", text=response_text),
-            model="test-llm-model",
-            stopReason="endTurn",
-        )
 
     # Connect to the server with callbacks
     async with sse_client(everything_server_url + "/sse") as streams:
@@ -671,178 +852,8 @@ async def test_fastmcp_all_features_sse(
             sampling_callback=sampling_callback,
             message_handler=message_handler,
         ) as session:
-            # Test initialization
-            result = await session.initialize()
-            assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "EverythingServer"
-
-            # Check server features are reported
-            assert result.capabilities.prompts is not None
-            assert result.capabilities.resources is not None
-            assert result.capabilities.tools is not None
-            # Note: logging capability may be None if no tools use context logging
-
-            # Test tools
-            # 1. Simple echo tool
-            tool_result = await session.call_tool("echo", {"message": "hello"})
-            assert len(tool_result.content) == 1
-            assert isinstance(tool_result.content[0], TextContent)
-            assert tool_result.content[0].text == "Echo: hello"
-
-            # 2. Tool with context (logging and progress)
-            # Test progress callback functionality
-            progress_updates = []
-
-            def progress_callback(
-                progress: float, total: float | None, message: str | None
-            ) -> None:
-                """Collect progress updates for testing."""
-                progress_updates.append((progress, total, message))
-                print(f"Progress: {progress}/{total} - {message}")
-
-            params = {
-                "message": "test",
-                "steps": 3,
-            }
-            tool_result = await session.call_tool(
-                "tool_with_progress",
-                params,
-                progress_callback=progress_callback,
-            )
-            assert len(tool_result.content) == 1
-            assert isinstance(tool_result.content[0], TextContent)
-            assert "Processed 'test' in 3 steps" in tool_result.content[0].text
-
-            # Verify progress callback was called
-            assert len(progress_updates) == 3
-            for i, (progress, total, message) in enumerate(progress_updates):
-                expected_progress = (i + 1) / 3
-                assert abs(progress - expected_progress) < 0.01
-                assert total == 1.0
-                assert message is not None
-                assert f"step {i + 1} of 3" in message
-
-            # Verify we received log messages from the tool
-            # Note: Progress notifications require special handling in the MCP client
-            # that's not implemented by default, so we focus on testing logging
-            assert len(collector.log_messages) > 0
-
-            # 3. Test sampling tool
-            sampling_result = await session.call_tool(
-                "sampling_tool", {"prompt": "What is the meaning of life?"}
-            )
-            assert len(sampling_result.content) == 1
-            assert isinstance(sampling_result.content[0], TextContent)
-            assert "Sampling result:" in sampling_result.content[0].text
-            assert "This is a simulated LLM response" in sampling_result.content[0].text
-
-            # Give time for log messages
-            await anyio.sleep(0.1)
-
-            # Verify we received log messages from the sampling tool
-            assert len(collector.log_messages) > 0
-            assert any(
-                "Requesting sampling for prompt" in msg.data
-                for msg in collector.log_messages
-            )
-            assert any(
-                "Received sampling result from model" in msg.data
-                for msg in collector.log_messages
-            )
-
-            # 4. Test notification tool
-            notification_result = await session.call_tool(
-                "notification_tool", {"message": "test_notifications"}
-            )
-            assert len(notification_result.content) == 1
-            assert isinstance(notification_result.content[0], TextContent)
-            assert "Sent notifications and logs" in notification_result.content[0].text
-
-            # Give time for notifications
-            await anyio.sleep(0.1)
-
-            # Verify we received various notification types
-            assert len(collector.log_messages) > 3  # Should have logs from both tools
-            assert len(collector.resource_notifications) > 0
-            assert len(collector.tool_notifications) > 0
-
-            # Check that we got different log levels
-            log_levels = [msg.level for msg in collector.log_messages]
-            assert "debug" in log_levels
-            assert "info" in log_levels
-            assert "warning" in log_levels
-
-            # Test resources
-            # 1. Static resource
-            resources = await session.list_resources()
-            # Try using string comparison since AnyUrl might not match directly
-            static_resource = next(
-                (
-                    r
-                    for r in resources.resources
-                    if str(r.uri) == "resource://static/info"
-                ),
-                None,
-            )
-            assert static_resource is not None
-            assert static_resource.name == "Static Info"
-
-            static_content = await session.read_resource(
-                AnyUrl("resource://static/info")
-            )
-            assert isinstance(static_content, ReadResourceResult)
-            assert len(static_content.contents) == 1
-            assert isinstance(static_content.contents[0], TextResourceContents)
-            assert static_content.contents[0].text == "This is static resource content"
-
-            # 2. Dynamic resource
-            dynamic_content = await session.read_resource(
-                AnyUrl("resource://dynamic/test")
-            )
-            assert isinstance(dynamic_content, ReadResourceResult)
-            assert len(dynamic_content.contents) == 1
-            assert isinstance(dynamic_content.contents[0], TextResourceContents)
-            assert (
-                "Dynamic resource content for category: test"
-                in dynamic_content.contents[0].text
-            )
-
-            # 3. Template resource
-            template_content = await session.read_resource(
-                AnyUrl("resource://template/123/data")
-            )
-            assert isinstance(template_content, ReadResourceResult)
-            assert len(template_content.contents) == 1
-            assert isinstance(template_content.contents[0], TextResourceContents)
-            assert (
-                "Template resource data for ID: 123"
-                in template_content.contents[0].text
-            )
-
-            # Test prompts
-            # 1. Simple prompt
-            prompts = await session.list_prompts()
-            simple_prompt = next(
-                (p for p in prompts.prompts if p.name == "simple_prompt"), None
-            )
-            assert simple_prompt is not None
-
-            prompt_result = await session.get_prompt("simple_prompt", {"topic": "AI"})
-            assert isinstance(prompt_result, GetPromptResult)
-            assert len(prompt_result.messages) >= 1
-            # The actual message structure depends on the prompt implementation
-
-            # 2. Complex prompt
-            complex_prompt = next(
-                (p for p in prompts.prompts if p.name == "complex_prompt"), None
-            )
-            assert complex_prompt is not None
-
-            complex_result = await session.get_prompt(
-                "complex_prompt", {"user_query": "What is AI?", "context": "technical"}
-            )
-            assert isinstance(complex_result, GetPromptResult)
-            assert len(complex_result.messages) >= 1
+            # Run the common test suite
+            await call_all_mcp_features(session, collector)
 
 
 @pytest.mark.anyio
@@ -853,25 +864,6 @@ async def test_fastmcp_all_features_streamable_http(
 
     # Create notification collector
     collector = NotificationCollector()
-
-    # Create a sampling callback that simulates an LLM
-    async def sampling_callback(
-        context: RequestContext[ClientSession, None],
-        params: CreateMessageRequestParams,
-    ) -> CreateMessageResult:
-        # Simulate LLM response
-        if params.messages and isinstance(params.messages[0].content, TextContent):
-            input_text = params.messages[0].content.text
-        else:
-            input_text = "No input"
-        response_text = f"This is a simulated LLM response to: {input_text}"
-
-        return CreateMessageResult(
-            role="assistant",
-            content=TextContent(type="text", text=response_text),
-            model="test-llm-model-http",
-            stopReason="endTurn",
-        )
 
     # Connect to the server using StreamableHTTP
     async with streamablehttp_client(everything_http_server_url + "/mcp") as (
@@ -892,163 +884,5 @@ async def test_fastmcp_all_features_streamable_http(
             sampling_callback=sampling_callback,
             message_handler=message_handler,
         ) as session:
-            # Test initialization
-            result = await session.initialize()
-            assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "EverythingServer"
-
-            # Check server features are reported
-            assert result.capabilities.prompts is not None
-            assert result.capabilities.resources is not None
-            assert result.capabilities.tools is not None
-            # Note: logging capability may be None if no tools use context logging
-
-            # Test tools
-            # 1. Simple echo tool
-            tool_result = await session.call_tool("echo", {"message": "hello"})
-            assert len(tool_result.content) == 1
-            assert isinstance(tool_result.content[0], TextContent)
-            assert tool_result.content[0].text == "Echo: hello"
-
-            # 2. Tool with context (logging and progress)
-            # Test progress callback functionality over HTTP
-            progress_updates_http = []
-
-            def progress_callback_http(
-                progress: float, total: float | None, message: str | None
-            ) -> None:
-                """Collect progress updates for HTTP testing."""
-                progress_updates_http.append((progress, total, message))
-                print(f"HTTP Progress: {progress}/{total} - {message}")
-
-            await session.call_tool(
-                "tool_with_progress",
-                {
-                    "message": "http_test",
-                    "steps": 2,
-                },
-                progress_callback=progress_callback_http,
-            )
-
-            # Verify progress callback was called over HTTP
-            assert len(progress_updates_http) == 2
-            for i, (progress, total, message) in enumerate(progress_updates_http):
-                expected_progress = (i + 1) / 2
-                assert abs(progress - expected_progress) < 0.01
-                assert total == 1.0
-                assert message is not None
-                assert f"step {i + 1} of 2" in message
-
-            # 3. Test sampling tool
-            sampling_result = await session.call_tool(
-                "sampling_tool", {"prompt": "Explain quantum computing"}
-            )
-            assert len(sampling_result.content) == 1
-            assert isinstance(sampling_result.content[0], TextContent)
-            assert "Sampling result:" in sampling_result.content[0].text
-            assert "This is a simulated LLM response" in sampling_result.content[0].text
-
-            # Give time for log messages
-            await anyio.sleep(0.1)
-
-            # Verify we received log messages
-            assert len(collector.log_messages) > 0
-            assert any(
-                "Requesting sampling for prompt" in msg.data
-                for msg in collector.log_messages
-            )
-
-            # Test resources
-            # 1. Static resource
-            resources = await session.list_resources()
-            # Try using string comparison since AnyUrl might not match directly
-            static_resource = next(
-                (
-                    r
-                    for r in resources.resources
-                    if str(r.uri) == "resource://static/info"
-                ),
-                None,
-            )
-            assert static_resource is not None
-            assert static_resource.name == "Static Info"
-
-            static_content = await session.read_resource(
-                AnyUrl("resource://static/info")
-            )
-            assert isinstance(static_content, ReadResourceResult)
-            assert len(static_content.contents) == 1
-            assert isinstance(static_content.contents[0], TextResourceContents)
-            assert static_content.contents[0].text == "This is static resource content"
-
-            # 2. Dynamic resource
-            dynamic_content = await session.read_resource(
-                AnyUrl("resource://dynamic/http")
-            )
-            assert isinstance(dynamic_content, ReadResourceResult)
-            assert len(dynamic_content.contents) == 1
-            assert isinstance(dynamic_content.contents[0], TextResourceContents)
-            assert (
-                "Dynamic resource content for category: http"
-                in dynamic_content.contents[0].text
-            )
-
-            # 3. Template resource
-            template_content = await session.read_resource(
-                AnyUrl("resource://template/456/data")
-            )
-            assert isinstance(template_content, ReadResourceResult)
-            assert len(template_content.contents) == 1
-            assert isinstance(template_content.contents[0], TextResourceContents)
-            assert (
-                "Template resource data for ID: 456"
-                in template_content.contents[0].text
-            )
-
-            # Test prompts
-            # 1. Simple prompt
-            prompts = await session.list_prompts()
-            simple_prompt = next(
-                (p for p in prompts.prompts if p.name == "simple_prompt"), None
-            )
-            assert simple_prompt is not None
-
-            prompt_result = await session.get_prompt("simple_prompt", {"topic": "HTTP"})
-            assert isinstance(prompt_result, GetPromptResult)
-            assert len(prompt_result.messages) >= 1
-            # The actual message structure depends on the prompt implementation
-
-            # 2. Complex prompt
-            complex_prompt = next(
-                (p for p in prompts.prompts if p.name == "complex_prompt"), None
-            )
-            assert complex_prompt is not None
-
-            complex_result = await session.get_prompt(
-                "complex_prompt", {"user_query": "What is HTTP?", "context": "web"}
-            )
-            assert isinstance(complex_result, GetPromptResult)
-            assert len(complex_result.messages) >= 1
-
-            # Test that all features work in sequence (integration test)
-            # This tests that the different transport doesn't affect feature interaction
-            for i in range(3):
-                # Call tool
-                tool_result = await session.call_tool(
-                    "echo", {"message": f"iteration_{i}"}
-                )
-                assert isinstance(tool_result.content[0], TextContent)
-                assert f"iteration_{i}" in tool_result.content[0].text
-
-                # Read resource
-                resource_result = await session.read_resource(
-                    AnyUrl(f"resource://dynamic/{i}")
-                )
-                assert isinstance(resource_result.contents[0], TextResourceContents)
-                assert f"category: {i}" in resource_result.contents[0].text
-
-                # Get prompt
-                prompt_result = await session.get_prompt(
-                    "simple_prompt", {"topic": f"topic_{i}"}
-                )
-                assert len(prompt_result.messages) >= 1
+            # Run the common test suite with HTTP-specific test suffix
+            await call_all_mcp_features(session, collector)
