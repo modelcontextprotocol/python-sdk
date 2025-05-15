@@ -85,7 +85,7 @@ Issues = "https://github.com/modelcontextprotocol/python-sdk/issues"
 packages = ["src/mcp"]
 
 [tool.pyright]
-include = ["src/mcp", "tests"]
+include = ["src/mcp", "tests", "examples/servers"]
 venvPath = "."
 venv = ".venv"
 strict = ["src/mcp/**/*.py"]
