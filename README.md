@@ -318,7 +318,16 @@ Authentication can be used by servers that want to expose tools accessing protec
 providing an implementation of the `OAuthServerProvider` protocol.
 
 ```python
-mcp = FastMCP("My App",
+from mcp.server.auth.settings import (
+    AuthSettings,
+    ClientRegistrationOptions,
+    RevocationOptions,
+)
+from mcp.server.fastmcp import FastMCP
+
+mcp = (
+    FastMCP(
+        "My App",
         auth_server_provider=MyOAuthServerProvider(),
         auth=AuthSettings(
             issuer_url="https://myapp.com",
