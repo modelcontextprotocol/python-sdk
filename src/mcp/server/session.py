@@ -282,6 +282,7 @@ class ServerSession(
         progress_token: str | int,
         progress: float,
         total: float | None = None,
+        message: str | None = None,
         related_request_id: str | None = None,
     ) -> None:
         """Send a progress notification."""
@@ -293,6 +294,7 @@ class ServerSession(
                         progressToken=progress_token,
                         progress=progress,
                         total=total,
+                        message=message,
                     ),
                 )
             ),
