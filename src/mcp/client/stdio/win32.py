@@ -48,42 +48,42 @@ async def create_windows_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO = sys.stderr,
+    errlog: TextIO = sys.stderr,  # For StdioClientTransport._stderr_reader
     cwd: Path | str | None = None,
 ):
     """
     Creates a subprocess in a Windows-compatible way.
-
-    Windows processes need special handling for console windows and
-    process creation flags.
-
-    Args:
-        command: The command to execute
-        args: Command line arguments
-        env: Environment variables
-        errlog: Where to send stderr output
-        cwd: Working directory for the process
-
-    Returns:
-        A process handle
+    Ensures stdin, stdout, and stderr are always piped for StdioClientTransport.
+    Attempts CREATE_NO_WINDOW, falls back if it fails.
     """
+
+    creation_flags_value = (
+        subprocess.CREATE_NO_WINDOW  # type: ignore
+        if hasattr(subprocess, "CREATE_NO_WINDOW")
+        else 0
+    )
+
     try:
-        # Try with Windows-specific flags to hide console window
         process = await anyio.open_process(
             [command, *args],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             env=env,
-            # Ensure we don't create console windows for each process
-            creationflags=subprocess.CREATE_NO_WINDOW  # type: ignore
-            if hasattr(subprocess, "CREATE_NO_WINDOW")
-            else 0,
-            stderr=errlog,
             cwd=cwd,
+            creationflags=creation_flags_value,
         )
         return process
     except Exception:
-        # Don't raise, let's try to create the process without creation flags
+        # Fallback: try to create the process without creation flags
         process = await anyio.open_process(
-            [command, *args], env=env, stderr=errlog, cwd=cwd
+            [command, *args],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            cwd=cwd,
+            creationflags=0,  # Explicitly no special flags in fallback
         )
         return process
 
