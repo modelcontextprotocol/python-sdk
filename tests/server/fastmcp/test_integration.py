@@ -24,6 +24,7 @@ from mcp.shared.context import RequestContext
 from mcp.types import (
     CreateMessageRequestParams,
     CreateMessageResult,
+    EmbeddedResource,
     GetPromptResult,
     InitializeResult,
     ReadResourceResult,
@@ -131,6 +132,37 @@ def make_everything_fastmcp() -> FastMCP:
             messages=[
                 SamplingMessage(
                     role="user", content=TextContent(type="text", text=prompt)
+                )
+            ],
+            max_tokens=100,
+            temperature=0.7,
+        )
+
+        await ctx.info(f"Received sampling result from model: {result.model}")
+        # Handle different content types
+        if result.content.type == "text":
+            return f"Sampling result: {result.content.text[:100]}..."
+        else:
+            return f"Sampling result: {str(result.content)[:100]}..."
+
+    # Tool with sampling capability
+    @mcp.tool(description="A tool that uses sampling to generate a resource")
+    async def sampling_tool_resource(prompt: str, ctx: Context) -> str:
+        await ctx.info(f"Requesting sampling for prompt: {prompt}")
+
+        # Request sampling from the client
+        result = await ctx.session.create_message(
+            messages=[
+                SamplingMessage(
+                    role="user",
+                    content=EmbeddedResource(
+                        type="resource",
+                        resource=TextResourceContents(
+                            uri=AnyUrl("file://prompt"),
+                            text=prompt,
+                            mimeType="text/plain",
+                        ),
+                    ),
                 )
             ],
             max_tokens=100,
@@ -694,12 +726,13 @@ async def call_all_mcp_features(
     assert len(collector.log_messages) > 0
 
     # 3. Test sampling tool
-    prompt = "What is the meaning of life?"
-    sampling_result = await session.call_tool("sampling_tool", {"prompt": prompt})
-    assert len(sampling_result.content) == 1
-    assert isinstance(sampling_result.content[0], TextContent)
-    assert "Sampling result:" in sampling_result.content[0].text
-    assert "This is a simulated LLM response" in sampling_result.content[0].text
+    for tool in ["sampling_tool", "sampling_tool_resource"]:
+        prompt = "What is the meaning of life?"
+        sampling_result = await session.call_tool(tool, {"prompt": prompt})
+        assert len(sampling_result.content) == 1
+        assert isinstance(sampling_result.content[0], TextContent)
+        assert "Sampling result:" in sampling_result.content[0].text
+        assert "This is a simulated LLM response" in sampling_result.content[0].text
 
     # Verify we received log messages from the sampling tool
     assert len(collector.log_messages) > 0
@@ -810,6 +843,12 @@ async def sampling_callback(
     # Simulate LLM response based on the input
     if params.messages and isinstance(params.messages[0].content, TextContent):
         input_text = params.messages[0].content.text
+    elif (
+        params.messages
+        and isinstance(params.messages[0].content, EmbeddedResource)
+        and isinstance(params.messages[0].content.resource, TextResourceContents)
+    ):
+        input_text = params.messages[0].content.resource.text
     else:
         input_text = "No input"
     response_text = f"This is a simulated LLM response to: {input_text}"
