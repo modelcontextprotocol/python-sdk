@@ -66,7 +66,7 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 
 - Build MCP clients that can connect to any MCP server
 - Create MCP servers that expose resources, prompts and tools
-- Use standard transports like stdio and SSE
+- Use standard transports like stdio, SSE, and Streamable HTTP
 - Handle all MCP protocol messages and lifecycle events
 
 ## Installation
@@ -318,7 +318,7 @@ providing an implementation of the `OAuthServerProvider` protocol.
 
 ```
 mcp = FastMCP("My App",
-        auth_provider=MyOAuthServerProvider(),
+        auth_server_provider=MyOAuthServerProvider(),
         auth=AuthSettings(
             issuer_url="https://myapp.com",
             revocation_options=RevocationOptions(
@@ -334,7 +334,7 @@ mcp = FastMCP("My App",
 )
 ```
 
-See [OAuthServerProvider](mcp/server/auth/provider.py) for more details.
+See [OAuthServerProvider](src/mcp/server/auth/provider.py) for more details.
 
 ## Running Your Server
 
@@ -387,7 +387,84 @@ python server.py
 mcp run server.py
 ```
 
+Note that `mcp run` or `mcp dev` only supports server using FastMCP and not the low-level server variant.
+
+### Streamable HTTP Transport
+
+> **Note**: Streamable HTTP transport is superseding SSE transport for production deployments.
+
+```python
+from mcp.server.fastmcp import FastMCP
+
+# Stateful server (maintains session state)
+mcp = FastMCP("StatefulServer")
+
+# Stateless server (no session persistence)
+mcp = FastMCP("StatelessServer", stateless_http=True)
+
+# Run server with streamable_http transport
+mcp.run(transport="streamable-http")
+```
+
+You can mount multiple FastMCP servers in a FastAPI application:
+
+```python
+# echo.py
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP(name="EchoServer", stateless_http=True)
+
+
+@mcp.tool(description="A simple echo tool")
+def echo(message: str) -> str:
+    return f"Echo: {message}"
+```
+
+```python
+# math.py
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP(name="MathServer", stateless_http=True)
+
+
+@mcp.tool(description="A simple add tool")
+def add_two(n: int) -> int:
+    return n + 2
+```
+
+```python
+# main.py
+from fastapi import FastAPI
+from mcp.echo import echo
+from mcp.math import math
+
+
+app = FastAPI()
+
+# Use the session manager's lifespan
+app = FastAPI(lifespan=lambda app: echo.mcp.session_manager.run())
+app.mount("/echo", echo.mcp.streamable_http_app())
+app.mount("/math", math.mcp.streamable_http_app())
+```
+
+For low level server with Streamable HTTP implementations, see:
+- Stateful server: [`examples/servers/simple-streamablehttp/`](examples/servers/simple-streamablehttp/)
+- Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](examples/servers/simple-streamablehttp-stateless/)
+
+
+
+The streamable HTTP transport supports:
+- Stateful and stateless operation modes
+- Resumability with event stores
+- JSON or SSE response formats  
+- Better scalability for multi-node deployments
+
+
 ### Mounting to an Existing ASGI Server
+
+> **Note**: SSE transport is being superseded by [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http).
+
+By default, SSE servers are mounted at `/sse` and Streamable HTTP servers are mounted at `/mcp`. You can customize these paths using the methods described below.
 
 You can mount the SSE server to an existing ASGI server using the `sse_app` method. This allows you to integrate the SSE server with other ASGI applications.
 
@@ -408,6 +485,43 @@ app = Starlette(
 
 # or dynamically mount as host
 app.router.routes.append(Host('mcp.acme.corp', app=mcp.sse_app()))
+```
+
+When mounting multiple MCP servers under different paths, you can configure the mount path in several ways:
+
+```python
+from starlette.applications import Starlette
+from starlette.routing import Mount
+from mcp.server.fastmcp import FastMCP
+
+# Create multiple MCP servers
+github_mcp = FastMCP("GitHub API")
+browser_mcp = FastMCP("Browser")
+curl_mcp = FastMCP("Curl")
+search_mcp = FastMCP("Search")
+
+# Method 1: Configure mount paths via settings (recommended for persistent configuration)
+github_mcp.settings.mount_path = "/github"
+browser_mcp.settings.mount_path = "/browser"
+
+# Method 2: Pass mount path directly to sse_app (preferred for ad-hoc mounting)
+# This approach doesn't modify the server's settings permanently
+
+# Create Starlette app with multiple mounted servers
+app = Starlette(
+    routes=[
+        # Using settings-based configuration
+        Mount("/github", app=github_mcp.sse_app()),
+        Mount("/browser", app=browser_mcp.sse_app()),
+        # Using direct mount path parameter
+        Mount("/curl", app=curl_mcp.sse_app("/curl")),
+        Mount("/search", app=search_mcp.sse_app("/search")),
+    ]
+)
+
+# Method 3: For direct execution, you can also pass the mount path to run()
+if __name__ == "__main__":
+    search_mcp.run(transport="sse", mount_path="/search")
 ```
 
 For more information on mounting applications in Starlette, see the [Starlette documentation](https://www.starlette.io/routing/#submounting-routes).
@@ -507,7 +621,7 @@ server = Server("example-server", lifespan=server_lifespan)
 # Access lifespan context in handlers
 @server.call_tool()
 async def query_db(name: str, arguments: dict) -> list:
-    ctx = server.request_context
+    ctx = server.get_context()
     db = ctx.lifespan_context["db"]
     return await db.query(arguments["query"])
 ```
@@ -582,9 +696,11 @@ if __name__ == "__main__":
     asyncio.run(run())
 ```
 
+Caution: The `mcp run` and `mcp dev` tool doesn't support low-level server.
+
 ### Writing MCP Clients
 
-The SDK provides a high-level client interface for connecting to MCP servers:
+The SDK provides a high-level client interface for connecting to MCP servers using various [transports](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports):
 
 ```python
 from mcp import ClientSession, StdioServerParameters, types
@@ -646,6 +762,28 @@ if __name__ == "__main__":
     import asyncio
 
     asyncio.run(run())
+```
+
+Clients can also connect using [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http):
+
+```python
+from mcp.client.streamable_http import streamablehttp_client
+from mcp import ClientSession
+
+
+async def main():
+    # Connect to a streamable HTTP server
+    async with streamablehttp_client("example/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        # Create a session using the client streams
+        async with ClientSession(read_stream, write_stream) as session:
+            # Initialize the connection
+            await session.initialize()
+            # Call a tool
+            tool_result = await session.call_tool("echo", {"message": "hello"})
 ```
 
 ### MCP Primitives
