@@ -76,7 +76,7 @@ class FunctionResource(Resource):
         name: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
-    ) -> Self:
+    ) -> "FunctionResource":
         """Create a FunctionResource from a function."""
         func_name = name or fn.__name__
         if func_name == "<lambda>":
