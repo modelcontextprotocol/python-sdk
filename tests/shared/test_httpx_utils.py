@@ -22,3 +22,11 @@ def test_custom_parameters():
 
     assert client.headers["Authorization"] == "Bearer token"
     assert client.timeout.connect == 60.0
+
+
+def test_client_kwargs_parameters():
+    """Test if additional kwargs are set correctly."""
+    client_kwargs = {"max_redirects": 999}
+
+    client = create_mcp_http_client(client_kwargs=client_kwargs)
+    assert client.max_redirects == 999
