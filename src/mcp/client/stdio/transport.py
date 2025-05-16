@@ -173,7 +173,7 @@ class StdioClientTransport:
         self._tg = anyio.create_task_group()
         await self._tg.__aenter__()
 
-        self._tg.start_soon(self._stdout_reader)
+        # self._tg.start_soon(self._stdout_reader)
         self._tg.start_soon(self._stdin_writer)
         self._tg.start_soon(self._stderr_reader)
 
