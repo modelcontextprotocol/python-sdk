@@ -52,6 +52,7 @@ from mcp.shared.session import (
     BaseSession,
     RequestResponder,
 )
+from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 
 class InitializationState(Enum):
@@ -150,13 +151,16 @@ class ServerSession(
     ):
         match responder.request.root:
             case types.InitializeRequest(params=params):
+                requested_version = params.protocolVersion
                 self._initialization_state = InitializationState.Initializing
                 self._client_params = params
                 with responder:
                     await responder.respond(
                         types.ServerResult(
                             types.InitializeResult(
-                                protocolVersion=types.LATEST_PROTOCOL_VERSION,
+                                protocolVersion=requested_version
+                                if requested_version in SUPPORTED_PROTOCOL_VERSIONS
+                                else types.LATEST_PROTOCOL_VERSION,
                                 capabilities=self._init_options.capabilities,
                                 serverInfo=types.Implementation(
                                     name=self._init_options.server_name,
@@ -282,6 +286,7 @@ class ServerSession(
         progress_token: str | int,
         progress: float,
         total: float | None = None,
+        message: str | None = None,
         related_request_id: str | None = None,
     ) -> None:
         """Send a progress notification."""
@@ -293,6 +298,7 @@ class ServerSession(
                         progressToken=progress_token,
                         progress=progress,
                         total=total,
+                        message=message,
                     ),
                 )
             ),
