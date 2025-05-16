@@ -442,7 +442,8 @@ async def streamablehttp_client(
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
 
-    `**client_kwargs` : dict, optional - Additional http client configurations used to configure the AsyncClient.
+    `**client_kwargs` : dict, optional - Additional http client configurations used
+    to configure the AsyncClient.
 
     Yields:
         Tuple containing:

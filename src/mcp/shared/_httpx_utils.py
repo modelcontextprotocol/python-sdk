@@ -22,7 +22,7 @@ def create_mcp_http_client(
         headers: Optional headers to include with all requests.
         timeout: Request timeout as httpx.Timeout object.
             Defaults to 30 seconds if not specified.
-        client_kwargs : dict[str, Any], optional. Used to configure the AsyncClient.
+        client_kwargs : dict[str, Any]. Optional. To configure the AsyncClient.
 
     Returns:
         Configured httpx.AsyncClient instance with MCP defaults.
