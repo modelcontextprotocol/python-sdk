@@ -387,6 +387,8 @@ python server.py
 mcp run server.py
 ```
 
+Note that `mcp run` or `mcp dev` only supports server using FastMCP and not the low-level server variant.
+
 ### Streamable HTTP Transport
 
 > **Note**: Streamable HTTP transport is superseding SSE transport for production deployments.
@@ -399,6 +401,9 @@ mcp = FastMCP("StatefulServer")
 
 # Stateless server (no session persistence)
 mcp = FastMCP("StatelessServer", stateless_http=True)
+
+# Stateless server (no session persistence, no sse stream with supported client)
+mcp = FastMCP("StatelessServer", stateless_http=True, json_response=True)
 
 # Run server with streamable_http transport
 mcp.run(transport="streamable-http")
@@ -432,15 +437,22 @@ def add_two(n: int) -> int:
 
 ```python
 # main.py
+import contextlib
 from fastapi import FastAPI
 from mcp.echo import echo
 from mcp.math import math
 
 
-app = FastAPI()
+# Create a combined lifespan to manage both session managers
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with contextlib.AsyncExitStack() as stack:
+        await stack.enter_async_context(echo.mcp.session_manager.run())
+        await stack.enter_async_context(math.mcp.session_manager.run())
+        yield
 
-# Use the session manager's lifespan
-app = FastAPI(lifespan=lambda app: echo.mcp.session_manager.run())
+
+app = FastAPI(lifespan=lifespan)
 app.mount("/echo", echo.mcp.streamable_http_app())
 app.mount("/math", math.mcp.streamable_http_app())
 ```
@@ -619,7 +631,7 @@ server = Server("example-server", lifespan=server_lifespan)
 # Access lifespan context in handlers
 @server.call_tool()
 async def query_db(name: str, arguments: dict) -> list:
-    ctx = server.request_context
+    ctx = server.get_context()
     db = ctx.lifespan_context["db"]
     return await db.query(arguments["query"])
 ```
@@ -693,6 +705,8 @@ if __name__ == "__main__":
 
     asyncio.run(run())
 ```
+
+Caution: The `mcp run` and `mcp dev` tool doesn't support low-level server.
 
 ### Writing MCP Clients
 
