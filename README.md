@@ -246,11 +246,14 @@ async def fetch_weather(city: str) -> str:
         response = await client.get(f"https://api.weather.com/{city}")
         return response.text
 
+
 # Get a reference to the tool
 tool = mcp._tool_manager.get_tool("fetch_weather")
 
+
 # Disable the tool temporarily
 await tool.disable(mcp.get_context())
+
 
 # Later, re-enable the tool
 await tool.enable(mcp.get_context())
