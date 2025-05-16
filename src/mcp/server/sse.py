@@ -27,7 +27,7 @@ Example usage:
 
     # Create and run Starlette app
     starlette_app = Starlette(routes=routes)
-    uvicorn.run(starlette_app, host="0.0.0.0", port=port)
+    uvicorn.run(starlette_app, host="127.0.0.1", port=port)
 ```
 
 Note: The handle_sse function must return a Response to avoid a "TypeError: 'NoneType'
