@@ -427,6 +427,7 @@ async def streamablehttp_client(
     timeout: timedelta = timedelta(seconds=30),
     sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
     terminate_on_close: bool = True,
+    **client_kwargs: Any,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -440,6 +441,8 @@ async def streamablehttp_client(
 
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
+
+    `**client_kwargs` : dict, optional - Additional http client configurations used to configure the AsyncClient.
 
     Yields:
         Tuple containing:
@@ -465,6 +468,7 @@ async def streamablehttp_client(
                 timeout=httpx.Timeout(
                     transport.timeout.seconds, read=transport.sse_read_timeout.seconds
                 ),
+                client_kwargs=client_kwargs,
             ) as client:
                 # Define callbacks that need access to tg
                 def start_get_stream() -> None:

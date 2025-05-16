@@ -10,6 +10,7 @@ __all__ = ["create_mcp_http_client"]
 def create_mcp_http_client(
     headers: dict[str, str] | None = None,
     timeout: httpx.Timeout | None = None,
+    client_kwargs: dict[str, Any] | None = None,
 ) -> httpx.AsyncClient:
     """Create a standardized httpx AsyncClient with MCP defaults.
 
@@ -21,6 +22,7 @@ def create_mcp_http_client(
         headers: Optional headers to include with all requests.
         timeout: Request timeout as httpx.Timeout object.
             Defaults to 30 seconds if not specified.
+        client_kwargs : dict[str, Any], optional. Used to configure the AsyncClient.
 
     Returns:
         Configured httpx.AsyncClient instance with MCP defaults.
@@ -45,18 +47,18 @@ def create_mcp_http_client(
             response = await client.get("/long-request")
     """
     # Set MCP defaults
-    kwargs: dict[str, Any] = {
-        "follow_redirects": True,
-    }
+    if not client_kwargs:
+        client_kwargs = {}
+    client_kwargs["follow_redirects"] = True
 
     # Handle timeout
     if timeout is None:
-        kwargs["timeout"] = httpx.Timeout(30.0)
+        client_kwargs["timeout"] = httpx.Timeout(30.0)
     else:
-        kwargs["timeout"] = timeout
+        client_kwargs["timeout"] = timeout
 
     # Handle headers
     if headers is not None:
-        kwargs["headers"] = headers
+        client_kwargs["headers"] = headers
 
-    return httpx.AsyncClient(**kwargs)
+    return httpx.AsyncClient(**client_kwargs)
