@@ -20,7 +20,10 @@ class ToolManager:
     """Manages FastMCP tools."""
 
     def __init__(
-        self, tools: list[Tool] | None = None, warn_on_duplicate_tools: bool = True
+        self,
+        warn_on_duplicate_tools: bool = True,
+        *,
+        tools: list[Tool] | None = None,
     ):
         self._tools: dict[str, Tool] = {}
         if tools is not None:
