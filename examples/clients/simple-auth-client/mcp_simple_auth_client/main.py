@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import webbrowser
+from typing import List, Optional
 
 import click
 from mcp import ClientSession
@@ -16,54 +17,70 @@ from mcp.client.auth import UnauthorizedError
 from mcp.client.oauth_providers import FileBasedOAuthProvider, InMemoryOAuthProvider
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientMetadata
+from pydantic import BaseModel, AnyHttpUrl
 
 
-class CLIOAuthProvider(InMemoryOAuthProvider):
-    """OAuth provider for CLI interactive sessions."""
-
-    def __init__(self, server_url: str):
-        client_metadata = OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
-            client_name="MCP CLI Auth Client",
-            scope="user",
-        )
+# Create a custom OAuth provider that handles JSON serialization properly
+class WorkingOAuthProvider(InMemoryOAuthProvider):
+    """OAuth provider that properly handles JSON serialization of AnyHttpUrl."""
+    
+    def __init__(self, redirect_url: str):
+        # Create a minimal metadata object that avoids serialization issues
+        from mcp.shared.auth import OAuthClientMetadata
+        
+        # Initialize with minimal metadata
         super().__init__(
-            redirect_url="http://localhost:8080/callback",
-            client_metadata=client_metadata,
+            redirect_url=redirect_url,
+            client_metadata=None,  # Don't pass metadata initially
         )
-        self.server_url = server_url
-
-    async def redirect_to_authorization(self, authorization_url: str) -> None:
-        """Open the authorization URL in the browser and prompt for the code."""
-        print("\n🔐 Starting OAuth authorization...")
-        print(f"Opening browser to: {authorization_url}")
-
-        webbrowser.open(authorization_url)
-
-        print("\nAfter authorizing, copy the 'code' parameter from the callback URL.")
-        print("Example: if redirected to 'http://localhost:8080/callback?code=abc123'")
-        print("Then paste: abc123")
-
-        auth_code = input("\nPaste the authorization code here: ").strip()
-        if auth_code:
-            from mcp.client.streamable_http import StreamableHTTPTransport
-
-            transport = StreamableHTTPTransport(
-                f"{self.server_url}/mcp",
-                auth_provider=self,
+        
+        # Store the metadata for manual registration if needed
+        self._pending_metadata = {
+            "redirect_uris": [redirect_url],
+            "client_name": "MCP CLI Auth Client",
+            "scope": "user",
+        }
+    
+    async def register_client(self) -> str:
+        """Register the client manually with JSON-safe metadata."""
+        import httpx
+        import json
+        
+        # Get the metadata endpoint from the auth server
+        async with httpx.AsyncClient() as client:
+            # Get authorization server metadata
+            response = await client.get(f"{self._base_url}/.well-known/oauth-authorization-server")
+            server_metadata = response.json()
+            
+            # Register the client with JSON-safe data
+            registration_response = await client.post(
+                server_metadata["registration_endpoint"],
+                json=self._pending_metadata,
+                headers={"Content-Type": "application/json"}
             )
-            try:
-                await transport.finish_auth(auth_code)
-                print("✅ Authorization successful!")
-            except Exception as e:
-                print(f"❌ Authorization failed: {e}")
-                raise
-        else:
-            raise Exception("No authorization code provided")
+            
+            if registration_response.status_code == 201:
+                client_info = registration_response.json()
+                self._client_id = client_info["client_id"]
+                self._client_secret = client_info.get("client_secret")
+                return self._client_id
+            else:
+                raise Exception(f"Client registration failed: {registration_response.text}")
+    
+    async def _ensure_registered(self):
+        """Ensure the client is registered before proceeding."""
+        if not hasattr(self, '_client_id') or not self._client_id:
+            await self.register_client()
 
 
 class InteractiveOAuthProvider(InMemoryOAuthProvider):
     """OAuth provider that handles the authorization flow interactively."""
+
+    def __init__(
+        self, redirect_url: str, client_metadata: SimpleClientMetadata | None = None
+    ):
+        super().__init__(redirect_url=redirect_url, client_metadata=client_metadata)
+        self._authorization_code = None
 
     async def redirect_to_authorization(self, authorization_url: str) -> None:
         """Open the authorization URL in the browser and prompt for the code."""
@@ -84,6 +101,56 @@ class InteractiveOAuthProvider(InMemoryOAuthProvider):
         )
         print("Then copy and paste: abc123")
 
+        # Wait for user input
+        auth_code = input("\nPaste the authorization code here: ").strip()
+        if not auth_code:
+            raise ValueError("No authorization code provided")
+
+        # Store the code for the finish_auth method
+        self._authorization_code = auth_code
+
+    async def finish_auth(self, authorization_code: str | None = None) -> str:
+        """Finish the OAuth authorization process."""
+        # Use the stored code if not provided
+        code = authorization_code or self._authorization_code
+        if not code:
+            raise ValueError("No authorization code available")
+
+        # Call parent's finish_auth method
+        return await super().finish_auth(code)
+
+
+class CLIOAuthProvider(InteractiveOAuthProvider):
+    """OAuth provider for CLI interactive sessions."""
+
+    def __init__(self, server_url: str):
+        # Create client metadata with plain strings to avoid AnyHttpUrl serialization issues
+        client_metadata = SimpleClientMetadata(
+            redirect_uris=["http://localhost:8080/callback"],
+            client_name="MCP CLI Auth Client",
+            scope="user",
+        )
+
+        super().__init__(
+            redirect_url="http://localhost:8080/callback",
+            client_metadata=client_metadata,
+        )
+        self.server_url = server_url
+
+    async def redirect_to_authorization(self, authorization_url: str) -> None:
+        """Handle authorization redirect by opening browser and getting code manually."""
+        print("\n🔐 Starting OAuth authorization...")
+        print(f"Opening browser to: {authorization_url}")
+
+        webbrowser.open(authorization_url)
+
+        print("\nAfter authorizing, copy the 'code' parameter from the callback URL.")
+        print("Example: if redirected to 'http://localhost:8080/callback?code=abc123'")
+        print("Then paste: abc123")
+
+        # This method should NOT try to finish auth - that's handled by the transport
+        # Just let the parent class or transport handle the auth code
+
 
 async def run_oauth_client(
     server_url: str, use_file_storage: bool, debug: bool
@@ -95,26 +162,18 @@ async def run_oauth_client(
     else:
         logging.basicConfig(level=logging.INFO)
 
-    # Create OAuth client metadata
+    # Create OAuth client metadata using the original class
     client_metadata = OAuthClientMetadata(
-        redirect_uris=["http://localhost:8080/callback"],
+        redirect_uris=[AnyHttpUrl("http://localhost:8080/callback")],
         client_name="Simple MCP Auth Client",
-        scope="user",  # Request the 'user' scope for GitHub profile access
+        scope="user",
     )
-
-    # Choose storage provider
-    if use_file_storage:
-        print("Using file-based token storage...")
-        oauth_provider = FileBasedOAuthProvider(
-            redirect_url="http://localhost:8080/callback",
-            client_metadata=client_metadata,
-        )
-    else:
-        print("Using in-memory token storage...")
-        oauth_provider = InteractiveOAuthProvider(
-            redirect_url="http://localhost:8080/callback",
-            client_metadata=client_metadata,
-        )
+    
+    print("Using file-based token storage with automatic OAuth handling...")
+    oauth_provider = FileBasedOAuthProvider(
+        redirect_url="http://localhost:8080/callback",
+        client_metadata=client_metadata,
+    )
 
     print("Starting OAuth client...")
 
@@ -306,33 +365,110 @@ async def handle_command(session: ClientSession, command: str) -> None:
 
 async def run_interactive_client():
     """Start an interactive MCP client session."""
-    server_url = "http://localhost:3000"
-    oauth_provider = CLIOAuthProvider(server_url)
+    server_url = "http://localhost:8000"
+    use_file_storage = False
+    debug = False
 
-    print("🔗 Connecting to localhost:3000...")
+    if debug:
+        logging.basicConfig(level=logging.DEBUG)
+        logging.getLogger("mcp").setLevel(logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
+
+    # Create OAuth client metadata using the original class
+    client_metadata = OAuthClientMetadata(
+        redirect_uris=[AnyHttpUrl("http://localhost:8080/callback")],
+        client_name="MCP CLI Auth Client",
+        scope="user",
+    )
+    
+    print("Using file-based token storage with automatic OAuth handling...")
+    oauth_provider = FileBasedOAuthProvider(
+        redirect_url="http://localhost:8080/callback",
+        client_metadata=client_metadata,
+    )
+
+    print("🔗 Connecting to localhost:8000...")
 
     try:
-        async with streamablehttp_client(
-            f"{server_url}/mcp", auth_provider=oauth_provider
-        ) as (read, write, _):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                print("✅ Connected!")
-                print("Type 'help' for available commands or 'exit' to quit.")
+        # Check if we have existing tokens
+        existing_tokens = await oauth_provider.tokens()
+        if existing_tokens:
+            print("Found existing tokens. Attempting to connect...")
+        else:
+            print("No existing tokens found. Will start OAuth flow if needed...")
 
-                # Interactive command loop
-                while True:
-                    try:
-                        command = input("mcp> ").strip()
-                        if not command or command == "exit":
+        # Connect to the MCP server with OAuth
+        async with streamablehttp_client(
+            f"{server_url}/mcp",
+            auth_provider=oauth_provider,
+        ) as (read_stream, write_stream, _):
+            print("Connecting to MCP server...")
+
+            # Create a session
+            async with ClientSession(read_stream, write_stream) as session:
+                try:
+                    # Initialize the connection (this may trigger OAuth flow)
+                    await session.initialize()
+                    print("✅ Connected!")
+                    print("Type 'help' for available commands or 'exit' to quit.")
+
+                    # Interactive command loop
+                    while True:
+                        try:
+                            command = input("mcp> ").strip()
+                            if not command or command == "exit":
+                                break
+                            await handle_command(session, command)
+                        except KeyboardInterrupt:
                             break
-                        await handle_command(session, command)
-                    except KeyboardInterrupt:
-                        break
-                    except Exception as e:
-                        print(f"Error: {e}")
+                        except Exception as e:
+                            print(f"Error: {e}")
+
+                except UnauthorizedError:
+                    print("\nAuthorization required!")
+                    print("Please complete the OAuth flow and run the command again.")
+
+                    # If we're using the interactive provider, we need to manually
+                    # handle the callback
+                    if isinstance(oauth_provider, InteractiveOAuthProvider):
+                        auth_code = input(
+                            "\nPaste the authorization code here: "
+                        ).strip()
+                        if auth_code:
+                            # Create a transport to finish the auth
+                            from mcp.client.streamable_http import (
+                                StreamableHTTPTransport,
+                            )
+
+                            transport = StreamableHTTPTransport(
+                                f"{server_url}/mcp",
+                                auth_provider=oauth_provider,
+                            )
+                            try:
+                                await transport.finish_auth(auth_code)
+                                print(
+                                    "Authorization successful! "
+                                    "Please run the command again."
+                                )
+                            except Exception as e:
+                                print(f"Authorization failed: {e}")
+                        else:
+                            print("No authorization code provided.")
+
+                except Exception as e:
+                    print(f"Error during MCP operations: {e}")
+                    if debug:
+                        import traceback
+
+                        traceback.print_exc()
+
     except Exception as e:
         print(f"Failed to connect: {e}")
+        if debug:
+            import traceback
+
+            traceback.print_exc()
 
     print("👋 Session ended")
 
