@@ -71,11 +71,11 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, cast
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl
+from pydantic import AnyUrl, BaseModel
 
 import mcp.types as types
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -399,29 +399,118 @@ class Server(Generic[LifespanResultT]):
                 ...,
                 Awaitable[
                     Iterable[
-                        types.TextContent
-                        | types.DataContent
-                        | types.ImageContent
-                        | types.EmbeddedResource
+                        types.TextContent | types.ImageContent | types.EmbeddedResource
                     ]
+                    | BaseModel
+                    | dict[str, Any]
                 ],
             ],
+            schema_func: Callable[..., dict[str, Any] | None] | None = None,
         ):
             logger.debug("Registering handler for CallToolRequest")
 
-            async def handler(req: types.CallToolRequest):
-                try:
-                    results = await func(req.params.name, (req.params.arguments or {}))
-                    return types.ServerResult(
-                        types.CallToolResult(content=list(results), isError=False)
-                    )
-                except Exception as e:
+            def handle_result_without_schema(req: types.CallToolRequest, result: Any):
+                if type(result) is dict or isinstance(result, BaseModel):
+                    error = f"""Tool {req.params.name} has no outputSchema and 
+must return content"""
                     return types.ServerResult(
                         types.CallToolResult(
-                            content=[types.TextContent(type="text", text=str(e))],
+                            content=[
+                                types.TextContent(
+                                    type="text",
+                                    text=error,
+                                )
+                            ],
+                            structuredContent=None,
                             isError=True,
                         )
                     )
+                else:
+                    content_result = cast(
+                        Iterable[
+                            types.TextContent
+                            | types.ImageContent
+                            | types.EmbeddedResource
+                        ],
+                        result,
+                    )
+                    return types.ServerResult(
+                        types.CallToolResult(
+                            content=list(content_result),
+                            structuredContent=None,
+                            isError=False,
+                        )
+                    )
+
+            def handle_result_with_schema(
+                req: types.CallToolRequest, result: Any, schema: dict[str, Any]
+            ):
+                if isinstance(result, BaseModel):
+                    model_result = result.model_dump()
+                    return types.ServerResult(
+                        types.CallToolResult(
+                            content=[],
+                            structuredContent=model_result,
+                            isError=False,
+                        )
+                    )
+                elif type(result) is dict[str, Any]:
+                    return types.ServerResult(
+                        types.CallToolResult(
+                            content=[], structuredContent=result, isError=False
+                        )
+                    )
+                else:
+                    error = f"""Tool {req.params.name} has outputSchema and "
+must return structured content"""
+                    return types.ServerResult(
+                        types.CallToolResult(
+                            content=[
+                                types.TextContent(
+                                    type="text",
+                                    text=error,
+                                )
+                            ],
+                            structuredContent=None,
+                            isError=True,
+                        )
+                    )
+
+            def handle_error(e: Exception):
+                return types.ServerResult(
+                    types.CallToolResult(
+                        content=[types.TextContent(type="text", text=str(e))],
+                        structuredContent=None,
+                        isError=True,
+                    )
+                )
+
+            if schema_func is None:
+
+                async def handler(req: types.CallToolRequest):
+                    try:
+                        result = await func(
+                            req.params.name, (req.params.arguments or {})
+                        )
+                        return handle_result_without_schema(req, result)
+                    except Exception as e:
+                        return handle_error(e)
+
+            else:
+
+                async def handler(req: types.CallToolRequest):
+                    try:
+                        result = await func(
+                            req.params.name, (req.params.arguments or {})
+                        )
+                        schema = schema_func(req.params.name)
+
+                        if schema:
+                            return handle_result_with_schema(req, result, schema)
+                        else:
+                            return handle_result_without_schema(req, result)
+                    except Exception as e:
+                        return handle_error(e)
 
             self.request_handlers[types.CallToolRequest] = handler
             return func

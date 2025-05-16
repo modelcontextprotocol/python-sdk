@@ -93,6 +93,10 @@ def simple_str_fun() -> str:
     return "ok"
 
 
+def simple_list_str_fun() -> list[str]:
+    return ["ok"]
+
+
 def simple_bool_fun() -> bool:
     return True
 
@@ -444,18 +448,11 @@ def test_simple_function_output_schema():
     """Test JSON schema generation for simple return types."""
 
     assert func_metadata(simple_no_annotation_fun).output_schema is None
-    assert func_metadata(simple_str_fun).output_schema == {
-        "type": "string",
-    }
-    assert func_metadata(simple_bool_fun).output_schema == {
-        "type": "boolean",
-    }
-    assert func_metadata(simple_int_fun).output_schema == {
-        "type": "integer",
-    }
-    assert func_metadata(simple_float_fun).output_schema == {
-        "type": "number",
-    }
+    assert func_metadata(simple_str_fun).output_schema is None
+    assert func_metadata(simple_bool_fun).output_schema is None
+    assert func_metadata(simple_int_fun).output_schema is None
+    assert func_metadata(simple_float_fun).output_schema is None
+    assert func_metadata(simple_list_str_fun).output_schema is None
 
 
 def test_complex_function_output_schema():

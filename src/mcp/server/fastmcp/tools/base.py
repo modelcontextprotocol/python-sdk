@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
-from mcp.types import DataContent, ToolAnnotations
+from mcp.types import ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -102,12 +102,6 @@ class Tool(BaseModel):
                 if self.context_kwarg is not None
                 else None,
             )
-            if self.output and self.output.get("type") == "object":
-                return DataContent(
-                    type="data",
-                    data=result,
-                )
-            else:
-                return result
+            return result
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e

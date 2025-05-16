@@ -62,3 +62,9 @@ class ToolManager:
             raise ToolError(f"Unknown tool: {name}")
 
         return await tool.run(arguments, context=context)
+
+    def get_schema(self, name: str) -> dict[str, Any] | None:
+        tool = self.get_tool(name)
+        if not tool:
+            raise ToolError(f"Unknown tool: {name}")
+        return tool.output

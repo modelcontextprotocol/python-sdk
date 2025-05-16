@@ -52,7 +52,6 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.shared.context import LifespanContextT, RequestContext
 from mcp.types import (
     AnyFunction,
-    DataContent,
     EmbeddedResource,
     GetPromptResult,
     ImageContent,
@@ -237,7 +236,7 @@ class FastMCP:
     def _setup_handlers(self) -> None:
         """Set up core MCP protocol handlers."""
         self._mcp_server.list_tools()(self.list_tools)
-        self._mcp_server.call_tool()(self.call_tool)
+        self._mcp_server.call_tool()(self.call_tool, self._get_schema)
         self._mcp_server.list_resources()(self.list_resources)
         self._mcp_server.read_resource()(self.read_resource)
         self._mcp_server.list_prompts()(self.list_prompts)
@@ -271,12 +270,15 @@ class FastMCP:
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any]
-    ) -> Sequence[TextContent | DataContent | ImageContent | EmbeddedResource]:
+    ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
         """Call a tool by name with arguments."""
         context = self.get_context()
         result = await self._tool_manager.call_tool(name, arguments, context=context)
         converted_result = _convert_to_content(result)
         return converted_result
+
+    def _get_schema(self, name: str) -> dict[str, Any] | None:
+        return self._tool_manager.get_schema(name)
 
     async def list_resources(self) -> list[MCPResource]:
         """List all available resources."""
@@ -871,12 +873,12 @@ class FastMCP:
 
 def _convert_to_content(
     result: Any,
-) -> Sequence[TextContent | ImageContent | EmbeddedResource | DataContent]:
+) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
     """Convert a result to a sequence of content objects."""
     if result is None:
         return []
 
-    if isinstance(result, TextContent | ImageContent | EmbeddedResource | DataContent):
+    if isinstance(result, TextContent | ImageContent | EmbeddedResource):
         return [result]
 
     if isinstance(result, Image):
