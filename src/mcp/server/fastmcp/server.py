@@ -141,6 +141,7 @@ class FastMCP:
         auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
         | None = None,
         event_store: EventStore | None = None,
+        *,
         tools: list[Tool] | None = None,
         **settings: Any,
     ):
