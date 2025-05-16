@@ -2,8 +2,8 @@
 """
 Simple MCP client example with OAuth authentication support.
 
-This client connects to an MCP server using streamable HTTP transport with OAuth authentication.
-It provides an interactive command-line interface to list tools and execute them.
+This client connects to an MCP server using streamable HTTP transport with OAuth.
+
 """
 
 import asyncio
@@ -21,16 +21,17 @@ from mcp.client.auth import (
     OAuthClientProvider,
     discover_oauth_metadata,
 )
+from mcp.client.oauth_auth import OAuthAuth
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
-from pydantic import AnyHttpUrl
 
 
 class CallbackHandler(BaseHTTPRequestHandler):
     """Simple HTTP handler to capture OAuth callback."""
 
     authorization_code = None
+    state = None
     error = None
 
     def do_GET(self):
@@ -40,6 +41,7 @@ class CallbackHandler(BaseHTTPRequestHandler):
 
         if "code" in query_params:
             CallbackHandler.authorization_code = query_params["code"][0]
+            CallbackHandler.state = query_params.get("state", [None])[0]
             self.send_response(200)
             self.send_header("Content-type", "text/html")
             self.end_headers()
@@ -116,8 +118,11 @@ class JsonSerializableOAuthClientMetadata(OAuthClientMetadata):
     """OAuth client metadata that handles JSON serialization properly."""
 
     def model_dump(self, **kwargs) -> dict[str, Any]:
-        """Override to ensure URLs are serialized as strings."""
+        """Override to ensure URLs are serialized as strings and exclude null values."""
+        # Exclude null values by default
+        kwargs.setdefault("exclude_none", True)
         data = super().model_dump(**kwargs)
+
         # Convert AnyHttpUrl objects to strings
         if "redirect_uris" in data:
             data["redirect_uris"] = [str(url) for url in data["redirect_uris"]]
@@ -193,9 +198,7 @@ class SimpleOAuthProvider(OAuthClientProvider):
 
     async def save_tokens(self, tokens: OAuthToken) -> None:
         self._tokens = tokens
-        print(
-            f"Saved OAuth tokens, access token starts with: {tokens.access_token[:10]}..."
-        )
+        print(f"Saved OAuth tokens: {tokens.access_token[:10]}...")
 
     async def redirect_to_authorization(self, authorization_url: str) -> None:
         # Start callback server
@@ -252,66 +255,41 @@ class SimpleAuthClient:
         """Connect to the MCP server."""
         print(f"🔗 Attempting to connect to {self.server_url}...")
 
-        # The streamable HTTP transport will handle the OAuth flow automatically
-        # We just need to wait for it to complete successfully
         try:
-            # Discover OAuth metadata first to set proper scopes
-            await self.auth_provider._discover_and_update_metadata()
+            # Set up callback server
+            callback_server = CallbackServer(port=3000)
+            callback_server.start()
 
-            # Check if we already have tokens, if not do auth flow first
-            existing_tokens = await self.auth_provider.tokens()
-            if not existing_tokens:
-                print("🔐 No existing tokens found, initiating OAuth flow...")
-                await self.auth_provider._discover_and_update_metadata()
+            async def callback_handler() -> tuple[str, str | None]:
+                """Wait for OAuth callback and return auth code and state."""
+                print("⏳ Waiting for authorization callback...")
+                try:
+                    auth_code = callback_server.wait_for_callback(timeout=300)
+                    return auth_code, CallbackHandler.state
+                finally:
+                    callback_server.stop()
 
-                # Start the auth flow to get tokens
-                from mcp.client.auth import auth
-
-                auth_result = await auth(
-                    self.auth_provider, server_url=self.server_url.replace("/mcp", "")
-                )
-
-                if auth_result == "REDIRECT":
-                    print("🔄 Waiting for OAuth completion...")
-                    # Wait for authorization code to be set by the redirect handler
-                    timeout = 300  # 5 minutes
-                    start_time = time.time()
-                    while (
-                        not self.auth_provider._authorization_code
-                        and time.time() - start_time < timeout
-                    ):
-                        await asyncio.sleep(0.1)
-
-                    if not self.auth_provider._authorization_code:
-                        raise Exception("Timeout waiting for OAuth authorization")
-
-                    # Now exchange the authorization code for tokens
-                    auth_result = await auth(
-                        self.auth_provider,
-                        server_url=self.server_url.replace("/mcp", ""),
-                        authorization_code=self.auth_provider._authorization_code,
-                    )
-
-                if auth_result != "AUTHORIZED":
-                    raise Exception("Failed to authorize with server")
-
-                # Verify we have tokens now
-                tokens = await self.auth_provider.tokens()
-                if not tokens:
-                    raise Exception("OAuth completed but no tokens were saved")
-
-                print(
-                    f"✅ OAuth authorization successful! Access token: {tokens.access_token[:20]}..."
-                )
-
-            # Create streamable HTTP transport with auth
-            stream_context = streamablehttp_client(
-                url=self.server_url,
-                auth_provider=self.auth_provider,
-                timeout=timedelta(seconds=60),  # Longer timeout for OAuth flow
+            # Create OAuth authentication handler using the new interface
+            oauth_auth = OAuthAuth(
+                server_url=self.server_url.replace("/mcp", ""),
+                client_metadata=self.auth_provider.client_metadata,
+                storage=None,  # Use in-memory storage
+                redirect_handler=None,  # Use default (open browser)
+                callback_handler=callback_handler,
             )
 
-            print("📡 Opening transport connection...")
+            # Initialize the auth handler and ensure we have tokens
+
+            # Create streamable HTTP transport with auth handler
+            stream_context = streamablehttp_client(
+                url=self.server_url,
+                auth=oauth_auth,
+                timeout=timedelta(seconds=60),
+            )
+
+            print(
+                "📡 Opening transport connection (HTTPX handles auth automatically)..."
+            )
             async with stream_context as (read_stream, write_stream, get_session_id):
                 print("🤝 Initializing MCP session...")
                 async with ClientSession(read_stream, write_stream) as session:
@@ -365,7 +343,7 @@ class SimpleAuthClient:
             print(f"\n🔧 Tool '{tool_name}' result:")
             if hasattr(result, "content"):
                 for content in result.content:
-                    if hasattr(content, "text"):
+                    if content.type == "text":
                         print(content.text)
                     else:
                         print(content)
