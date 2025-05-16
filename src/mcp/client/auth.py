@@ -2,7 +2,8 @@
 Production-ready OAuth2 Authentication implementation for HTTPX using anyio.
 
 This module provides a complete OAuth 2.0 authentication implementation
-that handles authorization code flow with PKCE, automatic token refresh and proper error handling.
+that handles authorization code flow with PKCE,
+automatic token refresh and proper error handling.
 The callback server implementation should be handled by the calling code.
 """
 
@@ -12,13 +13,13 @@ import secrets
 import string
 import time
 import webbrowser
-from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from urllib.parse import urljoin
 
 import anyio
 import httpx
 
+from mcp.client.token_storage import InMemoryTokenStorage, TokenStorage
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -26,50 +27,6 @@ from mcp.shared.auth import (
     OAuthToken,
 )
 from mcp.types import LATEST_PROTOCOL_VERSION
-
-
-class TokenStorage(ABC):
-    """Abstract base class for token storage implementations."""
-
-    @abstractmethod
-    async def get_tokens(self) -> OAuthToken | None:
-        """Get stored tokens."""
-        pass
-
-    @abstractmethod
-    async def set_tokens(self, tokens: OAuthToken) -> None:
-        """Store tokens."""
-        pass
-
-    @abstractmethod
-    async def get_client_info(self) -> OAuthClientInformationFull | None:
-        """Get stored client information."""
-        pass
-
-    @abstractmethod
-    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
-        """Store client information."""
-        pass
-
-
-class InMemoryTokenStorage(TokenStorage):
-    """Simple in-memory token storage implementation."""
-
-    def __init__(self):
-        self._tokens: OAuthToken | None = None
-        self._client_info: OAuthClientInformationFull | None = None
-
-    async def get_tokens(self) -> OAuthToken | None:
-        return self._tokens
-
-    async def set_tokens(self, tokens: OAuthToken) -> None:
-        self._tokens = tokens
-
-    async def get_client_info(self) -> OAuthClientInformationFull | None:
-        return self._client_info
-
-    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
-        self._client_info = client_info
 
 
 async def discover_oauth_metadata(server_url: str) -> OAuthMetadata | None:
