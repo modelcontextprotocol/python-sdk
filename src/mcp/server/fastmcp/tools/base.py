@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
-from mcp.types import ToolAnnotations
+from mcp.types import ServerNotification, ToolAnnotations, ToolListChangedNotification
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -34,6 +34,7 @@ class Tool(BaseModel):
     annotations: ToolAnnotations | None = Field(
         None, description="Optional annotations for the tool"
     )
+    enabled: bool = Field(default=True, description="Whether the tool is enabled")
 
     @classmethod
     def from_function(
@@ -98,3 +99,29 @@ class Tool(BaseModel):
             )
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e
+
+    async def enable(
+        self, context: Context[ServerSessionT, LifespanContextT] | None = None
+    ) -> None:
+        """Enable the tool and notify clients."""
+        if not self.enabled:
+            self.enabled = True
+            if context and context.session:
+                notification = ToolListChangedNotification(
+                    method="notifications/tools/list_changed"
+                )
+                server_notification = ServerNotification.model_validate(notification)
+                await context.session.send_notification(server_notification)
+
+    async def disable(
+        self, context: Context[ServerSessionT, LifespanContextT] | None = None
+    ) -> None:
+        """Disable the tool and notify clients."""
+        if self.enabled:
+            self.enabled = False
+            if context and context.session:
+                notification = ToolListChangedNotification(
+                    method="notifications/tools/list_changed"
+                )
+                server_notification = ServerNotification.model_validate(notification)
+                await context.session.send_notification(server_notification)

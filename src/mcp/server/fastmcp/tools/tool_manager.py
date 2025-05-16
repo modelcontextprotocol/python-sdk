@@ -28,8 +28,8 @@ class ToolManager:
         return self._tools.get(name)
 
     def list_tools(self) -> list[Tool]:
-        """List all registered tools."""
-        return list(self._tools.values())
+        """List all enabled registered tools."""
+        return [tool for tool in self._tools.values() if tool.enabled]
 
     def add_tool(
         self,
@@ -60,5 +60,8 @@ class ToolManager:
         tool = self.get_tool(name)
         if not tool:
             raise ToolError(f"Unknown tool: {name}")
+
+        if not tool.enabled:
+            raise ToolError(f"Tool is disabled: {name}")
 
         return await tool.run(arguments, context=context)

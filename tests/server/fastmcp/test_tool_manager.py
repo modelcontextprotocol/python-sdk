@@ -362,3 +362,52 @@ class TestToolAnnotations:
         assert tools[0].annotations is not None
         assert tools[0].annotations.title == "Echo Tool"
         assert tools[0].annotations.readOnlyHint is True
+
+
+class TestToolEnableDisable:
+    """Test enabling and disabling tools."""
+
+    @pytest.mark.anyio
+    async def test_enable_disable_tool(self):
+        """Test enabling and disabling a tool."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        manager = ToolManager()
+        tool = manager.add_tool(add)
+
+        # Tool should be enabled by default
+        assert tool.enabled is True
+
+        # Disable the tool
+        await tool.disable()
+        assert tool.enabled is False
+
+        # Enable the tool
+        await tool.enable()
+        assert tool.enabled is True
+
+    @pytest.mark.anyio
+    async def test_enable_disable_no_change(self):
+        """Test enabling and disabling a tool when there's no state change."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        manager = ToolManager()
+        tool = manager.add_tool(add)
+
+        # Enable an already enabled tool (should not change state)
+        await tool.enable()
+        assert tool.enabled is True
+
+        # Disable the tool
+        await tool.disable()
+        assert tool.enabled is False
+
+        # Disable an already disabled tool (should not change state)
+        await tool.disable()
+        assert tool.enabled is False
