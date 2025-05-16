@@ -10,7 +10,6 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from httpx_sse import aconnect_sse
 
 import mcp.types as types
-from mcp.client.auth import OAuthClientProvider, UnauthorizedError, auth
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import SessionMessage
 
@@ -21,47 +20,18 @@ def remove_request_params(url: str) -> str:
     return urljoin(url, urlparse(url).path)
 
 
-async def finish_auth(
-    url: str,
-    auth_provider: OAuthClientProvider,
-    authorization_code: str,
-) -> None:
-    """
-    Call this method after the user has finished authorizing via their user agent
-    and is redirected back to the MCP client application. This will exchange the
-    authorization code for an access token, enabling the next connection attempt
-    to successfully auth.
-    """
-    if not auth_provider:
-        raise UnauthorizedError("No auth provider")
-
-    result = await auth(
-        auth_provider, server_url=url, authorization_code=authorization_code
-    )
-    if result != "AUTHORIZED":
-        raise UnauthorizedError("Failed to authorize")
-
-
 @asynccontextmanager
 async def sse_client(
     url: str,
     headers: dict[str, Any] | None = None,
     timeout: float = 5,
     sse_read_timeout: float = 60 * 5,
-    auth_provider: OAuthClientProvider | None = None,
 ):
     """
     Client transport for SSE.
 
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
-
-    Args:
-        url: SSE endpoint URL
-        headers: Optional HTTP headers
-        timeout: HTTP request timeout in seconds
-        sse_read_timeout: SSE read timeout in seconds
-        auth_provider: Optional OAuth client provider for authentication
     """
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
@@ -72,59 +42,17 @@ async def sse_client(
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-    async def _auth_then_retry() -> None:
-        """Perform OAuth authentication flow."""
-        if not auth_provider:
-            raise UnauthorizedError("No auth provider")
-
-        result = await auth(auth_provider, server_url=url)
-        if result != "AUTHORIZED":
-            raise UnauthorizedError()
-
-    async def _get_headers() -> dict[str, Any]:
-        """Get headers with OAuth authorization if available."""
-        auth_headers = {}
-        if auth_provider:
-            tokens = await auth_provider.tokens()
-            if tokens:
-                auth_headers["Authorization"] = f"Bearer {tokens.access_token}"
-
-        return {**(headers or {}), **auth_headers}
-
     async with anyio.create_task_group() as tg:
         try:
             logger.info(f"Connecting to SSE endpoint: {remove_request_params(url)}")
-            async with create_mcp_http_client(headers=await _get_headers()) as client:
+            async with create_mcp_http_client(headers=headers) as client:
                 async with aconnect_sse(
                     client,
                     "GET",
                     url,
                     timeout=httpx.Timeout(timeout, read=sse_read_timeout),
                 ) as event_source:
-                    # Handle OAuth authentication errors
-                    if event_source.response.status_code == 401 and auth_provider:
-                        try:
-                            await _auth_then_retry()
-                            # Retry connection with new auth headers
-                            async with create_mcp_http_client(
-                                headers=await _get_headers()
-                            ) as retry_client:
-                                async with aconnect_sse(
-                                    retry_client,
-                                    "GET",
-                                    url,
-                                    timeout=httpx.Timeout(
-                                        timeout, read=sse_read_timeout
-                                    ),
-                                ) as retry_event_source:
-                                    retry_event_source.response.raise_for_status()
-                                    event_source = retry_event_source
-                        except Exception as exc:
-                            logger.error(f"Auth retry failed: {exc}")
-                            raise
-                    else:
-                        event_source.response.raise_for_status()
-
+                    event_source.response.raise_for_status()
                     logger.debug("SSE connection established")
 
                     async def sse_reader(
@@ -190,7 +118,6 @@ async def sse_client(
                                     logger.debug(
                                         f"Sending client message: {session_message}"
                                     )
-                                    post_headers = await _get_headers()
                                     response = await client.post(
                                         endpoint_url,
                                         json=session_message.message.model_dump(
@@ -198,27 +125,7 @@ async def sse_client(
                                             mode="json",
                                             exclude_none=True,
                                         ),
-                                        headers=post_headers,
                                     )
-
-                                    # Handle OAuth authentication errors
-                                    if response.status_code == 401 and auth_provider:
-                                        try:
-                                            await _auth_then_retry()
-                                            # Retry with new auth headers
-                                            retry_headers = await _get_headers()
-                                            response = await client.post(
-                                                endpoint_url,
-                                                json=session_message.message.model_dump(
-                                                    by_alias=True,
-                                                    mode="json",
-                                                    exclude_none=True,
-                                                ),
-                                                headers=retry_headers,
-                                            )
-                                        except Exception as exc:
-                                            logger.error(f"Auth retry failed: {exc}")
-
                                     response.raise_for_status()
                                     logger.debug(
                                         "Client message sent successfully: "

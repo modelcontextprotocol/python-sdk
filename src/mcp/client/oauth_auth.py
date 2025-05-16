@@ -134,7 +134,9 @@ async def register_oauth_client(
         registration_url = urljoin(server_url, "/register")
 
     # Prepare registration data and adjust scope based on server metadata
-    registration_data = client_metadata.model_dump(exclude_none=True)
+    registration_data = client_metadata.model_dump(
+        by_alias=True, mode="json", exclude_none=True
+    )
 
     # If the server has supported scopes, use them instead of the requested scope
     if metadata and metadata.scopes_supported:

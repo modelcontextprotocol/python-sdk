@@ -7,24 +7,18 @@ This client connects to an MCP server using streamable HTTP transport with OAuth
 """
 
 import asyncio
-import json
 import os
 import threading
 import time
-import webbrowser
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from mcp.client.auth import (
-    OAuthClientProvider,
-    discover_oauth_metadata,
-)
 from mcp.client.oauth_auth import OAuthAuth
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from mcp.shared.auth import OAuthClientMetadata
 
 
 class CallbackHandler(BaseHTTPRequestHandler):
@@ -114,141 +108,14 @@ class CallbackServer:
         raise Exception("Timeout waiting for OAuth callback")
 
 
-class JsonSerializableOAuthClientMetadata(OAuthClientMetadata):
-    """OAuth client metadata that handles JSON serialization properly."""
-
-    def model_dump(self, **kwargs) -> dict[str, Any]:
-        """Override to ensure URLs are serialized as strings and exclude null values."""
-        # Exclude null values by default
-        kwargs.setdefault("exclude_none", True)
-        data = super().model_dump(**kwargs)
-
-        # Convert AnyHttpUrl objects to strings
-        if "redirect_uris" in data:
-            data["redirect_uris"] = [str(url) for url in data["redirect_uris"]]
-
-        # Debug: print what we're sending
-        print(f"🐛 Client metadata being sent: {json.dumps(data, indent=2)}")
-        return data
-
-
-class SimpleOAuthProvider(OAuthClientProvider):
-    """Simple OAuth client provider for demonstration purposes."""
-
-    def __init__(self, server_url: str, callback_port: int = 3000):
-        self._callback_port = callback_port
-        self._redirect_uri = f"http://localhost:{callback_port}/callback"
-        self._server_url = server_url
-        self._callback_server = None
-        print(f"🐛 OAuth provider initialized with redirect URI: {self._redirect_uri}")
-        # Store the raw data for easy serialization - scope will be updated dynamically
-        self._client_metadata_dict = {
-            "client_name": "Simple Auth Client",
-            "redirect_uris": [self._redirect_uri],
-            "grant_types": ["authorization_code", "refresh_token"],
-            "response_types": ["code"],
-            "token_endpoint_auth_method": "client_secret_post",  # Use client secret
-            "scope": "read",  # Default scope, will be updated
-        }
-        self._client_info: OAuthClientInformationFull | None = None
-        self._tokens: OAuthToken | None = None
-        self._code_verifier: str | None = None
-        self._authorization_code: str | None = None
-        self._metadata_discovered = False
-
-    @property
-    def redirect_url(self) -> str:
-        return self._redirect_uri
-
-    async def _discover_and_update_metadata(self):
-        """Discover server OAuth metadata and update client scope accordingly."""
-        if self._metadata_discovered:
-            return
-
-        try:
-            print("🐛 Discovering OAuth metadata...")
-            metadata = await discover_oauth_metadata(self._server_url)
-            if metadata and metadata.scopes_supported:
-                scope = " ".join(metadata.scopes_supported)
-                self._client_metadata_dict["scope"] = scope
-                print(f"🐛 Updated scope to: {scope}")
-            self._metadata_discovered = True
-        except Exception as e:
-            print(f"🐛 Failed to discover metadata: {e}, using default scope")
-            self._metadata_discovered = True
-
-    @property
-    def client_metadata(self) -> OAuthClientMetadata:
-        # Create a fresh instance each time using our custom serializable version
-        return JsonSerializableOAuthClientMetadata.model_validate(
-            self._client_metadata_dict
-        )
-
-    async def client_information(self) -> OAuthClientInformationFull | None:
-        return self._client_info
-
-    async def save_client_information(
-        self, client_information: OAuthClientInformationFull
-    ) -> None:
-        self._client_info = client_information
-        print(f"Saved client information: {client_information.client_id}")
-
-    async def tokens(self) -> OAuthToken | None:
-        return self._tokens
-
-    async def save_tokens(self, tokens: OAuthToken) -> None:
-        self._tokens = tokens
-        print(f"Saved OAuth tokens: {tokens.access_token[:10]}...")
-
-    async def redirect_to_authorization(self, authorization_url: str) -> None:
-        # Start callback server
-        self._callback_server = CallbackServer(self._callback_port)
-        self._callback_server.start()
-
-        print("\n🌐 Opening authorization URL in your default browser...")
-        print(f"URL: {authorization_url}")
-        webbrowser.open(authorization_url)
-
-        print("⏳ Waiting for authorization callback...")
-        print("(Complete the authorization in your browser)")
-
-        try:
-            # Wait for the callback with authorization code
-            authorization_code = self._callback_server.wait_for_callback(timeout=300)
-            print(f"✅ Received authorization code: {authorization_code[:20]}...")
-
-            # Store the authorization code so auth() can handle token exchange
-            self._authorization_code = authorization_code
-            print("🎉 OAuth callback received successfully!")
-
-        except Exception as e:
-            print(f"❌ OAuth flow failed: {e}")
-            raise
-        finally:
-            # Always stop the callback server
-            if self._callback_server:
-                self._callback_server.stop()
-                self._callback_server = None
-
-    async def save_code_verifier(self, code_verifier: str) -> None:
-        self._code_verifier = code_verifier
-
-    async def code_verifier(self) -> str:
-        if self._code_verifier is None:
-            raise ValueError("No code verifier available")
-        return self._code_verifier
-
-
 class SimpleAuthClient:
     """Simple MCP client with auth support."""
 
     def __init__(self, server_url: str):
         self.server_url = server_url
         # Extract base URL for auth server (remove /mcp endpoint for auth endpoints)
-        auth_server_url = server_url.replace("/mcp", "")
         # Use default redirect URI - this is where the auth server will redirect the user
         # The user will need to copy the authorization code from this callback URL
-        self.auth_provider = SimpleOAuthProvider(auth_server_url)
         self.session: ClientSession | None = None
 
     async def connect(self):
@@ -269,10 +136,21 @@ class SimpleAuthClient:
                 finally:
                     callback_server.stop()
 
+            client_metadata_dict = {
+                "client_name": "Simple Auth Client",
+                "redirect_uris": ["http://localhost:3000/callback"],
+                "grant_types": ["authorization_code", "refresh_token"],
+                "response_types": ["code"],
+                "token_endpoint_auth_method": "client_secret_post",  # Use client secret
+                "scope": "read",  # Default scope, will be updated
+            }
+
             # Create OAuth authentication handler using the new interface
             oauth_auth = OAuthAuth(
                 server_url=self.server_url.replace("/mcp", ""),
-                client_metadata=self.auth_provider.client_metadata,
+                client_metadata=OAuthClientMetadata.model_validate(
+                    client_metadata_dict
+                ),
                 storage=None,  # Use in-memory storage
                 redirect_handler=None,  # Use default (open browser)
                 callback_handler=callback_handler,
