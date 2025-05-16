@@ -106,13 +106,11 @@ class StreamableHTTPTransport:
             **self.headers,
         }
 
-    async def _update_headers_with_session(
+    def _update_headers_with_session(
         self, base_headers: dict[str, str]
     ) -> dict[str, str]:
-        """Update headers with session ID."""
+        """Update headers with session ID if available."""
         headers = base_headers.copy()
-
-        # Add session ID if available
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
         return headers
@@ -189,7 +187,7 @@ class StreamableHTTPTransport:
             if not self.session_id:
                 return
 
-            headers = await self._update_headers_with_session(self.request_headers)
+            headers = self._update_headers_with_session(self.request_headers)
 
             async with aconnect_sse(
                 client,
@@ -211,7 +209,7 @@ class StreamableHTTPTransport:
 
     async def _handle_resumption_request(self, ctx: RequestContext) -> None:
         """Handle a resumption request using GET with SSE."""
-        headers = await self._update_headers_with_session(ctx.headers)
+        headers = self._update_headers_with_session(ctx.headers)
         if ctx.metadata and ctx.metadata.resumption_token:
             headers[LAST_EVENT_ID] = ctx.metadata.resumption_token
         else:
@@ -246,7 +244,7 @@ class StreamableHTTPTransport:
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
-        headers = await self._update_headers_with_session(ctx.headers)
+        headers = self._update_headers_with_session(ctx.headers)
         message = ctx.session_message.message
         is_initialization = self._is_initialization_request(message)
 
@@ -410,7 +408,7 @@ class StreamableHTTPTransport:
             return
 
         try:
-            headers = await self._update_headers_with_session(self.request_headers)
+            headers = self._update_headers_with_session(self.request_headers)
             response = await client.delete(self.url, headers=headers)
 
             if response.status_code == 405:
@@ -446,14 +444,6 @@ async def streamablehttp_client(
 
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
-
-    Args:
-        url: StreamableHTTP endpoint URL
-        headers: Optional HTTP headers
-        timeout: HTTP request timeout
-        sse_read_timeout: SSE read timeout
-        terminate_on_close: Whether to terminate session on close
-        auth: Optional HTTPX authentication handler
 
     Yields:
         Tuple containing:
