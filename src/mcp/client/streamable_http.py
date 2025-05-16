@@ -215,6 +215,12 @@ class StreamableHTTPTransport:
                     self.timeout.seconds, read=self.sse_read_timeout.seconds
                 ),
             ) as event_source:
+                if event_source.response.status_code == 401 and self.auth_provider:
+                    # Need to authenticate
+                    await self._auth_then_retry()
+                    # Re-attempt the GET stream after authentication
+                    return await self.handle_get_stream(client, read_stream_writer)
+
                 event_source.response.raise_for_status()
                 logger.debug("GET SSE connection established")
 
@@ -246,6 +252,12 @@ class StreamableHTTPTransport:
                 self.timeout.seconds, read=ctx.sse_read_timeout.seconds
             ),
         ) as event_source:
+            if event_source.response.status_code == 401 and self.auth_provider:
+                # Need to authenticate
+                await self._auth_then_retry()
+                # Re-attempt the resumption request after authentication
+                return await self._handle_resumption_request(ctx)
+
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
 

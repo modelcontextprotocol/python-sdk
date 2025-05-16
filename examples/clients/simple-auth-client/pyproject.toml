@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mcp-simple-auth-client = "mcp_simple_auth_client.main:main"
+mcp-simple-auth-client = "mcp_simple_auth_client.main:cli"
 
 [build-system]
 requires = ["hatchling"]
