@@ -6,7 +6,8 @@ from pydantic import BaseModel
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.server.fastmcp.tools import ToolManager
+from mcp.server.fastmcp.tools import Tool, ToolManager
+from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.server.session import ServerSessionT
 from mcp.shared.context import LifespanContextT
 from mcp.types import ToolAnnotations
@@ -30,6 +31,35 @@ class TestAddTools:
         assert tool.is_async is False
         assert tool.parameters["properties"]["a"]["type"] == "integer"
         assert tool.parameters["properties"]["b"]["type"] == "integer"
+
+    def test_init_with_tools(self, caplog):
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        class AddArguments(ArgModelBase):
+            a: int
+            b: int
+
+        fn_metadata = FuncMetadata(arg_model=AddArguments)
+
+        original_tool = Tool(
+            name="add",
+            description="Add two numbers.",
+            fn=add,
+            fn_metadata=fn_metadata,
+            is_async=False,
+            parameters=AddArguments.model_json_schema(),
+            context_kwarg=None,
+            annotations=None,
+        )
+        manager = ToolManager(tools=[original_tool])
+        saved_tool = manager.get_tool("add")
+        assert saved_tool == original_tool
+
+        # warn on duplicate tools
+        with caplog.at_level(logging.WARNING):
+            manager = ToolManager(True, tools=[original_tool, original_tool])
+            assert "Tool already exists: add" in caplog.text
 
     @pytest.mark.anyio
     async def test_async_function(self):
