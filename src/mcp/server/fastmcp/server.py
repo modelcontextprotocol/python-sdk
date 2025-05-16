@@ -141,6 +141,7 @@ class FastMCP:
         auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
         | None = None,
         event_store: EventStore | None = None,
+        tools: list[Tool] | None = None,
         **settings: Any,
     ):
         self.settings = Settings(**settings)
@@ -155,7 +156,7 @@ class FastMCP:
             ),
         )
         self._tool_manager = ToolManager(
-            warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
+            tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
         )
         self._resource_manager = ResourceManager(
             warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources
@@ -316,10 +317,6 @@ class FastMCP:
         except Exception as e:
             logger.error(f"Error reading resource {uri}: {e}")
             raise ResourceError(str(e))
-
-    def add_tool_instance(self, tool: Tool) -> None:
-        """Add a Tool instance to the server."""
-        self._tool_manager.add_tool_instance(tool)
 
     def add_tool(
         self,

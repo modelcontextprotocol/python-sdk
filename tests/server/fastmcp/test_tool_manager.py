@@ -32,9 +32,7 @@ class TestAddTools:
         assert tool.parameters["properties"]["a"]["type"] == "integer"
         assert tool.parameters["properties"]["b"]["type"] == "integer"
 
-    def test_add_tool_instance(self):
-        manager = ToolManager()
-
+    def test_init_with_tools(self, caplog):
         def add(a: int, b: int) -> int:
             return a + b
 
@@ -54,9 +52,14 @@ class TestAddTools:
             context_kwarg=None,
             annotations=None,
         )
-        manager.add_tool_instance(original_tool)
+        manager = ToolManager(tools=[original_tool])
         saved_tool = manager.get_tool("add")
         assert saved_tool == original_tool
+
+        # warn on duplicate tools
+        with caplog.at_level(logging.WARNING):
+            manager = ToolManager(tools=[original_tool, original_tool])
+            assert "Tool already exists: add" in caplog.text
 
     @pytest.mark.anyio
     async def test_async_function(self):

@@ -19,8 +19,16 @@ logger = get_logger(__name__)
 class ToolManager:
     """Manages FastMCP tools."""
 
-    def __init__(self, warn_on_duplicate_tools: bool = True):
+    def __init__(
+        self, tools: list[Tool] | None = None, warn_on_duplicate_tools: bool = True
+    ):
         self._tools: dict[str, Tool] = {}
+        if tools is not None:
+            for tool in tools:
+                if warn_on_duplicate_tools and tool.name in self._tools:
+                    logger.warning(f"Tool already exists: {tool.name}")
+                self._tools[tool.name] = tool
+
         self.warn_on_duplicate_tools = warn_on_duplicate_tools
 
     def get_tool(self, name: str) -> Tool | None:
@@ -30,16 +38,6 @@ class ToolManager:
     def list_tools(self) -> list[Tool]:
         """List all registered tools."""
         return list(self._tools.values())
-
-    def add_tool_instance(self, tool: Tool) -> Tool:
-        """Add a Tool instance to the server."""
-        existing = self._tools.get(tool.name)
-        if existing:
-            if self.warn_on_duplicate_tools:
-                logger.warning(f"Tool already exists: {tool.name}")
-            return existing
-        self._tools[tool.name] = tool
-        return tool
 
     def add_tool(
         self,
@@ -52,7 +50,13 @@ class ToolManager:
         tool = Tool.from_function(
             fn, name=name, description=description, annotations=annotations
         )
-        return self.add_tool_instance(tool)
+        existing = self._tools.get(tool.name)
+        if existing:
+            if self.warn_on_duplicate_tools:
+                logger.warning(f"Tool already exists: {tool.name}")
+            return existing
+        self._tools[tool.name] = tool
+        return tool
 
     async def call_tool(
         self,
