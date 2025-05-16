@@ -247,16 +247,17 @@ async def fetch_weather(city: str) -> str:
         return response.text
 
 
-# Get a reference to the tool
 tool = mcp._tool_manager.get_tool("fetch_weather")
 
 
-# Disable the tool temporarily
-await tool.disable(mcp.get_context())
+async def disable_tool():
+    # Disable the tool temporarily
+    await tool.disable(mcp.get_context())
 
 
-# Later, re-enable the tool
-await tool.enable(mcp.get_context())
+async def enable_tool():
+    # Re-enable the tool when needed
+    await tool.enable(mcp.get_context())
 ```
 
 ### Prompts
