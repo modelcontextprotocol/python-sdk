@@ -107,3 +107,6 @@ async def terminate_windows_process(process: Process):
     except TimeoutError:
         # Force kill if it doesn't terminate
         process.kill()
+    except ProcessLookupError:
+        # Force kill if it doesn't terminate
+        process.kill()
