@@ -1,6 +1,6 @@
+import logging
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
-import logging
 from typing import Any, Protocol, TypeAlias
 
 import anyio.lowlevel
@@ -14,10 +14,10 @@ from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
-
 logger = logging.getLogger(__name__)
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
+
 
 class SamplingFnT(Protocol):
     async def __call__(
@@ -451,6 +451,13 @@ class ClientSession(
                 pass
 
 
+class NoOpToolOutputValidator(ToolOutputValidationFnT):
+    async def __call__(
+        self, request: types.CallToolRequest, result: types.CallToolResult
+    ) -> bool:
+        return True
+
+
 class SimpleCachingToolOutputValidator(ToolOutputValidationFnT):
     _schema_cache: dict[str, dict[str, Any] | bool]
 
@@ -475,7 +482,7 @@ class SimpleCachingToolOutputValidator(ToolOutputValidationFnT):
                 raise RuntimeError(f"Unknown tool {request.params.name}")
             elif schema is False:
                 # no schema
-                logging.debug('No schema found checking structuredContent is empty')
+                logging.debug("No schema found checking structuredContent is empty")
                 return result.structuredContent is None
             else:
                 try:
@@ -490,6 +497,7 @@ class SimpleCachingToolOutputValidator(ToolOutputValidationFnT):
     async def _refresh_schema_cache(self):
         cursor = None
         first = True
+        self._schema_cache = {}
         while first or cursor is not None:
             first = False
             tools_result = await self._session.list_tools(cursor)
