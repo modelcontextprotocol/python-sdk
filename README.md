@@ -796,6 +796,29 @@ async def main():
             tool_result = await session.call_tool("echo", {"message": "hello"})
 ```
 
+## Configuring the HTTP client
+
+It is possible to override the httpx client to customize for your needs.
+
+* proxy
+* specific authentication needs mTLS and token
+* advanced configs supported by httpx
+
+```python
+import httpx
+from mcp.client.streamable_http import streamablehttp_client
+
+http_client = httpx.AsyncClient(
+    base_url="http://someserver",
+    proxy="http://proxy.local",
+    headers={
+        "Content": "application/json",
+        "Accept": "application/json,text/event-stream",
+    },
+)
+streamable_client = streamablehttp_client("/v1/mcp", http_client=http_client)
+```
+
 ### MCP Primitives
 
 The MCP protocol defines three core primitives that servers can implement:
