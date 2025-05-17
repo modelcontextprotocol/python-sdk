@@ -7,12 +7,20 @@ from typing import (
     ForwardRef,
 )
 
-from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, create_model
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    WithJsonSchema,
+    create_model,
+)
 from pydantic._internal._typing_extra import eval_type_backport
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
 from mcp.server.fastmcp.exceptions import InvalidSignature
+from mcp.server.fastmcp.utilities import types
 from mcp.server.fastmcp.utilities.logging import get_logger
 
 logger = get_logger(__name__)
@@ -38,6 +46,7 @@ class ArgModelBase(BaseModel):
 
 class FuncMetadata(BaseModel):
     arg_model: Annotated[type[ArgModelBase], WithJsonSchema(None)]
+    output_schema: dict[str, Any] | None
     # We can add things in the future like
     #  - Maybe some args are excluded from attempting to parse from JSON
     #  - Maybe some args are special (like context) for dependency injection
@@ -103,7 +112,9 @@ class FuncMetadata(BaseModel):
 
 
 def func_metadata(
-    func: Callable[..., Any], skip_names: Sequence[str] = ()
+    func: Callable[..., Any],
+    skip_names: Sequence[str] = (),
+    output_schema: dict[str, Any] | None = None,
 ) -> FuncMetadata:
     """Given a function, return metadata including a pydantic model representing its
     signature.
@@ -172,8 +183,18 @@ def func_metadata(
         **dynamic_pydantic_model_params,
         __base__=ArgModelBase,
     )
-    resp = FuncMetadata(arg_model=arguments_model)
-    return resp
+
+    return_output_schema = output_schema
+
+    if return_output_schema is None:
+        # TODO this could be moved to a constant or passed in as param as per skip_names
+        ignore = [inspect.Parameter.empty, None, types.Image]
+        if sig.return_annotation not in ignore:
+            type_schema = TypeAdapter(sig.return_annotation).json_schema()
+            if type_schema.get("type", None) == "object":
+                return_output_schema = type_schema
+
+    return FuncMetadata(arg_model=arguments_model, output_schema=return_output_schema)
 
 
 def _get_typed_annotation(annotation: Any, globalns: dict[str, Any]) -> Any:
@@ -210,5 +231,6 @@ def _get_typed_signature(call: Callable[..., Any]) -> inspect.Signature:
         )
         for param in signature.parameters.values()
     ]
-    typed_signature = inspect.Signature(typed_params)
+    typed_return = _get_typed_annotation(signature.return_annotation, globalns)
+    typed_signature = inspect.Signature(typed_params, return_annotation=typed_return)
     return typed_signature

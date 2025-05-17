@@ -238,7 +238,7 @@ class FastMCP:
     def _setup_handlers(self) -> None:
         """Set up core MCP protocol handlers."""
         self._mcp_server.list_tools()(self.list_tools)
-        self._mcp_server.call_tool()(self.call_tool)
+        self._mcp_server.call_tool()(self.call_tool, self._tool_manager.get_schema)
         self._mcp_server.list_resources()(self.list_resources)
         self._mcp_server.read_resource()(self.read_resource)
         self._mcp_server.list_prompts()(self.list_prompts)
@@ -253,6 +253,7 @@ class FastMCP:
                 name=info.name,
                 description=info.description,
                 inputSchema=info.parameters,
+                outputSchema=info.output,
                 annotations=info.annotations,
             )
             for info in tools
@@ -323,6 +324,7 @@ class FastMCP:
         name: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        output_schema: dict[str, Any] | None = None,
     ) -> None:
         """Add a tool to the server.
 
@@ -334,9 +336,15 @@ class FastMCP:
             name: Optional name for the tool (defaults to function name)
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
+            output_schema: Optional json schema that the tool should output. If
+            not specified the schema will be inferred automatically
         """
         self._tool_manager.add_tool(
-            fn, name=name, description=description, annotations=annotations
+            fn,
+            name=name,
+            description=description,
+            annotations=annotations,
+            output_schema=output_schema,
         )
 
     def tool(

@@ -767,6 +767,8 @@ class Tool(BaseModel):
     """A human-readable description of the tool."""
     inputSchema: dict[str, Any]
     """A JSON Schema object defining the expected parameters for the tool."""
+    outputSchema: dict[str, Any] | None = None
+    """A JSON Schema object defining the expected outputs for the tool."""
     annotations: ToolAnnotations | None = None
     """Optional additional tool information."""
     model_config = ConfigDict(extra="allow")
@@ -797,6 +799,7 @@ class CallToolResult(Result):
     """The server's response to a tool call."""
 
     content: list[TextContent | ImageContent | EmbeddedResource]
+    structuredContent: dict[str, Any] | None = None
     isError: bool = False
 
 
