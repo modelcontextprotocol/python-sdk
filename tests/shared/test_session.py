@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 
 import anyio
 import pytest
@@ -9,10 +10,6 @@ from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import (
-    CancelledNotification,
-    CancelledNotificationParams,
-    ClientNotification,
-    ClientRequest,
     EmptyResult,
 )
 
@@ -46,11 +43,11 @@ async def test_in_flight_requests_cleared_after_completion(
 @pytest.mark.anyio
 async def test_request_cancellation():
     """Test that requests can be cancelled while in-flight."""
-    # The tool is already registered in the fixture
 
     ev_tool_called = anyio.Event()
+    ev_tool_cancelled = anyio.Event()
     ev_cancelled = anyio.Event()
-    request_id = None
+    ev_cancel_notified = anyio.Event()
 
     # Start the request in a separate task so we can cancel it
     def make_server() -> Server:
@@ -59,13 +56,23 @@ async def test_request_cancellation():
         # Register the tool handler
         @server.call_tool()
         async def handle_call_tool(name: str, arguments: dict | None) -> list:
-            nonlocal request_id, ev_tool_called
+            nonlocal ev_tool_called, ev_tool_cancelled
             if name == "slow_tool":
-                request_id = server.request_context.request_id
                 ev_tool_called.set()
-                await anyio.sleep(10)  # Long enough to ensure we can cancel
-                return []
+                with anyio.CancelScope():
+                    try:
+                        await anyio.sleep(10)  # Long enough to ensure we can cancel
+                        return []
+                    except anyio.get_cancelled_exc_class() as err:
+                        ev_tool_cancelled.set()
+                        raise err
+
             raise ValueError(f"Unknown tool: {name}")
+
+        @server.cancel_notification()
+        async def handle_cancel(requestId: str | int, reason: str | None):
+            nonlocal ev_cancel_notified
+            ev_cancel_notified.set()
 
         # Register the tool so it shows up in list_tools
         @server.list_tools()
@@ -80,20 +87,10 @@ async def test_request_cancellation():
 
         return server
 
-    async def make_request(client_session):
+    async def make_request(client_session: ClientSession):
         nonlocal ev_cancelled
         try:
-            await client_session.send_request(
-                ClientRequest(
-                    types.CallToolRequest(
-                        method="tools/call",
-                        params=types.CallToolRequestParams(
-                            name="slow_tool", arguments={}
-                        ),
-                    )
-                ),
-                types.CallToolResult,
-            )
+            await client_session.call_tool("slow_tool")
             pytest.fail("Request should have been cancelled")
         except McpError as e:
             # Expected - request was cancelled
@@ -110,17 +107,87 @@ async def test_request_cancellation():
             with anyio.fail_after(1):  # Timeout after 1 second
                 await ev_tool_called.wait()
 
-            # Send cancellation notification
-            assert request_id is not None
-            await client_session.send_notification(
-                ClientNotification(
-                    CancelledNotification(
-                        method="notifications/cancelled",
-                        params=CancelledNotificationParams(requestId=request_id),
-                    )
-                )
-            )
+            # Cancel the task via task group
+            tg.cancel_scope.cancel()
 
             # Give cancellation time to process
             with anyio.fail_after(1):
                 await ev_cancelled.wait()
+
+            # Check server cancel notification received
+            with anyio.fail_after(1):
+                await ev_cancel_notified.wait()
+
+            # Give cancellation time to process on server
+            with anyio.fail_after(1):
+                await ev_tool_cancelled.wait()
+
+
+@pytest.mark.anyio
+async def test_request_cancellation_uncancellable():
+    """Test that asserts a call with cancellable=False is not cancelled on
+    server when cancel scope on client is set."""
+
+    ev_tool_called = anyio.Event()
+    ev_tool_commplete = anyio.Event()
+    ev_cancelled = anyio.Event()
+
+    # Start the request in a separate task so we can cancel it
+    def make_server() -> Server:
+        server = Server(name="TestSessionServer")
+
+        # Register the tool handler
+        @server.call_tool()
+        async def handle_call_tool(name: str, arguments: dict | None) -> list:
+            nonlocal ev_tool_called, ev_tool_commplete
+            if name == "slow_tool":
+                ev_tool_called.set()
+                with anyio.CancelScope():
+                    with anyio.fail_after(10):  # Long enough to ensure we can cancel
+                        await ev_cancelled.wait()
+                    ev_tool_commplete.set()
+                    return []
+
+            raise ValueError(f"Unknown tool: {name}")
+
+        # Register the tool so it shows up in list_tools
+        @server.list_tools()
+        async def handle_list_tools() -> list[types.Tool]:
+            return [
+                types.Tool(
+                    name="slow_tool",
+                    description="A slow tool that takes 10 seconds to complete",
+                    inputSchema={},
+                )
+            ]
+
+        return server
+
+    async def make_request(client_session: ClientSession):
+        nonlocal ev_cancelled
+        try:
+            await client_session.call_tool(
+                "slow_tool",
+                cancellable=False,
+                read_timeout_seconds=timedelta(seconds=10),
+            )
+        except McpError:
+            pytest.fail("Request should not have been cancelled")
+
+    async with create_connected_server_and_client_session(
+        make_server()
+    ) as client_session:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(make_request, client_session)
+
+            # Wait for the request to be in-flight
+            with anyio.fail_after(1):  # Timeout after 1 second
+                await ev_tool_called.wait()
+
+            # Cancel the task via task group
+            tg.cancel_scope.cancel()
+            ev_cancelled.set()
+
+            # Check server completed regardless
+            with anyio.fail_after(1):
+                await ev_tool_commplete.wait()
