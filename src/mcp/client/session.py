@@ -13,14 +13,6 @@ from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
-
-class ToolOutputValidator:
-    async def validate(
-        self, request: types.CallToolRequest, result: types.CallToolResult
-    ) -> bool:
-        raise RuntimeError("Not implemented")
-
-
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
 
@@ -52,6 +44,12 @@ class MessageHandlerFnT(Protocol):
         | types.ServerNotification
         | Exception,
     ) -> None: ...
+
+
+class ToolOutputValidationFnT(Protocol):
+    async def __call__(
+        self, request: types.CallToolRequest, result: types.CallToolResult
+    ) -> bool: ...
 
 
 async def _default_message_handler(
@@ -89,13 +87,13 @@ async def _default_logging_callback(
 
 ToolOutputValidatorProvider: TypeAlias = Callable[
     ...,
-    Awaitable[ToolOutputValidator],
+    Awaitable[ToolOutputValidationFnT],
 ]
 
 
 # this bag of spanners is required in order to
 # enable the client session to be parsed to the validator
-async def _python_circularity_hell(arg: Any) -> ToolOutputValidator:
+async def _python_circularity_hell(arg: Any) -> ToolOutputValidationFnT:
     # in any sane version of the universe this should never happen
     # of course in any sane programming language class circularity
     # dependencies shouldn't be this hard to manage
@@ -327,7 +325,7 @@ class ClientSession(
         )
 
         if validate_result:
-            valid = await self._tool_output_validator.validate(request, result)
+            valid = await self._tool_output_validator(request, result)
 
             if not valid:
                 raise RuntimeError("Server responded with invalid result: " f"{result}")
@@ -451,7 +449,7 @@ class ClientSession(
                 pass
 
 
-class SimpleCachingToolOutputValidator(ToolOutputValidator):
+class SimpleCachingToolOutputValidator(ToolOutputValidationFnT):
     _schema_cache: dict[str, dict[str, Any] | bool]
 
     def __init__(self, session: ClientSession):
@@ -459,7 +457,7 @@ class SimpleCachingToolOutputValidator(ToolOutputValidator):
         self._schema_cache = {}
         self._refresh_cache = True
 
-    async def validate(
+    async def __call__(
         self, request: types.CallToolRequest, result: types.CallToolResult
     ) -> bool:
         if result.isError:
@@ -508,7 +506,7 @@ class SimpleCachingToolOutputValidator(ToolOutputValidator):
 
 async def _escape_from_circular_python_hell(
     session: ClientSession,
-) -> ToolOutputValidator:
+) -> ToolOutputValidationFnT:
     return SimpleCachingToolOutputValidator(session)
 
 
