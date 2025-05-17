@@ -2,7 +2,7 @@ import anyio
 import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
-from pydantic import FileUrl
+from pydantic import AnyUrl
 
 SAMPLE_RESOURCES = {
     "greeting": "Hello! This is a sample text resource.",
@@ -26,7 +26,7 @@ def main(port: int, transport: str) -> int:
     async def list_resources() -> list[types.Resource]:
         return [
             types.Resource(
-                uri=FileUrl(f"file:///{name}.txt"),
+                uri=AnyUrl(f"file:///{name}.txt"),
                 name=name,
                 description=f"A sample text resource named {name}",
                 mimeType="text/plain",
@@ -35,7 +35,9 @@ def main(port: int, transport: str) -> int:
         ]
 
     @app.read_resource()
-    async def read_resource(uri: FileUrl) -> str | bytes:
+    async def read_resource(uri: AnyUrl) -> str | bytes:
+        if uri.path is None:
+            raise ValueError(f"Invalid resource path: {uri}")
         name = uri.path.replace(".txt", "").lstrip("/")
 
         if name not in SAMPLE_RESOURCES:

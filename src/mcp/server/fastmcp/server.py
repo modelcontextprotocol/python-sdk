@@ -148,9 +148,11 @@ class FastMCP:
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
             instructions=instructions,
-            lifespan=lifespan_wrapper(self, self.settings.lifespan)
-            if self.settings.lifespan
-            else default_lifespan,
+            lifespan=(
+                lifespan_wrapper(self, self.settings.lifespan)
+                if self.settings.lifespan
+                else default_lifespan
+            ),
         )
         self._tool_manager = ToolManager(
             warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
@@ -465,16 +467,16 @@ class FastMCP:
                     uri_template=uri,
                     name=name,
                     description=description,
-                    mime_type=mime_type or "text/plain",
+                    mime_type=mime_type,
                 )
             else:
                 # Register as regular resource
-                resource = FunctionResource(
-                    uri=AnyUrl(uri),
+                resource = FunctionResource.from_function(
+                    fn=fn,
+                    uri=uri,
                     name=name,
                     description=description,
-                    mime_type=mime_type or "text/plain",
-                    fn=fn,
+                    mime_type=mime_type,
                 )
                 self.add_resource(resource)
             return fn
@@ -961,7 +963,6 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
             total: Optional total value e.g. 100
             message: Optional message e.g. Starting render...
         """
-
         progress_token = (
             self.request_context.meta.progressToken
             if self.request_context.meta
