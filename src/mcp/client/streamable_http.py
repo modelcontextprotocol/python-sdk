@@ -427,6 +427,7 @@ async def streamablehttp_client(
     timeout: timedelta = timedelta(seconds=30),
     sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
     terminate_on_close: bool = True,
+    http_client: httpx.AsyncClient | None = None,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -448,6 +449,12 @@ async def streamablehttp_client(
             - get_session_id_callback: Function to retrieve the current session ID
     """
     transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout)
+    client = http_client or create_mcp_http_client(
+        headers=transport.request_headers,
+        timeout=httpx.Timeout(
+            transport.timeout.seconds, read=transport.sse_read_timeout.seconds
+        ),
+    )
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream[
         SessionMessage | Exception
@@ -460,12 +467,7 @@ async def streamablehttp_client(
         try:
             logger.info(f"Connecting to StreamableHTTP endpoint: {url}")
 
-            async with create_mcp_http_client(
-                headers=transport.request_headers,
-                timeout=httpx.Timeout(
-                    transport.timeout.seconds, read=transport.sse_read_timeout.seconds
-                ),
-            ) as client:
+            async with client:
                 # Define callbacks that need access to tg
                 def start_get_stream() -> None:
                     tg.start_soon(
