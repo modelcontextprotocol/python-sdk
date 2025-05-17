@@ -11,6 +11,13 @@ tee: str = shutil.which("tee")  # type: ignore
 
 @pytest.mark.anyio
 @pytest.mark.skipif(tee is None, reason="could not find tee command")
+async def test_stdio_context_manager_exiting():
+    async with stdio_client(StdioServerParameters(command=tee)) as (_, _):
+        pass
+
+
+@pytest.mark.anyio
+@pytest.mark.skipif(tee is None, reason="could not find tee command")
 async def test_stdio_client():
     server_parameters = StdioServerParameters(command=tee)
 
