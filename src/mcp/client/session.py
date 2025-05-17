@@ -142,7 +142,9 @@ class ClientSession(
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
-        self._tool_output_validator_provider = tool_output_validator_provider or _default_tool_output_validator
+        self._tool_output_validator_provider = (
+            tool_output_validator_provider or _default_tool_output_validator
+        )
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability()

@@ -37,10 +37,15 @@ class ToolManager:
         name: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        output_schema: dict[str, Any] | None = None,
     ) -> Tool:
         """Add a tool to the server."""
         tool = Tool.from_function(
-            fn, name=name, description=description, annotations=annotations
+            fn,
+            name=name,
+            description=description,
+            annotations=annotations,
+            output_schema=output_schema,
         )
         existing = self._tools.get(tool.name)
         if existing:

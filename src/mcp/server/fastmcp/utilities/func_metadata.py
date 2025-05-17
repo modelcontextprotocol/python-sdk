@@ -112,7 +112,9 @@ class FuncMetadata(BaseModel):
 
 
 def func_metadata(
-    func: Callable[..., Any], skip_names: Sequence[str] = ()
+    func: Callable[..., Any],
+    skip_names: Sequence[str] = (),
+    output_schema: dict[str, Any] | None = None,
 ) -> FuncMetadata:
     """Given a function, return metadata including a pydantic model representing its
     signature.
@@ -137,7 +139,6 @@ def func_metadata(
     sig = _get_typed_signature(func)
     params = sig.parameters
     dynamic_pydantic_model_params: dict[str, Any] = {}
-    output_schema: dict[str, Any] | None = None
     globalns = getattr(func, "__globals__", {})
     for param in params.values():
         if param.name.startswith("_"):
@@ -183,14 +184,17 @@ def func_metadata(
         __base__=ArgModelBase,
     )
 
-    # TODO this could be moved to a constant or passed in as param as per skip_names
-    ignore = [inspect.Parameter.empty, None, types.Image]
-    if sig.return_annotation not in ignore:
-        type_schema = TypeAdapter(sig.return_annotation).json_schema()
-        if type_schema.get("type", None) == "object":
-            output_schema = type_schema
+    return_output_schema = output_schema
 
-    return FuncMetadata(arg_model=arguments_model, output_schema=output_schema)
+    if return_output_schema is None:
+        # TODO this could be moved to a constant or passed in as param as per skip_names
+        ignore = [inspect.Parameter.empty, None, types.Image]
+        if sig.return_annotation not in ignore:
+            type_schema = TypeAdapter(sig.return_annotation).json_schema()
+            if type_schema.get("type", None) == "object":
+                return_output_schema = type_schema
+
+    return FuncMetadata(arg_model=arguments_model, output_schema=return_output_schema)
 
 
 def _get_typed_annotation(annotation: Any, globalns: dict[str, Any]) -> Any:

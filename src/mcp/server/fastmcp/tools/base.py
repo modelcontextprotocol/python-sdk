@@ -47,6 +47,7 @@ class Tool(BaseModel):
         description: str | None = None,
         context_kwarg: str | None = None,
         annotations: ToolAnnotations | None = None,
+        output_schema: dict[str, Any] | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
         from mcp.server.fastmcp.server import Context
@@ -71,6 +72,7 @@ class Tool(BaseModel):
         func_arg_metadata = func_metadata(
             fn,
             skip_names=[context_kwarg] if context_kwarg is not None else [],
+            output_schema=output_schema,
         )
         parameters = func_arg_metadata.arg_model.model_json_schema()
         output = func_arg_metadata.output_schema

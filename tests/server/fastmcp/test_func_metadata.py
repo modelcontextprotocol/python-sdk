@@ -449,6 +449,9 @@ def test_simple_function_output_schema():
 
     assert func_metadata(simple_no_annotation_fun).output_schema is None
     assert func_metadata(simple_str_fun).output_schema is None
+    assert func_metadata(
+        simple_str_fun, output_schema={"type": "string"}
+    ).output_schema == {"type": "string"}
     assert func_metadata(simple_bool_fun).output_schema is None
     assert func_metadata(simple_int_fun).output_schema is None
     assert func_metadata(simple_float_fun).output_schema is None
