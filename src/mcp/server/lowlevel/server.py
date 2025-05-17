@@ -486,7 +486,6 @@ must return structured content"""
                 )
 
             if schema_func is None:
-
                 async def handler(req: types.CallToolRequest):
                     try:
                         result = await func(
@@ -495,9 +494,7 @@ must return structured content"""
                         return handle_result_without_schema(req, result)
                     except Exception as e:
                         return handle_error(e)
-
             else:
-
                 async def handler(req: types.CallToolRequest):
                     try:
                         result = await func(

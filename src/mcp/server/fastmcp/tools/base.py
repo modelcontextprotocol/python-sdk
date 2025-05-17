@@ -94,7 +94,7 @@ class Tool(BaseModel):
     ) -> Any:
         """Run the tool with arguments."""
         try:
-            result = await self.fn_metadata.call_fn_with_arg_validation(
+            return await self.fn_metadata.call_fn_with_arg_validation(
                 self.fn,
                 self.is_async,
                 arguments,
@@ -102,6 +102,5 @@ class Tool(BaseModel):
                 if self.context_kwarg is not None
                 else None,
             )
-            return result
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e
