@@ -36,12 +36,6 @@ from mcp.types import (
 SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
 SendResultT = TypeVar("SendResultT", ClientResult, ServerResult)
 SendNotificationT = TypeVar("SendNotificationT", ClientNotification, ServerNotification)
-SendNotificationInternalT = TypeVar(
-    "SendNotificationInternalT",
-    CancelledNotification,
-    ClientNotification,
-    ServerNotification,
-)
 ReceiveRequestT = TypeVar("ReceiveRequestT", ClientRequest, ServerRequest)
 ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 ReceiveNotificationT = TypeVar(
@@ -308,7 +302,7 @@ class BaseSession(
                                     requestId=request_id, reason="cancelled"
                                 ),
                             )
-                            await self._send_notification_internal(
+                            await self._send_notification(  # type: ignore
                                 notification, request_id
                             )
                             raise McpError(
@@ -349,16 +343,6 @@ class BaseSession(
         Emits a notification, which is a one-way message that does not expect
         a response.
         """
-        await self._send_notification_internal(notification, related_request_id)
-
-    # this method is required as SendNotificationT type checking prevents
-    # internal use for sending cancelation - typechecking sorcery may be
-    # required
-    async def _send_notification_internal(
-        self,
-        notification: SendNotificationInternalT,
-        related_request_id: RequestId | None = None,
-    ) -> None:
         # Some transport implementations may need to set the related_request_id
         # to attribute to the notifications to the request that triggered them.
         jsonrpc_notification = JSONRPCNotification(
