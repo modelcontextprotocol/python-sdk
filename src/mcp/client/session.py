@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
+import logging
 from typing import Any, Protocol, TypeAlias
 
 import anyio.lowlevel
@@ -13,8 +14,10 @@ from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
-DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
+logger = logging.getLogger(__name__)
+
+DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
 class SamplingFnT(Protocol):
     async def __call__(
@@ -472,7 +475,7 @@ class SimpleCachingToolOutputValidator(ToolOutputValidationFnT):
                 raise RuntimeError(f"Unknown tool {request.params.name}")
             elif schema is False:
                 # no schema
-                # TODO add logging
+                logging.debug('No schema found checking structuredContent is empty')
                 return result.structuredContent is None
             else:
                 try:
@@ -480,8 +483,8 @@ class SimpleCachingToolOutputValidator(ToolOutputValidationFnT):
                     # and reuse rather than build every time
                     validate(result.structuredContent, schema)
                     return True
-                except ValidationError:
-                    # TODO log this
+                except ValidationError as e:
+                    logging.exception(e)
                     return False
 
     async def _refresh_schema_cache(self):
