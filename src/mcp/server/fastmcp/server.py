@@ -879,8 +879,7 @@ class FastMCP:
 
 
 def _convert_to_content(
-    result: Any,
-    schema: dict[str, Any] | None
+    result: Any, schema: dict[str, Any] | None
 ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
     if schema is None:
         """Convert a result to a sequence of content objects."""
@@ -894,7 +893,11 @@ def _convert_to_content(
             return [result.to_image_content()]
 
         if isinstance(result, list | tuple):
-            return list(chain.from_iterable(_convert_to_content(item, schema) for item in result))  # type: ignore[reportUnknownVariableType]
+            return list(
+                chain.from_iterable(
+                    _convert_to_content(item, schema) for item in result
+                )
+            )  # type: ignore[reportUnknownVariableType]
 
         if not isinstance(result, str):
             result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
