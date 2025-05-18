@@ -162,8 +162,7 @@ class SimpleAuthClient:
                 "redirect_uris": ["http://localhost:3000/callback"],
                 "grant_types": ["authorization_code", "refresh_token"],
                 "response_types": ["code"],
-                "token_endpoint_auth_method": "client_secret_post",  # Use client secret
-                "scope": "read",  # Default scope, will be updated
+                "token_endpoint_auth_method": "client_secret_post",
             }
 
             async def _default_redirect_handler(authorization_url: str) -> None:

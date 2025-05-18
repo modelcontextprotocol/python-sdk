@@ -110,6 +110,21 @@ class OAuthClientProvider(httpx.Auth):
         digest = hashlib.sha256(code_verifier.encode()).digest()
         return base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
+    def _get_authorization_base_url(self, server_url: str) -> str:
+        """
+        Determine the authorization base URL by discarding any path component.
+
+        Per MCP spec Section 2.3.2: "The authorization base URL MUST be determined
+        from the MCP server URL by discarding any existing path component."
+
+        Example: https://api.example.com/v1/mcp -> https://api.example.com
+        """
+        from urllib.parse import urlparse, urlunparse
+
+        parsed = urlparse(server_url)
+        # Discard path component by setting it to empty
+        return urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
+
     async def _discover_oauth_metadata(self, server_url: str) -> OAuthMetadata | None:
         """
         Discovers OAuth metadata from the server's well-known endpoint.
@@ -120,7 +135,9 @@ class OAuthClientProvider(httpx.Auth):
         Returns:
             OAuthMetadata if found, None otherwise
         """
-        url = urljoin(server_url, "/.well-known/oauth-authorization-server")
+        # Get authorization base URL per MCP spec Section 2.3.2
+        auth_base_url = self._get_authorization_base_url(server_url)
+        url = urljoin(auth_base_url, "/.well-known/oauth-authorization-server")
         headers = {"MCP-Protocol-Version": LATEST_PROTOCOL_VERSION}
 
         async with httpx.AsyncClient() as client:
@@ -171,23 +188,14 @@ class OAuthClientProvider(httpx.Auth):
         if metadata and metadata.registration_endpoint:
             registration_url = str(metadata.registration_endpoint)
         else:
-            registration_url = urljoin(server_url, "/register")
+            # Use authorization base URL for fallback registration endpoint
+            auth_base_url = self._get_authorization_base_url(server_url)
+            registration_url = urljoin(auth_base_url, "/register")
 
-        # Prepare registration data and adjust scope based on server metadata
+        # Prepare registration data
         registration_data = client_metadata.model_dump(
             by_alias=True, mode="json", exclude_none=True
         )
-
-        # If the server has supported scopes, use them instead of the requested scope
-        if metadata and metadata.scopes_supported:
-            # Use the first supported scope or "user" if available
-            if "user" in metadata.scopes_supported:
-                registration_data["scope"] = "user"
-            else:
-                registration_data["scope"] = metadata.scopes_supported[0]
-            logger.debug(
-                f"Adjusted scope to server-supported: {registration_data['scope']}"
-            )
 
         async with httpx.AsyncClient() as client:
             try:
@@ -252,6 +260,55 @@ class OAuthClientProvider(httpx.Auth):
 
         return True
 
+    async def _validate_token_scopes(self, token_response: OAuthToken) -> None:
+        """
+        Validate that returned scopes are a subset of requested scopes.
+
+        Per OAuth 2.1 Section 3.3, the authorization server may issue a narrower
+        set of scopes than requested, but must not grant additional scopes.
+        """
+        if not token_response.scope:
+            # If no scope is returned, validation passes (server didn't grant anything extra)
+            return
+
+        # Get the originally requested scopes
+        requested_scopes: set[str] = set()
+
+        # Check for explicitly requested scopes from client metadata
+        if self.client_metadata.scope:
+            requested_scopes.update(self.client_metadata.scope.split())
+
+        # If we have registered client info with specific scopes, use those
+        # (This handles cases where scopes were negotiated during registration)
+        if (
+            self._client_info
+            and hasattr(self._client_info, "scope")
+            and self._client_info.scope
+        ):
+            # Only override if the client metadata didn't have explicit scopes
+            # This represents what was actually registered/negotiated with the server
+            if not requested_scopes:
+                requested_scopes.update(self._client_info.scope.split())
+
+        # Parse returned scopes
+        returned_scopes: set[str] = set(token_response.scope.split())
+
+        # Validate that returned scopes are a subset of requested scopes
+        # Only enforce strict validation if we actually have requested scopes
+        if requested_scopes:
+            unauthorized_scopes: set[str] = returned_scopes - requested_scopes
+            if unauthorized_scopes:
+                raise Exception(
+                    f"Server granted unauthorized scopes: {unauthorized_scopes}. "
+                    f"Requested: {requested_scopes}, Returned: {returned_scopes}"
+                )
+        else:
+            # If no scopes were originally requested (fell back to server defaults),
+            # accept whatever the server returned
+            logger.debug(
+                f"No specific scopes were requested, accepting server-granted scopes: {returned_scopes}"
+            )
+
     async def initialize(self) -> None:
         """Initialize the auth handler by loading stored tokens and client info."""
         self._current_tokens = await self.storage.get_tokens()
@@ -307,7 +364,9 @@ class OAuthClientProvider(httpx.Auth):
         if self._metadata and self._metadata.authorization_endpoint:
             auth_url_base = str(self._metadata.authorization_endpoint)
         else:
-            auth_url_base = urljoin(self.server_url, "/authorize")
+            # Use authorization base URL for fallback authorization endpoint
+            auth_base_url = self._get_authorization_base_url(self.server_url)
+            auth_url_base = urljoin(auth_base_url, "/authorize")
 
         # Build authorization URL
         auth_params = {
@@ -319,16 +378,16 @@ class OAuthClientProvider(httpx.Auth):
             "code_challenge_method": "S256",
         }
 
-        if hasattr(client_info, "scope") and client_info.scope:
-            auth_params["scope"] = client_info.scope
-        elif self._metadata and self._metadata.scopes_supported:
-            # Use "user" if available, otherwise the first supported scope
-            if "user" in self._metadata.scopes_supported:
-                auth_params["scope"] = "user"
-            else:
-                auth_params["scope"] = self._metadata.scopes_supported[0]
-        elif self.client_metadata.scope:
+        # Set scope parameter following OAuth 2.1 principles:
+        # 1. Use client's explicit request first (what developer wants)
+        # 2. Use registered client scope as fallback (what was negotiated)
+        # 3. No scope = let server decide (omit scope parameter)
+        if self.client_metadata.scope:
             auth_params["scope"] = self.client_metadata.scope
+        elif hasattr(client_info, "scope") and client_info.scope:
+            auth_params["scope"] = client_info.scope
+        # If no scope specified anywhere, don't include scope parameter
+        # This lets the server grant default scopes per OAuth 2.1
 
         auth_url = f"{auth_url_base}?{urlencode(auth_params)}"
 
@@ -339,7 +398,7 @@ class OAuthClientProvider(httpx.Auth):
 
         # Validate state parameter
         if returned_state != auth_params["state"]:
-            raise Exception("State parameter mismatch - possible CSRF attack")
+            raise Exception("State parameter mismatch")
 
         if not auth_code:
             raise Exception("No authorization code received")
@@ -355,7 +414,9 @@ class OAuthClientProvider(httpx.Auth):
         if self._metadata and self._metadata.token_endpoint:
             token_url = str(self._metadata.token_endpoint)
         else:
-            token_url = urljoin(self.server_url, "/token")
+            # Use authorization base URL for fallback token endpoint
+            auth_base_url = self._get_authorization_base_url(self.server_url)
+            token_url = urljoin(auth_base_url, "/token")
 
         token_data = {
             "grant_type": "authorization_code",
@@ -384,6 +445,9 @@ class OAuthClientProvider(httpx.Auth):
             # Parse and store tokens
             token_response = OAuthToken.model_validate(response.json())
 
+            # Validate returned scopes against requested scopes (OAuth 2.1 Section 3.3)
+            await self._validate_token_scopes(token_response)
+
             # Calculate expiry time if available
             if token_response.expires_in:
                 self._token_expiry_time = time.time() + token_response.expires_in
@@ -406,7 +470,9 @@ class OAuthClientProvider(httpx.Auth):
         if self._metadata and self._metadata.token_endpoint:
             token_url = str(self._metadata.token_endpoint)
         else:
-            token_url = urljoin(self.server_url, "/token")
+            # Use authorization base URL for fallback token endpoint
+            auth_base_url = self._get_authorization_base_url(self.server_url)
+            token_url = urljoin(auth_base_url, "/token")
 
         refresh_data = {
             "grant_type": "refresh_token",
@@ -432,6 +498,9 @@ class OAuthClientProvider(httpx.Auth):
 
                 # Parse and store new tokens
                 token_response = OAuthToken.model_validate(response.json())
+
+                # Validate returned scopes against requested scopes (OAuth 2.1 Section 3.3)
+                await self._validate_token_scopes(token_response)
 
                 # Calculate expiry time if available
                 if token_response.expires_in:
