@@ -53,5 +53,9 @@ jobs:
       - name: Install the project
         run: uv sync --frozen --all-extras --dev --python ${{ matrix.python-version }}
 
+      - name: Install jose dependencies
+        run: uv run --no-sync pip install python-jose types-python-jose
+
       - name: Run pytest
         run: uv run --no-sync pytest
+
