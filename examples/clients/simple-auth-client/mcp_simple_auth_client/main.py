@@ -10,11 +10,11 @@ import asyncio
 import os
 import threading
 import time
+import webbrowser
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
-import webbrowser
 
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.session import ClientSession
