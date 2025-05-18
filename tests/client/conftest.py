@@ -137,4 +137,9 @@ def stream_spy():
         "mcp.shared.memory.create_client_server_memory_streams", patched_create_streams
     ):
         # Return a collection with helper methods
-        yield lambda: StreamSpyCollection(client_spy, server_spy)
+        def get_spy_collection() -> StreamSpyCollection:
+            assert client_spy is not None, "client_spy was not initialized"
+            assert server_spy is not None, "server_spy was not initialized"
+            return StreamSpyCollection(client_spy, server_spy)
+
+        yield get_spy_collection
