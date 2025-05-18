@@ -9,17 +9,17 @@ The callback server implementation should be handled by the calling code.
 
 import base64
 import hashlib
+import logging
 import secrets
 import string
 import time
-import webbrowser
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from urllib.parse import urljoin
+from typing import Protocol
+from urllib.parse import urlencode, urljoin
 
 import anyio
 import httpx
 
-from mcp.client.token_storage import InMemoryTokenStorage, TokenStorage
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -28,117 +28,32 @@ from mcp.shared.auth import (
 )
 from mcp.types import LATEST_PROTOCOL_VERSION
 
+logger = logging.getLogger(__name__)
 
-async def discover_oauth_metadata(server_url: str) -> OAuthMetadata | None:
+
+class TokenStorage(Protocol):
+    """Protocol for token storage implementations."""
+
+    async def get_tokens(self) -> OAuthToken | None:
+        """Get stored tokens."""
+        ...
+
+    async def set_tokens(self, tokens: OAuthToken) -> None:
+        """Store tokens."""
+        ...
+
+    async def get_client_info(self) -> OAuthClientInformationFull | None:
+        """Get stored client information."""
+        ...
+
+    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
+        """Store client information."""
+        ...
+
+
+class OAuthClientProvider(httpx.Auth):
     """
-    Discovers OAuth metadata from the server's well-known endpoint.
-
-    Args:
-        server_url: Base URL of the OAuth server
-
-    Returns:
-        OAuthMetadata if found, None otherwise
-    """
-    url = urljoin(server_url, "/.well-known/oauth-authorization-server")
-    headers = {"MCP-Protocol-Version": LATEST_PROTOCOL_VERSION}
-
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(url, headers=headers)
-            if response.status_code == 404:
-                return None
-            response.raise_for_status()
-            metadata_json = response.json()
-            print(f"OAuth metadata discovered: {metadata_json}")
-            return OAuthMetadata.model_validate(metadata_json)
-        except Exception:
-            # Try without MCP protocol version header for CORS issues
-            try:
-                response = await client.get(url)
-                if response.status_code == 404:
-                    return None
-                response.raise_for_status()
-                metadata_json = response.json()
-                print(f"OAuth metadata discovered (no MCP header): {metadata_json}")
-                return OAuthMetadata.model_validate(metadata_json)
-            except Exception as e:
-                print(f"Failed to discover OAuth metadata: {e}")
-                return None
-
-
-async def register_oauth_client(
-    server_url: str,
-    client_metadata: OAuthClientMetadata,
-    metadata: OAuthMetadata | None = None,
-) -> OAuthClientInformationFull:
-    """
-    Registers an OAuth client with the server.
-
-    Args:
-        server_url: Base URL of the OAuth server
-        client_metadata: Client metadata for registration
-        metadata: Optional OAuth metadata (will be discovered if not provided)
-
-    Returns:
-        Registered client information
-    """
-    if not metadata:
-        metadata = await discover_oauth_metadata(server_url)
-
-    if metadata and metadata.registration_endpoint:
-        registration_url = str(metadata.registration_endpoint)
-    else:
-        registration_url = urljoin(server_url, "/register")
-
-    # Prepare registration data and adjust scope based on server metadata
-    registration_data = client_metadata.model_dump(
-        by_alias=True, mode="json", exclude_none=True
-    )
-
-    # If the server has supported scopes, use them instead of the requested scope
-    if metadata and metadata.scopes_supported:
-        # Use the first supported scope or "user" if available
-        if "user" in metadata.scopes_supported:
-            registration_data["scope"] = "user"
-        else:
-            registration_data["scope"] = metadata.scopes_supported[0]
-        print(f"Adjusted scope to server-supported: {registration_data['scope']}")
-
-    print(f"Attempting registration at {registration_url}")
-    print(f"Registration data: {registration_data}")
-
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(
-                registration_url,
-                json=registration_data,
-                headers={"Content-Type": "application/json"},
-            )
-
-            if response.status_code not in (200, 201):
-                print(
-                    f"Registration failed with {response.status_code}: {response.text}"
-                )
-                raise httpx.HTTPStatusError(
-                    f"Registration failed: {response.status_code}",
-                    request=response.request,
-                    response=response,
-                )
-
-            response_data = response.json()
-            print(f"Registration successful: {response_data}")
-            return OAuthClientInformationFull.model_validate(response_data)
-
-        except httpx.HTTPStatusError:
-            raise
-        except Exception as e:
-            print(f"Registration error: {e}")
-            raise
-
-
-class ProductionOAuth2Auth(httpx.Auth):
-    """
-    Production-ready OAuth2 Authentication for httpx using anyio.
+    Authentication for httpx using anyio.
     Handles OAuth flow with automatic client registration and token storage.
     """
 
@@ -146,9 +61,9 @@ class ProductionOAuth2Auth(httpx.Auth):
         self,
         server_url: str,
         client_metadata: OAuthClientMetadata,
-        storage: TokenStorage | None = None,
-        redirect_handler: Callable[[str], Awaitable[None]] | None = None,
-        callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None = None,
+        storage: TokenStorage,
+        redirect_handler: Callable[[str], Awaitable[None]],
+        callback_handler: Callable[[], Awaitable[tuple[str, str | None]]],
         timeout: float = 300.0,  # 5 minutes timeout for OAuth flow
     ):
         """
@@ -158,14 +73,15 @@ class ProductionOAuth2Auth(httpx.Auth):
             server_url: Base URL of the OAuth server
             client_metadata: OAuth client metadata
             storage: Token storage implementation (defaults to in-memory)
-            redirect_handler: Function to handle authorization URL (defaults to opening browser)
-            callback_handler: Function to wait for callback and return (auth_code, state)
+            redirect_handler: Function to handle authorization URL like opening browser
+            callback_handler: Function to wait for callback
+                              and return (auth_code, state)
             timeout: Timeout for OAuth flow in seconds
         """
         self.server_url = server_url
         self.client_metadata = client_metadata
-        self.storage = storage or InMemoryTokenStorage()
-        self.redirect_handler = redirect_handler or self._default_redirect_handler
+        self.storage = storage
+        self.redirect_handler = redirect_handler
         self.callback_handler = callback_handler
         self.timeout = timeout
 
@@ -182,11 +98,6 @@ class ProductionOAuth2Auth(httpx.Auth):
         # Lock for thread safety during token operations
         self._token_lock = anyio.Lock()
 
-    async def _default_redirect_handler(self, authorization_url: str) -> None:
-        """Default redirect handler that opens the URL in a browser."""
-        print(f"Opening browser for authorization: {authorization_url}")
-        webbrowser.open(authorization_url)
-
     def _generate_code_verifier(self) -> str:
         """Generate a cryptographically random code verifier for PKCE."""
         return "".join(
@@ -199,6 +110,110 @@ class ProductionOAuth2Auth(httpx.Auth):
         digest = hashlib.sha256(code_verifier.encode()).digest()
         return base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
+    async def _discover_oauth_metadata(self, server_url: str) -> OAuthMetadata | None:
+        """
+        Discovers OAuth metadata from the server's well-known endpoint.
+
+        Args:
+            server_url: Base URL of the OAuth server
+
+        Returns:
+            OAuthMetadata if found, None otherwise
+        """
+        url = urljoin(server_url, "/.well-known/oauth-authorization-server")
+        headers = {"MCP-Protocol-Version": LATEST_PROTOCOL_VERSION}
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, headers=headers)
+                if response.status_code == 404:
+                    return None
+                response.raise_for_status()
+                metadata_json = response.json()
+                logger.debug(f"OAuth metadata discovered: {metadata_json}")
+                return OAuthMetadata.model_validate(metadata_json)
+            except Exception:
+                # Try without MCP protocol version header for CORS issues
+                try:
+                    response = await client.get(url)
+                    if response.status_code == 404:
+                        return None
+                    response.raise_for_status()
+                    metadata_json = response.json()
+                    logger.debug(
+                        f"OAuth metadata discovered (no MCP header): {metadata_json}"
+                    )
+                    return OAuthMetadata.model_validate(metadata_json)
+                except Exception:
+                    logger.exception("Failed to discover OAuth metadata")
+                    return None
+
+    async def _register_oauth_client(
+        self,
+        server_url: str,
+        client_metadata: OAuthClientMetadata,
+        metadata: OAuthMetadata | None = None,
+    ) -> OAuthClientInformationFull:
+        """
+        Registers an OAuth client with the server.
+
+        Args:
+            server_url: Base URL of the OAuth server
+            client_metadata: Client metadata for registration
+            metadata: Optional OAuth metadata (will be discovered if not provided)
+
+        Returns:
+            Registered client information
+        """
+        if not metadata:
+            metadata = await self._discover_oauth_metadata(server_url)
+
+        if metadata and metadata.registration_endpoint:
+            registration_url = str(metadata.registration_endpoint)
+        else:
+            registration_url = urljoin(server_url, "/register")
+
+        # Prepare registration data and adjust scope based on server metadata
+        registration_data = client_metadata.model_dump(
+            by_alias=True, mode="json", exclude_none=True
+        )
+
+        # If the server has supported scopes, use them instead of the requested scope
+        if metadata and metadata.scopes_supported:
+            # Use the first supported scope or "user" if available
+            if "user" in metadata.scopes_supported:
+                registration_data["scope"] = "user"
+            else:
+                registration_data["scope"] = metadata.scopes_supported[0]
+            logger.debug(
+                f"Adjusted scope to server-supported: {registration_data['scope']}"
+            )
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    registration_url,
+                    json=registration_data,
+                    headers={"Content-Type": "application/json"},
+                )
+
+                if response.status_code not in (200, 201):
+                    raise httpx.HTTPStatusError(
+                        f"Registration failed: {response.status_code}",
+                        request=response.request,
+                        response=response,
+                    )
+
+                response_data = response.json()
+                logger.debug(f"Registration successful: {response_data}")
+                return OAuthClientInformationFull.model_validate(response_data)
+
+            except httpx.HTTPStatusError:
+                raise
+            except Exception:
+                logger.exception("Registration error")
+                raise
+
     async def async_auth_flow(
         self, request: httpx.Request
     ) -> AsyncGenerator[httpx.Request, httpx.Response]:
@@ -206,7 +221,6 @@ class ProductionOAuth2Auth(httpx.Auth):
         Handle authentication flow for requests.
 
         This method adds the Bearer token if available and handles 401 responses.
-        The actual OAuth flow initialization should be done before using this auth handler.
         """
 
         if not self._has_valid_token():
@@ -247,22 +261,13 @@ class ProductionOAuth2Auth(httpx.Auth):
         """Get existing client info or register a new client."""
         if not self._client_info:
             try:
-                self._client_info = await register_oauth_client(
+                self._client_info = await self._register_oauth_client(
                     self.server_url, self.client_metadata, self._metadata
                 )
                 await self.storage.set_client_info(self._client_info)
-                print(f"Successfully registered client: {self._client_info.client_id}")
-            except Exception as e:
-                print(f"Client registration failed: {e}")
-                print("Using fallback client configuration for testing")
-                # Create a fallback client configuration for testing
-                # This allows us to test the OAuth flow even if registration isn't supported
-                self._client_info = OAuthClientInformationFull(
-                    client_id="simple-auth-client",
-                    client_secret=None,  # Some servers don't require client secrets
-                    **self.client_metadata.model_dump(exclude_none=True),
-                )
-                await self.storage.set_client_info(self._client_info)
+            except Exception:
+                logger.exception("Client registration failed")
+                raise
         return self._client_info
 
     async def ensure_token(self) -> None:
@@ -285,11 +290,11 @@ class ProductionOAuth2Auth(httpx.Auth):
 
     async def _perform_oauth_flow(self) -> None:
         """Perform complete OAuth2 authorization code flow."""
-        print("Starting OAuth2 authentication flow...")
+        logger.debug("Starting authentication flow.")
 
         # Discover metadata if not already done
         if not self._metadata:
-            self._metadata = await discover_oauth_metadata(self.server_url)
+            self._metadata = await self._discover_oauth_metadata(self.server_url)
 
         # Get or register client
         client_info = await self._get_or_register_client()
@@ -325,16 +330,10 @@ class ProductionOAuth2Auth(httpx.Auth):
         elif self.client_metadata.scope:
             auth_params["scope"] = self.client_metadata.scope
 
-        from urllib.parse import urlencode
-
         auth_url = f"{auth_url_base}?{urlencode(auth_params)}"
 
         # Handle redirect (open browser or custom handler)
         await self.redirect_handler(auth_url)
-
-        # Wait for callback using the provided callback handler
-        if not self.callback_handler:
-            raise Exception("No callback handler provided for OAuth flow")
 
         auth_code, returned_state = await self.callback_handler()
 
@@ -395,8 +394,6 @@ class ProductionOAuth2Auth(httpx.Auth):
             await self.storage.set_tokens(token_response)
             self._current_tokens = token_response
 
-            print("Successfully obtained access token!")
-
     async def _refresh_access_token(self) -> bool:
         """Refresh the access token using refresh token."""
         if not self._current_tokens or not self._current_tokens.refresh_token:
@@ -430,7 +427,7 @@ class ProductionOAuth2Auth(httpx.Auth):
                 )
 
                 if response.status_code != 200:
-                    print(f"Token refresh failed: {response.status_code}")
+                    logger.error(f"Token refresh failed: {response.status_code}")
                     return False
 
                 # Parse and store new tokens
@@ -446,13 +443,8 @@ class ProductionOAuth2Auth(httpx.Auth):
                 await self.storage.set_tokens(token_response)
                 self._current_tokens = token_response
 
-                print("Successfully refreshed access token!")
                 return True
 
-        except Exception as e:
-            print(f"Token refresh error: {e}")
+        except Exception:
+            logger.exception("Token refresh failed")
             return False
-
-
-# Maintain compatibility with existing OAuthAuth class
-OAuthAuth = ProductionOAuth2Auth

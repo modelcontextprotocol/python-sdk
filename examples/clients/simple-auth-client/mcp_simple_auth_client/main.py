@@ -14,11 +14,32 @@ from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+import webbrowser
 
-from mcp.client.auth import OAuthAuth
+from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
-from mcp.shared.auth import OAuthClientMetadata
+from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+
+
+class InMemoryTokenStorage(TokenStorage):
+    """Simple in-memory token storage implementation."""
+
+    def __init__(self):
+        self._tokens: OAuthToken | None = None
+        self._client_info: OAuthClientInformationFull | None = None
+
+    async def get_tokens(self) -> OAuthToken | None:
+        return self._tokens
+
+    async def set_tokens(self, tokens: OAuthToken) -> None:
+        self._tokens = tokens
+
+    async def get_client_info(self) -> OAuthClientInformationFull | None:
+        return self._client_info
+
+    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
+        self._client_info = client_info
 
 
 class CallbackHandler(BaseHTTPRequestHandler):
@@ -145,14 +166,19 @@ class SimpleAuthClient:
                 "scope": "read",  # Default scope, will be updated
             }
 
+            async def _default_redirect_handler(authorization_url: str) -> None:
+                """Default redirect handler that opens the URL in a browser."""
+                print(f"Opening browser for authorization: {authorization_url}")
+                webbrowser.open(authorization_url)
+
             # Create OAuth authentication handler using the new interface
-            oauth_auth = OAuthAuth(
+            oauth_auth = OAuthClientProvider(
                 server_url=self.server_url.replace("/mcp", ""),
                 client_metadata=OAuthClientMetadata.model_validate(
                     client_metadata_dict
                 ),
-                storage=None,  # Use in-memory storage
-                redirect_handler=None,  # Use default (open browser)
+                storage=InMemoryTokenStorage(),
+                redirect_handler=_default_redirect_handler,
                 callback_handler=callback_handler,
             )
 
