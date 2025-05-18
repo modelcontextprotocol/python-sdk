@@ -58,4 +58,3 @@ jobs:
 
       - name: Run pytest
         run: uv run --no-sync pytest
-

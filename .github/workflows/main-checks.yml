@@ -11,17 +11,4 @@ on:
 jobs:
   checks:
     uses: ./.github/workflows/shared.yml
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v2
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.x'
-
-      - name: Install dependencies
-        run: pip install python-jose types-python-jose
-
-      - name: Run tests
-        run: pytest tests/
