@@ -30,6 +30,7 @@ def main(port: int, transport: str) -> int:
                 name=name,
                 description=f"A sample text resource named {name}",
                 mimeType="text/plain",
+                type="resource",
             )
             for name in SAMPLE_RESOURCES.keys()
         ]
