@@ -268,7 +268,8 @@ class OAuthClientProvider(httpx.Auth):
         set of scopes than requested, but must not grant additional scopes.
         """
         if not token_response.scope:
-            # If no scope is returned, validation passes (server didn't grant anything extra)
+            # If no scope is returned, validation passes
+            # (server didn't grant anything extra)
             return
 
         # Get the originally requested scopes
@@ -306,7 +307,8 @@ class OAuthClientProvider(httpx.Auth):
             # If no scopes were originally requested (fell back to server defaults),
             # accept whatever the server returned
             logger.debug(
-                f"No specific scopes were requested, accepting server-granted scopes: {returned_scopes}"
+                f"No specific scopes were requested, accepting server-granted "
+                f"scopes: {returned_scopes}"
             )
 
     async def initialize(self) -> None:
@@ -372,7 +374,7 @@ class OAuthClientProvider(httpx.Auth):
         auth_params = {
             "response_type": "code",
             "client_id": client_info.client_id,
-            "redirect_uri": self.client_metadata.redirect_uris[0],
+            "redirect_uri": str(self.client_metadata.redirect_uris[0]),
             "state": secrets.token_urlsafe(32),
             "code_challenge": self._code_challenge,
             "code_challenge_method": "S256",
@@ -396,9 +398,15 @@ class OAuthClientProvider(httpx.Auth):
 
         auth_code, returned_state = await self.callback_handler()
 
-        # Validate state parameter
-        if returned_state != auth_params["state"]:
-            raise Exception("State parameter mismatch")
+        # Validate state parameter using constant-time comparison
+        # to prevent timing attacks
+        if returned_state is None:
+            raise Exception("State parameter mismatch - possible CSRF attack")
+        # Type cast to ensure both args are str for compare_digest
+        expected_state = str(auth_params["state"])
+        actual_state = str(returned_state)
+        if not secrets.compare_digest(actual_state, expected_state):
+            raise Exception("State parameter mismatch - possible CSRF attack")
 
         if not auth_code:
             raise Exception("No authorization code received")
@@ -438,9 +446,20 @@ class OAuthClientProvider(httpx.Auth):
             )
 
             if response.status_code != 200:
-                raise Exception(
-                    f"Token exchange failed: {response.status_code} {response.text}"
-                )
+                # Try to parse OAuth error response, otherwise use basic error
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get(
+                        "error_description", error_data.get("error", "Unknown error")
+                    )
+                    raise Exception(
+                        f"Token exchange failed: {error_msg} "
+                        f"(HTTP {response.status_code})"
+                    )
+                except Exception:
+                    raise Exception(
+                        f"Token exchange failed: {response.status_code} {response.text}"
+                    )
 
             # Parse and store tokens
             token_response = OAuthToken.model_validate(response.json())
@@ -499,7 +518,8 @@ class OAuthClientProvider(httpx.Auth):
                 # Parse and store new tokens
                 token_response = OAuthToken.model_validate(response.json())
 
-                # Validate returned scopes against requested scopes (OAuth 2.1 Section 3.3)
+                # Validate returned scopes against requested scopes
+                # (OAuth 2.1 Section 3.3)
                 await self._validate_token_scopes(token_response)
 
                 # Calculate expiry time if available

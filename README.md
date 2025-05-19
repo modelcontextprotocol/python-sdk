@@ -801,7 +801,7 @@ async def main():
 The SDK supports OAuth 2.0 client authentication for secure access to MCP servers that require authentication:
 
 ```python
-from mcp.client.auth import OAuthClientProvider, UnauthorizedError
+from mcp.client.auth import UnauthorizedError
 from mcp.client.oauth_providers import InMemoryOAuthProvider
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientMetadata
@@ -816,6 +816,7 @@ oauth_provider = InMemoryOAuthProvider(
         scope="tools resources",  # Request specific scopes
     ),
 )
+
 
 async def main():
     # Connect with OAuth authentication
@@ -833,6 +834,7 @@ async def main():
             except UnauthorizedError:
                 # Handle authorization required
                 print("Authorization required. Check your browser.")
+
 
 # Handle OAuth callback after user authorization
 async def handle_callback(authorization_code: str):
@@ -856,14 +858,17 @@ You can implement custom OAuth storage by creating your own provider:
 ```python
 from mcp.client.oauth_providers import InMemoryOAuthProvider
 
+
 class DatabaseOAuthProvider(InMemoryOAuthProvider):
     async def save_tokens(self, tokens):
         # Save to database
-        await db.save_tokens(self.client_id, tokens)
+        # await db.save_tokens(self.client_id, tokens)
+        pass
     
     async def tokens(self):
         # Load from database
-        return await db.load_tokens(self.client_id)
+        # return await db.load_tokens(self.client_id)
+        return None
     
     # Implement other methods as needed...
 ```

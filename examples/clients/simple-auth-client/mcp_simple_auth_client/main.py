@@ -135,7 +135,7 @@ class SimpleAuthClient:
     def __init__(self, server_url: str):
         self.server_url = server_url
         # Extract base URL for auth server (remove /mcp endpoint for auth endpoints)
-        # Use default redirect URI - this is where the auth server will redirect the user
+        # Use default redirect URI - this is where the auth server will redirect
         # The user will need to copy the authorization code from this callback URL
         self.session: ClientSession | None = None
 
