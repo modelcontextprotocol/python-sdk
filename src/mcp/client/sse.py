@@ -1,6 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urljoin, urlparse
 
 import anyio
@@ -10,7 +10,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from httpx_sse import aconnect_sse
 
 import mcp.types as types
-from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,7 @@ async def sse_client(
     headers: dict[str, Any] | None = None,
     timeout: float = 5,
     sse_read_timeout: float = 60 * 5,
+    httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
 ):
     """
     Client transport for SSE.
@@ -45,7 +46,7 @@ async def sse_client(
     async with anyio.create_task_group() as tg:
         try:
             logger.info(f"Connecting to SSE endpoint: {remove_request_params(url)}")
-            async with create_mcp_http_client(headers=headers) as client:
+            async with httpx_client_factory(headers=headers) as client:
                 async with aconnect_sse(
                     client,
                     "GET",
