@@ -102,20 +102,16 @@ class CallbackServer:
         self.port = port
         self.server = None
         self.thread = None
-        self.callback_data = {
-            "authorization_code": None,
-            "state": None,
-            "error": None
-        }
+        self.callback_data = {"authorization_code": None, "state": None, "error": None}
 
     def _create_handler_with_data(self):
         """Create a handler class with access to callback data."""
         callback_data = self.callback_data
-        
+
         class DataCallbackHandler(CallbackHandler):
             def __init__(self, request, client_address, server):
                 super().__init__(request, client_address, server, callback_data)
-        
+
         return DataCallbackHandler
 
     def start(self):
@@ -144,7 +140,7 @@ class CallbackServer:
                 raise Exception(f"OAuth error: {self.callback_data['error']}")
             time.sleep(0.1)
         raise Exception("Timeout waiting for OAuth callback")
-        
+
     def get_state(self):
         """Get the received state parameter."""
         return self.callback_data["state"]
@@ -155,9 +151,6 @@ class SimpleAuthClient:
 
     def __init__(self, server_url: str):
         self.server_url = server_url
-        # Extract base URL for auth server (remove /mcp endpoint for auth endpoints)
-        # Use default redirect URI - this is where the auth server will redirect
-        # The user will need to copy the authorization code from this callback URL
         self.session: ClientSession | None = None
 
     async def connect(self):
@@ -201,8 +194,6 @@ class SimpleAuthClient:
                 redirect_handler=_default_redirect_handler,
                 callback_handler=callback_handler,
             )
-
-            # Initialize the auth handler and ensure we have tokens
 
             # Create streamable HTTP transport with auth handler
             stream_context = streamablehttp_client(
