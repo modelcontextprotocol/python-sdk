@@ -414,7 +414,7 @@ class TestOAuthClientProvider:
 
     @pytest.mark.anyio
     async def test_validate_token_scopes_no_requested(self, oauth_provider):
-        """Test scope validation with no requested scopes."""
+        """Test scope validation with no requested scopes accepts any server scopes."""
         # No scope in client metadata
         oauth_provider.client_metadata.scope = None
         token = OAuthToken(
@@ -423,7 +423,8 @@ class TestOAuthClientProvider:
             scope="admin super",
         )
 
-        # Should not raise exception when no scopes were requested
+        # Should not raise exception when no scopes were explicitly requested
+        # (accepts server defaults)
         await oauth_provider._validate_token_scopes(token)
 
     @pytest.mark.anyio
@@ -780,10 +781,10 @@ class TestOAuthClientProvider:
 
         assert auth_params["scope"] == "read write"
 
-    def test_scope_priority_client_info_fallback(
+    def test_scope_priority_no_client_metadata_scope(
         self, oauth_provider, oauth_client_info
     ):
-        """Test that client info scope is used as fallback."""
+        """Test that no scope parameter is set when client metadata has no scope."""
         oauth_provider.client_metadata.scope = None
         oauth_provider._client_info = oauth_client_info
         oauth_provider._client_info.scope = "admin"
@@ -798,16 +799,13 @@ class TestOAuthClientProvider:
             "code_challenge_method": "S256",
         }
 
-        # Apply scope logic from _perform_oauth_flow
+        # Apply simplified scope logic from _perform_oauth_flow
         if oauth_provider.client_metadata.scope:
             auth_params["scope"] = oauth_provider.client_metadata.scope
-        elif (
-            hasattr(oauth_provider._client_info, "scope")
-            and oauth_provider._client_info.scope
-        ):
-            auth_params["scope"] = oauth_provider._client_info.scope
+        # No fallback to client_info scope in simplified logic
 
-        assert auth_params["scope"] == "admin"
+        # No scope should be set since client metadata doesn't have explicit scope
+        assert "scope" not in auth_params
 
     def test_scope_priority_no_scope(self, oauth_provider, oauth_client_info):
         """Test that no scope parameter is set when no scopes specified."""
@@ -888,7 +886,7 @@ class TestOAuthClientProvider:
         oauth_provider.redirect_handler = mock_redirect_handler
 
         with pytest.raises(
-            Exception, match="State parameter mismatch - possible CSRF attack"
+            Exception, match="State parameter is missing - possible CSRF attack"
         ):
             await oauth_provider._perform_oauth_flow()
 

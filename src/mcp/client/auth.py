@@ -1,10 +1,7 @@
 """
-Production-ready OAuth2 Authentication implementation for HTTPX using anyio.
+OAuth2 Authentication implementation for HTTPX.
 
-This module provides a complete OAuth 2.0 authentication implementation
-that handles authorization code flow with PKCE,
-automatic token refresh and proper error handling.
-The callback server implementation should be handled by the calling code.
+Implements authorization code flow with PKCE and automatic token refresh.
 """
 
 import base64
@@ -64,7 +61,7 @@ class OAuthClientProvider(httpx.Auth):
         storage: TokenStorage,
         redirect_handler: Callable[[str], Awaitable[None]],
         callback_handler: Callable[[], Awaitable[tuple[str, str | None]]],
-        timeout: float = 300.0,  # 5 minutes timeout for OAuth flow
+        timeout: float = 300.0,
     ):
         """
         Initialize OAuth2 authentication.
@@ -85,17 +82,20 @@ class OAuthClientProvider(httpx.Auth):
         self.callback_handler = callback_handler
         self.timeout = timeout
 
-        # Cache for current tokens and metadata
+        # Cached authentication state
         self._current_tokens: OAuthToken | None = None
         self._metadata: OAuthMetadata | None = None
         self._client_info: OAuthClientInformationFull | None = None
         self._token_expiry_time: float | None = None
 
-        # PKCE parameters
+        # PKCE flow parameters
         self._code_verifier: str | None = None
         self._code_challenge: str | None = None
 
-        # Lock for thread safety during token operations
+        # State parameter for CSRF protection
+        self._auth_state: str | None = None
+
+        # Thread safety lock
         self._token_lock = anyio.Lock()
 
     def _generate_code_verifier(self) -> str:
@@ -112,30 +112,21 @@ class OAuthClientProvider(httpx.Auth):
 
     def _get_authorization_base_url(self, server_url: str) -> str:
         """
-        Determine the authorization base URL by discarding any path component.
-
-        Per MCP spec Section 2.3.2: "The authorization base URL MUST be determined
-        from the MCP server URL by discarding any existing path component."
-
-        Example: https://api.example.com/v1/mcp -> https://api.example.com
+        Extract base URL by removing path component.
+        
+        Per MCP spec 2.3.2: https://api.example.com/v1/mcp -> https://api.example.com
         """
         from urllib.parse import urlparse, urlunparse
 
         parsed = urlparse(server_url)
-        # Discard path component by setting it to empty
+        # Remove path component
         return urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
 
     async def _discover_oauth_metadata(self, server_url: str) -> OAuthMetadata | None:
         """
-        Discovers OAuth metadata from the server's well-known endpoint.
-
-        Args:
-            server_url: Base URL of the OAuth server
-
-        Returns:
-            OAuthMetadata if found, None otherwise
+        Discover OAuth metadata from server's well-known endpoint.
         """
-        # Get authorization base URL per MCP spec Section 2.3.2
+        # Extract base URL per MCP spec
         auth_base_url = self._get_authorization_base_url(server_url)
         url = urljoin(auth_base_url, "/.well-known/oauth-authorization-server")
         headers = {"MCP-Protocol-Version": LATEST_PROTOCOL_VERSION}
@@ -150,7 +141,7 @@ class OAuthClientProvider(httpx.Auth):
                 logger.debug(f"OAuth metadata discovered: {metadata_json}")
                 return OAuthMetadata.model_validate(metadata_json)
             except Exception:
-                # Try without MCP protocol version header for CORS issues
+                # Retry without MCP header for CORS compatibility
                 try:
                     response = await client.get(url)
                     if response.status_code == 404:
@@ -172,15 +163,7 @@ class OAuthClientProvider(httpx.Auth):
         metadata: OAuthMetadata | None = None,
     ) -> OAuthClientInformationFull:
         """
-        Registers an OAuth client with the server.
-
-        Args:
-            server_url: Base URL of the OAuth server
-            client_metadata: Client metadata for registration
-            metadata: Optional OAuth metadata (will be discovered if not provided)
-
-        Returns:
-            Registered client information
+        Register OAuth client with server.
         """
         if not metadata:
             metadata = await self._discover_oauth_metadata(server_url)
@@ -188,11 +171,11 @@ class OAuthClientProvider(httpx.Auth):
         if metadata and metadata.registration_endpoint:
             registration_url = str(metadata.registration_endpoint)
         else:
-            # Use authorization base URL for fallback registration endpoint
+            # Use fallback registration endpoint
             auth_base_url = self._get_authorization_base_url(server_url)
             registration_url = urljoin(auth_base_url, "/register")
 
-        # Prepare registration data
+        # Serialize client metadata
         registration_data = client_metadata.model_dump(
             by_alias=True, mode="json", exclude_none=True
         )
@@ -226,15 +209,13 @@ class OAuthClientProvider(httpx.Auth):
         self, request: httpx.Request
     ) -> AsyncGenerator[httpx.Request, httpx.Response]:
         """
-        Handle authentication flow for requests.
-
-        This method adds the Bearer token if available and handles 401 responses.
+        HTTPX auth flow integration.
         """
 
         if not self._has_valid_token():
             await self.initialize()
             await self.ensure_token()
-        # Add token to request if available
+        # Add Bearer token if available
         if self._current_tokens and self._current_tokens.access_token:
             request.headers["Authorization"] = (
                 f"Bearer {self._current_tokens.access_token}"
@@ -242,11 +223,8 @@ class OAuthClientProvider(httpx.Auth):
 
         response = yield request
 
-        # If we get a 401, we could attempt refresh or re-auth
-        # but due to the synchronous nature of this method, the calling code
-        # should handle token refresh/re-authentication at a higher level
+        # Clear token on 401 to trigger re-auth
         if response.status_code == 401:
-            # Clear the token so next request will trigger re-auth
             self._current_tokens = None
 
     def _has_valid_token(self) -> bool:
@@ -254,7 +232,7 @@ class OAuthClientProvider(httpx.Auth):
         if not self._current_tokens or not self._current_tokens.access_token:
             return False
 
-        # Check token expiry if available
+        # Check expiry time
         if self._token_expiry_time and time.time() > self._token_expiry_time:
             return False
 
@@ -262,62 +240,44 @@ class OAuthClientProvider(httpx.Auth):
 
     async def _validate_token_scopes(self, token_response: OAuthToken) -> None:
         """
-        Validate that returned scopes are a subset of requested scopes.
-
-        Per OAuth 2.1 Section 3.3, the authorization server may issue a narrower
-        set of scopes than requested, but must not grant additional scopes.
+        Validate returned scopes against requested scopes.
+        
+        Per OAuth 2.1 Section 3.3: server may grant subset, not superset.
         """
         if not token_response.scope:
-            # If no scope is returned, validation passes
-            # (server didn't grant anything extra)
+            # No scope returned = validation passes
             return
 
-        # Get the originally requested scopes
+        # Check explicitly requested scopes only
         requested_scopes: set[str] = set()
 
-        # Check for explicitly requested scopes from client metadata
         if self.client_metadata.scope:
-            requested_scopes.update(self.client_metadata.scope.split())
+            # Validate against explicit scope request
+            requested_scopes = set(self.client_metadata.scope.split())
 
-        # If we have registered client info with specific scopes, use those
-        # (This handles cases where scopes were negotiated during registration)
-        if (
-            self._client_info
-            and hasattr(self._client_info, "scope")
-            and self._client_info.scope
-        ):
-            # Only override if the client metadata didn't have explicit scopes
-            # This represents what was actually registered/negotiated with the server
-            if not requested_scopes:
-                requested_scopes.update(self._client_info.scope.split())
+            # Check for unauthorized scopes
+            returned_scopes = set(token_response.scope.split())
+            unauthorized_scopes = returned_scopes - requested_scopes
 
-        # Parse returned scopes
-        returned_scopes: set[str] = set(token_response.scope.split())
-
-        # Validate that returned scopes are a subset of requested scopes
-        # Only enforce strict validation if we actually have requested scopes
-        if requested_scopes:
-            unauthorized_scopes: set[str] = returned_scopes - requested_scopes
             if unauthorized_scopes:
                 raise Exception(
                     f"Server granted unauthorized scopes: {unauthorized_scopes}. "
                     f"Requested: {requested_scopes}, Returned: {returned_scopes}"
                 )
         else:
-            # If no scopes were originally requested (fell back to server defaults),
-            # accept whatever the server returned
+            # No explicit scopes requested - accept server defaults
             logger.debug(
-                f"No specific scopes were requested, accepting server-granted "
-                f"scopes: {returned_scopes}"
+                f"No explicit scopes requested, accepting server-granted "
+                f"scopes: {set(token_response.scope.split())}"
             )
 
     async def initialize(self) -> None:
-        """Initialize the auth handler by loading stored tokens and client info."""
+        """Load stored tokens and client info."""
         self._current_tokens = await self.storage.get_tokens()
         self._client_info = await self.storage.get_client_info()
 
     async def _get_or_register_client(self) -> OAuthClientInformationFull:
-        """Get existing client info or register a new client."""
+        """Get or register client with server."""
         if not self._client_info:
             try:
                 self._client_info = await self._register_oauth_client(
@@ -330,13 +290,13 @@ class OAuthClientProvider(httpx.Auth):
         return self._client_info
 
     async def ensure_token(self) -> None:
-        """Ensure we have a valid access token, performing OAuth flow if needed."""
+        """Ensure valid access token, refreshing or re-authenticating as needed."""
         async with self._token_lock:
-            # Check if we have a valid token
+            # Return early if token is valid
             if self._has_valid_token():
                 return
 
-            # Try to refresh token first
+            # Try refreshing existing token
             if (
                 self._current_tokens
                 and self._current_tokens.refresh_token
@@ -344,85 +304,78 @@ class OAuthClientProvider(httpx.Auth):
             ):
                 return
 
-            # Perform full OAuth flow
+            # Fall back to full OAuth flow
             await self._perform_oauth_flow()
 
     async def _perform_oauth_flow(self) -> None:
-        """Perform complete OAuth2 authorization code flow."""
+        """Execute OAuth2 authorization code flow with PKCE."""
         logger.debug("Starting authentication flow.")
 
-        # Discover metadata if not already done
+        # Discover OAuth metadata
         if not self._metadata:
             self._metadata = await self._discover_oauth_metadata(self.server_url)
 
-        # Get or register client
+        # Ensure client registration
         client_info = await self._get_or_register_client()
 
-        # Generate PKCE parameters
+        # Generate PKCE challenge
         self._code_verifier = self._generate_code_verifier()
         self._code_challenge = self._generate_code_challenge(self._code_verifier)
 
-        # Determine endpoints from metadata or use defaults
+        # Get authorization endpoint
         if self._metadata and self._metadata.authorization_endpoint:
             auth_url_base = str(self._metadata.authorization_endpoint)
         else:
-            # Use authorization base URL for fallback authorization endpoint
+            # Use fallback authorization endpoint
             auth_base_url = self._get_authorization_base_url(self.server_url)
             auth_url_base = urljoin(auth_base_url, "/authorize")
 
         # Build authorization URL
+        self._auth_state = secrets.token_urlsafe(32)
         auth_params = {
             "response_type": "code",
             "client_id": client_info.client_id,
             "redirect_uri": str(self.client_metadata.redirect_uris[0]),
-            "state": secrets.token_urlsafe(32),
+            "state": self._auth_state,
             "code_challenge": self._code_challenge,
             "code_challenge_method": "S256",
         }
 
-        # Set scope parameter following OAuth 2.1 principles:
-        # 1. Use client's explicit request first (what developer wants)
-        # 2. Use registered client scope as fallback (what was negotiated)
-        # 3. No scope = let server decide (omit scope parameter)
+        # Include explicit scopes only
         if self.client_metadata.scope:
             auth_params["scope"] = self.client_metadata.scope
-        elif hasattr(client_info, "scope") and client_info.scope:
-            auth_params["scope"] = client_info.scope
-        # If no scope specified anywhere, don't include scope parameter
-        # This lets the server grant default scopes per OAuth 2.1
 
         auth_url = f"{auth_url_base}?{urlencode(auth_params)}"
 
-        # Handle redirect (open browser or custom handler)
+        # Redirect user for authorization
         await self.redirect_handler(auth_url)
 
         auth_code, returned_state = await self.callback_handler()
 
-        # Validate state parameter using constant-time comparison
-        # to prevent timing attacks
-        if returned_state is None:
-            raise Exception("State parameter mismatch - possible CSRF attack")
-        # Type cast to ensure both args are str for compare_digest
-        expected_state = str(auth_params["state"])
-        actual_state = str(returned_state)
-        if not secrets.compare_digest(actual_state, expected_state):
-            raise Exception("State parameter mismatch - possible CSRF attack")
+        # Validate state parameter for CSRF protection
+        if returned_state is None or not secrets.compare_digest(
+            returned_state, self._auth_state
+        ):
+            raise Exception("State parameter mismatch")
+
+        # Clear state after validation
+        self._auth_state = None
 
         if not auth_code:
             raise Exception("No authorization code received")
 
-        # Exchange code for token
+        # Exchange authorization code for tokens
         await self._exchange_code_for_token(auth_code, client_info)
 
     async def _exchange_code_for_token(
         self, auth_code: str, client_info: OAuthClientInformationFull
     ) -> None:
         """Exchange authorization code for access token."""
-        # Determine token endpoint
+        # Get token endpoint
         if self._metadata and self._metadata.token_endpoint:
             token_url = str(self._metadata.token_endpoint)
         else:
-            # Use authorization base URL for fallback token endpoint
+            # Use fallback token endpoint
             auth_base_url = self._get_authorization_base_url(self.server_url)
             token_url = urljoin(auth_base_url, "/token")
 
@@ -446,7 +399,7 @@ class OAuthClientProvider(httpx.Auth):
             )
 
             if response.status_code != 200:
-                # Try to parse OAuth error response, otherwise use basic error
+                # Parse OAuth error response
                 try:
                     error_data = response.json()
                     error_msg = error_data.get(
@@ -461,35 +414,35 @@ class OAuthClientProvider(httpx.Auth):
                         f"Token exchange failed: {response.status_code} {response.text}"
                     )
 
-            # Parse and store tokens
+            # Parse token response
             token_response = OAuthToken.model_validate(response.json())
 
-            # Validate returned scopes against requested scopes (OAuth 2.1 Section 3.3)
+            # Validate token scopes
             await self._validate_token_scopes(token_response)
 
-            # Calculate expiry time if available
+            # Calculate token expiry
             if token_response.expires_in:
                 self._token_expiry_time = time.time() + token_response.expires_in
             else:
                 self._token_expiry_time = None
 
-            # Store tokens in storage and cache
+            # Store tokens
             await self.storage.set_tokens(token_response)
             self._current_tokens = token_response
 
     async def _refresh_access_token(self) -> bool:
-        """Refresh the access token using refresh token."""
+        """Refresh access token using refresh token."""
         if not self._current_tokens or not self._current_tokens.refresh_token:
             return False
 
-        # Get client info
+        # Get client credentials
         client_info = await self._get_or_register_client()
 
-        # Determine token endpoint
+        # Get token endpoint
         if self._metadata and self._metadata.token_endpoint:
             token_url = str(self._metadata.token_endpoint)
         else:
-            # Use authorization base URL for fallback token endpoint
+            # Use fallback token endpoint
             auth_base_url = self._get_authorization_base_url(self.server_url)
             token_url = urljoin(auth_base_url, "/token")
 
@@ -515,20 +468,19 @@ class OAuthClientProvider(httpx.Auth):
                     logger.error(f"Token refresh failed: {response.status_code}")
                     return False
 
-                # Parse and store new tokens
+                # Parse refreshed tokens
                 token_response = OAuthToken.model_validate(response.json())
 
-                # Validate returned scopes against requested scopes
-                # (OAuth 2.1 Section 3.3)
+                # Validate token scopes
                 await self._validate_token_scopes(token_response)
 
-                # Calculate expiry time if available
+                # Calculate token expiry
                 if token_response.expires_in:
                     self._token_expiry_time = time.time() + token_response.expires_in
                 else:
                     self._token_expiry_time = None
 
-                # Store tokens in storage and cache
+                # Store refreshed tokens
                 await self.storage.set_tokens(token_response)
                 self._current_tokens = token_response
 
