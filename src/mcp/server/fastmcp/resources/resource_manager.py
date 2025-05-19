@@ -89,6 +89,22 @@ class ResourceManager:
         logger.debug("Listing resources", extra={"count": len(self._resources)})
         return list(self._resources.values())
 
+    def update_resource(self, resource: Resource) -> Resource:
+        """Update an existing resource."""
+        logger.debug(
+            "Updating resource",
+            extra={
+                "uri": resource.uri,
+                "type": type(resource).__name__,
+                "status": resource.status,
+                "resource_name": resource.name,
+            },
+        )
+        if str(resource.uri) not in self._resources:
+            raise ValueError(f"Resource not found: {resource.uri}")
+        self._resources[str(resource.uri)] = resource
+        return resource
+
     def list_templates(self) -> list[ResourceTemplate]:
         """List all registered templates."""
         logger.debug("Listing templates", extra={"count": len(self._templates)})

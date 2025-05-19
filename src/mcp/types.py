@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from enum import Enum
 from typing import (
     Annotated,
     Any,
@@ -368,15 +369,31 @@ class Annotations(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class ResourceStatus(str, Enum):
+    """The status of a resource."""
+
+    READY = "ready"
+    """Resource is ready to be read."""
+    PENDING = "pending"
+    """Resource is being created or processed."""
+    ERROR = "error"
+    """Resource has an error state."""
+    DELETED = "deleted"
+    """Resource has been deleted."""
+
+
 class Resource(BaseModel):
     """A known resource that the server is capable of reading."""
 
+    type: Literal["resource"]
     uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """The URI of this resource."""
     name: str
     """A human-readable name for this resource."""
     description: str | None = None
     """A description of what this resource represents."""
+    status: ResourceStatus | None = None
+    """The status of this resource."""
     mimeType: str | None = None
     """The MIME type of this resource, if known."""
     size: int | None = None
@@ -791,7 +808,7 @@ class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
 class CallToolResult(Result):
     """The server's response to a tool call."""
 
-    content: list[TextContent | ImageContent | EmbeddedResource]
+    content: list[TextContent | ImageContent | EmbeddedResource | Resource]
     isError: bool = False
 
 

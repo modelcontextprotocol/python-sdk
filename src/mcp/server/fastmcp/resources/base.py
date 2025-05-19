@@ -13,6 +13,8 @@ from pydantic import (
     field_validator,
 )
 
+from mcp.types import ResourceStatus as MCPResourceStatus
+
 
 class Resource(BaseModel, abc.ABC):
     """Base class for all resources."""
@@ -30,6 +32,10 @@ class Resource(BaseModel, abc.ABC):
         default="text/plain",
         description="MIME type of the resource content",
         pattern=r"^[a-zA-Z0-9]+/[a-zA-Z0-9\-+.]+$",
+    )
+    status: MCPResourceStatus = Field(
+        default=MCPResourceStatus.PENDING,
+        description="Status of the resource",
     )
 
     @field_validator("name", mode="before")

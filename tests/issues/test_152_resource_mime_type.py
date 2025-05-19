@@ -83,12 +83,16 @@ async def test_lowlevel_resource_mime_type():
     # Create test resources with specific mime types
     test_resources = [
         types.Resource(
-            uri=AnyUrl("test://image"), name="test image", mimeType="image/png"
+            uri=AnyUrl("test://image"),
+            name="test image",
+            mimeType="image/png",
+            type="resource",
         ),
         types.Resource(
             uri=AnyUrl("test://image_bytes"),
             name="test image bytes",
             mimeType="image/png",
+            type="resource",
         ),
     ]
 

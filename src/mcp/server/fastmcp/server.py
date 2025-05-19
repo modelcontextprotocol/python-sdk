@@ -269,7 +269,7 @@ class FastMCP:
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any]
-    ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+    ) -> Sequence[TextContent | ImageContent | EmbeddedResource | MCPResource]:
         """Call a tool by name with arguments."""
         context = self.get_context()
         result = await self._tool_manager.call_tool(name, arguments, context=context)
@@ -282,10 +282,12 @@ class FastMCP:
         resources = self._resource_manager.list_resources()
         return [
             MCPResource(
+                type="resource",
                 uri=resource.uri,
                 name=resource.name or "",
                 description=resource.description,
                 mimeType=resource.mime_type,
+                status=resource.status,
             )
             for resource in resources
         ]
@@ -869,7 +871,7 @@ class FastMCP:
 
 def _convert_to_content(
     result: Any,
-) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+) -> Sequence[TextContent | ImageContent | EmbeddedResource | MCPResource]:
     """Convert a result to a sequence of content objects."""
     if result is None:
         return []
