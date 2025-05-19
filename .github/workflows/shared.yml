@@ -33,20 +33,17 @@ jobs:
         run: |
           uv run --no-sync python -m pip install python-jose types-python-jose
 
-      - name: Install local mcp package
-        run: |
-          uv run --no-sync pip install -e ./src
-
       - name: Verify installation
         run: uv run --no-sync python -m pip list
 
       - name: Set Python Path for MCP
-        run: echo "PYTHONPATH=$PYTHONPATH:$(pwd)/src" >> $GITHUB_ENV
+        run: echo "PYTHONPATH=$(pwd)/src" >> $GITHUB_ENV
 
       - name: Run pytest
         env:
           PYTHONPATH: ${{ env.PYTHONPATH }}
         run: uv run --no-sync pytest
+
 
 
 
