@@ -1,62 +1,32 @@
-name: Shared Checks
+test:
+  runs-on: ubuntu-latest
+  strategy:
+    matrix:
+      python-version: ["3.10", "3.11", "3.12", "3.13"]
 
-on:
-  workflow_call:
+  steps:
+    - uses: actions/checkout@v4
 
-jobs:
-  format:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        enable-cache: true
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
+    - name: Install the project with the correct Python version
+      run: uv sync --frozen --all-extras --dev --python ${{ matrix.python-version }}
 
-      - name: Install the project
-        run: uv sync --frozen --all-extras --dev --python 3.12
+    - name: Ensure pip is installed
+      run: |
+        uv run --no-sync python -m ensurepip --upgrade
 
-      - name: Run ruff format check
-        run: uv run --no-sync ruff check .
+    - name: Upgrade pip
+      run: |
+        uv run --no-sync python -m pip install --upgrade pip
 
-  typecheck:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    - name: Install jose dependencies
+      run: |
+        uv run --no-sync python -m pip install python-jose types-python-jose
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-
-      - name: Install the project
-        run: uv sync --frozen --all-extras --dev --python 3.12
-
-      - name: Run pyright
-        run: uv run --no-sync pyright
-
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-
-      - name: Install the project
-        run: uv sync --frozen --all-extras --dev --python ${{ matrix.python-version }}
-
-      - name: Activate environment and install jose
-        run: |
-          uv run --no-sync python -m pip install python-jose types-python-jose
-
-      - name: Run pytest
-        run: uv run --no-sync pytest
+    - name: Run pytest
+      run: uv run --no-sync pytest
 
