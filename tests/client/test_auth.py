@@ -858,9 +858,7 @@ class TestOAuthClientProvider:
         with patch(
             "mcp.client.auth.secrets.compare_digest", return_value=False
         ) as mock_compare:
-            with pytest.raises(
-                Exception, match="State parameter mismatch - possible CSRF attack"
-            ):
+            with pytest.raises(Exception, match="State parameter mismatch"):
                 await oauth_provider._perform_oauth_flow()
 
             # Verify constant-time comparison was used
@@ -885,9 +883,7 @@ class TestOAuthClientProvider:
 
         oauth_provider.redirect_handler = mock_redirect_handler
 
-        with pytest.raises(
-            Exception, match="State parameter is missing - possible CSRF attack"
-        ):
+        with pytest.raises(Exception, match="State parameter mismatch"):
             await oauth_provider._perform_oauth_flow()
 
     @pytest.mark.anyio
