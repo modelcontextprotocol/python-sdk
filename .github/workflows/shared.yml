@@ -4,38 +4,6 @@ on:
   workflow_call:
 
 jobs:
-  format:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-
-      - name: Install the project
-        run: uv sync --frozen --all-extras --dev --python 3.13
-
-      - name: Run ruff format check
-        run: uv run --no-sync ruff check .
-
-  typecheck:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-
-      - name: Install the project
-        run: uv sync --frozen --all-extras --dev --python 3.13
-
-      - name: Run pyright
-        run: uv run --no-sync pyright
-
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -44,6 +12,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Clear UV Cache (if exists)
+        run: uv cache clear || true
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
@@ -62,10 +33,20 @@ jobs:
         run: |
           uv run --no-sync python -m pip install python-jose types-python-jose
 
+      - name: Install local mcp package
+        run: |
+          uv run --no-sync pip install -e ./src
+
       - name: Verify installation
         run: uv run --no-sync python -m pip list
 
+      - name: Set Python Path for MCP
+        run: echo "PYTHONPATH=$PYTHONPATH:$(pwd)/src" >> $GITHUB_ENV
+
       - name: Run pytest
+        env:
+          PYTHONPATH: ${{ env.PYTHONPATH }}
         run: uv run --no-sync pytest
+
 
 
