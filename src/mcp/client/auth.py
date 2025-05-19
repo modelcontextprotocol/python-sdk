@@ -175,6 +175,10 @@ class OAuthClientProvider(httpx.Auth):
             auth_base_url = self._get_authorization_base_url(server_url)
             registration_url = urljoin(auth_base_url, "/register")
 
+        # Handle default scope
+        if client_metadata.scope is None and metadata and metadata.scopes_supported is not None:
+            client_metadata.scope = " ".join(metadata.scopes_supported)
+
         # Serialize client metadata
         registration_data = client_metadata.model_dump(
             by_alias=True, mode="json", exclude_none=True
@@ -356,7 +360,7 @@ class OAuthClientProvider(httpx.Auth):
         if returned_state is None or not secrets.compare_digest(
             returned_state, self._auth_state
         ):
-            raise Exception("State parameter mismatch")
+            raise Exception(f"State parameter mismatch: {returned_state} != {self._auth_state}")
 
         # Clear state after validation
         self._auth_state = None
