@@ -798,7 +798,7 @@ async def main():
 
 ### OAuth Authentication for Clients
 
-The SDK includes OAuth 2.0 support for connecting to protected MCP servers:
+The SDK includes [authorization support](https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization) for connecting to protected MCP servers:
 
 ```python
 from mcp.client.auth import OAuthClientProvider
