@@ -12,7 +12,7 @@ httpx==0.28.1
 httpx-sse==0.4.0
 idna==3.10
 iniconfig==2.1.0
--e git+https://github.com/Vinisha-Projects/python-sdk.git@d5b54f43d7efcfaadf21f1a1a66e54951188b10b#egg=mcp
+-e git+https://github.com/Vinisha-Projects/python-sdk.git@23efae98ed37528a2dffd34988664b1b2585307b#egg=mcp
 mypy==1.15.0
 mypy_extensions==1.1.0
 packaging==25.0
