@@ -73,7 +73,7 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 
 ### Adding MCP to your python project
 
-We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python projects. 
+We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python projects.
 
 If you haven't created a uv-managed project yet, create one:
 
@@ -89,6 +89,7 @@ If you haven't created a uv-managed project yet, create one:
    ```
 
 Alternatively, for projects using pip for dependencies:
+
 ```bash
 pip install "mcp[cli]"
 ```
@@ -128,11 +129,13 @@ def get_greeting(name: str) -> str:
 ```
 
 You can install this server in [Claude Desktop](https://claude.ai/download) and interact with it right away by running:
+
 ```bash
 mcp install server.py
 ```
 
 Alternatively, you can test it with the MCP Inspector:
+
 ```bash
 mcp dev server.py
 ```
@@ -243,6 +246,67 @@ async def fetch_weather(city: str) -> str:
     async with httpx.AsyncClient() as client:
         response = await client.get(f"https://api.weather.com/{city}")
         return response.text
+```
+
+#### Output Schemas
+
+Tools automatically generate JSON Schema definitions for their return types, helping LLMs understand the structure of the data they'll receive:
+
+```python
+from pydantic import BaseModel
+
+# Tools with primitive return types
+@mcp.tool()
+def get_temperature(city: str) -> float:
+    """Get the current temperature for a city"""
+    # In a real implementation, this would fetch actual weather data
+    return 72.5
+
+# Tools with dictionary return types
+@mcp.tool()
+def get_user(user_id: int) -> dict:
+    """Get user information by ID"""
+    return {"id": user_id, "name": "John Doe", "email": "john@example.com"}
+
+# Using Pydantic models for structured output
+class WeatherData(BaseModel):
+    temperature: float
+    humidity: float
+    conditions: str
+
+@mcp.tool()
+def get_weather_data(city: str) -> WeatherData:
+    """Get structured weather data for a city"""
+    # In a real implementation, this would fetch actual weather data
+    return WeatherData(
+        temperature=72.5,
+        humidity=65.0,
+        conditions="Partly cloudy"
+    )
+
+# Complex nested models
+class Location(BaseModel):
+    city: str
+    country: str
+    coordinates: tuple[float, float]
+
+class WeatherForecast(BaseModel):
+    current: WeatherData
+    location: Location
+    forecast: list[WeatherData]
+
+@mcp.tool()
+def get_weather_forecast(city: str) -> WeatherForecast:
+    """Get detailed weather forecast for a city"""
+    # In a real implementation, this would fetch actual forecast data
+    return WeatherForecast(
+        current=WeatherData(temperature=72.5, humidity=65.0, conditions="Partly cloudy"),
+        location=Location(city=city, country="USA", coordinates=(37.7749, -122.4194)),
+        forecast=[
+            WeatherData(temperature=75.0, humidity=62.0, conditions="Sunny"),
+            WeatherData(temperature=68.0, humidity=80.0, conditions="Rainy")
+        ]
+    )
 ```
 
 ### Prompts
@@ -381,6 +445,7 @@ if __name__ == "__main__":
 ```
 
 Run it with:
+
 ```bash
 python server.py
 # or
@@ -458,17 +523,16 @@ app.mount("/math", math.mcp.streamable_http_app())
 ```
 
 For low level server with Streamable HTTP implementations, see:
+
 - Stateful server: [`examples/servers/simple-streamablehttp/`](examples/servers/simple-streamablehttp/)
 - Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](examples/servers/simple-streamablehttp-stateless/)
 
-
-
 The streamable HTTP transport supports:
+
 - Stateful and stateless operation modes
 - Resumability with event stores
-- JSON or SSE response formats  
+- JSON or SSE response formats
 - Better scalability for multi-node deployments
-
 
 ### Mounting to an Existing ASGI Server
 
@@ -637,6 +701,7 @@ async def query_db(name: str, arguments: dict) -> list:
 ```
 
 The lifespan API provides:
+
 - A way to initialize resources when the server starts and clean them up when it stops
 - Access to initialized resources through the request context in handlers
 - Type-safe context passing between lifespan and request handlers

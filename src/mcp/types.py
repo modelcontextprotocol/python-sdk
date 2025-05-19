@@ -338,7 +338,7 @@ class ProgressNotificationParams(NotificationParams):
     """
     total: float | None = None
     """
-    Message related to progress. This should provide relevant human readable 
+    Message related to progress. This should provide relevant human readable
     progress information.
     """
     message: str | None = None
@@ -741,7 +741,7 @@ class ToolAnnotations(BaseModel):
 
     idempotentHint: bool | None = None
     """
-    If true, calling the tool repeatedly with the same arguments 
+    If true, calling the tool repeatedly with the same arguments
     will have no additional effect on the its environment.
     (This property is meaningful only when `readOnlyHint == false`)
     Default: false
@@ -767,6 +767,8 @@ class Tool(BaseModel):
     """A human-readable description of the tool."""
     inputSchema: dict[str, Any]
     """A JSON Schema object defining the expected parameters for the tool."""
+    outputSchema: dict[str, Any] | None = None
+    """A JSON Schema object defining the expected output format of the tool."""
     annotations: ToolAnnotations | None = None
     """Optional additional tool information."""
     model_config = ConfigDict(extra="allow")

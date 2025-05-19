@@ -362,3 +362,170 @@ class TestToolAnnotations:
         assert tools[0].annotations is not None
         assert tools[0].annotations.title == "Echo Tool"
         assert tools[0].annotations.readOnlyHint is True
+
+
+class TestOutputSchema:
+    """Test the output schema generation for tools."""
+
+    def test_primitive_type_output_schemas(self):
+        """Test output schema generation for primitive return types."""
+        manager = ToolManager()
+
+        # String return type
+        def string_tool(text: str) -> str:
+            return text
+
+        tool = manager.add_tool(string_tool)
+        assert tool.output_schema == {"type": "string"}
+
+        # Integer return type
+        def int_tool(number: int) -> int:
+            return number
+
+        tool = manager.add_tool(int_tool)
+        assert tool.output_schema == {"type": "integer"}
+
+        # Float return type
+        def float_tool(number: float) -> float:
+            return number
+
+        tool = manager.add_tool(float_tool)
+        assert tool.output_schema == {"type": "number"}
+
+        # Boolean return type
+        def bool_tool(value: bool) -> bool:
+            return value
+
+        tool = manager.add_tool(bool_tool)
+        assert tool.output_schema == {"type": "boolean"}
+
+        # Dictionary return type
+        def dict_tool(data: dict) -> dict:
+            return data
+
+        tool = manager.add_tool(dict_tool)
+        assert tool.output_schema == {"type": "object"}
+
+        # List return type
+        def list_tool(items: list) -> list:
+            return items
+
+        tool = manager.add_tool(list_tool)
+        assert tool.output_schema == {"type": "array"}
+
+    def test_pydantic_model_output_schema(self):
+        """Test output schema generation for Pydantic model return types."""
+        manager = ToolManager()
+
+        class Person(BaseModel):
+            name: str
+            age: int
+            email: str | None = None
+
+        def create_person(name: str, age: int) -> Person:
+            return Person(name=name, age=age)
+
+        tool = manager.add_tool(create_person)
+        assert tool.output_schema is not None
+        assert tool.output_schema["type"] == "object"
+        assert "properties" in tool.output_schema
+        assert "name" in tool.output_schema["properties"]
+        assert "age" in tool.output_schema["properties"]
+        assert "email" in tool.output_schema["properties"]
+        assert tool.output_schema["properties"]["name"]["type"] == "string"
+        assert tool.output_schema["properties"]["age"]["type"] == "integer"
+        assert "anyOf" in tool.output_schema["properties"]["email"]
+        assert "string" in [
+            t["type"]
+            for t in tool.output_schema["properties"]["email"]["anyOf"]
+            if "type" in t
+        ]
+        assert "null" in [
+            t["type"]
+            for t in tool.output_schema["properties"]["email"]["anyOf"]
+            if "type" in t
+        ]
+
+    def test_complex_output_schema(self):
+        """Test output schema generation for complex return types."""
+        manager = ToolManager()
+
+        class Person(BaseModel):
+            name: str
+            age: int
+
+        class ApiResponse(BaseModel):
+            status: str
+            code: int
+            data: list[Person] | Person | None = None
+
+        def complex_response(success: bool) -> ApiResponse:
+            return ApiResponse(
+                status="success" if success else "error",
+                code=200 if success else 400,
+                data=None,
+            )
+
+        tool = manager.add_tool(complex_response)
+        assert tool.output_schema is not None
+        assert tool.output_schema["type"] == "object"
+        assert "properties" in tool.output_schema
+        assert "status" in tool.output_schema["properties"]
+        assert "code" in tool.output_schema["properties"]
+        assert "data" in tool.output_schema["properties"]
+        assert "anyOf" in tool.output_schema["properties"]["data"]
+
+    def test_generic_list_output_schema(self):
+        """Test output schema generation for generic list return types."""
+        manager = ToolManager()
+
+        def list_of_strings() -> list[str]:
+            return ["a", "b", "c"]
+
+        tool = manager.add_tool(list_of_strings)
+        assert tool.output_schema is not None
+        assert "items" in tool.output_schema
+        assert tool.output_schema["items"]["type"] == "string"
+
+    @pytest.mark.anyio
+    async def test_output_schema_in_fastmcp(self):
+        """Test that output schemas are included in FastMCP tool listing."""
+        app = FastMCP()
+
+        @app.tool()
+        def string_tool(text: str) -> str:
+            """Returns the input text"""
+            return text
+
+        @app.tool()
+        def int_tool(number: int) -> int:
+            """Returns the input number"""
+            return number
+
+        class Person(BaseModel):
+            name: str
+            age: int
+
+        @app.tool()
+        def create_person(name: str, age: int) -> Person:
+            """Creates a person object"""
+            return Person(name=name, age=age)
+
+        tools = await app.list_tools()
+        assert len(tools) == 3
+
+        # Check string tool
+        string_tool_info = next(t for t in tools if t.name == "string_tool")
+        assert string_tool_info.outputSchema == {"type": "string"}
+
+        # Check int tool
+        int_tool_info = next(t for t in tools if t.name == "int_tool")
+        assert int_tool_info.outputSchema == {"type": "integer"}
+
+        # Check complex tool
+        person_tool_info = next(t for t in tools if t.name == "create_person")
+        assert person_tool_info.outputSchema is not None
+        assert person_tool_info.outputSchema["type"] == "object"
+        assert "properties" in person_tool_info.outputSchema
+        assert "name" in person_tool_info.outputSchema["properties"]
+        assert "age" in person_tool_info.outputSchema["properties"]

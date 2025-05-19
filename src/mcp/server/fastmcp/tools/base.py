@@ -23,6 +23,9 @@ class Tool(BaseModel):
     name: str = Field(description="Name of the tool")
     description: str = Field(description="Description of what the tool does")
     parameters: dict[str, Any] = Field(description="JSON schema for tool parameters")
+    output_schema: dict[str, Any] | None = Field(
+        None, description="JSON schema for tool output format"
+    )
     fn_metadata: FuncMetadata = Field(
         description="Metadata about the function including a pydantic model for tool"
         " arguments"
@@ -45,6 +48,8 @@ class Tool(BaseModel):
         annotations: ToolAnnotations | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
+        from pydantic import TypeAdapter
+
         from mcp.server.fastmcp.server import Context
 
         func_name = name or fn.__name__
@@ -70,6 +75,32 @@ class Tool(BaseModel):
         )
         parameters = func_arg_metadata.arg_model.model_json_schema()
 
+        # Generate output schema from return type annotation if possible
+        output_schema = None
+        sig = inspect.signature(fn)
+        if sig.return_annotation != inspect.Signature.empty:
+            try:
+                # Handle common return types that don't need schema
+                if sig.return_annotation is str:
+                    output_schema = {"type": "string"}
+                elif sig.return_annotation is int:
+                    output_schema = {"type": "integer"}
+                elif sig.return_annotation is float:
+                    output_schema = {"type": "number"}
+                elif sig.return_annotation is bool:
+                    output_schema = {"type": "boolean"}
+                elif sig.return_annotation is dict:
+                    output_schema = {"type": "object"}
+                elif sig.return_annotation is list:
+                    output_schema = {"type": "array"}
+                else:
+                    # Try to generate schema using TypeAdapter
+                    return_type_adapter = TypeAdapter(sig.return_annotation)
+                    output_schema = return_type_adapter.json_schema()
+            except Exception:
+                # If we can't generate a schema, we'll leave it as None
+                pass
+
         return cls(
             fn=fn,
             name=func_name,
@@ -79,6 +110,7 @@ class Tool(BaseModel):
             is_async=is_async,
             context_kwarg=context_kwarg,
             annotations=annotations,
+            output_schema=output_schema,
         )
 
     async def run(
@@ -92,9 +124,11 @@ class Tool(BaseModel):
                 self.fn,
                 self.is_async,
                 arguments,
-                {self.context_kwarg: context}
-                if self.context_kwarg is not None
-                else None,
+                (
+                    {self.context_kwarg: context}
+                    if self.context_kwarg is not None
+                    else None
+                ),
             )
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e
