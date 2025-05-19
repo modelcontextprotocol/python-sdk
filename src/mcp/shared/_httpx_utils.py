@@ -12,8 +12,7 @@ class McpHttpClientFactory(Protocol):
         self,
         headers: dict[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
-    ) -> httpx.AsyncClient:
-        ...
+    ) -> httpx.AsyncClient: ...
 
 
 def create_mcp_http_client(

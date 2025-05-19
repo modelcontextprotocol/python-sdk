@@ -1,6 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import anyio
