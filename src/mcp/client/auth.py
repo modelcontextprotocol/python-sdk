@@ -113,7 +113,7 @@ class OAuthClientProvider(httpx.Auth):
     def _get_authorization_base_url(self, server_url: str) -> str:
         """
         Extract base URL by removing path component.
-        
+
         Per MCP spec 2.3.2: https://api.example.com/v1/mcp -> https://api.example.com
         """
         from urllib.parse import urlparse, urlunparse
@@ -176,7 +176,11 @@ class OAuthClientProvider(httpx.Auth):
             registration_url = urljoin(auth_base_url, "/register")
 
         # Handle default scope
-        if client_metadata.scope is None and metadata and metadata.scopes_supported is not None:
+        if (
+            client_metadata.scope is None
+            and metadata
+            and metadata.scopes_supported is not None
+        ):
             client_metadata.scope = " ".join(metadata.scopes_supported)
 
         # Serialize client metadata
@@ -245,7 +249,7 @@ class OAuthClientProvider(httpx.Auth):
     async def _validate_token_scopes(self, token_response: OAuthToken) -> None:
         """
         Validate returned scopes against requested scopes.
-        
+
         Per OAuth 2.1 Section 3.3: server may grant subset, not superset.
         """
         if not token_response.scope:
@@ -360,7 +364,9 @@ class OAuthClientProvider(httpx.Auth):
         if returned_state is None or not secrets.compare_digest(
             returned_state, self._auth_state
         ):
-            raise Exception(f"State parameter mismatch: {returned_state} != {self._auth_state}")
+            raise Exception(
+                f"State parameter mismatch: {returned_state} != {self._auth_state}"
+            )
 
         # Clear state after validation
         self._auth_state = None
