@@ -59,14 +59,11 @@ jobs:
       - name: Install the project
         run: uv sync --frozen --all-extras --dev --python ${{ matrix.python-version }}
 
+      - name: Clean existing mcp directory
+        run: rm -rf /home/runner/work/python-sdk/python-sdk/src/mcp
+
       - name: Install dependencies
         run: pip install -r requirements.txt
-        
-      - name: Install required packages
-        run: pip install python-jose types-python-jose
-
-      - name: Manually install python-jose (fix CI issue)
-        run: pip install python-jose types-python-jose
 
       - name: Run pytest
         run: uv run --no-sync pytest
