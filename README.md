@@ -254,6 +254,11 @@ Tools automatically generate JSON Schema definitions for their return types, hel
 
 ```python
 from pydantic import BaseModel
+from mcp.server.fastmcp import FastMCP
+
+# Create server
+mcp = FastMCP("Output Schema Demo")
+
 
 # Tools with primitive return types
 @mcp.tool()
@@ -262,17 +267,20 @@ def get_temperature(city: str) -> float:
     # In a real implementation, this would fetch actual weather data
     return 72.5
 
+
 # Tools with dictionary return types
 @mcp.tool()
 def get_user(user_id: int) -> dict:
     """Get user information by ID"""
     return {"id": user_id, "name": "John Doe", "email": "john@example.com"}
 
+
 # Using Pydantic models for structured output
 class WeatherData(BaseModel):
     temperature: float
     humidity: float
     conditions: str
+
 
 @mcp.tool()
 def get_weather_data(city: str) -> WeatherData:
@@ -281,8 +289,9 @@ def get_weather_data(city: str) -> WeatherData:
     return WeatherData(
         temperature=72.5,
         humidity=65.0,
-        conditions="Partly cloudy"
+        conditions="Partly cloudy",
     )
+
 
 # Complex nested models
 class Location(BaseModel):
@@ -290,22 +299,28 @@ class Location(BaseModel):
     country: str
     coordinates: tuple[float, float]
 
+
 class WeatherForecast(BaseModel):
     current: WeatherData
     location: Location
     forecast: list[WeatherData]
+
 
 @mcp.tool()
 def get_weather_forecast(city: str) -> WeatherForecast:
     """Get detailed weather forecast for a city"""
     # In a real implementation, this would fetch actual forecast data
     return WeatherForecast(
-        current=WeatherData(temperature=72.5, humidity=65.0, conditions="Partly cloudy"),
+        current=WeatherData(
+            temperature=72.5,
+            humidity=65.0,
+            conditions="Partly cloudy",
+        ),
         location=Location(city=city, country="USA", coordinates=(37.7749, -122.4194)),
         forecast=[
             WeatherData(temperature=75.0, humidity=62.0, conditions="Sunny"),
-            WeatherData(temperature=68.0, humidity=80.0, conditions="Rainy")
-        ]
+            WeatherData(temperature=68.0, humidity=80.0, conditions="Rainy"),
+        ],
     )
 ```
 
