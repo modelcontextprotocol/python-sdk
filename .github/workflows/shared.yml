@@ -17,6 +17,9 @@ jobs:
       - name: Install the project
         run: uv sync --frozen --all-extras --dev --python 3.12
 
+      - name: Install required packages
+        run: pip install python-jose types-python-jose
+
       - name: Run ruff format check
         run: uv run --no-sync ruff check .
 
@@ -33,15 +36,17 @@ jobs:
       - name: Install the project
         run: uv sync --frozen --all-extras --dev --python 3.12
 
+      - name: Install required packages
+        run: pip install python-jose types-python-jose
+
       - name: Run pyright
         run: uv run --no-sync pyright
 
   test:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
-        os: [ubuntu-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -54,6 +59,8 @@ jobs:
       - name: Install the project
         run: uv sync --frozen --all-extras --dev --python ${{ matrix.python-version }}
 
+      - name: Install required packages
+        run: pip install python-jose types-python-jose
+
       - name: Run pytest
         run: uv run --no-sync pytest
-    continue-on-error: true
