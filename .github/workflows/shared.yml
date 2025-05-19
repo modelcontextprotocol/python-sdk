@@ -17,9 +17,6 @@ jobs:
       - name: Install the project
         run: uv sync --frozen --all-extras --dev --python 3.12
 
-      - name: Install required packages
-        run: pip install python-jose types-python-jose
-
       - name: Run ruff format check
         run: uv run --no-sync ruff check .
 
@@ -35,9 +32,6 @@ jobs:
 
       - name: Install the project
         run: uv sync --frozen --all-extras --dev --python 3.12
-
-      - name: Install required packages
-        run: pip install python-jose types-python-jose
 
       - name: Run pyright
         run: uv run --no-sync pyright
@@ -59,11 +53,9 @@ jobs:
       - name: Install the project
         run: uv sync --frozen --all-extras --dev --python ${{ matrix.python-version }}
 
-      - name: Clean existing mcp directory
-        run: rm -rf /home/runner/work/python-sdk/python-sdk/src/mcp
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Install jose dependencies
+        run: uv run --no-sync pip install python-jose types-python-jose
 
       - name: Run pytest
         run: uv run --no-sync pytest
+
