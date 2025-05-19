@@ -8,6 +8,7 @@ resolution-mode = "lowest-direct"
 [manifest]
 members = [
     "mcp",
+    "mcp-simple-auth",
     "mcp-simple-prompt",
     "mcp-simple-resource",
     "mcp-simple-streamablehttp",
@@ -566,6 +567,47 @@ docs = [
     { name = "mkdocs-glightbox", specifier = ">=0.4.0" },
     { name = "mkdocs-material", extras = ["imaging"], specifier = ">=9.5.45" },
     { name = "mkdocstrings-python", specifier = ">=1.12.2" },
+]
+
+[[package]]
+name = "mcp-simple-auth"
+version = "0.1.0"
+source = { editable = "examples/servers/simple-auth" }
+dependencies = [
+    { name = "anyio" },
+    { name = "click" },
+    { name = "httpx" },
+    { name = "mcp" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "sse-starlette" },
+    { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", specifier = ">=4.5" },
+    { name = "click", specifier = ">=8.1.0" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "mcp", editable = "." },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pydantic-settings", specifier = ">=2.5.2" },
+    { name = "sse-starlette", specifier = ">=1.6.1" },
+    { name = "uvicorn", marker = "sys_platform != 'emscripten'", specifier = ">=0.23.1" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.391" },
+    { name = "pytest", specifier = ">=8.3.4" },
+    { name = "ruff", specifier = ">=0.8.5" },
 ]
 
 [[package]]
