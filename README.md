@@ -798,88 +798,38 @@ async def main():
 
 ### OAuth Authentication for Clients
 
-The SDK supports OAuth 2.0 client authentication for secure access to MCP servers that require authentication:
+The SDK includes OAuth 2.0 support for connecting to protected MCP servers:
 
 ```python
-from mcp.client.auth import UnauthorizedError
-from mcp.client.oauth_providers import InMemoryOAuthProvider
+from mcp.client.auth import OAuthClientProvider
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientMetadata
-from mcp import ClientSession
+import webbrowser
 
-# Create an OAuth provider
-oauth_provider = InMemoryOAuthProvider(
-    redirect_url="http://localhost:8080/callback",
+# Set up OAuth authentication
+oauth_auth = OAuthClientProvider(
+    server_url="https://api.example.com",
     client_metadata=OAuthClientMetadata(
-        redirect_uris=["http://localhost:8080/callback"],
-        client_name="My MCP Client",
-        scope="tools resources",  # Request specific scopes
+        client_name="My Client",
+        redirect_uris=["http://localhost:3000/callback"],
+        grant_types=["authorization_code", "refresh_token"],
+        response_types=["code"],
+        scope="read write"
     ),
+    storage=InMemoryTokenStorage(),  # Implement TokenStorage protocol
+    redirect_handler=lambda url: webbrowser.open(url),
+    callback_handler=handle_oauth_callback,  # Handle OAuth callback
 )
 
-
-async def main():
-    # Connect with OAuth authentication
-    async with streamablehttp_client(
-        "https://example.com/mcp",
-        auth_provider=oauth_provider,
-    ) as (read_stream, write_stream, _):
-        # Create a session
-        async with ClientSession(read_stream, write_stream) as session:
-            # Initialize (this may trigger OAuth flow)
-            try:
-                await session.initialize()
-                # Use authenticated session
-                result = await session.call_tool("protected_tool", {"arg": "value"})
-            except UnauthorizedError:
-                # Handle authorization required
-                print("Authorization required. Check your browser.")
-
-
-# Handle OAuth callback after user authorization
-async def handle_callback(authorization_code: str):
-    from mcp.client.streamable_http import StreamableHTTPTransport
-    
-    # Create a transport instance to handle auth completion
-    transport = StreamableHTTPTransport(
-        url="https://example.com/mcp",
-        auth_provider=oauth_provider,
-    )
-    
-    # Exchange authorization code for tokens
-    await transport.finish_auth(authorization_code)
-    print("Authorization successful!")
+# Use with streamable HTTP client
+async with streamablehttp_client("https://api.example.com/mcp", auth=oauth_auth) as (read, write, _):
+    async with ClientSession(read, write) as session:
+        await session.initialize()
+        # Authenticated session ready
 ```
 
-#### Custom OAuth Providers
+For a complete working example, see [`examples/clients/simple-auth-client/`](examples/clients/simple-auth-client/).
 
-You can implement custom OAuth storage by creating your own provider:
-
-```python
-from mcp.client.oauth_providers import InMemoryOAuthProvider
-
-
-class DatabaseOAuthProvider(InMemoryOAuthProvider):
-    async def save_tokens(self, tokens):
-        # Save to database
-        # await db.save_tokens(self.client_id, tokens)
-        pass
-    
-    async def tokens(self):
-        # Load from database
-        # return await db.load_tokens(self.client_id)
-        return None
-    
-    # Implement other methods as needed...
-```
-
-The OAuth client implementation supports:
-
-- Dynamic client registration
-- Authorization code flow with PKCE
-- Token refresh
-- Multiple storage providers (in-memory and file-based included)
-- Automatic token management and retry logic
 
 ### MCP Primitives
 
