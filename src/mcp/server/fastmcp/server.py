@@ -605,6 +605,7 @@ class FastMCP:
             starlette_app,
             host=self.settings.host,
             port=self.settings.port,
+            root_path=self.settings.root_path,
             log_level=self.settings.log_level.lower(),
         )
         server = uvicorn.Server(config)
@@ -620,6 +621,7 @@ class FastMCP:
             starlette_app,
             host=self.settings.host,
             port=self.settings.port,
+            root_path=self.settings.root_path,
             log_level=self.settings.log_level.lower(),
         )
         server = uvicorn.Server(config)
