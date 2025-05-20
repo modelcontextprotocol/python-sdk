@@ -10,7 +10,7 @@ from starlette.exceptions import HTTPException
 from starlette.requests import HTTPConnection
 from starlette.types import Receive, Scope, Send
 
-from mcp.server.auth.provider import AccessToken, OAuthAuthorizationServerProvider
+from mcp.server.auth.provider import AccessToken, OAuthAuthorizationServerProvider, TokenValidator
 
 
 class AuthenticatedUser(SimpleUser):
@@ -21,6 +21,42 @@ class AuthenticatedUser(SimpleUser):
         self.access_token = auth_info
         self.scopes = auth_info.scopes
 
+class JWTBearerTokenAuthBackend(AuthenticationBackend):
+    """
+    Authentication backend that validates Bearer tokens.
+    """
+
+    def __init__(
+        self,
+        provider: TokenValidator[AccessToken],
+    ):
+        self.provider = provider
+
+    async def authenticate(self, conn: HTTPConnection):
+        auth_header = next(
+            (
+                conn.headers.get(key)
+                for key in conn.headers
+                if key.lower() == "authorization"
+            ),
+            None,
+        )
+        if not auth_header or not auth_header.lower().startswith("bearer "):
+            return None
+
+        token = auth_header[7:]  # Remove "Bearer " prefix
+
+        # Validate the token with the provider
+        auth_info = await self.provider.validate_token(token)
+
+
+        if not auth_info:
+            return None
+
+        if auth_info.expires_at and auth_info.expires_at < int(time.time()):
+            return None
+
+        return AuthCredentials(auth_info.scopes), AuthenticatedUser(auth_info)
 
 class BearerAuthBackend(AuthenticationBackend):
     """

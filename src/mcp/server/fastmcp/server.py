@@ -20,6 +20,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
+from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
@@ -28,16 +29,19 @@ from starlette.types import Receive, Scope, Send
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import (
     BearerAuthBackend,
+    JWTBearerTokenAuthBackend,
     RequireAuthMiddleware,
 )
+from mcp.server.auth.provider import AccessToken, TokenValidator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
+from mcp.shared.auth import ProtectedResourceMetadata
 from mcp.server.auth.settings import (
     AuthSettings,
 )
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
-from mcp.server.fastmcp.tools import Tool, ToolManager
+from mcp.server.fastmcp.tools import ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.fastmcp.utilities.types import Image
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -87,7 +91,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     # HTTP settings
-    host: str = "127.0.0.1"
+    host: str = "0.0.0.0"
     port: int = 8000
     mount_path: str = "/"  # Mount path (e.g. "/github", defaults to root path)
     sse_path: str = "/sse"
@@ -138,15 +142,21 @@ class FastMCP:
         self,
         name: str | None = None,
         instructions: str | None = None,
+        auth_server_details: dict[str, Any] | None = None,
         auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
         | None = None,
+        protected_resource_metadata: dict[str, Any] | None = None,
         event_store: EventStore | None = None,
-        *,
-        tools: list[Tool] | None = None,
+        token_validator: TokenValidator[AccessToken] | None = None,
         **settings: Any,
     ):
         self.settings = Settings(**settings)
-
+        self._auth_server_details = auth_server_details
+        self._protected_resource_metadata = None
+        if protected_resource_metadata:
+            self._protected_resource_metadata = ProtectedResourceMetadata(**protected_resource_metadata)
+        self._token_validator = token_validator
+       
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
             instructions=instructions,
@@ -157,7 +167,7 @@ class FastMCP:
             ),
         )
         self._tool_manager = ToolManager(
-            tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
+            warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
         )
         self._resource_manager = ResourceManager(
             warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources
@@ -165,7 +175,8 @@ class FastMCP:
         self._prompt_manager = PromptManager(
             warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts
         )
-        if (self.settings.auth is not None) != (auth_server_provider is not None):
+        # don't do this check if protected_resource_metadata is not None
+        if (self.settings.auth is not None) != (auth_server_provider is not None) and self._protected_resource_metadata is None:
             # TODO: after we support separate authorization servers (see
             # https://github.com/modelcontextprotocol/modelcontextprotocol/pull/284)
             # we should validate that if auth is enabled, we have either an
@@ -213,6 +224,12 @@ class FastMCP:
                 "to avoid unnecessary initialization."
             )
         return self._session_manager
+
+    async def _serve_protected_resource_metadata(self, request: Request) -> Response:
+        """Serve the OAuth protected resource metadata."""
+        if not self._protected_resource_metadata:
+            raise HTTPException(status_code=404, detail="Protected resource metadata not configured")
+        return Response(self._protected_resource_metadata.model_dump_json(), media_type="application/json")
 
     def run(
         self,
@@ -689,8 +706,10 @@ class FastMCP:
 
         # Create routes
         routes: list[Route | Mount] = []
+        
         middleware: list[Middleware] = []
         required_scopes = []
+
 
         # Add auth endpoints if auth provider is configured
         if self._auth_server_provider:
@@ -789,6 +808,39 @@ class FastMCP:
         routes: list[Route | Mount] = []
         middleware: list[Middleware] = []
         required_scopes = []
+        print("Protected resource metadata: ", self._protected_resource_metadata)
+        if self._protected_resource_metadata and self._token_validator:
+            print("Adding protected resource metadata route")
+            # only add the well-known route if the protected resource metadata is configured
+            routes.append(
+                Route(
+                    "/.well-known/oauth-protected-resource",
+                    self._serve_protected_resource_metadata,
+                    methods=["GET"]
+                )
+            )
+            # by default assuming that this would be a JWT Bearer Token; 
+            # Make this also optional somehow; may be as part of the protected resource metadata, 
+            # take a class for validting the token
+            middleware= [
+                Middleware(
+                    AuthenticationMiddleware,
+                    backend=JWTBearerTokenAuthBackend(
+                        provider=self._token_validator,
+                    ),
+                ),
+                Middleware(AuthContextMiddleware),
+            ]
+            # fetch required scopes from protected resource metadata
+            required_scopes = self._protected_resource_metadata.required_scopes or []
+
+            # wrap the streamable http handler with require auth middleware
+            routes.append(
+                Mount(
+                    self.settings.streamable_http_path,
+                    app=RequireAuthMiddleware(handle_streamable_http, required_scopes),
+                )
+            )
 
         # Add auth endpoints if auth provider is configured
         if self._auth_server_provider:

@@ -2,6 +2,23 @@ from typing import Any, Literal
 
 from pydantic import AnyHttpUrl, BaseModel, Field
 
+class ProtectedResourceMetadata(BaseModel):
+    # create a pydantic model with required params as resource, authorization_servers
+    resource: str
+    authorization_servers: list[str]
+    jwks_uri: AnyHttpUrl | None = None
+    scopes_supported: list[str] | None = None
+    bearer_methods_supported: list[str] | None = None
+    resource_name: str | None = None
+    resource_signing_alg_values_supported: list[str] | None = None
+    resource_documentation: AnyHttpUrl | None = None
+    resource_policy_uri: AnyHttpUrl | None = None
+    resource_tos_uri: AnyHttpUrl | None = None
+    authorization_details_types_supported: list[str] | None = None
+    dpop_signing_alg_values_supported: list[str] | None = None
+    dpop_bound_access_tokens_required: bool | None = None
+    required_scopes: list[str] | None = None
+
 
 class OAuthToken(BaseModel):
     """

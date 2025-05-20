@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Generic, Literal, Protocol, TypeVar
+from typing import Generic, Literal, Protocol, TypeVar, Any
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from pydantic import AnyHttpUrl, BaseModel
@@ -8,6 +8,14 @@ from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthToken,
 )
+
+
+# Define type variables
+AccessTokenT = TypeVar('AccessTokenT', bound='AccessToken')
+
+class TokenValidator(Generic[AccessTokenT], BaseModel):
+    async def validate_token(self, token: str) -> AccessTokenT | None:
+        ...
 
 
 class AuthorizationParams(BaseModel):
