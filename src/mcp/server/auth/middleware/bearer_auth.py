@@ -8,7 +8,7 @@ from starlette.authentication import (
 )
 from starlette.exceptions import HTTPException
 from starlette.requests import HTTPConnection
-from starlette.types import Receive, Scope, Send
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from mcp.server.auth.provider import AccessToken, OAuthAuthorizationServerProvider
 
@@ -67,13 +67,12 @@ class RequireAuthMiddleware:
     auth info in the request state.
     """
 
-    def __init__(self, app: Any, required_scopes: list[str]):
+    def __init__(self, app: ASGIApp, required_scopes: list[str]):
         """
         Initialize the middleware.
 
         Args:
             app: ASGI application
-            provider: Authentication provider to validate tokens
             required_scopes: Optional list of scopes that the token must have
         """
         self.app = app
