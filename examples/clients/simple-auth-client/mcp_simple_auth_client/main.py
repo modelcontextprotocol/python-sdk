@@ -338,8 +338,13 @@ async def main():
     """Main entry point."""
     # Default server URL - can be overridden with environment variable
     # Most MCP streamable HTTP servers use /mcp as the endpoint
-    server_url = os.getenv("MCP_SERVER_URL", "http://localhost:8000/mcp")
+    server_url = os.getenv("MCP_SERVER_PORT", 8000)
     transport_type = os.getenv("MCP_TRANSPORT_TYPE", "streamable_http")
+    server_url = (
+        f"http://localhost:{server_url}/mcp"
+        if transport_type == "streamable_http"
+        else f"http://localhost:{server_url}/sse"
+    )
 
     print("🚀 Simple MCP Auth Client")
     print(f"Connecting to: {server_url}")

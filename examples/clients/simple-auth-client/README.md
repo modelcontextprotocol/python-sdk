@@ -31,7 +31,7 @@ uv run mcp-simple-auth --transport streamable-http --port 3001
 uv run mcp-simple-auth-client
 
 # Or with custom server URL
-MCP_SERVER_URL=http://localhost:3001 uv run mcp-simple-auth-client
+MCP_SERVER_PORT=3001 uv run mcp-simple-auth-client
 
 # Use SSE transport
 MCP_TRANSPORT_TYPE=sse uv run mcp-simple-auth-client
@@ -70,5 +70,5 @@ mcp> quit
 
 ## Configuration
 
-- `MCP_SERVER_URL` - Server URL (default: http://localhost:3001)
+- `MCP_SERVER_PORT` - Server URL (default: 8000)
 - `MCP_TRANSPORT_TYPE` - Transport type: `streamable_http` (default) or `sse`
