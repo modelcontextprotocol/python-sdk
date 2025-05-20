@@ -5,10 +5,7 @@ from __future__ import annotations as _annotations
 import inspect
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
-from contextlib import (
-    AbstractAsyncContextManager,
-    asynccontextmanager,
-)
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from itertools import chain
 from typing import Any, Generic, Literal
 
@@ -18,9 +15,9 @@ from pydantic import BaseModel, Field
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
+from starlette.exceptions import HTTPException
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
-from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
@@ -32,12 +29,12 @@ from mcp.server.auth.middleware.bearer_auth import (
     JWTBearerTokenAuthBackend,
     RequireAuthMiddleware,
 )
-from mcp.server.auth.provider import AccessToken, TokenValidator
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider
-from mcp.shared.auth import ProtectedResourceMetadata
-from mcp.server.auth.settings import (
-    AuthSettings,
+from mcp.server.auth.provider import (
+    AccessToken,
+    OAuthAuthorizationServerProvider,
+    TokenValidator,
 )
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
@@ -53,6 +50,7 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.shared.auth import ProtectedResourceMetadata
 from mcp.shared.context import LifespanContextT, RequestContext
 from mcp.types import (
     AnyFunction,
@@ -143,8 +141,9 @@ class FastMCP:
         name: str | None = None,
         instructions: str | None = None,
         auth_server_details: dict[str, Any] | None = None,
-        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
-        | None = None,
+        auth_server_provider: (
+            OAuthAuthorizationServerProvider[Any, Any, Any] | None
+        ) = None,
         protected_resource_metadata: dict[str, Any] | None = None,
         event_store: EventStore | None = None,
         token_validator: TokenValidator[AccessToken] | None = None,
@@ -154,9 +153,11 @@ class FastMCP:
         self._auth_server_details = auth_server_details
         self._protected_resource_metadata = None
         if protected_resource_metadata:
-            self._protected_resource_metadata = ProtectedResourceMetadata(**protected_resource_metadata)
+            self._protected_resource_metadata = ProtectedResourceMetadata(
+                **protected_resource_metadata
+            )
         self._token_validator = token_validator
-       
+
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
             instructions=instructions,
@@ -176,7 +177,9 @@ class FastMCP:
             warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts
         )
         # don't do this check if protected_resource_metadata is not None
-        if (self.settings.auth is not None) != (auth_server_provider is not None) and self._protected_resource_metadata is None:
+        if (self.settings.auth is not None) != (
+            auth_server_provider is not None
+        ) and self._protected_resource_metadata is None:
             # TODO: after we support separate authorization servers (see
             # https://github.com/modelcontextprotocol/modelcontextprotocol/pull/284)
             # we should validate that if auth is enabled, we have either an
@@ -228,8 +231,13 @@ class FastMCP:
     async def _serve_protected_resource_metadata(self, request: Request) -> Response:
         """Serve the OAuth protected resource metadata."""
         if not self._protected_resource_metadata:
-            raise HTTPException(status_code=404, detail="Protected resource metadata not configured")
-        return Response(self._protected_resource_metadata.model_dump_json(), media_type="application/json")
+            raise HTTPException(
+                status_code=404, detail="Protected resource metadata not configured"
+            )
+        return Response(
+            self._protected_resource_metadata.model_dump_json(),
+            media_type="application/json",
+        )
 
     def run(
         self,
@@ -706,10 +714,9 @@ class FastMCP:
 
         # Create routes
         routes: list[Route | Mount] = []
-        
+
         middleware: list[Middleware] = []
         required_scopes = []
-
 
         # Add auth endpoints if auth provider is configured
         if self._auth_server_provider:
@@ -808,21 +815,20 @@ class FastMCP:
         routes: list[Route | Mount] = []
         middleware: list[Middleware] = []
         required_scopes = []
-        print("Protected resource metadata: ", self._protected_resource_metadata)
         if self._protected_resource_metadata and self._token_validator:
-            print("Adding protected resource metadata route")
-            # only add the well-known route if the protected resource metadata is configured
+            # only add the well-known route if the protected resource metadata is
+            # configured
             routes.append(
                 Route(
                     "/.well-known/oauth-protected-resource",
                     self._serve_protected_resource_metadata,
-                    methods=["GET"]
+                    methods=["GET"],
                 )
             )
-            # by default assuming that this would be a JWT Bearer Token; 
-            # Make this also optional somehow; may be as part of the protected resource metadata, 
-            # take a class for validting the token
-            middleware= [
+            # by default assuming that this would be a JWT Bearer Token;
+            # Make this also optional somehow; may be as part of the protected resource
+            # metadata, take a class for validating the token
+            middleware = [
                 Middleware(
                     AuthenticationMiddleware,
                     backend=JWTBearerTokenAuthBackend(

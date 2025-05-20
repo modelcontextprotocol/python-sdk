@@ -2,6 +2,7 @@ from typing import Any, Literal
 
 from pydantic import AnyHttpUrl, BaseModel, Field
 
+
 class ProtectedResourceMetadata(BaseModel):
     # create a pydantic model with required params as resource, authorization_servers
     resource: str

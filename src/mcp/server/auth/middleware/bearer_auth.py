@@ -10,7 +10,11 @@ from starlette.exceptions import HTTPException
 from starlette.requests import HTTPConnection
 from starlette.types import Receive, Scope, Send
 
-from mcp.server.auth.provider import AccessToken, OAuthAuthorizationServerProvider, TokenValidator
+from mcp.server.auth.provider import (
+    AccessToken,
+    OAuthAuthorizationServerProvider,
+    TokenValidator,
+)
 
 
 class AuthenticatedUser(SimpleUser):
