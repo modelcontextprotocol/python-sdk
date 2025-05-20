@@ -14,6 +14,7 @@ from typing_extensions import Self
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.types import (
+    INVALID_PARAMS,
     CancelledNotification,
     ClientNotification,
     ClientRequest,
@@ -351,26 +352,47 @@ class BaseSession(
                 if isinstance(message, Exception):
                     await self._handle_incoming(message)
                 elif isinstance(message.message.root, JSONRPCRequest):
-                    validated_request = self._receive_request_type.model_validate(
-                        message.message.root.model_dump(
-                            by_alias=True, mode="json", exclude_none=True
+                    try:
+                        validated_request = self._receive_request_type.model_validate(
+                            message.message.root.model_dump(
+                                by_alias=True, mode="json", exclude_none=True
+                            )
                         )
-                    )
-                    responder = RequestResponder(
-                        request_id=message.message.root.id,
-                        request_meta=validated_request.root.params.meta
-                        if validated_request.root.params
-                        else None,
-                        request=validated_request,
-                        session=self,
-                        on_complete=lambda r: self._in_flight.pop(r.request_id, None),
-                    )
+                        responder = RequestResponder(
+                            request_id=message.message.root.id,
+                            request_meta=validated_request.root.params.meta
+                            if validated_request.root.params
+                            else None,
+                            request=validated_request,
+                            session=self,
+                            on_complete=lambda r: self._in_flight.pop(
+                                r.request_id, None),
+                        )
 
-                    self._in_flight[responder.request_id] = responder
-                    await self._received_request(responder)
+                        self._in_flight[responder.request_id] = responder
+                        await self._received_request(responder)
 
-                    if not responder._completed:  # type: ignore[reportPrivateUsage]
-                        await self._handle_incoming(responder)
+                        if not responder._completed:  # type: ignore[reportPrivateUsage]
+                            await self._handle_incoming(responder)
+                    except Exception as e:
+                        # For request validation errors, send a proper JSON-RPC error
+                        # response instead of crashing the server
+                        logging.warning(
+                            f"Failed to validate request: {e}. "
+                            f"Message was: {message.message.root}"
+                        )
+                        error_response = JSONRPCError(
+                            jsonrpc="2.0",
+                            id=message.message.root.id,
+                            error=ErrorData(
+                                code=INVALID_PARAMS,
+                                message="Invalid request parameters",
+                                data="",
+                            ),
+                        )
+                        session_message = SessionMessage(
+                            message=JSONRPCMessage(error_response))
+                        await self._write_stream.send(session_message)
 
                 elif isinstance(message.message.root, JSONRPCNotification):
                     try:
