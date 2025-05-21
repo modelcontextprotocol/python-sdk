@@ -93,6 +93,8 @@ class PaginatedRequest(
     """Base class for paginated requests,
     matching the schema's PaginatedRequest interface."""
 
+    params: PaginatedRequestParams | None = None
+
 
 class Notification(BaseModel, Generic[NotificationParamsT, MethodT]):
     """Base class for JSON-RPC notifications."""
@@ -369,7 +371,6 @@ class ListResourcesRequest(PaginatedRequest[Literal["resources/list"]]):
     """Sent from the client to request a list of resources the server has."""
 
     method: Literal["resources/list"]
-    params: PaginatedRequestParams | None = None
 
 
 class Annotations(BaseModel):
@@ -433,7 +434,6 @@ class ListResourceTemplatesRequest(
     """Sent from the client to request a list of resource templates the server has."""
 
     method: Literal["resources/templates/list"]
-    params: PaginatedRequestParams | None = None
 
 
 class ListResourceTemplatesResult(PaginatedResult):
@@ -579,7 +579,6 @@ class ListPromptsRequest(PaginatedRequest[Literal["prompts/list"]]):
     """Sent from the client to request a list of prompts and prompt templates."""
 
     method: Literal["prompts/list"]
-    params: PaginatedRequestParams | None = None
 
 
 class PromptArgument(BaseModel):
@@ -710,7 +709,6 @@ class ListToolsRequest(PaginatedRequest[Literal["tools/list"]]):
     """Sent from the client to request a list of tools the server has."""
 
     method: Literal["tools/list"]
-    params: PaginatedRequestParams | None = None
 
 
 class ToolAnnotations(BaseModel):
@@ -744,7 +742,7 @@ class ToolAnnotations(BaseModel):
 
     idempotentHint: bool | None = None
     """
-    If true, calling the tool repeatedly with the same arguments 
+    If true, calling the tool repeatedly with the same arguments
     will have no additional effect on the its environment.
     (This property is meaningful only when `readOnlyHint == false`)
     Default: false
