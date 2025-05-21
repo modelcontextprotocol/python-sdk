@@ -117,7 +117,7 @@ class OAuthMetadata(BaseModel):
         list[Literal["authorization_code", "refresh_token"]] | None
     ) = None
     token_endpoint_auth_methods_supported: (
-        list[Literal["none", "client_secret_post"]] | None
+        list[Literal["none", "client_secret_post", "client_secret_basic"]] | None
     ) = None
     token_endpoint_auth_signing_alg_values_supported: None = None
     service_documentation: AnyHttpUrl | None = None
@@ -134,4 +134,4 @@ class OAuthMetadata(BaseModel):
         list[Literal["client_secret_post"]] | None
     ) = None
     introspection_endpoint_auth_signing_alg_values_supported: None = None
-    code_challenge_methods_supported: list[Literal["S256"]] | None = None
+    code_challenge_methods_supported: list[Literal["S256", "plain"]] | None = None
