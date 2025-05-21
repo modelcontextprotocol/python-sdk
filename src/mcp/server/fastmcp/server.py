@@ -63,7 +63,6 @@ from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
 from mcp.types import ResourceTemplate as MCPResourceTemplate
 from mcp.types import Tool as MCPTool
-from mcp.types import Webhook
 
 logger = get_logger(__name__)
 
@@ -277,7 +276,6 @@ class FastMCP:
         self,
         name: str,
         arguments: dict[str, Any],
-        webhooks: list[Webhook] | None = None,
     ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
         """Call a tool by name with arguments."""
         context = self.get_context()
@@ -285,7 +283,6 @@ class FastMCP:
             name,
             arguments,
             context=context,
-            webhooks=webhooks
         )
         converted_result = _convert_to_content(result)
         return converted_result
@@ -787,7 +784,8 @@ class FastMCP:
                 event_store=self._event_store,
                 json_response=self.settings.json_response,
                 stateless=self.settings.stateless_http,  # Use the stateless setting
-                webhooks_supported=self.settings.webhooks_supported,  # Use the webhooks supported setting
+                webhooks_supported=self.settings.webhooks_supported,
+                # Use the webhooks supported setting
             )
 
         # Create the ASGI handler

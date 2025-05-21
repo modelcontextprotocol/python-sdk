@@ -282,8 +282,8 @@ class ClientSession(
                     params=types.CallToolRequestParams(
                         name=name,
                         arguments=arguments,
+                        webhooks=webhooks,
                     ),
-                    webhooks=webhooks,
                 )
             ),
             types.CallToolResult,

@@ -420,27 +420,29 @@ class StreamableHTTPServerTransport:
             request_stream_reader = self._request_streams[request_id][1]
 
             session_message = SessionMessage(message)
-            if self._is_call_tool_request_with_webhooks(
-                session_message.message
-            ):
+            webhooks = self._get_webhooks(session_message.message)
+            if webhooks is not None:
                 if self.is_webhooks_supported:
+                    result = {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Response will be forwarded to the webhook.",
+                            }
+                        ],
+                        "isError": False,
+                    }
                     response = self._create_json_response(
-                        JSONRPCMessage(root=JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=message.root.id,
-                            result={
-                                'content': [{
-                                    'type': 'text',
-                                    'text': 'Response will be forwarded to the webhook.'
-                                }],
-                                'isError': False
-                            },
-                        )),
+                        JSONRPCMessage(
+                            root=JSONRPCResponse(
+                                jsonrpc="2.0", id=message.root.id, result=result
+                            )
+                        ),
                         HTTPStatus.OK,
                     )
                     asyncio.create_task(
                         self._send_response_to_webhooks(
-                            request_id, session_message, request_stream_reader
+                            request_id, session_message, webhooks, request_stream_reader
                         )
                     )
                 else:
@@ -574,14 +576,13 @@ class StreamableHTTPServerTransport:
                 await writer.send(Exception(err))
             return
 
-
     async def _send_response_to_webhooks(
         self,
         request_id: str,
         session_message: SessionMessage,
+        webhooks: list[Webhook],
         request_stream_reader: MemoryObjectReceiveStream[EventMessage],
     ):
-        webhooks: list[Webhook] = [Webhook(**webhook) for webhook in session_message.message.root.webhooks]
         writer = self._read_stream_writer
         if writer is None:
             raise ValueError(
@@ -611,9 +612,7 @@ class StreamableHTTPServerTransport:
                         break
                     # For notifications and request, keep waiting
                     else:
-                        logger.debug(
-                            f"received: {event_message.message.root.method}"
-                        )        
+                        logger.debug(f"received: {event_message.message.root.method}")
 
                 await self._send_message_to_webhooks(webhooks, response_message)
             else:
@@ -635,7 +634,6 @@ class StreamableHTTPServerTransport:
         finally:
             await self._clean_up_memory_streams(request_id)
 
-
     async def _send_message_to_webhooks(
         self,
         webhooks: list[Webhook],
@@ -646,7 +644,9 @@ class StreamableHTTPServerTransport:
             # Add authorization headers
             if webhook.authentication and webhook.authentication.credentials:
                 if webhook.authentication.strategy == "bearer":
-                    headers["Authorization"] = f"Bearer {webhook.authentication.credentials}"
+                    headers["Authorization"] = (
+                        f"Bearer {webhook.authentication.credentials}"
+                    )
                 elif webhook.authentication.strategy == "apiKey":
                     headers["X-API-Key"] = webhook.authentication.credentials
                 elif webhook.authentication.strategy == "basic":
@@ -656,32 +656,45 @@ class StreamableHTTPServerTransport:
                         if "username" in creds_dict and "password" in creds_dict:
                             # Create basic auth header from username and password
                             import base64
-                            auth_string = f"{creds_dict['username']}:{creds_dict['password']}"
-                            credentials = base64.b64encode(auth_string.encode()).decode()
+
+                            auth_string = (
+                                f"{creds_dict['username']}:{creds_dict['password']}"
+                            )
+                            credentials = base64.b64encode(
+                                auth_string.encode()
+                            ).decode()
                             headers["Authorization"] = f"Basic {credentials}"
-                    except:
+                    except Exception:
                         # Not JSON, use as-is
-                        headers["Authorization"] = f"Basic {webhook.authentication.credentials}"
-                elif webhook.authentication.strategy == "customHeader" and webhook.authentication.credentials:
+                        headers["Authorization"] = (
+                            f"Basic {webhook.authentication.credentials}"
+                        )
+                elif (
+                    webhook.authentication.strategy == "customHeader"
+                    and webhook.authentication.credentials
+                ):
                     try:
                         custom_headers = json.loads(webhook.authentication.credentials)
                         headers.update(custom_headers)
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.exception(f"Error setting custom headers: {e}")
 
             async with create_mcp_http_client(headers=headers) as client:
                 try:
                     if isinstance(message, JSONRPCMessage | JSONRPCError):
                         await client.post(
                             webhook.url,
-                            json=message.model_dump_json(by_alias=True, exclude_none=True),
+                            json=message.model_dump_json(
+                                by_alias=True, exclude_none=True
+                            ),
                         )
                     else:
                         await client.post(webhook.url, json=message)
 
                 except Exception as e:
-                    logger.exception(f"Error sending response to webhook {webhook.url}: {e}")
-
+                    logger.exception(
+                        f"Error sending response to webhook {webhook.url}: {e}"
+                    )
 
     async def _handle_get_request(self, request: Request, send: Send) -> None:
         """
@@ -803,17 +816,18 @@ class StreamableHTTPServerTransport:
         )
         await response(request.scope, request.receive, send)
 
-
-    def _is_call_tool_request_with_webhooks(self, message: JSONRPCMessage) -> bool:
-        """Check if the request is a call tool request with webhooks."""
-        return (
+    def _get_webhooks(self, message: JSONRPCMessage) -> list[Webhook] | None:
+        """Return webhooks if the request is a call tool request with webhooks."""
+        if (
             isinstance(message.root, JSONRPCRequest)
             and message.root.method == "tools/call"
-            and hasattr(message.root, "webhooks")
-            and message.root.webhooks is not None
-            and len(message.root.webhooks) > 0
-        )
-
+            and message.root.params is not None
+            and "webhooks" in message.root.params
+            and message.root.params["webhooks"] is not None
+            and len(message.root.params["webhooks"]) > 0
+        ):
+            return [Webhook(**webhook) for webhook in message.root.params["webhooks"]]
+        return None
 
     async def _terminate_session(self) -> None:
         """Terminate the current session, closing all streams.

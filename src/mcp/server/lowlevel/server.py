@@ -412,7 +412,9 @@ class Server(Generic[LifespanResultT]):
 
             async def handler(req: types.CallToolRequest):
                 try:
-                    results = await func(req.params.name, (req.params.arguments or {}), req.webhooks)
+                    if req.params.webhooks is not None and len(req.params.webhooks) > 0:
+                        self.request_context.has_webhook = True
+                    results = await func(req.params.name, (req.params.arguments or {}))
                     return types.ServerResult(
                         types.CallToolResult(content=list(results), isError=False)
                     )
