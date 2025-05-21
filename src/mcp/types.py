@@ -93,8 +93,6 @@ class PaginatedRequest(
     """Base class for paginated requests,
     matching the schema's PaginatedRequest interface."""
 
-    params: PaginatedRequestParams | None = None
-
 
 class Notification(BaseModel, Generic[NotificationParamsT, MethodT]):
     """Base class for JSON-RPC notifications."""
