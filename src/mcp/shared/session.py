@@ -382,7 +382,7 @@ class BaseSession(
                     except Exception as e:
                         # For other validation errors, log and continue
                         logging.warning(
-                            "Failed to validate notification: %s. " "Message was: %s",
+                            "Failed to validate notification: %s. Message was: %s",
                             e,
                             message.message.root,
                         )
