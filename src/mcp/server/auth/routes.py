@@ -1,3 +1,5 @@
+import posixpath
+
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -166,11 +168,14 @@ def build_metadata(
     client_registration_options: ClientRegistrationOptions,
     revocation_options: RevocationOptions,
 ) -> OAuthMetadata:
+    def append_path(base: str, suffix: str) -> str:
+        return posixpath.join(base.rstrip("/"), suffix.lstrip("/"))
+
     authorization_url = modify_url_path(
-        issuer_url, lambda path: path.rstrip("/") + AUTHORIZATION_PATH.lstrip("/")
+        issuer_url, lambda path: append_path(path, AUTHORIZATION_PATH)
     )
     token_url = modify_url_path(
-        issuer_url, lambda path: path.rstrip("/") + TOKEN_PATH.lstrip("/")
+        issuer_url, lambda path: append_path(path, TOKEN_PATH)
     )
     # Create metadata
     metadata = OAuthMetadata(
@@ -194,13 +199,13 @@ def build_metadata(
     # Add registration endpoint if supported
     if client_registration_options.enabled:
         metadata.registration_endpoint = modify_url_path(
-            issuer_url, lambda path: path.rstrip("/") + REGISTRATION_PATH.lstrip("/")
+            issuer_url, lambda path: append_path(path, REGISTRATION_PATH)
         )
 
     # Add revocation endpoint if supported
     if revocation_options.enabled:
         metadata.revocation_endpoint = modify_url_path(
-            issuer_url, lambda path: path.rstrip("/") + REVOCATION_PATH.lstrip("/")
+            issuer_url, lambda path: append_path(path, REVOCATION_PATH)
         )
         metadata.revocation_endpoint_auth_methods_supported = ["client_secret_post"]
 
