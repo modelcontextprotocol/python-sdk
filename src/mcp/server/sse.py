@@ -53,6 +53,7 @@ from starlette.types import Receive, Scope, Send
 
 import mcp.types as types
 from mcp.shared.message import SessionMessage
+from mcp.shared.taskgroup import CompatTaskGroup
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,7 @@ class SseServerTransport:
                         }
                     )
 
-        async with anyio.create_task_group() as tg:
+        async with CompatTaskGroup() as tg:
 
             async def response_wrapper(scope: Scope, receive: Receive, send: Send):
                 """

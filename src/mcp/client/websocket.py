@@ -11,6 +11,7 @@ from websockets.typing import Subprotocol
 
 import mcp.types as types
 from mcp.shared.message import SessionMessage
+from mcp.shared.taskgroup import CompatTaskGroup
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ async def websocket_client(
                     )
                     await ws.send(json.dumps(msg_dict))
 
-        async with anyio.create_task_group() as tg:
+        async with CompatTaskGroup() as tg:
             # Start reader and writer tasks
             tg.start_soon(ws_reader)
             tg.start_soon(ws_writer)

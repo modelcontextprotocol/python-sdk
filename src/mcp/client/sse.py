@@ -12,6 +12,7 @@ from httpx_sse import aconnect_sse
 import mcp.types as types
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import SessionMessage
+from mcp.shared.taskgroup import CompatTaskGroup
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ async def sse_client(
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-    async with anyio.create_task_group() as tg:
+    async with CompatTaskGroup() as tg:
         try:
             logger.info(f"Connecting to SSE endpoint: {remove_request_params(url)}")
             async with create_mcp_http_client(headers=headers, auth=auth) as client:

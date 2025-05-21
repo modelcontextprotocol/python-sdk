@@ -22,6 +22,7 @@ from mcp.server.streamable_http import (
     EventStore,
     StreamableHTTPServerTransport,
 )
+from mcp.shared.taskgroup import CompatTaskGroup
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ class StreamableHTTPSessionManager:
                 )
             self._has_started = True
 
-        async with anyio.create_task_group() as tg:
+        async with CompatTaskGroup() as tg:
             # Store the task group for later use
             self._task_group = tg
             logger.info("StreamableHTTP session manager started")

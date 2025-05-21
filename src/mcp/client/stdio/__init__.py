@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 import mcp.types as types
 from mcp.shared.message import SessionMessage
+from mcp.shared.taskgroup import CompatTaskGroup
 
 from .win32 import (
     create_windows_process,
@@ -168,7 +169,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             await anyio.lowlevel.checkpoint()
 
     async with (
-        anyio.create_task_group() as tg,
+        CompatTaskGroup() as tg,
         process,
     ):
         tg.start_soon(stdout_reader)

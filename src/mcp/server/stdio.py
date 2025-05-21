@@ -28,6 +28,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 
 import mcp.types as types
 from mcp.shared.message import SessionMessage
+from mcp.shared.taskgroup import CompatTaskGroup
 
 
 @asynccontextmanager
@@ -84,7 +85,7 @@ async def stdio_server(
         except anyio.ClosedResourceError:
             await anyio.lowlevel.checkpoint()
 
-    async with anyio.create_task_group() as tg:
+    async with CompatTaskGroup() as tg:
         tg.start_soon(stdin_reader)
         tg.start_soon(stdout_writer)
         yield read_stream, write_stream

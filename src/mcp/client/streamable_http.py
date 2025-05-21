@@ -15,12 +15,12 @@ from typing import Any
 
 import anyio
 import httpx
-from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
+from mcp.shared.taskgroup import CompatTaskGroup
 from mcp.types import (
     ErrorData,
     JSONRPCError,
@@ -352,7 +352,7 @@ class StreamableHTTPTransport:
         read_stream_writer: StreamWriter,
         write_stream: MemoryObjectSendStream[SessionMessage],
         start_get_stream: Callable[[], None],
-        tg: TaskGroup,
+        tg: CompatTaskGroup,
     ) -> None:
         """Handle writing requests to the server."""
         try:
@@ -460,7 +460,7 @@ async def streamablehttp_client(
         SessionMessage
     ](0)
 
-    async with anyio.create_task_group() as tg:
+    async with CompatTaskGroup() as tg:
         try:
             logger.info(f"Connecting to StreamableHTTP endpoint: {url}")
 
