@@ -132,6 +132,7 @@ class Server(Generic[LifespanResultT]):
         lifespan: Callable[
             [Server[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]
         ] = lifespan,
+        webhooks_supported: bool = False,
     ):
         self.name = name
         self.version = version
@@ -144,6 +145,7 @@ class Server(Generic[LifespanResultT]):
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self.notification_options = NotificationOptions()
+        self.webhooks_supported = webhooks_supported
         logger.debug(f"Initializing server '{name}'")
 
     def create_initialization_options(
@@ -199,7 +201,8 @@ class Server(Generic[LifespanResultT]):
         # Set tool capabilities if handler exists
         if types.ListToolsRequest in self.request_handlers:
             tools_capability = types.ToolsCapability(
-                listChanged=notification_options.tools_changed
+                listChanged=notification_options.tools_changed,
+                webhooksSupported=self.webhooks_supported,
             )
 
         # Set logging capabilities if handler exists
@@ -409,6 +412,8 @@ class Server(Generic[LifespanResultT]):
 
             async def handler(req: types.CallToolRequest):
                 try:
+                    if req.params.webhooks is not None and len(req.params.webhooks) > 0:
+                        self.request_context.has_webhook = True
                     results = await func(req.params.name, (req.params.arguments or {}))
                     return types.ServerResult(
                         types.CallToolResult(content=list(results), isError=False)

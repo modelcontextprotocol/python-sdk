@@ -16,3 +16,4 @@ class RequestContext(Generic[SessionT, LifespanContextT]):
     meta: RequestParams.Meta | None
     session: SessionT
     lifespan_context: LifespanContextT
+    has_webhook: bool = False
