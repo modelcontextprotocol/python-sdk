@@ -209,7 +209,9 @@ class ClientSession(
             types.ClientRequest(
                 types.ListResourcesRequest(
                     method="resources/list",
-                    params=types.PaginatedRequestParams(cursor=cursor),
+                    params=types.PaginatedRequestParams(cursor=cursor)
+                    if cursor is not None
+                    else None,
                 )
             ),
             types.ListResourcesResult,
@@ -223,7 +225,9 @@ class ClientSession(
             types.ClientRequest(
                 types.ListResourceTemplatesRequest(
                     method="resources/templates/list",
-                    params=types.PaginatedRequestParams(cursor=cursor),
+                    params=types.PaginatedRequestParams(cursor=cursor)
+                    if cursor is not None
+                    else None,
                 )
             ),
             types.ListResourceTemplatesResult,
@@ -295,7 +299,9 @@ class ClientSession(
             types.ClientRequest(
                 types.ListPromptsRequest(
                     method="prompts/list",
-                    params=types.PaginatedRequestParams(cursor=cursor),
+                    params=types.PaginatedRequestParams(cursor=cursor)
+                    if cursor is not None
+                    else None,
                 )
             ),
             types.ListPromptsResult,
@@ -340,7 +346,9 @@ class ClientSession(
             types.ClientRequest(
                 types.ListToolsRequest(
                     method="tools/list",
-                    params=types.PaginatedRequestParams(cursor=cursor),
+                    params=types.PaginatedRequestParams(cursor=cursor)
+                    if cursor is not None
+                    else None,
                 )
             ),
             types.ListToolsResult,

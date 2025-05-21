@@ -87,6 +87,15 @@ class Request(BaseModel, Generic[RequestParamsT, MethodT]):
     model_config = ConfigDict(extra="allow")
 
 
+class PaginatedRequest(
+    Request[PaginatedRequestParams | None, MethodT], Generic[MethodT]
+):
+    """Base class for paginated requests,
+    matching the schema's PaginatedRequest interface."""
+
+    params: PaginatedRequestParams | None = None
+
+
 class Notification(BaseModel, Generic[NotificationParamsT, MethodT]):
     """Base class for JSON-RPC notifications."""
 
@@ -358,9 +367,7 @@ class ProgressNotification(
     params: ProgressNotificationParams
 
 
-class ListResourcesRequest(
-    Request[PaginatedRequestParams | None, Literal["resources/list"]]
-):
+class ListResourcesRequest(PaginatedRequest[Literal["resources/list"]]):
     """Sent from the client to request a list of resources the server has."""
 
     method: Literal["resources/list"]
@@ -423,7 +430,7 @@ class ListResourcesResult(PaginatedResult):
 
 
 class ListResourceTemplatesRequest(
-    Request[PaginatedRequestParams | None, Literal["resources/templates/list"]]
+    PaginatedRequest[Literal["resources/templates/list"]]
 ):
     """Sent from the client to request a list of resource templates the server has."""
 
@@ -570,9 +577,7 @@ class ResourceUpdatedNotification(
     params: ResourceUpdatedNotificationParams
 
 
-class ListPromptsRequest(
-    Request[PaginatedRequestParams | None, Literal["prompts/list"]]
-):
+class ListPromptsRequest(PaginatedRequest[Literal["prompts/list"]]):
     """Sent from the client to request a list of prompts and prompt templates."""
 
     method: Literal["prompts/list"]
@@ -703,7 +708,7 @@ class PromptListChangedNotification(
     params: NotificationParams | None = None
 
 
-class ListToolsRequest(Request[PaginatedRequestParams | None, Literal["tools/list"]]):
+class ListToolsRequest(PaginatedRequest[Literal["tools/list"]]):
     """Sent from the client to request a list of tools the server has."""
 
     method: Literal["tools/list"]

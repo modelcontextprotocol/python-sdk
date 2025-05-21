@@ -35,11 +35,7 @@ async def test_list_tools_cursor_parameter(stream_spy):
         _ = await client_session.list_tools()
         list_tools_requests = spies.get_client_requests(method="tools/list")
         assert len(list_tools_requests) == 1
-        assert (
-            list_tools_requests[0].params is None
-            or "cursor" not in list_tools_requests[0].params
-            or list_tools_requests[0].params["cursor"] is None
-        )
+        assert list_tools_requests[0].params is None
 
         spies.clear()
 
@@ -47,11 +43,7 @@ async def test_list_tools_cursor_parameter(stream_spy):
         _ = await client_session.list_tools(cursor=None)
         list_tools_requests = spies.get_client_requests(method="tools/list")
         assert len(list_tools_requests) == 1
-        assert (
-            list_tools_requests[0].params is None
-            or "cursor" not in list_tools_requests[0].params
-            or list_tools_requests[0].params["cursor"] is None
-        )
+        assert list_tools_requests[0].params is None
 
         spies.clear()
 
@@ -93,11 +85,7 @@ async def test_list_resources_cursor_parameter(stream_spy):
         _ = await client_session.list_resources()
         list_resources_requests = spies.get_client_requests(method="resources/list")
         assert len(list_resources_requests) == 1
-        assert (
-            list_resources_requests[0].params is None
-            or "cursor" not in list_resources_requests[0].params
-            or list_resources_requests[0].params["cursor"] is None
-        )
+        assert list_resources_requests[0].params is None
 
         spies.clear()
 
@@ -105,11 +93,7 @@ async def test_list_resources_cursor_parameter(stream_spy):
         _ = await client_session.list_resources(cursor=None)
         list_resources_requests = spies.get_client_requests(method="resources/list")
         assert len(list_resources_requests) == 1
-        assert (
-            list_resources_requests[0].params is None
-            or "cursor" not in list_resources_requests[0].params
-            or list_resources_requests[0].params["cursor"] is None
-        )
+        assert list_resources_requests[0].params is None
 
         spies.clear()
 
@@ -150,11 +134,7 @@ async def test_list_prompts_cursor_parameter(stream_spy):
         _ = await client_session.list_prompts()
         list_prompts_requests = spies.get_client_requests(method="prompts/list")
         assert len(list_prompts_requests) == 1
-        assert (
-            list_prompts_requests[0].params is None
-            or "cursor" not in list_prompts_requests[0].params
-            or list_prompts_requests[0].params["cursor"] is None
-        )
+        assert list_prompts_requests[0].params is None
 
         spies.clear()
 
@@ -162,11 +142,7 @@ async def test_list_prompts_cursor_parameter(stream_spy):
         _ = await client_session.list_prompts(cursor=None)
         list_prompts_requests = spies.get_client_requests(method="prompts/list")
         assert len(list_prompts_requests) == 1
-        assert (
-            list_prompts_requests[0].params is None
-            or "cursor" not in list_prompts_requests[0].params
-            or list_prompts_requests[0].params["cursor"] is None
-        )
+        assert list_prompts_requests[0].params is None
 
         spies.clear()
 
@@ -210,11 +186,7 @@ async def test_list_resource_templates_cursor_parameter(stream_spy):
             method="resources/templates/list"
         )
         assert len(list_templates_requests) == 1
-        assert (
-            list_templates_requests[0].params is None
-            or "cursor" not in list_templates_requests[0].params
-            or list_templates_requests[0].params["cursor"] is None
-        )
+        assert list_templates_requests[0].params is None
 
         spies.clear()
 
@@ -224,11 +196,7 @@ async def test_list_resource_templates_cursor_parameter(stream_spy):
             method="resources/templates/list"
         )
         assert len(list_templates_requests) == 1
-        assert (
-            list_templates_requests[0].params is None
-            or "cursor" not in list_templates_requests[0].params
-            or list_templates_requests[0].params["cursor"] is None
-        )
+        assert list_templates_requests[0].params is None
 
         spies.clear()
 
