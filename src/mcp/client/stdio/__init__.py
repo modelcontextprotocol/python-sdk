@@ -176,11 +176,26 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         try:
             yield read_stream, write_stream
         finally:
-            # Clean up process to prevent any dangling orphaned processes
-            if sys.platform == "win32":
-                await terminate_windows_process(process)
-            else:
-                process.terminate()
+            # MCP spec: stdio shutdown sequence
+            # 1. Close input stream to server
+            # 2. Wait for server to exit, or send SIGTERM if it doesn't exit in time
+            # 3. Send SIGKILL if still not exited
+            if process.stdin:
+                await process.stdin.aclose()
+            try:
+                with anyio.fail_after(2.0):
+                    await process.wait()
+            except TimeoutError:
+                if sys.platform == "win32":
+                    await terminate_windows_process(process)
+                else:
+                    process.terminate()
+                    try:
+                        with anyio.fail_after(2.0):
+                            await process.wait()
+                    except TimeoutError:
+                        process.kill()
+                        await process.wait()
             await read_stream.aclose()
             await write_stream.aclose()
 
