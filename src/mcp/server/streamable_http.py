@@ -7,6 +7,7 @@ The transport handles bidirectional communication using HTTP requests and
 responses, with streaming support for long-running operations.
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -24,6 +25,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.types import (
     INTERNAL_ERROR,
@@ -36,6 +38,7 @@ from mcp.types import (
     JSONRPCRequest,
     JSONRPCResponse,
     RequestId,
+    Webhook,
 )
 
 logger = logging.getLogger(__name__)
@@ -136,6 +139,7 @@ class StreamableHTTPServerTransport:
         self,
         mcp_session_id: str | None,
         is_json_response_enabled: bool = False,
+        is_webhooks_supported: bool = False,
         event_store: EventStore | None = None,
     ) -> None:
         """
@@ -146,6 +150,10 @@ class StreamableHTTPServerTransport:
                             Must contain only visible ASCII characters (0x21-0x7E).
             is_json_response_enabled: If True, return JSON responses for requests
                                     instead of SSE streams. Default is False.
+            is_webhooks_supported: If True and if webhooks are provided in
+                        tools/call request, the client will receive an Accepted
+                        HTTP response and the CallTool response will be sent to
+                        the webhook. Default is False.
             event_store: Event store for resumability support. If provided,
                         resumability will be enabled, allowing clients to
                         reconnect and resume messages.
@@ -162,6 +170,7 @@ class StreamableHTTPServerTransport:
 
         self.mcp_session_id = mcp_session_id
         self.is_json_response_enabled = is_json_response_enabled
+        self.is_webhooks_supported = is_webhooks_supported
         self._event_store = event_store
         self._request_streams: dict[
             RequestId,
@@ -410,9 +419,43 @@ class StreamableHTTPServerTransport:
             ](0)
             request_stream_reader = self._request_streams[request_id][1]
 
+            session_message = SessionMessage(message)
+            if self._is_call_tool_request_with_webhooks(
+                session_message.message
+            ):
+                if self.is_webhooks_supported:
+                    response = self._create_json_response(
+                        JSONRPCMessage(root=JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=message.root.id,
+                            result={
+                                'content': [{
+                                    'type': 'text',
+                                    'text': 'Response will be forwarded to the webhook.'
+                                }],
+                                'isError': False
+                            },
+                        )),
+                        HTTPStatus.OK,
+                    )
+                    asyncio.create_task(
+                        self._send_response_to_webhooks(
+                            request_id, session_message, request_stream_reader
+                        )
+                    )
+                else:
+                    logger.exception("Webhooks not supported error")
+                    err = "Webhooks not supported"
+                    response = self._create_error_response(
+                        f"Validation error: {err}",
+                        HTTPStatus.BAD_REQUEST,
+                        INVALID_PARAMS,
+                    )
+                await response(scope, receive, send)
+                return
+
             if self.is_json_response_enabled:
                 # Process the message
-                session_message = SessionMessage(message)
                 await writer.send(session_message)
                 try:
                     # Process messages from the request-specific stream
@@ -530,6 +573,115 @@ class StreamableHTTPServerTransport:
             if writer:
                 await writer.send(Exception(err))
             return
+
+
+    async def _send_response_to_webhooks(
+        self,
+        request_id: str,
+        session_message: SessionMessage,
+        request_stream_reader: MemoryObjectReceiveStream[EventMessage],
+    ):
+        webhooks: list[Webhook] = [Webhook(**webhook) for webhook in session_message.message.root.webhooks]
+        writer = self._read_stream_writer
+        if writer is None:
+            raise ValueError(
+                "No read stream writer available. Ensure connect() is called first."
+            )
+        await writer.send(session_message)
+
+        try:
+            response_message = JSONRPCError(
+                jsonrpc="2.0",
+                id="server-error",  # We don't have a request ID for general errors
+                error=ErrorData(
+                    code=INTERNAL_ERROR,
+                    message="Error processing request: No response received",
+                ),
+            )
+
+            if self.is_json_response_enabled:
+                # Process messages from the request-specific stream
+                # We need to collect all messages until we get a response
+                async for event_message in request_stream_reader:
+                    # If it's a response, this is what we're waiting for
+                    if isinstance(
+                        event_message.message.root, JSONRPCResponse | JSONRPCError
+                    ):
+                        response_message = event_message.message
+                        break
+                    # For notifications and request, keep waiting
+                    else:
+                        logger.debug(
+                            f"received: {event_message.message.root.method}"
+                        )        
+
+                await self._send_message_to_webhooks(webhooks, response_message)
+            else:
+                # Send each event on the request stream as a separate message
+                async for event_message in request_stream_reader:
+                    event_data = self._create_event_data(event_message)
+                    await self._send_message_to_webhooks(webhooks, event_data)
+
+                    # If response, remove from pending streams and close
+                    if isinstance(
+                        event_message.message.root,
+                        JSONRPCResponse | JSONRPCError,
+                    ):
+                        break
+
+        except Exception as e:
+            logger.exception(f"Error sending response to webhooks: {e}")
+
+        finally:
+            await self._clean_up_memory_streams(request_id)
+
+
+    async def _send_message_to_webhooks(
+        self,
+        webhooks: list[Webhook],
+        message: JSONRPCMessage | JSONRPCError | dict[str, str],
+    ):
+        for webhook in webhooks:
+            headers = {"Content-Type": CONTENT_TYPE_JSON}
+            # Add authorization headers
+            if webhook.authentication and webhook.authentication.credentials:
+                if webhook.authentication.strategy == "bearer":
+                    headers["Authorization"] = f"Bearer {webhook.authentication.credentials}"
+                elif webhook.authentication.strategy == "apiKey":
+                    headers["X-API-Key"] = webhook.authentication.credentials
+                elif webhook.authentication.strategy == "basic":
+                    try:
+                        # Try to parse as JSON
+                        creds_dict = json.loads(webhook.authentication.credentials)
+                        if "username" in creds_dict and "password" in creds_dict:
+                            # Create basic auth header from username and password
+                            import base64
+                            auth_string = f"{creds_dict['username']}:{creds_dict['password']}"
+                            credentials = base64.b64encode(auth_string.encode()).decode()
+                            headers["Authorization"] = f"Basic {credentials}"
+                    except:
+                        # Not JSON, use as-is
+                        headers["Authorization"] = f"Basic {webhook.authentication.credentials}"
+                elif webhook.authentication.strategy == "customHeader" and webhook.authentication.credentials:
+                    try:
+                        custom_headers = json.loads(webhook.authentication.credentials)
+                        headers.update(custom_headers)
+                    except:
+                        pass
+
+            async with create_mcp_http_client(headers=headers) as client:
+                try:
+                    if isinstance(message, JSONRPCMessage | JSONRPCError):
+                        await client.post(
+                            webhook.url,
+                            json=message.model_dump_json(by_alias=True, exclude_none=True),
+                        )
+                    else:
+                        await client.post(webhook.url, json=message)
+
+                except Exception as e:
+                    logger.exception(f"Error sending response to webhook {webhook.url}: {e}")
+
 
     async def _handle_get_request(self, request: Request, send: Send) -> None:
         """
@@ -650,6 +802,18 @@ class StreamableHTTPServerTransport:
             HTTPStatus.OK,
         )
         await response(request.scope, request.receive, send)
+
+
+    def _is_call_tool_request_with_webhooks(self, message: JSONRPCMessage) -> bool:
+        """Check if the request is a call tool request with webhooks."""
+        return (
+            isinstance(message.root, JSONRPCRequest)
+            and message.root.method == "tools/call"
+            and hasattr(message.root, "webhooks")
+            and message.root.webhooks is not None
+            and len(message.root.webhooks) > 0
+        )
+
 
     async def _terminate_session(self) -> None:
         """Terminate the current session, closing all streams.

@@ -63,6 +63,7 @@ from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
 from mcp.types import ResourceTemplate as MCPResourceTemplate
 from mcp.types import Tool as MCPTool
+from mcp.types import Webhook
 
 logger = get_logger(__name__)
 
@@ -99,6 +100,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     stateless_http: bool = (
         False  # If True, uses true stateless mode (new transport per request)
     )
+    webhooks_supported: bool = False
 
     # resource settings
     warn_on_duplicate_resources: bool = True
@@ -150,11 +152,10 @@ class FastMCP:
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
             instructions=instructions,
-            lifespan=(
-                lifespan_wrapper(self, self.settings.lifespan)
-                if self.settings.lifespan
-                else default_lifespan
-            ),
+            lifespan=lifespan_wrapper(self, self.settings.lifespan)
+            if self.settings.lifespan
+            else default_lifespan,
+            webhooks_supported=self.settings.webhooks_supported,
         )
         self._tool_manager = ToolManager(
             tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
@@ -165,6 +166,7 @@ class FastMCP:
         self._prompt_manager = PromptManager(
             warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts
         )
+
         if (self.settings.auth is not None) != (auth_server_provider is not None):
             # TODO: after we support separate authorization servers (see
             # https://github.com/modelcontextprotocol/modelcontextprotocol/pull/284)
@@ -272,11 +274,19 @@ class FastMCP:
         return Context(request_context=request_context, fastmcp=self)
 
     async def call_tool(
-        self, name: str, arguments: dict[str, Any]
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        webhooks: list[Webhook] | None = None,
     ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
         """Call a tool by name with arguments."""
         context = self.get_context()
-        result = await self._tool_manager.call_tool(name, arguments, context=context)
+        result = await self._tool_manager.call_tool(
+            name,
+            arguments,
+            context=context,
+            webhooks=webhooks
+        )
         converted_result = _convert_to_content(result)
         return converted_result
 
@@ -777,6 +787,7 @@ class FastMCP:
                 event_store=self._event_store,
                 json_response=self.settings.json_response,
                 stateless=self.settings.stateless_http,  # Use the stateless setting
+                webhooks_supported=self.settings.webhooks_supported,  # Use the webhooks supported setting
             )
 
         # Create the ASGI handler
@@ -929,6 +940,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
 
     _request_context: RequestContext[ServerSessionT, LifespanContextT] | None
     _fastmcp: FastMCP | None
+    has_webhook: bool = False
 
     def __init__(
         self,

@@ -7,7 +7,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools.base import Tool
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.shared.context import LifespanContextT
-from mcp.types import ToolAnnotations
+from mcp.types import ToolAnnotations, Webhook
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -66,10 +66,16 @@ class ToolManager:
         name: str,
         arguments: dict[str, Any],
         context: Context[ServerSessionT, LifespanContextT] | None = None,
+        webhooks: list[Webhook] | None = None,
     ) -> Any:
         """Call a tool by name with arguments."""
         tool = self.get_tool(name)
         if not tool:
             raise ToolError(f"Unknown tool: {name}")
+
+        if context:
+            context.has_webhook = (
+                webhooks is not None and len(webhooks) > 0
+            )
 
         return await tool.run(arguments, context=context)

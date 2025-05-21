@@ -60,11 +60,13 @@ class StreamableHTTPSessionManager:
         event_store: EventStore | None = None,
         json_response: bool = False,
         stateless: bool = False,
+        webhooks_supported: bool = False,
     ):
         self.app = app
         self.event_store = event_store
         self.json_response = json_response
         self.stateless = stateless
+        self.webhooks_supported = webhooks_supported
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
@@ -161,6 +163,7 @@ class StreamableHTTPSessionManager:
         http_transport = StreamableHTTPServerTransport(
             mcp_session_id=None,  # No session tracking in stateless mode
             is_json_response_enabled=self.json_response,
+            is_webhooks_supported=self.webhooks_supported,
             event_store=None,  # No event store in stateless mode
         )
 
@@ -221,6 +224,7 @@ class StreamableHTTPSessionManager:
                 http_transport = StreamableHTTPServerTransport(
                     mcp_session_id=new_session_id,
                     is_json_response_enabled=self.json_response,
+                    is_webhooks_supported=self.webhooks_supported,
                     event_store=self.event_store,  # May be None (no resumability)
                 )
 

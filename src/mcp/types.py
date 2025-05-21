@@ -245,6 +245,8 @@ class ToolsCapability(BaseModel):
 
     listChanged: bool | None = None
     """Whether this server supports notifications for changes to the tool list."""
+    webhooksSupported: bool | None = None
+    """Capability for transmitting tool responses to webhooks."""
     model_config = ConfigDict(extra="allow")
 
 
@@ -703,6 +705,27 @@ class PromptListChangedNotification(
     params: NotificationParams | None = None
 
 
+class AuthenticationInfo(BaseModel):
+    """Used to specify authentication mechanism"""
+
+    strategy: Literal["bearer", "apiKey", "basic", "customHeader"]
+    """Authentication strategy that the server will follow"""
+    credentials: str | None = None
+    """
+    Static credentials in the case of bearer, apiKey or basic.
+    In case of basic and customHeader, this can also be a parsable JSON.
+    """
+
+
+class Webhook(BaseModel):
+    """Used to specify a webhook and authentication method to communicate with it"""
+
+    url: str
+    """Url to which the response will be transmitted"""
+    authentication: AuthenticationInfo | None = None
+    """Authentication required to communicate with the webhook"""
+
+
 class ListToolsRequest(PaginatedRequest[RequestParams | None, Literal["tools/list"]]):
     """Sent from the client to request a list of tools the server has."""
 
@@ -791,6 +814,7 @@ class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
 
     method: Literal["tools/call"]
     params: CallToolRequestParams
+    webhooks: list[Webhook] | None = None
 
 
 class CallToolResult(Result):
