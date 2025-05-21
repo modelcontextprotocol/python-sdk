@@ -167,10 +167,10 @@ def build_metadata(
     revocation_options: RevocationOptions,
 ) -> OAuthMetadata:
     authorization_url = modify_url_path(
-        issuer_url, lambda path: path.rstrip("/") + AUTHORIZATION_PATH.lstrip("/")
+        issuer_url, lambda path: path.rstrip("/") + AUTHORIZATION_PATH
     )
     token_url = modify_url_path(
-        issuer_url, lambda path: path.rstrip("/") + TOKEN_PATH.lstrip("/")
+        issuer_url, lambda path: path.rstrip("/") + TOKEN_PATH
     )
     # Create metadata
     metadata = OAuthMetadata(
@@ -194,13 +194,13 @@ def build_metadata(
     # Add registration endpoint if supported
     if client_registration_options.enabled:
         metadata.registration_endpoint = modify_url_path(
-            issuer_url, lambda path: path.rstrip("/") + REGISTRATION_PATH.lstrip("/")
+            issuer_url, lambda path: path.rstrip("/") + REGISTRATION_PATH
         )
 
     # Add revocation endpoint if supported
     if revocation_options.enabled:
         metadata.revocation_endpoint = modify_url_path(
-            issuer_url, lambda path: path.rstrip("/") + REVOCATION_PATH.lstrip("/")
+            issuer_url, lambda path: path.rstrip("/") + REVOCATION_PATH
         )
         metadata.revocation_endpoint_auth_methods_supported = ["client_secret_post"]
 
