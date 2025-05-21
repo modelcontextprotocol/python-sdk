@@ -379,6 +379,14 @@ class BaseSession(
                                 by_alias=True, mode="json", exclude_none=True
                             )
                         )
+                    except Exception as e:
+                        # For other validation errors, log and continue
+                        logging.warning(
+                            "Failed to validate notification: %s. " "Message was: %s",
+                            e,
+                            message.message.root,
+                        )
+                    else:  # Notification is valid
                         # Handle cancellation notifications
                         if isinstance(notification.root, CancelledNotification):
                             cancelled_id = notification.root.params.requestId
@@ -392,19 +400,19 @@ class BaseSession(
                                 # call it with the progress information
                                 if progress_token in self._progress_callbacks:
                                     callback = self._progress_callbacks[progress_token]
-                                    await callback(
-                                        notification.root.params.progress,
-                                        notification.root.params.total,
-                                        notification.root.params.message,
-                                    )
+                                    try:
+                                        await callback(
+                                            notification.root.params.progress,
+                                            notification.root.params.total,
+                                            notification.root.params.message,
+                                        )
+                                    except Exception as e:
+                                        logging.warning(
+                                            "Progress callback raised an exception: %s",
+                                            e,
+                                        )
                             await self._received_notification(notification)
                             await self._handle_incoming(notification)
-                    except Exception as e:
-                        # For other validation errors, log and continue
-                        logging.warning(
-                            f"Failed to validate notification: {e}. "
-                            f"Message was: {message.message.root}"
-                        )
                 else:  # Response or error
                     stream = self._response_streams.pop(message.message.root.id, None)
                     if stream:
