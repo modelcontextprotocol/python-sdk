@@ -38,6 +38,7 @@ from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.fastmcp.tools import Tool, ToolManager
+from mcp.server.fastmcp.utilities.bundler import Bundler
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.fastmcp.utilities.types import Image
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -586,6 +587,13 @@ class FastMCP:
             return func
 
         return decorator
+    
+    def include_bunder(self, bundler: Bundler) -> None:
+        """Add bundler of resources, tools and prompts to the server."""
+        bundler_tools = bundler.get_tools()
+        for name, tool in bundler_tools.items():
+            self.add_tool(tool.fn, name, tool.description, tool.annotations)
+        # TODO finish code for resources and prompts
 
     async def run_stdio_async(self) -> None:
         """Run the server using stdio transport."""
