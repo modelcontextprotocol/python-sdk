@@ -164,6 +164,6 @@ def main(
 
     import uvicorn
 
-    uvicorn.run(starlette_app, host="0.0.0.0", port=port)
+    uvicorn.run(starlette_app, host="127.0.0.1", port=port)
 
     return 0
