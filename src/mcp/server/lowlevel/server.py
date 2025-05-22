@@ -609,6 +609,19 @@ class Server(Generic[LifespanResultT, RequestT]):
                         await self._handle_request(message, req, session, lifespan_context, raise_exceptions)
                 case types.ClientNotification(root=notify):
                     await self._handle_notification(notify)
+                case Exception():
+                    logger.error(f"Received error message: {message}")
+                    if raise_exceptions:
+                        raise message
+                    # Send the error as a notification since we don't have a request context
+                    await session.send_log_message(
+                        level="error",
+                        data=types.ErrorData(
+                            code=types.INTERNAL_ERROR,
+                            message=str(message),
+                            data=None
+                        )
+                    )
 
             for warning in w:
                 logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
