@@ -1,4 +1,5 @@
 import posixpath
+import urllib.parse
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -167,13 +168,28 @@ def build_metadata(
     client_registration_options: ClientRegistrationOptions,
     revocation_options: RevocationOptions,
 ) -> OAuthMetadata:
-    def append_path(base: str, suffix: str) -> str:
-        return posixpath.join(base.rstrip("/"), suffix.lstrip("/"))
+
+    def append_path(issuer_url: str, endpoint_path: str) -> str:
+        parsed = urllib.parse.urlparse(issuer_url)
+
+        base_path = parsed.path.rstrip("/")
+        endpoint_path = endpoint_path.lstrip("/")
+        new_path = posixpath.join(base_path, endpoint_path)
+        
+        if not new_path.startswith("/"):
+            new_path = "/" + new_path
+
+        new_url = urllib.parse.urlunparse(parsed._replace(path=new_path))
+
+        if new_url.startswith("/"):
+            new_url = new_url[1:]
+        return new_url
 
     authorization_url = modify_url_path(
         issuer_url, lambda path: append_path(path, AUTHORIZATION_PATH)
     )
     token_url = modify_url_path(issuer_url, lambda path: append_path(path, TOKEN_PATH))
+
     # Create metadata
     metadata = OAuthMetadata(
         issuer=issuer_url,
