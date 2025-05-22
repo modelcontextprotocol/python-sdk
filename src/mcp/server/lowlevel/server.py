@@ -613,14 +613,13 @@ class Server(Generic[LifespanResultT, RequestT]):
                     logger.error(f"Received error message: {message}")
                     if raise_exceptions:
                         raise message
-                    # Send the error as a notification since we don't have a request context
+                    # Send the error as a notification
+                    # as we don't have a request context
                     await session.send_log_message(
                         level="error",
                         data=types.ErrorData(
-                            code=types.INTERNAL_ERROR,
-                            message=str(message),
-                            data=None
-                        )
+                            code=types.INTERNAL_ERROR, message=str(message), data=None
+                        ),
                     )
 
             for warning in w:
