@@ -1,5 +1,4 @@
 import posixpath
-
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -174,9 +173,7 @@ def build_metadata(
     authorization_url = modify_url_path(
         issuer_url, lambda path: append_path(path, AUTHORIZATION_PATH)
     )
-    token_url = modify_url_path(
-        issuer_url, lambda path: append_path(path, TOKEN_PATH)
-    )
+    token_url = modify_url_path(issuer_url, lambda path: append_path(path, TOKEN_PATH))
     # Create metadata
     metadata = OAuthMetadata(
         issuer=issuer_url,
