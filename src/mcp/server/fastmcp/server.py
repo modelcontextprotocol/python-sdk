@@ -897,7 +897,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
     """Context object providing access to MCP capabilities.
 
     This provides a cleaner interface to MCP's RequestContext functionality.
-    It gets injected into tool and resource functions that request it via type hints.
+    It gets injected into tool functions that request it via type hints.
 
     To use context in a tool function, add a parameter with the Context type annotation:
 
