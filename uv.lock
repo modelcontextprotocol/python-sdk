@@ -1,5 +1,4 @@
 version = 1
-revision = 1
 requires-python = ">=3.10"
 
 [options]
@@ -10,6 +9,7 @@ members = [
     "mcp",
     "mcp-simple-auth",
     "mcp-simple-prompt",
+    "mcp-simple-remote-auth",
     "mcp-simple-resource",
     "mcp-simple-streamablehttp",
     "mcp-simple-streamablehttp-stateless",
@@ -549,7 +549,6 @@ requires-dist = [
     { name = "uvicorn", marker = "sys_platform != 'emscripten'", specifier = ">=0.23.1" },
     { name = "websockets", marker = "extra == 'ws'", specifier = ">=15.0.1" },
 ]
-provides-extras = ["cli", "rich", "ws"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -641,6 +640,47 @@ dev = [
     { name = "pyright", specifier = ">=1.1.378" },
     { name = "pytest", specifier = ">=8.3.3" },
     { name = "ruff", specifier = ">=0.6.9" },
+]
+
+[[package]]
+name = "mcp-simple-remote-auth"
+version = "0.1.0"
+source = { editable = "examples/servers/simple-auth-remote" }
+dependencies = [
+    { name = "anyio" },
+    { name = "click" },
+    { name = "httpx" },
+    { name = "mcp" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "sse-starlette" },
+    { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", specifier = ">=4.5" },
+    { name = "click", specifier = ">=8.1.0" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "mcp", editable = "." },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pydantic-settings", specifier = ">=2.5.2" },
+    { name = "sse-starlette", specifier = ">=1.6.1" },
+    { name = "uvicorn", marker = "sys_platform != 'emscripten'", specifier = ">=0.23.1" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.391" },
+    { name = "pytest", specifier = ">=8.3.4" },
+    { name = "ruff", specifier = ">=0.8.5" },
 ]
 
 [[package]]

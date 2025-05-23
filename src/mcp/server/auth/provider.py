@@ -96,6 +96,13 @@ RefreshTokenT = TypeVar("RefreshTokenT", bound=RefreshToken)
 AccessTokenT = TypeVar("AccessTokenT", bound=AccessToken)
 
 
+
+class TokenValidator(BaseModel, Generic[AccessTokenT]):
+    async def validate_token(self, token: str) -> AccessTokenT | None:
+        ...
+
+
+
 class OAuthAuthorizationServerProvider(
     Protocol, Generic[AuthorizationCodeT, RefreshTokenT, AccessTokenT]
 ):
