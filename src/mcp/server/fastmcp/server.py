@@ -588,7 +588,7 @@ class FastMCP:
 
         return decorator
     
-    def include_bunder(self, bundler: Bundler) -> None:
+    def include_bundler(self, bundler: Bundler) -> None:
         """Add bundler of resources, tools and prompts to the server."""
         bundler_tools = bundler.get_tools()
         for name, tool in bundler_tools.items():
