@@ -20,7 +20,9 @@ class ResourceManager:
         self._templates: dict[str, ResourceTemplate] = {}
         self.warn_on_duplicate_resources = warn_on_duplicate_resources
 
-    def get_all_resources(self) -> tuple[dict[str, Resource], dict[str, ResourceTemplate]]:
+    def get_all_resources(
+        self,
+    ) -> tuple[dict[str, Resource], dict[str, ResourceTemplate]]:
         return self._resources, self._templates
 
     def add_resource(self, resource: Resource) -> Resource:
