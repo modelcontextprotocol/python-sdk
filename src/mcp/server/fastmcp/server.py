@@ -587,13 +587,28 @@ class FastMCP:
             return func
 
         return decorator
-    
+
     def include_bundler(self, bundler: Bundler) -> None:
         """Add bundler of resources, tools and prompts to the server."""
         bundler_tools = bundler.get_tools()
-        for name, tool in bundler_tools.items():
-            self.add_tool(tool.fn, name, tool.description, tool.annotations)
-        # TODO finish code for resources and prompts
+        for tool_name, tool in bundler_tools.items():
+            self.add_tool(tool.fn, tool_name, tool.description, tool.annotations)
+
+        bundler_resources, bundler_templates = bundler.get_resources()
+        for resource in bundler_resources.values():
+            self.add_resource(resource)
+        for template_name, template in bundler_templates.items():
+            self._resource_manager.add_template(
+                template.fn,
+                template.uri_template,
+                template_name,
+                template.description,
+                template.mime_type,
+            )
+
+        bundler_prompts = bundler.get_prompts()
+        for prompt in bundler_prompts.values():
+            self.add_prompt(prompt)
 
     async def run_stdio_async(self) -> None:
         """Run the server using stdio transport."""

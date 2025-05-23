@@ -3,7 +3,12 @@ import re
 from collections.abc import Callable
 
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
-from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
+from mcp.server.fastmcp.resources import (
+    FunctionResource,
+    Resource,
+    ResourceManager,
+    ResourceTemplate,
+)
 from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.types import (
     AnyFunction,
@@ -12,16 +17,13 @@ from mcp.types import (
 
 
 class Bundler:
-    def __init__(self, tools: list[Tool] | None = None,):
-        self._tool_manager = ToolManager(
-            tools=tools, warn_on_duplicate_tools=True
-        )
-        self._resource_manager = ResourceManager(
-            warn_on_duplicate_resources=True
-        )
-        self._prompt_manager = PromptManager(
-            warn_on_duplicate_prompts=True
-        )
+    def __init__(
+        self,
+        tools: list[Tool] | None = None,
+    ):
+        self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=True)
+        self._resource_manager = ResourceManager(warn_on_duplicate_resources=True)
+        self._prompt_manager = PromptManager(warn_on_duplicate_prompts=True)
 
     def add_tool(
         self,
@@ -91,10 +93,10 @@ class Bundler:
             return fn
 
         return decorator
-    
+
     def get_tools(self) -> dict[str, Tool]:
         return self._tool_manager.get_all_tools()
-    
+
     def add_resource(self, resource: Resource) -> None:
         """Add a resource to the server.
 
@@ -192,6 +194,9 @@ class Bundler:
 
         return decorator
 
+    def get_resources(self) -> tuple[dict[str, Resource], dict[str, ResourceTemplate]]:
+        return self._resource_manager.get_all_resources()
+
     def add_prompt(self, prompt: Prompt) -> None:
         """Add a prompt to the server.
 
@@ -249,3 +254,6 @@ class Bundler:
             return func
 
         return decorator
+    
+    def get_prompts(self) -> dict[str, Prompt]:
+        return self._prompt_manager.get_all_prompts()
