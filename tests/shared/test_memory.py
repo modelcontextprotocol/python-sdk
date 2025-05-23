@@ -24,6 +24,7 @@ def mcp_server() -> Server:
                 uri=AnyUrl("memory://test"),
                 name="Test Resource",
                 description="A test resource",
+                type="resource",
             )
         ]
 
