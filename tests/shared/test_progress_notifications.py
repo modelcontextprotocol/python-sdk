@@ -3,7 +3,7 @@ from typing import Any, cast
 import anyio
 import pytest
 
-import mcp.types as types
+from mcp import types
 from mcp.client.session import ClientSession
 from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
@@ -41,7 +41,7 @@ async def test_bidirectional_progress_notifications():
                 capabilities=server.get_capabilities(NotificationOptions(), {}),
             ),
         ) as server_session:
-            global serv_sesh
+            global serv_sesh  # noqa: PLW0603
 
             serv_sesh = server_session
             async for message in server_session.incoming_messages:

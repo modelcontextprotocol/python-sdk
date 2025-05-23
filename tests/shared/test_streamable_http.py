@@ -19,7 +19,7 @@ from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
-import mcp.types as types
+from mcp import types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.server import Server
@@ -873,7 +873,7 @@ async def test_streamablehttp_client_json_response(
 @pytest.mark.anyio
 async def test_streamablehttp_client_get_stream(basic_server, basic_server_url):
     """Test GET stream functionality for server-initiated messages."""
-    import mcp.types as types
+    from mcp import types
     from mcp.shared.session import RequestResponder
 
     notifications_received = []

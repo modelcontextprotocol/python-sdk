@@ -10,7 +10,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from anyio.streams.text import TextReceiveStream
 from pydantic import BaseModel, Field
 
-import mcp.types as types
+from mcp import types
 from mcp.shared.message import SessionMessage
 
 from .win32 import (
