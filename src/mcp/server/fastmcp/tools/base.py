@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from mcp.server.session import ServerSessionT
     from mcp.shared.context import LifespanContextT
 
-
 class Tool(BaseModel):
     """Internal tool registration info."""
 
@@ -24,6 +23,9 @@ class Tool(BaseModel):
     name: str = Field(description="Name of the tool")
     description: str = Field(description="Description of what the tool does")
     parameters: dict[str, Any] = Field(description="JSON schema for tool parameters")
+    outputSchema: dict[str, Any] | None = Field(
+        None, description="Optional JSON schema for tool output"
+    )
     fn_metadata: FuncMetadata = Field(
         description="Metadata about the function including a pydantic model for tool"
         " arguments"
@@ -71,6 +73,8 @@ class Tool(BaseModel):
         )
         parameters = func_arg_metadata.arg_model.model_json_schema()
 
+        output_schema = getattr(func_arg_metadata, "outputSchema", None)
+
         return cls(
             fn=fn,
             name=func_name,
@@ -79,6 +83,7 @@ class Tool(BaseModel):
             fn_metadata=func_arg_metadata,
             is_async=is_async,
             context_kwarg=context_kwarg,
+            outputSchema=output_schema,
             annotations=annotations,
         )
 
@@ -88,6 +93,7 @@ class Tool(BaseModel):
         context: Context[ServerSessionT, LifespanContextT] | None = None,
     ) -> Any:
         """Run the tool with arguments."""
+
         try:
             return await self.fn_metadata.call_fn_with_arg_validation(
                 self.fn,

@@ -255,6 +255,7 @@ class FastMCP:
                 name=info.name,
                 description=info.description,
                 inputSchema=info.parameters,
+                outputSchema=info.outputSchema,
                 annotations=info.annotations,
             )
             for info in tools
@@ -338,7 +339,10 @@ class FastMCP:
             annotations: Optional ToolAnnotations providing additional tool information
         """
         self._tool_manager.add_tool(
-            fn, name=name, description=description, annotations=annotations
+            fn,
+            name=name,
+            description=description,
+            annotations=annotations,
         )
 
     def tool(
@@ -382,7 +386,10 @@ class FastMCP:
 
         def decorator(fn: AnyFunction) -> AnyFunction:
             self.add_tool(
-                fn, name=name, description=description, annotations=annotations
+                fn,
+                name=name,
+                description=description,
+                annotations=annotations,
             )
             return fn
 
@@ -878,6 +885,7 @@ def _convert_to_content(
     if result is None:
         return []
 
+    # Handle existing content types
     if isinstance(result, TextContent | ImageContent | EmbeddedResource):
         return [result]
 
