@@ -1,3 +1,4 @@
+import urllib.parse
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -165,13 +166,24 @@ def build_metadata(
     service_documentation_url: AnyHttpUrl | None,
     client_registration_options: ClientRegistrationOptions,
     revocation_options: RevocationOptions,
-) -> OAuthMetadata:
+) -> OAuthMetadata:    
+    def append_path(path: str, endpoint_path: str) -> str:
+        # Ensures the path ends with a slash
+        path = f"{path}/"
+
+        # Ensures the endpoint path does not start with a slash
+        endpoint_path_lstrip = endpoint_path.lstrip("/")
+
+        # Join the two paths and remove leading slashes This ensures that the final
+        # path doesn't have double slashes between the host and the endpoint
+        return urllib.parse.urljoin(path, endpoint_path_lstrip).lstrip("/")
+
+
     authorization_url = modify_url_path(
-        issuer_url, lambda path: path.rstrip("/") + AUTHORIZATION_PATH.lstrip("/")
+        issuer_url, lambda path: append_path(path, AUTHORIZATION_PATH)
     )
-    token_url = modify_url_path(
-        issuer_url, lambda path: path.rstrip("/") + TOKEN_PATH.lstrip("/")
-    )
+    token_url = modify_url_path(issuer_url, lambda path: append_path(path, TOKEN_PATH))
+
     # Create metadata
     metadata = OAuthMetadata(
         issuer=issuer_url,
@@ -194,13 +206,13 @@ def build_metadata(
     # Add registration endpoint if supported
     if client_registration_options.enabled:
         metadata.registration_endpoint = modify_url_path(
-            issuer_url, lambda path: path.rstrip("/") + REGISTRATION_PATH.lstrip("/")
+            issuer_url, lambda path: append_path(path, REGISTRATION_PATH)
         )
 
     # Add revocation endpoint if supported
     if revocation_options.enabled:
         metadata.revocation_endpoint = modify_url_path(
-            issuer_url, lambda path: path.rstrip("/") + REVOCATION_PATH.lstrip("/")
+            issuer_url, lambda path: append_path(path, REVOCATION_PATH)
         )
         metadata.revocation_endpoint_auth_methods_supported = ["client_secret_post"]
 
