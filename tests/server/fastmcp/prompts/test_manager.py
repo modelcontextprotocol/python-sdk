@@ -12,10 +12,10 @@ class TestPromptManager:
             return "Hello, world!"
 
         manager = PromptManager()
-        prompt = Prompt.from_function(fn)
-        added = manager.add_prompt(prompt)
-        assert added == prompt
-        assert manager.get_prompt("fn") == prompt
+        added = manager.add_prompt(fn)
+        assert isinstance(added, Prompt)
+        assert added.name == "fn"
+        assert manager.get_prompt("fn") == added
 
     def test_add_duplicate_prompt(self, caplog):
         """Test adding the same prompt twice."""
@@ -24,9 +24,8 @@ class TestPromptManager:
             return "Hello, world!"
 
         manager = PromptManager()
-        prompt = Prompt.from_function(fn)
-        first = manager.add_prompt(prompt)
-        second = manager.add_prompt(prompt)
+        first = manager.add_prompt(fn)
+        second = manager.add_prompt(fn)
         assert first == second
         assert "Prompt already exists" in caplog.text
 
@@ -37,9 +36,8 @@ class TestPromptManager:
             return "Hello, world!"
 
         manager = PromptManager(warn_on_duplicate_prompts=False)
-        prompt = Prompt.from_function(fn)
-        first = manager.add_prompt(prompt)
-        second = manager.add_prompt(prompt)
+        first = manager.add_prompt(fn)
+        second = manager.add_prompt(fn)
         assert first == second
         assert "Prompt already exists" not in caplog.text
 
@@ -53,10 +51,8 @@ class TestPromptManager:
             return "Goodbye, world!"
 
         manager = PromptManager()
-        prompt1 = Prompt.from_function(fn1)
-        prompt2 = Prompt.from_function(fn2)
-        manager.add_prompt(prompt1)
-        manager.add_prompt(prompt2)
+        prompt1 = manager.add_prompt(fn1)
+        prompt2 = manager.add_prompt(fn2)
         prompts = manager.list_prompts()
         assert len(prompts) == 2
         assert prompts == [prompt1, prompt2]
@@ -69,8 +65,7 @@ class TestPromptManager:
             return "Hello, world!"
 
         manager = PromptManager()
-        prompt = Prompt.from_function(fn)
-        manager.add_prompt(prompt)
+        manager.add_prompt(fn)
         messages = await manager.render_prompt("fn")
         assert messages == [
             UserMessage(content=TextContent(type="text", text="Hello, world!"))
@@ -84,8 +79,7 @@ class TestPromptManager:
             return f"Hello, {name}!"
 
         manager = PromptManager()
-        prompt = Prompt.from_function(fn)
-        manager.add_prompt(prompt)
+        manager.add_prompt(fn)
         messages = await manager.render_prompt("fn", arguments={"name": "World"})
         assert messages == [
             UserMessage(content=TextContent(type="text", text="Hello, World!"))
@@ -106,7 +100,6 @@ class TestPromptManager:
             return f"Hello, {name}!"
 
         manager = PromptManager()
-        prompt = Prompt.from_function(fn)
-        manager.add_prompt(prompt)
+        manager.add_prompt(fn)
         with pytest.raises(ValueError, match="Missing required arguments"):
             await manager.render_prompt("fn")
