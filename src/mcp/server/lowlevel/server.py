@@ -74,7 +74,6 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from typing import Any, Generic, TypeVar
 
-import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 
@@ -87,6 +86,7 @@ from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
+from mcp.shared.taskgroup import CompatTaskGroup
 
 logger = logging.getLogger(__name__)
 
@@ -503,7 +503,7 @@ class Server(Generic[LifespanResultT]):
                 )
             )
 
-            async with anyio.create_task_group() as tg:
+            async with CompatTaskGroup() as tg:
                 async for message in session.incoming_messages:
                     logger.debug(f"Received message: {message}")
 

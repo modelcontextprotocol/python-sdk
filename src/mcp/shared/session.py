@@ -13,6 +13,7 @@ from typing_extensions import Self
 
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.taskgroup import CompatTaskGroup
 from mcp.types import (
     CancelledNotification,
     ClientNotification,
@@ -201,7 +202,7 @@ class BaseSession(
         self._exit_stack = AsyncExitStack()
 
     async def __aenter__(self) -> Self:
-        self._task_group = anyio.create_task_group()
+        self._task_group = CompatTaskGroup()
         await self._task_group.__aenter__()
         self._task_group.start_soon(self._receive_loop)
         return self

@@ -9,6 +9,7 @@ from starlette.websockets import WebSocket
 
 import mcp.types as types
 from mcp.shared.message import SessionMessage
+from mcp.shared.taskgroup import CompatTaskGroup
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
         except anyio.ClosedResourceError:
             await websocket.close()
 
-    async with anyio.create_task_group() as tg:
+    async with CompatTaskGroup() as tg:
         tg.start_soon(ws_reader)
         tg.start_soon(ws_writer)
         yield (read_stream, write_stream)
