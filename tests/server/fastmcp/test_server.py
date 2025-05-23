@@ -16,6 +16,7 @@ from mcp.shared.memory import (
     create_connected_server_and_client_session as client_session,
 )
 from mcp.types import (
+    AudioContent,
     BlobResourceContents,
     ImageContent,
     TextContent,
@@ -207,10 +208,11 @@ def image_tool_fn(path: str) -> Image:
     return Image(path)
 
 
-def mixed_content_tool_fn() -> list[TextContent | ImageContent]:
+def mixed_content_tool_fn() -> list[TextContent | ImageContent | AudioContent]:
     return [
         TextContent(type="text", text="Hello"),
         ImageContent(type="image", data="abc", mimeType="image/png"),
+        AudioContent(type="audio", data="def", mimeType="audio/wav"),
     ]
 
 
@@ -312,14 +314,16 @@ class TestServerTools:
         mcp.add_tool(mixed_content_tool_fn)
         async with client_session(mcp._mcp_server) as client:
             result = await client.call_tool("mixed_content_tool_fn", {})
-            assert len(result.content) == 2
-            content1 = result.content[0]
-            content2 = result.content[1]
+            assert len(result.content) == 3
+            content1, content2, content3 = result.content
             assert isinstance(content1, TextContent)
             assert content1.text == "Hello"
             assert isinstance(content2, ImageContent)
             assert content2.mimeType == "image/png"
             assert content2.data == "abc"
+            assert isinstance(content3, AudioContent)
+            assert content3.mimeType == "audio/wav"
+            assert content3.data == "def"
 
     @pytest.mark.anyio
     async def test_tool_mixed_list_with_image(self, tmp_path: Path):
