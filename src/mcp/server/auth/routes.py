@@ -1,4 +1,3 @@
-import posixpath
 import urllib.parse
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -167,23 +166,18 @@ def build_metadata(
     service_documentation_url: AnyHttpUrl | None,
     client_registration_options: ClientRegistrationOptions,
     revocation_options: RevocationOptions,
-) -> OAuthMetadata:
+) -> OAuthMetadata:    
+    def append_path(path: str, endpoint_path: str) -> str:
+        # Ensures the path ends with a slash
+        path = f"{path}/"
 
-    def append_path(issuer_url: str, endpoint_path: str) -> str:
-        parsed = urllib.parse.urlparse(issuer_url)
+        # Ensures the endpoint path does not start with a slash
+        endpoint_path_lstrip = endpoint_path.lstrip("/")
 
-        base_path = parsed.path.rstrip("/")
-        endpoint_path = endpoint_path.lstrip("/")
-        new_path = posixpath.join(base_path, endpoint_path)
-        
-        if not new_path.startswith("/"):
-            new_path = "/" + new_path
+        # Join the two paths and remove leading slashes This ensures that the final
+        # path doesn't have double slashes between the host and the endpoint
+        return urllib.parse.urljoin(path, endpoint_path_lstrip).lstrip("/")
 
-        new_url = urllib.parse.urlunparse(parsed._replace(path=new_path))
-
-        if new_url.startswith("/"):
-            new_url = new_url[1:]
-        return new_url
 
     authorization_url = modify_url_path(
         issuer_url, lambda path: append_path(path, AUTHORIZATION_PATH)
