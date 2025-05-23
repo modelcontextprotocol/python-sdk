@@ -137,6 +137,7 @@ class StreamableHTTPServerTransport:
         mcp_session_id: str | None,
         is_json_response_enabled: bool = False,
         event_store: EventStore | None = None,
+        on_session_terminated: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         """
         Initialize a new StreamableHTTP server transport.
@@ -149,6 +150,9 @@ class StreamableHTTPServerTransport:
             event_store: Event store for resumability support. If provided,
                         resumability will be enabled, allowing clients to
                         reconnect and resume messages.
+            on_session_terminated: Optional callback to notify when session is
+                                   terminated. Called with the session ID when DELETE
+                                   request terminates session.
 
         Raises:
             ValueError: If the session ID contains invalid characters.
@@ -163,6 +167,7 @@ class StreamableHTTPServerTransport:
         self.mcp_session_id = mcp_session_id
         self.is_json_response_enabled = is_json_response_enabled
         self._event_store = event_store
+        self._on_session_terminated = on_session_terminated
         self._request_streams: dict[
             RequestId,
             tuple[
@@ -659,6 +664,13 @@ class StreamableHTTPServerTransport:
 
         self._terminated = True
         logger.info(f"Terminating session: {self.mcp_session_id}")
+
+        # Notify the session manager about termination
+        if self._on_session_terminated and self.mcp_session_id:
+            try:
+                await self._on_session_terminated(self.mcp_session_id)
+            except Exception as e:
+                logger.warning(f"Error in session termination callback: {e}")
 
         # We need a copy of the keys to avoid modification during iteration
         request_stream_keys = list(self._request_streams.keys())
