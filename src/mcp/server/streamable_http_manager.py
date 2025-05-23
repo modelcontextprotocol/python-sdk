@@ -117,6 +117,13 @@ class StreamableHTTPSessionManager:
                 # Clear any remaining server instances
                 self._server_instances.clear()
 
+    async def _on_session_terminated(self, session_id: str) -> None:
+        """Callback to clean up terminated sessions from the manager."""
+        async with self._session_creation_lock:
+            if session_id in self._server_instances:
+                logger.info(f"Removing terminated session from manager: {session_id}")
+                del self._server_instances[session_id]
+
     async def handle_request(
         self,
         scope: Scope,
@@ -222,6 +229,7 @@ class StreamableHTTPSessionManager:
                     mcp_session_id=new_session_id,
                     is_json_response_enabled=self.json_response,
                     event_store=self.event_store,  # May be None (no resumability)
+                    on_session_terminated=self._on_session_terminated,
                 )
 
                 assert http_transport.mcp_session_id is not None
@@ -250,9 +258,9 @@ class StreamableHTTPSessionManager:
                 # Handle the HTTP request and return the response
                 await http_transport.handle_request(scope, receive, send)
         else:
-            # Invalid session ID
+            # Invalid session ID  
             response = Response(
-                "Bad Request: No valid session ID provided",
-                status_code=HTTPStatus.BAD_REQUEST,
+                "Not Found: Session has been terminated",
+                status_code=HTTPStatus.NOT_FOUND,
             )
             await response(scope, receive, send)
