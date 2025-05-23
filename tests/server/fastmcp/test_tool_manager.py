@@ -6,9 +6,11 @@ from pydantic import BaseModel
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.server.fastmcp.tools import ToolManager
+from mcp.server.fastmcp.tools import Tool, ToolManager
+from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.server.session import ServerSessionT
 from mcp.shared.context import LifespanContextT
+from mcp.types import ToolAnnotations
 
 
 class TestAddTools:
@@ -29,6 +31,35 @@ class TestAddTools:
         assert tool.is_async is False
         assert tool.parameters["properties"]["a"]["type"] == "integer"
         assert tool.parameters["properties"]["b"]["type"] == "integer"
+
+    def test_init_with_tools(self, caplog):
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        class AddArguments(ArgModelBase):
+            a: int
+            b: int
+
+        fn_metadata = FuncMetadata(arg_model=AddArguments)
+
+        original_tool = Tool(
+            name="add",
+            description="Add two numbers.",
+            fn=add,
+            fn_metadata=fn_metadata,
+            is_async=False,
+            parameters=AddArguments.model_json_schema(),
+            context_kwarg=None,
+            annotations=None,
+        )
+        manager = ToolManager(tools=[original_tool])
+        saved_tool = manager.get_tool("add")
+        assert saved_tool == original_tool
+
+        # warn on duplicate tools
+        with caplog.at_level(logging.WARNING):
+            manager = ToolManager(True, tools=[original_tool, original_tool])
+            assert "Tool already exists: add" in caplog.text
 
     @pytest.mark.anyio
     async def test_async_function(self):
@@ -382,3 +413,43 @@ class TestContextHandling:
         ctx = mcp.get_context()
         with pytest.raises(ToolError, match="Error executing tool tool_with_context"):
             await manager.call_tool("tool_with_context", {"x": 42}, context=ctx)
+
+
+class TestToolAnnotations:
+    def test_tool_annotations(self):
+        """Test that tool annotations are correctly added to tools."""
+
+        def read_data(path: str) -> str:
+            """Read data from a file."""
+            return f"Data from {path}"
+
+        annotations = ToolAnnotations(
+            title="File Reader",
+            readOnlyHint=True,
+            openWorldHint=False,
+        )
+
+        manager = ToolManager()
+        tool = manager.add_tool(read_data, annotations=annotations)
+
+        assert tool.annotations is not None
+        assert tool.annotations.title == "File Reader"
+        assert tool.annotations.readOnlyHint is True
+        assert tool.annotations.openWorldHint is False
+
+    @pytest.mark.anyio
+    async def test_tool_annotations_in_fastmcp(self):
+        """Test that tool annotations are included in MCPTool conversion."""
+
+        app = FastMCP()
+
+        @app.tool(annotations=ToolAnnotations(title="Echo Tool", readOnlyHint=True))
+        def echo(message: str) -> str:
+            """Echo a message back."""
+            return message
+
+        tools = await app.list_tools()
+        assert len(tools) == 1
+        assert tools[0].annotations is not None
+        assert tools[0].annotations.title == "Echo Tool"
+        assert tools[0].annotations.readOnlyHint is True

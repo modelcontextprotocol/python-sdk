@@ -29,7 +29,7 @@ for reference.
   not separate types in the schema.
 """
 
-LATEST_PROTOCOL_VERSION = "2024-11-05"
+LATEST_PROTOCOL_VERSION = "2025-03-26"
 
 ProgressToken = str | int
 Cursor = str
@@ -51,6 +51,14 @@ class RequestParams(BaseModel):
         model_config = ConfigDict(extra="allow")
 
     meta: Meta | None = Field(alias="_meta", default=None)
+
+
+class PaginatedRequestParams(RequestParams):
+    cursor: Cursor | None = None
+    """
+    An opaque token representing the current pagination position.
+    If provided, the server should return results starting after this cursor.
+    """
 
 
 class NotificationParams(BaseModel):
@@ -79,12 +87,13 @@ class Request(BaseModel, Generic[RequestParamsT, MethodT]):
     model_config = ConfigDict(extra="allow")
 
 
-class PaginatedRequest(Request[RequestParamsT, MethodT]):
-    cursor: Cursor | None = None
-    """
-    An opaque token representing the current pagination position.
-    If provided, the server should return results starting after this cursor.
-    """
+class PaginatedRequest(
+    Request[PaginatedRequestParams | None, MethodT], Generic[MethodT]
+):
+    """Base class for paginated requests,
+    matching the schema's PaginatedRequest interface."""
+
+    params: PaginatedRequestParams | None = None
 
 
 class Notification(BaseModel, Generic[NotificationParamsT, MethodT]):
@@ -337,6 +346,11 @@ class ProgressNotificationParams(NotificationParams):
     total is unknown.
     """
     total: float | None = None
+    """
+    Message related to progress. This should provide relevant human readable 
+    progress information.
+    """
+    message: str | None = None
     """Total number of items to process (or total progress required), if known."""
     model_config = ConfigDict(extra="allow")
 
@@ -353,13 +367,10 @@ class ProgressNotification(
     params: ProgressNotificationParams
 
 
-class ListResourcesRequest(
-    PaginatedRequest[RequestParams | None, Literal["resources/list"]]
-):
+class ListResourcesRequest(PaginatedRequest[Literal["resources/list"]]):
     """Sent from the client to request a list of resources the server has."""
 
     method: Literal["resources/list"]
-    params: RequestParams | None = None
 
 
 class Annotations(BaseModel):
@@ -418,12 +429,11 @@ class ListResourcesResult(PaginatedResult):
 
 
 class ListResourceTemplatesRequest(
-    PaginatedRequest[RequestParams | None, Literal["resources/templates/list"]]
+    PaginatedRequest[Literal["resources/templates/list"]]
 ):
     """Sent from the client to request a list of resource templates the server has."""
 
     method: Literal["resources/templates/list"]
-    params: RequestParams | None = None
 
 
 class ListResourceTemplatesResult(PaginatedResult):
@@ -565,13 +575,10 @@ class ResourceUpdatedNotification(
     params: ResourceUpdatedNotificationParams
 
 
-class ListPromptsRequest(
-    PaginatedRequest[RequestParams | None, Literal["prompts/list"]]
-):
+class ListPromptsRequest(PaginatedRequest[Literal["prompts/list"]]):
     """Sent from the client to request a list of prompts and prompt templates."""
 
     method: Literal["prompts/list"]
-    params: RequestParams | None = None
 
 
 class PromptArgument(BaseModel):
@@ -698,11 +705,58 @@ class PromptListChangedNotification(
     params: NotificationParams | None = None
 
 
-class ListToolsRequest(PaginatedRequest[RequestParams | None, Literal["tools/list"]]):
+class ListToolsRequest(PaginatedRequest[Literal["tools/list"]]):
     """Sent from the client to request a list of tools the server has."""
 
     method: Literal["tools/list"]
-    params: RequestParams | None = None
+
+
+class ToolAnnotations(BaseModel):
+    """
+    Additional properties describing a Tool to clients.
+
+    NOTE: all properties in ToolAnnotations are **hints**.
+    They are not guaranteed to provide a faithful description of
+    tool behavior (including descriptive properties like `title`).
+
+    Clients should never make tool use decisions based on ToolAnnotations
+    received from untrusted servers.
+    """
+
+    title: str | None = None
+    """A human-readable title for the tool."""
+
+    readOnlyHint: bool | None = None
+    """
+    If true, the tool does not modify its environment.
+    Default: false
+    """
+
+    destructiveHint: bool | None = None
+    """
+    If true, the tool may perform destructive updates to its environment.
+    If false, the tool performs only additive updates.
+    (This property is meaningful only when `readOnlyHint == false`)
+    Default: true
+    """
+
+    idempotentHint: bool | None = None
+    """
+    If true, calling the tool repeatedly with the same arguments
+    will have no additional effect on the its environment.
+    (This property is meaningful only when `readOnlyHint == false`)
+    Default: false
+    """
+
+    openWorldHint: bool | None = None
+    """
+    If true, this tool may interact with an "open world" of external
+    entities. If false, the tool's domain of interaction is closed.
+    For example, the world of a web search tool is open, whereas that
+    of a memory tool is not.
+    Default: true
+    """
+    model_config = ConfigDict(extra="allow")
 
 
 class Tool(BaseModel):
@@ -714,6 +768,8 @@ class Tool(BaseModel):
     """A human-readable description of the tool."""
     inputSchema: dict[str, Any]
     """A JSON Schema object defining the expected parameters for the tool."""
+    annotations: ToolAnnotations | None = None
+    """Optional additional tool information."""
     model_config = ConfigDict(extra="allow")
 
 

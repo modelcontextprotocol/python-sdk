@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
+from mcp.types import ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -31,6 +32,9 @@ class Tool(BaseModel):
     context_kwarg: str | None = Field(
         None, description="Name of the kwarg that should receive context"
     )
+    annotations: ToolAnnotations | None = Field(
+        None, description="Optional annotations for the tool"
+    )
 
     @classmethod
     def from_function(
@@ -39,9 +43,10 @@ class Tool(BaseModel):
         name: str | None = None,
         description: str | None = None,
         context_kwarg: str | None = None,
+        annotations: ToolAnnotations | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
-        from mcp.server.fastmcp import Context
+        from mcp.server.fastmcp.server import Context
 
         func_name = name or fn.__name__
 
@@ -74,6 +79,7 @@ class Tool(BaseModel):
             fn_metadata=func_arg_metadata,
             is_async=is_async,
             context_kwarg=context_kwarg,
+            annotations=annotations,
         )
 
     async def run(
