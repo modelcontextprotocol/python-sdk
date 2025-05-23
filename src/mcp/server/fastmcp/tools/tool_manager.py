@@ -37,6 +37,9 @@ class ToolManager:
     def get_tool(self, name: str) -> Tool | None:
         """Get tool by name."""
         return self._tools.get(name)
+    
+    def get_all_tools(self) -> dict[str, Tool]:
+        return self._tools
 
     def list_tools(self) -> list[Tool]:
         """List all registered tools."""
