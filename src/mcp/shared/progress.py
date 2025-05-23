@@ -1,7 +1,7 @@
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Generic
+from typing import Any, Generic
 
 from pydantic import BaseModel
 
@@ -62,6 +62,7 @@ def progress(
             ReceiveNotificationT,
         ],
         LifespanContextT,
+        Any,
     ],
     total: float | None = None,
 ) -> Generator[
