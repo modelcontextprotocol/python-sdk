@@ -1,5 +1,6 @@
 from __future__ import annotations as _annotations
 
+import functools
 import inspect
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, get_origin
@@ -53,7 +54,7 @@ class Tool(BaseModel):
             raise ValueError("You must provide a name for lambda functions")
 
         func_doc = description or fn.__doc__ or ""
-        is_async = inspect.iscoroutinefunction(fn)
+        is_async = _is_async_callable(fn)
 
         if context_kwarg is None:
             sig = inspect.signature(fn)
@@ -98,3 +99,12 @@ class Tool(BaseModel):
             )
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e
+
+
+def _is_async_callable(obj: Any) -> bool:
+    while isinstance(obj, functools.partial):
+        obj = obj.func
+
+    return inspect.iscoroutinefunction(obj) or (
+        callable(obj) and inspect.iscoroutinefunction(getattr(obj, "__call__", None))
+    )
