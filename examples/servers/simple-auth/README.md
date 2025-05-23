@@ -44,6 +44,31 @@ uv run mcp-simple-auth
 
 The server will start on `http://localhost:8000`.
 
+### Transport Options
+
+This server supports multiple transport protocols that can run on the same port:
+
+#### SSE (Server-Sent Events) - Default
+```bash
+uv run mcp-simple-auth
+# or explicitly:
+uv run mcp-simple-auth --transport sse
+```
+
+SSE transport provides endpoint:
+- `/sse`
+
+#### Streamable HTTP
+```bash
+uv run mcp-simple-auth --transport streamable-http
+```
+
+Streamable HTTP transport provides endpoint:
+- `/mcp`
+
+
+This ensures backward compatibility without needing multiple server instances. When using SSE transport (`--transport sse`), only the `/sse` endpoint is available.
+
 ## Available Tool
 
 ### get_user_profile
@@ -61,5 +86,6 @@ If the server fails to start, check:
 1. Environment variables `MCP_GITHUB_GITHUB_CLIENT_ID` and `MCP_GITHUB_GITHUB_CLIENT_SECRET` are set
 2. The GitHub OAuth app callback URL matches `http://localhost:8000/github/callback`
 3. No other service is using port 8000
+4. The transport specified is valid (`sse` or `streamable-http`)
 
 You can use [Inspector](https://github.com/modelcontextprotocol/inspector) to test Auth

@@ -15,6 +15,7 @@ from typing import Any
 
 import anyio
 import httpx
+from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
@@ -82,6 +83,7 @@ class StreamableHTTPTransport:
         headers: dict[str, Any] | None = None,
         timeout: timedelta = timedelta(seconds=30),
         sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
+        auth: httpx.Auth | None = None,
     ) -> None:
         """Initialize the StreamableHTTP transport.
 
@@ -90,11 +92,13 @@ class StreamableHTTPTransport:
             headers: Optional headers to include in requests.
             timeout: HTTP timeout for regular operations.
             sse_read_timeout: Timeout for SSE read operations.
+            auth: Optional HTTPX authentication handler.
         """
         self.url = url
         self.headers = headers or {}
         self.timeout = timeout
         self.sse_read_timeout = sse_read_timeout
+        self.auth = auth
         self.session_id: str | None = None
         self.request_headers = {
             ACCEPT: f"{JSON}, {SSE}",
@@ -239,7 +243,7 @@ class StreamableHTTPTransport:
                     break
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
-        """Handle a  POST request with response processing."""
+        """Handle a POST request with response processing."""
         headers = self._update_headers_with_session(ctx.headers)
         message = ctx.session_message.message
         is_initialization = self._is_initialization_request(message)
@@ -300,7 +304,7 @@ class StreamableHTTPTransport:
         try:
             event_source = EventSource(response)
             async for sse in event_source.aiter_sse():
-                await self._handle_sse_event(
+                is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
                     resumption_callback=(
@@ -309,6 +313,10 @@ class StreamableHTTPTransport:
                         else None
                     ),
                 )
+                # If the SSE event indicates completion, like returning respose/error
+                # break the loop
+                if is_complete:
+                    break
         except Exception as e:
             logger.exception("Error reading SSE stream:")
             await ctx.read_stream_writer.send(e)
@@ -344,6 +352,7 @@ class StreamableHTTPTransport:
         read_stream_writer: StreamWriter,
         write_stream: MemoryObjectSendStream[SessionMessage],
         start_get_stream: Callable[[], None],
+        tg: TaskGroup,
     ) -> None:
         """Handle writing requests to the server."""
         try:
@@ -375,10 +384,17 @@ class StreamableHTTPTransport:
                         sse_read_timeout=self.sse_read_timeout,
                     )
 
-                    if is_resumption:
-                        await self._handle_resumption_request(ctx)
+                    async def handle_request_async():
+                        if is_resumption:
+                            await self._handle_resumption_request(ctx)
+                        else:
+                            await self._handle_post_request(ctx)
+
+                    # If this is a request, start a new task to handle it
+                    if isinstance(message.root, JSONRPCRequest):
+                        tg.start_soon(handle_request_async)
                     else:
-                        await self._handle_post_request(ctx)
+                        await handle_request_async()
 
         except Exception as exc:
             logger.error(f"Error in post_writer: {exc}")
@@ -397,7 +413,7 @@ class StreamableHTTPTransport:
 
             if response.status_code == 405:
                 logger.debug("Server does not allow session termination")
-            elif response.status_code != 200:
+            elif response.status_code not in (200, 204):
                 logger.warning(f"Session termination failed: {response.status_code}")
         except Exception as exc:
             logger.warning(f"Session termination failed: {exc}")
@@ -414,6 +430,7 @@ async def streamablehttp_client(
     timeout: timedelta = timedelta(seconds=30),
     sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
     terminate_on_close: bool = True,
+    auth: httpx.Auth | None = None,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -434,7 +451,7 @@ async def streamablehttp_client(
             - write_stream: Stream for sending messages to the server
             - get_session_id_callback: Function to retrieve the current session ID
     """
-    transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout)
+    transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout, auth)
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream[
         SessionMessage | Exception
@@ -452,6 +469,7 @@ async def streamablehttp_client(
                 timeout=httpx.Timeout(
                     transport.timeout.seconds, read=transport.sse_read_timeout.seconds
                 ),
+                auth=transport.auth,
             ) as client:
                 # Define callbacks that need access to tg
                 def start_get_stream() -> None:
@@ -466,6 +484,7 @@ async def streamablehttp_client(
                     read_stream_writer,
                     write_stream,
                     start_get_stream,
+                    tg,
                 )
 
                 try:

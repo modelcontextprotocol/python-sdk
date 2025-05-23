@@ -37,7 +37,7 @@ from mcp.server.auth.settings import (
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
-from mcp.server.fastmcp.tools import ToolManager
+from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.fastmcp.utilities.types import Image
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -87,7 +87,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     # HTTP settings
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8000
     mount_path: str = "/"  # Mount path (e.g. "/github", defaults to root path)
     sse_path: str = "/sse"
@@ -143,6 +143,8 @@ class FastMCP:
         auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
         | None = None,
         event_store: EventStore | None = None,
+        *,
+        tools: list[Tool] | None = None,
         **settings: Any,
     ):
         self.settings = Settings(**settings)
@@ -150,12 +152,14 @@ class FastMCP:
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
             instructions=instructions,
-            lifespan=lifespan_wrapper(self, self.settings.lifespan)
-            if self.settings.lifespan
-            else default_lifespan,
+            lifespan=(
+                lifespan_wrapper(self, self.settings.lifespan)
+                if self.settings.lifespan
+                else default_lifespan
+            ),
         )
         self._tool_manager = ToolManager(
-            warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
+            tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
         )
         self._resource_manager = ResourceManager(
             warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources
@@ -467,16 +471,16 @@ class FastMCP:
                     uri_template=uri,
                     name=name,
                     description=description,
-                    mime_type=mime_type or "text/plain",
+                    mime_type=mime_type,
                 )
             else:
                 # Register as regular resource
-                resource = FunctionResource(
-                    uri=AnyUrl(uri),
+                resource = FunctionResource.from_function(
+                    fn=fn,
+                    uri=uri,
                     name=name,
                     description=description,
-                    mime_type=mime_type or "text/plain",
-                    fn=fn,
+                    mime_type=mime_type,
                 )
                 self.add_resource(resource)
             return fn
@@ -958,15 +962,15 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         return self._request_context
 
     async def report_progress(
-        self, progress: float, total: float | None = None
+        self, progress: float, total: float | None = None, message: str | None = None
     ) -> None:
         """Report progress for the current operation.
 
         Args:
             progress: Current progress value e.g. 24
             total: Optional total value e.g. 100
+            message: Optional message e.g. Starting render...
         """
-
         progress_token = (
             self.request_context.meta.progressToken
             if self.request_context.meta
@@ -977,7 +981,10 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
             return
 
         await self.request_context.session.send_progress_notification(
-            progress_token=progress_token, progress=progress, total=total
+            progress_token=progress_token,
+            progress=progress,
+            total=total,
+            message=message,
         )
 
     async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:
