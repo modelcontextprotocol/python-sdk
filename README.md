@@ -250,7 +250,9 @@ async def fetch_weather(city: str) -> str:
 
 #### Output Schemas
 
-Tools automatically generate JSON Schema definitions for their return types, helping LLMs understand the structure of the data they'll receive:
+Tools automatically generate JSON Schema definitions for their return types, helping LLMs understand the structure of the data they'll receive. FastMCP also enhances these schemas with semantic metadata that enables intelligent UI rendering and data formatting.
+
+##### Basic Schema Generation
 
 ```python
 from pydantic import BaseModel
@@ -309,7 +311,7 @@ class WeatherForecast(BaseModel):
 @mcp.tool()
 def get_weather_forecast(city: str) -> WeatherForecast:
     """Get detailed weather forecast for a city"""
-    # In a real implementation, this would fetch actual forecast data
+    # In a real implementation, this would fetch actual weather data
     return WeatherForecast(
         current=WeatherData(
             temperature=72.5,
@@ -323,6 +325,66 @@ def get_weather_forecast(city: str) -> WeatherForecast:
         ],
     )
 ```
+
+##### Semantic Metadata Enhancement
+
+FastMCP automatically enhances output schemas with semantic metadata by analyzing field names and types. This helps client applications provide intelligent UI rendering and formatting:
+
+```python
+from pydantic import BaseModel
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("Enhanced Schema Demo")
+
+
+class UserProfile(BaseModel):
+    email: str  # Automatically detected as semantic_type: "email"
+    profile_url: str  # Automatically detected as semantic_type: "url"
+    avatar_image: str  # Automatically detected as semantic_type: "image_url"
+    created_date: str  # Automatically detected as semantic_type: "datetime"
+    account_balance: float  # Automatically detected as semantic_type: "currency"
+    completion_percentage: (
+        float  # Automatically detected as semantic_type: "percentage"
+    )
+    primary_color: str  # Automatically detected as semantic_type: "color"
+
+
+@mcp.tool()
+def get_user_profile(user_id: str) -> UserProfile:
+    """Get user profile with semantic field types"""
+    return UserProfile(
+        email="user@example.com",
+        profile_url="https://example.com/users/12345",
+        avatar_image="https://example.com/avatars/user.jpg",
+        created_date="2023-06-15T10:30:00Z",
+        account_balance=150.75,
+        completion_percentage=85.5,
+        primary_color="#3498db",
+    )
+```
+
+**Supported Semantic Types:**
+
+- `email` - Email addresses
+- `url`, `link` - Web URLs and links
+- `image_url`, `audio_url`, `video_url` - Media URLs
+- `datetime` - Date and time fields (with subtypes like `date`, `time`, `timestamp`)
+- `currency`, `money` - Monetary values
+- `percentage` - Percentage values
+- `color` - Color codes and values
+- `phone` - Phone numbers
+- `status` - Status indicators
+- `media_format` - File format detection for audio/video/image files
+
+**Benefits for Client Applications:**
+
+- Email fields can display mail icons and validation
+- URLs become clickable links with preview capabilities
+- Date fields get appropriate date pickers and formatting
+- Currency fields show proper monetary formatting
+- Media URLs can display thumbnails or players
+- Status fields can show colored indicators
+- Percentage fields can render as progress bars
 
 ### Prompts
 
@@ -928,7 +990,6 @@ async def main():
 ```
 
 For a complete working example, see [`examples/clients/simple-auth-client/`](examples/clients/simple-auth-client/).
-
 
 ### MCP Primitives
 
