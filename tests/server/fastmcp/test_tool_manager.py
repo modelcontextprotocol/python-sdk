@@ -40,7 +40,7 @@ class TestAddTools:
             a: int
             b: int
 
-        fn_metadata = FuncMetadata(arg_model=AddArguments)
+        fn_metadata = FuncMetadata(arg_model=AddArguments, output_schema=None)
 
         original_tool = Tool(
             name="add",
