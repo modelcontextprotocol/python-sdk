@@ -117,6 +117,14 @@ def main(
                         },
                     },
                 },
+                outputSchema={
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "description": "TextContent with notification information",
+                    },
+                    "description": "List of text content with notification results",
+                },
             )
         ]
 

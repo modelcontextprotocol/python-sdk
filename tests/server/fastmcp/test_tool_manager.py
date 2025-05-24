@@ -49,6 +49,7 @@ class TestAddTools:
             fn_metadata=fn_metadata,
             is_async=False,
             parameters=AddArguments.model_json_schema(),
+            output_schema={"type": "integer"},
             context_kwarg=None,
             annotations=None,
         )
