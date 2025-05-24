@@ -54,6 +54,17 @@ def main(port: int, transport: str) -> int:
                         }
                     },
                 },
+                outputSchema={
+                    "type": "array",
+                    "items": {
+                        "anyOf": [
+                            {"type": "object", "description": "TextContent"},
+                            {"type": "object", "description": "ImageContent"},
+                            {"type": "object", "description": "EmbeddedResource"},
+                        ]
+                    },
+                    "description": "List of content from the fetched website",
+                },
             )
         ]
 
