@@ -274,7 +274,7 @@ class BaseSession(
             # note this is required to ensure backwards compatibility
             # for previous clients
             signature = inspect.signature(progress_callback.__call__)
-            if "resource_uri" in signature.parameters:
+            if len(signature.parameters) == 3:
                 # Store the callback for this request
                 self._resource_callbacks[request_id] = progress_callback  # type: ignore
             else:
