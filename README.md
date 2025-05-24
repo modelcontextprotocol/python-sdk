@@ -643,7 +643,7 @@ The lifespan API provides:
 
 ```python
 import mcp.server.stdio
-from mcp import types
+import mcp.types as types
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 

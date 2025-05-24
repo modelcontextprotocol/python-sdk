@@ -1,7 +1,7 @@
 import anyio
 import pytest
 
-from mcp import types
+import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions

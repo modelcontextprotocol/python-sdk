@@ -14,7 +14,7 @@ import pytest
 import uvicorn
 from pydantic import AnyUrl
 
-from mcp import types
+import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client

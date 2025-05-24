@@ -51,7 +51,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-from mcp import types
+import mcp.types as types
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)

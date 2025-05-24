@@ -1,7 +1,7 @@
 import anyio
 import pytest
 
-from mcp import types
+import mcp.types as types
 from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder

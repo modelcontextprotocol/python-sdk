@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from websockets.asyncio.client import connect as ws_connect
 from websockets.typing import Subprotocol
 
-from mcp import types
+import mcp.types as types
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)

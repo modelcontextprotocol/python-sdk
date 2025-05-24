@@ -1,6 +1,6 @@
 import anyio
 import click
-from mcp import types
+import mcp.types as types
 from mcp.server.lowlevel import Server
 
 

@@ -5,7 +5,7 @@ from tempfile import NamedTemporaryFile
 import pytest
 from pydantic import AnyUrl, FileUrl
 
-from mcp import types
+import mcp.types as types
 from mcp.server.lowlevel.server import ReadResourceContents, Server
 
 
