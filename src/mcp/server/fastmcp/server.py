@@ -89,7 +89,10 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # HTTP settings
     host: str = "127.0.0.1"
     port: int = 8000
-    root_path: str = "" # root path, same with root_path in uvicorn config, for sse or streamable http
+
+    root_path: str = ""  # Root path, same with root_path in uvicorn config.
+                         # Used for SSE or streamable HTTP.
+
     mount_path: str = "/"  # Mount path (e.g. "/github", defaults to root path)
     sse_path: str = "/sse"
     message_path: str = "/messages/"
