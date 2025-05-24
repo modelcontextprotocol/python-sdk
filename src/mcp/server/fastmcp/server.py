@@ -240,7 +240,7 @@ class FastMCP:
     def _setup_handlers(self) -> None:
         """Set up core MCP protocol handlers."""
         self._mcp_server.list_tools()(self.list_tools)
-        self._mcp_server.call_tool()(self.call_tool)
+        self._mcp_server.call_tool()(self.call_tool, self._tool_manager.get_schema)
         self._mcp_server.list_resources()(self.list_resources)
         self._mcp_server.read_resource()(self.read_resource)
         self._mcp_server.list_prompts()(self.list_prompts)
@@ -255,6 +255,7 @@ class FastMCP:
                 name=info.name,
                 description=info.description,
                 inputSchema=info.parameters,
+                outputSchema=info.output,
                 annotations=info.annotations,
             )
             for info in tools
@@ -277,7 +278,8 @@ class FastMCP:
         """Call a tool by name with arguments."""
         context = self.get_context()
         result = await self._tool_manager.call_tool(name, arguments, context=context)
-        converted_result = _convert_to_content(result)
+        schema = self._tool_manager.get_schema(name)
+        converted_result = _convert_to_content(result, schema)
         return converted_result
 
     async def list_resources(self) -> list[MCPResource]:
@@ -325,6 +327,7 @@ class FastMCP:
         name: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        output_schema: dict[str, Any] | None = None,
     ) -> None:
         """Add a tool to the server.
 
@@ -336,9 +339,15 @@ class FastMCP:
             name: Optional name for the tool (defaults to function name)
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
+            output_schema: Optional json schema that the tool should output. If
+            not specified the schema will be inferred automatically
         """
         self._tool_manager.add_tool(
-            fn, name=name, description=description, annotations=annotations
+            fn,
+            name=name,
+            description=description,
+            annotations=annotations,
+            output_schema=output_schema,
         )
 
     def tool(
@@ -872,25 +881,33 @@ class FastMCP:
 
 
 def _convert_to_content(
-    result: Any,
+    result: Any, schema: dict[str, Any] | None
 ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
-    """Convert a result to a sequence of content objects."""
-    if result is None:
-        return []
+    if schema is None:
+        """Convert a result to a sequence of content objects."""
+        if result is None:
+            return []
 
-    if isinstance(result, TextContent | ImageContent | EmbeddedResource):
-        return [result]
+        if isinstance(result, TextContent | ImageContent | EmbeddedResource):
+            return [result]
 
-    if isinstance(result, Image):
-        return [result.to_image_content()]
+        if isinstance(result, Image):
+            return [result.to_image_content()]
 
-    if isinstance(result, list | tuple):
-        return list(chain.from_iterable(_convert_to_content(item) for item in result))  # type: ignore[reportUnknownVariableType]
+        if isinstance(result, list | tuple):
+            return list(
+                chain.from_iterable(
+                    _convert_to_content(item, schema)
+                    for item in result  # type: ignore[reportUnknownVariableType]
+                )
+            )
 
-    if not isinstance(result, str):
-        result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
+        if not isinstance(result, str):
+            result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
 
-    return [TextContent(type="text", text=result)]
+        return [TextContent(type="text", text=result)]
+    else:
+        return result
 
 
 class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):

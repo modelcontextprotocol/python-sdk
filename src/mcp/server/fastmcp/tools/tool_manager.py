@@ -48,10 +48,15 @@ class ToolManager:
         name: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        output_schema: dict[str, Any] | None = None,
     ) -> Tool:
         """Add a tool to the server."""
         tool = Tool.from_function(
-            fn, name=name, description=description, annotations=annotations
+            fn,
+            name=name,
+            description=description,
+            annotations=annotations,
+            output_schema=output_schema,
         )
         existing = self._tools.get(tool.name)
         if existing:
@@ -73,3 +78,9 @@ class ToolManager:
             raise ToolError(f"Unknown tool: {name}")
 
         return await tool.run(arguments, context=context)
+
+    def get_schema(self, name: str) -> dict[str, Any] | None:
+        tool = self.get_tool(name)
+        if not tool:
+            raise ToolError(f"Unknown tool: {name}")
+        return tool.output

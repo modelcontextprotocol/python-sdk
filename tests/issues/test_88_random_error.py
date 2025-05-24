@@ -15,6 +15,7 @@ from mcp.types import (
     EmbeddedResource,
     ImageContent,
     TextContent,
+    Tool,
 )
 
 
@@ -54,6 +55,10 @@ async def test_notification_validation_error(tmp_path: Path):
             await anyio.sleep(0.01)
             return [TextContent(type="text", text=f"fast {request_count}")]
         return [TextContent(type="text", text=f"unknown {request_count}")]
+
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [Tool(name="fast", inputSchema={}), Tool(name="slow", inputSchema={})]
 
     async def server_handler(
         read_stream,
