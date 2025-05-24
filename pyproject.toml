@@ -109,7 +109,13 @@ members = ["examples/servers/*"]
 mcp = { workspace = true }
 
 [tool.pytest.ini_options]
+log_cli = true
 xfail_strict = true
+addopts = """
+    --color=yes
+    --capture=fd
+    --numprocesses auto
+"""
 filterwarnings = [
     "error",
     # This should be fixed on Uvicorn's side.

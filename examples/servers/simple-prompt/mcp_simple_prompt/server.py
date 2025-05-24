@@ -114,7 +114,7 @@ def main(port: int, transport: str) -> int:
 
         import uvicorn
 
-        uvicorn.run(starlette_app, host="0.0.0.0", port=port)
+        uvicorn.run(starlette_app, host="127.0.0.1", port=port)
     else:
         from mcp.server.stdio import stdio_server
 

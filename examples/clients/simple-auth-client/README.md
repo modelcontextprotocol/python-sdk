@@ -1,11 +1,11 @@
 # Simple Auth Client Example
 
-A demonstration of how to use the MCP Python SDK with OAuth authentication over streamable HTTP transport.
+A demonstration of how to use the MCP Python SDK with OAuth authentication over streamable HTTP or SSE transport.
 
 ## Features
 
 - OAuth 2.0 authentication with PKCE
-- Streamable HTTP transport  
+- Support for both StreamableHTTP and SSE transports
 - Interactive command-line interface
 
 ## Installation
@@ -31,7 +31,10 @@ uv run mcp-simple-auth --transport streamable-http --port 3001
 uv run mcp-simple-auth-client
 
 # Or with custom server URL
-MCP_SERVER_URL=http://localhost:3001 uv run mcp-simple-auth-client
+MCP_SERVER_PORT=3001 uv run mcp-simple-auth-client
+
+# Use SSE transport
+MCP_TRANSPORT_TYPE=sse uv run mcp-simple-auth-client
 ```
 
 ### 3. Complete OAuth flow
@@ -67,4 +70,5 @@ mcp> quit
 
 ## Configuration
 
-- `MCP_SERVER_URL` - Server URL (default: http://localhost:3001)
+- `MCP_SERVER_PORT` - Server URL (default: 8000)
+- `MCP_TRANSPORT_TYPE` - Transport type: `streamable_http` (default) or `sse`
