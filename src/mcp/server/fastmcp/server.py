@@ -10,12 +10,12 @@ from contextlib import (
     asynccontextmanager,
 )
 from itertools import chain
-from typing import Any, Generic, Literal
+from typing import Annotated, Any, Generic, Literal
 
 import anyio
 import pydantic_core
 from pydantic import BaseModel, Field
-from pydantic.networks import AnyUrl
+from pydantic.networks import AnyUrl, UrlConstraints
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -956,7 +956,11 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         return self._request_context
 
     async def report_progress(
-        self, progress: float, total: float | None = None, message: str | None = None
+        self,
+        progress: float,
+        total: float | None = None,
+        message: str | None = None,
+        resource_uri: Annotated[AnyUrl, UrlConstraints(host_required=False)] | None = None,
     ) -> None:
         """Report progress for the current operation.
 
@@ -979,6 +983,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
             progress=progress,
             total=total,
             message=message,
+            resource_uri=resource_uri,
         )
 
     async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:

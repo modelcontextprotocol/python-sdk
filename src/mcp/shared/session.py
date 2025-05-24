@@ -3,12 +3,14 @@ from collections.abc import Callable
 from contextlib import AsyncExitStack
 from datetime import timedelta
 from types import TracebackType
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Annotated, Any, Generic, Protocol, TypeVar, runtime_checkable
 
 import anyio
 import httpx
+import inspect
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import BaseModel
+from pydantic.networks import AnyUrl, UrlConstraints
 from typing_extensions import Self
 
 from mcp.shared.exceptions import McpError
@@ -43,6 +45,7 @@ ReceiveNotificationT = TypeVar(
 RequestId = str | int
 
 
+@runtime_checkable
 class ProgressFnT(Protocol):
     """Protocol for progress notification callbacks."""
 
@@ -50,6 +53,13 @@ class ProgressFnT(Protocol):
         self, progress: float, total: float | None, message: str | None
     ) -> None: ...
 
+@runtime_checkable
+class ResourceProgressFnT(Protocol):
+    """Protocol for progress notification callbacks with resources."""
+
+    async def __call__(
+        self, progress: float, total: float | None, message: str | None, resource_uri: Annotated[AnyUrl, UrlConstraints(host_required=False)] | None = None
+    ) -> None: ...
 
 class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
     """Handles responding to MCP requests and manages request lifecycle.
@@ -178,7 +188,8 @@ class BaseSession(
     ]
     _request_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
-    _progress_callbacks: dict[RequestId, ProgressFnT]
+    _progress_callbacks: dict[RequestId, ProgressFnT ]
+    _resource_progress_callbacks: dict[RequestId, ResourceProgressFnT]
 
     def __init__(
         self,
@@ -198,6 +209,7 @@ class BaseSession(
         self._session_read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
         self._progress_callbacks = {}
+        self._resource_progress_callbacks = {}
         self._exit_stack = AsyncExitStack()
 
     async def __aenter__(self) -> Self:
@@ -225,7 +237,7 @@ class BaseSession(
         result_type: type[ReceiveResultT],
         request_read_timeout_seconds: timedelta | None = None,
         metadata: MessageMetadata = None,
-        progress_callback: ProgressFnT | None = None,
+        progress_callback: ProgressFnT | ResourceProgressFnT | None = None,
     ) -> ReceiveResultT:
         """
         Sends a request and wait for a response. Raises an McpError if the
@@ -252,8 +264,14 @@ class BaseSession(
             if "_meta" not in request_data["params"]:
                 request_data["params"]["_meta"] = {}
             request_data["params"]["_meta"]["progressToken"] = request_id
-            # Store the callback for this request
-            self._progress_callbacks[request_id] = progress_callback
+            # note this is required to ensure backwards compatibility for previous clients
+            signature = inspect.signature(progress_callback.__call__)
+            if 'resource_uri' in signature.parameters:
+                # Store the callback for this request
+                self._resource_progress_callbacks[request_id] = progress_callback # type: ignore
+            else:
+                # Store the callback for this request
+                self._progress_callbacks[request_id] = progress_callback
 
         try:
             jsonrpc_request = JSONRPCRequest(
@@ -397,6 +415,15 @@ class BaseSession(
                                         notification.root.params.total,
                                         notification.root.params.message,
                                     )
+                                elif progress_token in self._resource_progress_callbacks:
+                                    callback = self._resource_progress_callbacks[progress_token]
+                                    await callback(
+                                        notification.root.params.progress,
+                                        notification.root.params.total,
+                                        notification.root.params.message,
+                                        notification.root.params.resource_uri,
+                                    )
+
                             await self._received_notification(notification)
                             await self._handle_incoming(notification)
                     except Exception as e:

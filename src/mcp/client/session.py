@@ -1,14 +1,15 @@
 from datetime import timedelta
-from typing import Any, Protocol
+from typing import Annotated, Any, Protocol
 
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl, TypeAdapter
+from pydantic import TypeAdapter
+from pydantic.networks import AnyUrl, UrlConstraints
 
 import mcp.types as types
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
-from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
+from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder, ResourceProgressFnT
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
@@ -173,6 +174,7 @@ class ClientSession(
         progress: float,
         total: float | None = None,
         message: str | None = None,
+        # TODO decide whether clients can send resource progress too?
     ) -> None:
         """Send a progress notification."""
         await self.send_notification(
@@ -203,6 +205,7 @@ class ClientSession(
 
     async def list_resources(
         self, cursor: str | None = None
+        # TODO suggest in progress resources should be excluded by default? possibly add an optional flag to include?
     ) -> types.ListResourcesResult:
         """Send a resources/list request."""
         return await self.send_request(
@@ -233,7 +236,7 @@ class ClientSession(
             types.ListResourceTemplatesResult,
         )
 
-    async def read_resource(self, uri: AnyUrl) -> types.ReadResourceResult:
+    async def read_resource(self, uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]) -> types.ReadResourceResult:
         """Send a resources/read request."""
         return await self.send_request(
             types.ClientRequest(
@@ -245,7 +248,7 @@ class ClientSession(
             types.ReadResourceResult,
         )
 
-    async def subscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+    async def subscribe_resource(self, uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]) -> types.EmptyResult:
         """Send a resources/subscribe request."""
         return await self.send_request(
             types.ClientRequest(
@@ -257,7 +260,7 @@ class ClientSession(
             types.EmptyResult,
         )
 
-    async def unsubscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+    async def unsubscribe_resource(self, uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]) -> types.EmptyResult:
         """Send a resources/unsubscribe request."""
         return await self.send_request(
             types.ClientRequest(
@@ -274,7 +277,7 @@ class ClientSession(
         name: str,
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
-        progress_callback: ProgressFnT | None = None,
+        progress_callback: ProgressFnT | ResourceProgressFnT | None = None,
     ) -> types.CallToolResult:
         """Send a tools/call request with optional progress callback support."""
 
