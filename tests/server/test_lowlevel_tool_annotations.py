@@ -38,6 +38,7 @@ async def test_lowlevel_server_tool_annotations():
                     },
                     "required": ["message"],
                 },
+                outputSchema={"type": "string", "description": "The echoed message"},
                 annotations=ToolAnnotations(
                     title="Echo Tool",
                     readOnlyHint=True,
@@ -54,9 +55,11 @@ async def test_lowlevel_server_tool_annotations():
 
     # Message handler for client
     async def message_handler(
-        message: RequestResponder[ServerRequest, ClientResult]
-        | ServerNotification
-        | Exception,
+        message: (
+            RequestResponder[ServerRequest, ClientResult]
+            | ServerNotification
+            | Exception
+        ),
     ) -> None:
         if isinstance(message, Exception):
             raise message
