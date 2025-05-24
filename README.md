@@ -192,9 +192,10 @@ mcp = FastMCP("My App", lifespan=app_lifespan)
 
 # Access type-safe lifespan context in tools
 @mcp.tool()
-def query_db(ctx: Context) -> str:
+def query_db() -> str:
     """Tool that uses initialized resources"""
-    db = ctx.request_context.lifespan_context.db
+    ctx = mcp.get_context()
+    db = ctx.request_context.lifespan_context["db"]
     return db.query()
 ```
 
