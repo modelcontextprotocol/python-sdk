@@ -960,7 +960,8 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         progress: float,
         total: float | None = None,
         message: str | None = None,
-        resource_uri: Annotated[AnyUrl, UrlConstraints(host_required=False)] | None = None,
+        resource_uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+        | None = None,
     ) -> None:
         """Report progress for the current operation.
 
