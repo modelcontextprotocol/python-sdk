@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
+from mcp.server.fastmcp.utilities.schema import enhance_output_schema
 from mcp.types import ToolAnnotations
 
 if TYPE_CHECKING:
@@ -97,6 +98,12 @@ class Tool(BaseModel):
                     # Try to generate schema using TypeAdapter
                     return_type_adapter = TypeAdapter(sig.return_annotation)
                     output_schema = return_type_adapter.json_schema()
+
+                # Enhance the schema with detailed field information
+                if output_schema:
+                    output_schema = enhance_output_schema(
+                        output_schema, sig.return_annotation
+                    )
             except Exception:
                 # If we can't generate a schema, we'll leave it as None
                 pass
