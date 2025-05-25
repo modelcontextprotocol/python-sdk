@@ -451,7 +451,7 @@ async def test_client_capabilities_default():
     # Assert that capabilities are properly set with defaults
     assert received_capabilities is not None
     assert received_capabilities.sampling is None  # No custom sampling callback
-    assert received_capabilities.roots is None     # No custom list_roots callback
+    assert received_capabilities.roots is None  # No custom list_roots callback
 
 
 @pytest.mark.anyio
@@ -536,8 +536,14 @@ async def test_client_capabilities_with_custom_callbacks():
 
     # Assert that capabilities are properly set with custom callbacks
     assert received_capabilities is not None
-    assert received_capabilities.sampling is not None  # Custom sampling callback provided
+    assert (
+        received_capabilities.sampling is not None
+    )  # Custom sampling callback provided
     assert isinstance(received_capabilities.sampling, types.SamplingCapability)
-    assert received_capabilities.roots is not None     # Custom list_roots callback provided
+    assert (
+        received_capabilities.roots is not None
+    )  # Custom list_roots callback provided
     assert isinstance(received_capabilities.roots, types.RootsCapability)
-    assert received_capabilities.roots.listChanged is True  # Should be True for custom callback
+    assert (
+        received_capabilities.roots.listChanged is True
+    )  # Should be True for custom callback
