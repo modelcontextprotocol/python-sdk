@@ -1,4 +1,3 @@
-import urllib.parse
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -148,41 +147,18 @@ def create_auth_routes(
     return routes
 
 
-def modify_url_path(url: AnyHttpUrl, path_mapper: Callable[[str], str]) -> AnyHttpUrl:
-    return AnyHttpUrl.build(
-        scheme=url.scheme,
-        username=url.username,
-        password=url.password,
-        host=url.host,
-        port=url.port,
-        path=path_mapper(url.path or ""),
-        query=url.query,
-        fragment=url.fragment,
-    )
-
-
 def build_metadata(
     issuer_url: AnyHttpUrl,
     service_documentation_url: AnyHttpUrl | None,
     client_registration_options: ClientRegistrationOptions,
     revocation_options: RevocationOptions,
-) -> OAuthMetadata:    
-    def append_path(path: str, endpoint_path: str) -> str:
-        # Ensures the path ends with a slash
-        path = f"{path}/"
-
-        # Ensures the endpoint path does not start with a slash
-        endpoint_path_lstrip = endpoint_path.lstrip("/")
-
-        # Join the two paths and remove leading slashes This ensures that the final
-        # path doesn't have double slashes between the host and the endpoint
-        return urllib.parse.urljoin(path, endpoint_path_lstrip).lstrip("/")
-
-
-    authorization_url = modify_url_path(
-        issuer_url, lambda path: append_path(path, AUTHORIZATION_PATH)
+) -> OAuthMetadata:
+    authorization_url = AnyHttpUrl(
+        str(issuer_url).rstrip("/") + AUTHORIZATION_PATH
     )
-    token_url = modify_url_path(issuer_url, lambda path: append_path(path, TOKEN_PATH))
+    token_url = AnyHttpUrl(
+        str(issuer_url).rstrip("/") + TOKEN_PATH
+    )
 
     # Create metadata
     metadata = OAuthMetadata(
@@ -205,14 +181,14 @@ def build_metadata(
 
     # Add registration endpoint if supported
     if client_registration_options.enabled:
-        metadata.registration_endpoint = modify_url_path(
-            issuer_url, lambda path: append_path(path, REGISTRATION_PATH)
+        metadata.registration_endpoint = AnyHttpUrl(
+            str(issuer_url).rstrip("/") + REGISTRATION_PATH
         )
 
     # Add revocation endpoint if supported
     if revocation_options.enabled:
-        metadata.revocation_endpoint = modify_url_path(
-            issuer_url, lambda path: append_path(path, REVOCATION_PATH)
+        metadata.revocation_endpoint = AnyHttpUrl(
+            str(issuer_url).rstrip("/") + REVOCATION_PATH
         )
         metadata.revocation_endpoint_auth_methods_supported = ["client_secret_post"]
 
