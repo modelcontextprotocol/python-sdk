@@ -351,11 +351,21 @@ class BaseSession(
                 if isinstance(message, Exception):
                     await self._handle_incoming(message)
                 elif isinstance(message.message.root, JSONRPCRequest):
-                    validated_request = self._receive_request_type.model_validate(
-                        message.message.root.model_dump(
-                            by_alias=True, mode="json", exclude_none=True
+                    try:
+                        validated_request = self._receive_request_type.model_validate(
+                            message.message.root.model_dump(
+                                by_alias=True, mode="json", exclude_none=True
+                            )
                         )
-                    )
+                    except Exception as e:
+                        # For other validation errors, log and continue
+                        logging.warning(
+                            "Failed to validate request: %s. Message was: %s",
+                            e,
+                            message.message.root,
+                        )
+                        continue
+
                     responder = RequestResponder(
                         request_id=message.message.root.id,
                         request_meta=validated_request.root.params.meta
@@ -386,33 +396,33 @@ class BaseSession(
                             e,
                             message.message.root,
                         )
-                    else:  # Notification is valid
-                        # Handle cancellation notifications
-                        if isinstance(notification.root, CancelledNotification):
-                            cancelled_id = notification.root.params.requestId
-                            if cancelled_id in self._in_flight:
-                                await self._in_flight[cancelled_id].cancel()
-                        else:
-                            # Handle progress notifications callback
-                            if isinstance(notification.root, ProgressNotification):
-                                progress_token = notification.root.params.progressToken
-                                # If there is a progress callback for this token,
-                                # call it with the progress information
-                                if progress_token in self._progress_callbacks:
-                                    callback = self._progress_callbacks[progress_token]
-                                    try:
-                                        await callback(
-                                            notification.root.params.progress,
-                                            notification.root.params.total,
-                                            notification.root.params.message,
-                                        )
-                                    except Exception as e:
-                                        logging.warning(
-                                            "Progress callback raised an exception: %s",
-                                            e,
-                                        )
-                            await self._received_notification(notification)
-                            await self._handle_incoming(notification)
+                        continue
+                    # Handle cancellation notifications
+                    if isinstance(notification.root, CancelledNotification):
+                        cancelled_id = notification.root.params.requestId
+                        if cancelled_id in self._in_flight:
+                            await self._in_flight[cancelled_id].cancel()
+                    else:
+                        # Handle progress notifications callback
+                        if isinstance(notification.root, ProgressNotification):
+                            progress_token = notification.root.params.progressToken
+                            # If there is a progress callback for this token,
+                            # call it with the progress information
+                            if progress_token in self._progress_callbacks:
+                                callback = self._progress_callbacks[progress_token]
+                                try:
+                                    await callback(
+                                        notification.root.params.progress,
+                                        notification.root.params.total,
+                                        notification.root.params.message,
+                                    )
+                                except Exception as e:
+                                    logging.warning(
+                                        "Progress callback raised an exception: %s",
+                                        e,
+                                    )
+                        await self._received_notification(notification)
+                        await self._handle_incoming(notification)
                 else:  # Response or error
                     stream = self._response_streams.pop(message.message.root.id, None)
                     if stream:
