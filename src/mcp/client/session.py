@@ -116,13 +116,20 @@ class ClientSession(
         self._message_handler = message_handler or _default_message_handler
 
     async def initialize(self) -> types.InitializeResult:
-        sampling = types.SamplingCapability()
-        roots = types.RootsCapability(
-            # TODO: Should this be based on whether we
-            # _will_ send notifications, or only whether
-            # they're supported?
-            listChanged=True,
+        sampling = (
+            types.SamplingCapability()
+            if self._sampling_callback is not _default_sampling_callback
+            else None
         )
+        if self._list_roots_callback is _default_list_roots_callback:
+            roots = None
+        else:
+            roots = types.RootsCapability(
+                # TODO: Should this be based on whether we
+                # _will_ send notifications, or only whether
+                # they're supported?
+                listChanged=True,
+            )
 
         result = await self.send_request(
             types.ClientRequest(
