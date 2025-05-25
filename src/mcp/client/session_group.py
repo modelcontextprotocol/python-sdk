@@ -154,7 +154,6 @@ class ClientSessionGroup:
             for exit_stack in self._session_exit_stacks.values():
                 tg.start_soon(exit_stack.aclose)
 
-
     @property
     def sessions(self) -> list[mcp.ClientSession]:
         """Returns the list of sessions being managed."""
