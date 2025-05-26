@@ -92,7 +92,7 @@ def create_auth_routes(
         authorization_servers=[metadata.issuer],
         scopes_supported=metadata.scopes_supported,
         resource_name=resource_name,
-        resource_documentation= service_documentation_url,
+        resource_documentation=service_documentation_url,
     )
 
     # Create routes

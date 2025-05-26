@@ -40,6 +40,8 @@ def app(oauth_provider):
     auth_routes = create_auth_routes(
         oauth_provider,
         issuer_url=AnyHttpUrl("http://localhost"),
+        resource_server_url=AnyHttpUrl("http://localhost"),
+        resource_name="Test Resource",
         client_registration_options=client_registration_options,
         revocation_options=revocation_options,
     )
