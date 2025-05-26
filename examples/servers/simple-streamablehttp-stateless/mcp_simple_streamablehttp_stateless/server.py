@@ -130,7 +130,6 @@ def main(
         debug=True,
         routes=[
             Mount("/mcp", app=handle_streamable_http),
-            Mount("/mcp/", app=handle_streamable_http),
         ],
         lifespan=lifespan,
     )
