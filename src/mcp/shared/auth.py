@@ -135,3 +135,25 @@ class OAuthMetadata(BaseModel):
     ) = None
     introspection_endpoint_auth_signing_alg_values_supported: None = None
     code_challenge_methods_supported: list[Literal["S256"]] | None = None
+
+
+class OAuthProtectedResourceMetadata(BaseModel):
+    """
+    RFC 9728 OAuth Protected Resource Metadata
+    See https://datatracker.ietf.org/doc/html/rfc9728
+    """
+
+    resource: AnyHttpUrl
+    authorization_servers: list[AnyHttpUrl] | None = None
+    jwks_uri: AnyHttpUrl | None = None
+    scopes_supported: list[str] | None = None
+    bearer_methods_supported: list[str] | None = None
+    resource_signing_alg_values_supported: list[str] | None = None
+    resource_name: str | None = None
+    resource_documentation: str | None = None
+    resource_policy_uri: AnyHttpUrl | None = None
+    resource_tos_uri: AnyHttpUrl | None = None
+    tls_client_certificate_bound_access_tokens: bool | None = None
+    authorization_details_types_supported: list[str] | None = None
+    dpop_signing_alg_values_supported: list[str] | None = None
+    dpop_bound_access_tokens_required: bool | None = None

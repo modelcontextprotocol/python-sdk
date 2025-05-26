@@ -810,9 +810,11 @@ class FastMCP:
                 create_auth_routes(
                     provider=self._auth_server_provider,
                     issuer_url=self.settings.auth.issuer_url,
+                    resource_server_url=self.settings.auth.resource_server_url,
                     service_documentation_url=self.settings.auth.service_documentation_url,
                     client_registration_options=self.settings.auth.client_registration_options,
                     revocation_options=self.settings.auth.revocation_options,
+                    resource_name=self.settings.auth.resource_name,
                 )
             )
             routes.append(
