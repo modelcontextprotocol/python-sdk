@@ -20,6 +20,7 @@ from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
     OAuthMetadata,
+    OAuthProtectedResourceMetadata,
     OAuthToken,
 )
 
@@ -71,6 +72,16 @@ def oauth_metadata():
         response_types_supported=["code"],
         grant_types_supported=["authorization_code", "refresh_token"],
         code_challenge_methods_supported=["S256"],
+    )
+
+
+@pytest.fixture
+def oauth_protected_resource_metadata():
+    return OAuthProtectedResourceMetadata(
+        resource="https://api.example.com/v1/mcp",
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+        scopes_supported=["read", "write"],
+        bearer_methods_supported=["header"],
     )
 
 
@@ -210,10 +221,13 @@ class TestOAuthClientProvider:
             assert result.token_endpoint == oauth_metadata.token_endpoint
 
             # Verify correct URL was called
-            mock_client.get.assert_called_once()
-            call_args = mock_client.get.call_args[0]
+            assert mock_client.get.call_count == 2
             assert (
-                call_args[0]
+                mock_client.get.call_args_list[0][0][0]
+                == "https://api.example.com/.well-known/oauth-protected-resource"
+            )
+            assert (
+                mock_client.get.call_args_list[1][0][0]
                 == "https://api.example.com/.well-known/oauth-authorization-server"
             )
 
@@ -261,6 +275,62 @@ class TestOAuthClientProvider:
 
             assert result is not None
             assert mock_client.get.call_count == 2
+
+    @pytest.mark.anyio
+    async def test_discover_oauth_metadata_from_protected_resource(
+        self, oauth_provider, oauth_metadata, oauth_protected_resource_metadata
+    ):
+        """Test OAuth metadata discovery using protected resource metadata."""
+        protected_resource_response = oauth_protected_resource_metadata.model_dump(
+            by_alias=True, mode="json"
+        )
+        oauth_metadata_response = oauth_metadata.model_dump(by_alias=True, mode="json")
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            # First call returns protected resource metadata
+            protected_resource_mock = Mock()
+            protected_resource_mock.status_code = 200
+            protected_resource_mock.json.return_value = protected_resource_response
+
+            # Second call returns OAuth metadata from authorization server
+            oauth_metadata_mock = Mock()
+            oauth_metadata_mock.status_code = 200
+            oauth_metadata_mock.json.return_value = oauth_metadata_response
+
+            mock_client.get.side_effect = [
+                protected_resource_mock,  # Protected resource metadata call
+                oauth_metadata_mock,  # OAuth metadata from auth server call
+            ]
+
+            result = await oauth_provider._discover_oauth_metadata(
+                "https://api.example.com/v1/mcp"
+            )
+
+            assert result is not None
+            assert (
+                result.authorization_endpoint == oauth_metadata.authorization_endpoint
+            )
+            assert result.token_endpoint == oauth_metadata.token_endpoint
+
+            # Verify correct URLs were called in order
+            assert mock_client.get.call_count == 2
+
+            # First call should be to protected resource metadata endpoint
+            first_call_args = mock_client.get.call_args_list[0][0]
+            assert (
+                first_call_args[0]
+                == "https://api.example.com/.well-known/oauth-protected-resource"
+            )
+
+            # Second call should be to authorization server's OAuth metadata endpoint
+            second_call_args = mock_client.get.call_args_list[1][0]
+            assert (
+                second_call_args[0]
+                == "https://auth.example.com/.well-known/oauth-authorization-server"
+            )
 
     @pytest.mark.anyio
     async def test_register_oauth_client_success(
