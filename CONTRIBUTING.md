@@ -40,6 +40,15 @@ uv run ruff check .
 uv run ruff format .
 ```
 
+OR use the Makefile:
+
+```bash
+make dev - Complete development setup and verification
+make lint - Run both linting and formatting
+make all - Run all quality checks
+make check - Fast parallel checking
+```
+
 7. Submit a pull request to the same branch you branched from
 
 ## Code Style
