@@ -838,9 +838,22 @@ class FastMCP:
             _alt_path = _main_path + "/"
         if _alt_path != _main_path:
             if self._auth_server_provider:
-                routes.append(Mount(_alt_path, app=RequireAuthMiddleware(handle_streamable_http, required_scopes)))
+                routes.append(
+                    Mount(
+                        _alt_path,
+                        app=RequireAuthMiddleware(
+                            handle_streamable_http,
+                            required_scopes,
+                        ),
+                    )
+                )
             else:
-                routes.append(Mount(_alt_path, app=handle_streamable_http))
+                routes.append(
+                    Mount(
+                        _alt_path,
+                        app=handle_streamable_http,
+                    )
+                )
 
         routes.extend(self._custom_starlette_routes)
 
