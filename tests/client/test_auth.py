@@ -78,7 +78,7 @@ def oauth_metadata():
 @pytest.fixture
 def oauth_protected_resource_metadata():
     return OAuthProtectedResourceMetadata(
-        resource="https://api.example.com/v1/mcp",
+        resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
         authorization_servers=[AnyHttpUrl("https://auth.example.com")],
         scopes_supported=["read", "write"],
         bearer_methods_supported=["header"],
