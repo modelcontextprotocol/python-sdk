@@ -205,15 +205,17 @@ def mock_oauth_provider():
 def auth_app(mock_oauth_provider):
     # Create auth router
     auth_routes = create_auth_routes(
-        mock_oauth_provider,
-        AnyHttpUrl("https://auth.example.com"),
-        AnyHttpUrl("https://docs.example.com"),
+        provider=mock_oauth_provider,
+        issuer_url=AnyHttpUrl("https://auth.example.com"),
+        resource_server_url=AnyHttpUrl("https://api.example.com"),
+        service_documentation_url=AnyHttpUrl("https://docs.example.com"),
         client_registration_options=ClientRegistrationOptions(
             enabled=True,
             valid_scopes=["read", "write", "profile"],
             default_scopes=["read", "write"],
         ),
         revocation_options=RevocationOptions(enabled=True),
+        resource_name="Test Resource Server",
     )
 
     # Create Starlette app
@@ -345,7 +347,27 @@ async def tokens(test_client, registered_client, auth_code, pkce_challenge, requ
 
 class TestAuthEndpoints:
     @pytest.mark.anyio
-    async def test_metadata_endpoint(self, test_client: httpx.AsyncClient):
+    async def test_protected_resource_metadata_endpoint(
+        self, test_client: httpx.AsyncClient
+    ):
+        """Test the OAuth 2.0 protected resource metadata endpoint."""
+        response = await test_client.get("/.well-known/oauth-protected-resource")
+        print(f"Got response: {response.status_code}")
+        if response.status_code != 200:
+            print(f"Response content: {response.content}")
+        assert response.status_code == 200
+
+        metadata = response.json()
+        assert metadata["resource"] == "https://api.example.com/"
+        assert metadata["authorization_servers"] == ["https://auth.example.com/"]
+        assert metadata["resource_name"] == "Test Resource Server"
+        assert metadata["resource_documentation"] == "https://docs.example.com/"
+        assert metadata["scopes_supported"] == ["read", "write", "profile"]
+
+    @pytest.mark.anyio
+    async def test_authorization_server_metadata_endpoint(
+        self, test_client: httpx.AsyncClient
+    ):
         """Test the OAuth 2.0 metadata endpoint."""
         print("Sending request to metadata endpoint")
         response = await test_client.get("/.well-known/oauth-authorization-server")

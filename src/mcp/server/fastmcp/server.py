@@ -695,9 +695,15 @@ class FastMCP:
         # Add auth endpoints if auth provider is configured
         if self._auth_server_provider:
             assert self.settings.auth
-            from mcp.server.auth.routes import create_auth_routes
+            from mcp.server.auth.routes import (
+                create_auth_routes,
+                get_oauth_protected_resource_metadata_url,
+            )
 
             required_scopes = self.settings.auth.required_scopes or []
+            resource_metadata_url = get_oauth_protected_resource_metadata_url(
+                self.settings.auth.resource_server_url
+            )
 
             middleware = [
                 # extract auth info from request (but do not require it)
@@ -723,20 +729,24 @@ class FastMCP:
                 )
             )
 
-        # When auth is not configured, we shouldn't require auth
-        if self._auth_server_provider:
             # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
             routes.append(
                 Route(
                     self.settings.sse_path,
-                    endpoint=RequireAuthMiddleware(handle_sse, required_scopes),
+                    endpoint=RequireAuthMiddleware(
+                        handle_sse, required_scopes, str(resource_metadata_url)
+                    ),
                     methods=["GET"],
                 )
             )
             routes.append(
                 Mount(
                     self.settings.message_path,
-                    app=RequireAuthMiddleware(sse.handle_post_message, required_scopes),
+                    app=RequireAuthMiddleware(
+                        sse.handle_post_message,
+                        required_scopes,
+                        str(resource_metadata_url),
+                    ),
                 )
             )
         else:
@@ -795,9 +805,15 @@ class FastMCP:
         # Add auth endpoints if auth provider is configured
         if self._auth_server_provider:
             assert self.settings.auth
-            from mcp.server.auth.routes import create_auth_routes
+            from mcp.server.auth.routes import (
+                create_auth_routes,
+                get_oauth_protected_resource_metadata_url,
+            )
 
             required_scopes = self.settings.auth.required_scopes or []
+            resource_metadata_url = get_oauth_protected_resource_metadata_url(
+                self.settings.auth.resource_server_url
+            )
 
             middleware = [
                 Middleware(
@@ -822,7 +838,11 @@ class FastMCP:
             routes.append(
                 Mount(
                     self.settings.streamable_http_path,
-                    app=RequireAuthMiddleware(handle_streamable_http, required_scopes),
+                    app=RequireAuthMiddleware(
+                        handle_streamable_http,
+                        required_scopes,
+                        str(resource_metadata_url),
+                    ),
                 )
             )
         else:

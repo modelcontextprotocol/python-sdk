@@ -307,6 +307,34 @@ class TestRequireAuthMiddleware:
         assert excinfo.value.detail == "Unauthorized"
         assert not app.called
 
+    async def test_no_user_with_adds_www_authenticate_header(
+        self,
+    ):
+        """Test middleware with no user in scope."""
+        app = MockApp()
+        middleware = RequireAuthMiddleware(
+            app,
+            required_scopes=["read"],
+            resource_metadata_url="https://example.com/.well-known/oauth-protected-resource",
+        )
+        scope: Scope = {"type": "http"}
+
+        async def receive() -> Message:
+            return {"type": "http.request"}
+
+        async def send(message: Message) -> None:
+            pass
+
+        with pytest.raises(HTTPException) as excinfo:
+            await middleware(scope, receive, send)
+
+        assert excinfo.value.status_code == 401
+        assert excinfo.value.detail == "Unauthorized"
+        assert excinfo.value.headers == {
+            "WWW-Authenticate": 'Bearer resource="https://example.com/.well-known/oauth-protected-resource"'
+        }
+        assert not app.called
+
     async def test_non_authenticated_user(self):
         """Test middleware with non-authenticated user in scope."""
         app = MockApp()

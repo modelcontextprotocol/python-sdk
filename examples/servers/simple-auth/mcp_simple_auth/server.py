@@ -261,6 +261,8 @@ def create_simple_mcp_server(settings: ServerSettings) -> FastMCP:
 
     auth_settings = AuthSettings(
         issuer_url=settings.server_url,
+        resource_server_url=settings.server_url,
+        resource_name="Simple GitHub MCP Server",
         client_registration_options=ClientRegistrationOptions(
             enabled=True,
             valid_scopes=[settings.mcp_scope],

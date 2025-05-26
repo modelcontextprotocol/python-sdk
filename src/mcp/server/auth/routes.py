@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import urljoin
 
 from pydantic import AnyHttpUrl
 from starlette.middleware.cors import CORSMiddleware
@@ -223,3 +224,7 @@ def build_metadata(
         metadata.revocation_endpoint_auth_methods_supported = ["client_secret_post"]
 
     return metadata
+
+
+def get_oauth_protected_resource_metadata_url(server_url: AnyHttpUrl) -> AnyHttpUrl:
+    return AnyHttpUrl(urljoin(str(server_url), "/.well-known/oauth-protected-resource"))
