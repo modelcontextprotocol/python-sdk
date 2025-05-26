@@ -307,10 +307,14 @@ class TestRequireAuthMiddleware:
         assert excinfo.value.detail == "Unauthorized"
         assert not app.called
 
-    async def test_no_user_with_adds_www_authenticate_header(
+    async def test_unauthenticated_user_adds_www_authenticate_header(
         self,
     ):
-        """Test middleware with no user in scope."""
+        """Test middleware with unauthenticated user.
+
+        It should add www-authenticate header to the response when resource metadata
+        URL is provided.
+        """
         app = MockApp()
         middleware = RequireAuthMiddleware(
             app,
