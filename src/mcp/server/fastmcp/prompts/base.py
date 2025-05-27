@@ -7,9 +7,9 @@ from typing import Any, Literal
 import pydantic_core
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
-from mcp.types import EmbeddedResource, ImageContent, TextContent
+from mcp.types import EmbeddedResource, ImageContent, TextContent, FileContent
 
-CONTENT_TYPES = TextContent | ImageContent | EmbeddedResource
+CONTENT_TYPES = TextContent | ImageContent | EmbeddedResource | FileContent
 
 
 class Message(BaseModel):
@@ -47,7 +47,7 @@ message_validator = TypeAdapter[UserMessage | AssistantMessage](
 )
 
 SyncPromptResult = (
-    str | Message | dict[str, Any] | Sequence[str | Message | dict[str, Any]]
+        str | Message | dict[str, Any] | Sequence[str | Message | dict[str, Any]]
 )
 PromptResult = SyncPromptResult | Awaitable[SyncPromptResult]
 
@@ -78,10 +78,10 @@ class Prompt(BaseModel):
 
     @classmethod
     def from_function(
-        cls,
-        fn: Callable[..., PromptResult | Awaitable[PromptResult]],
-        name: str | None = None,
-        description: str | None = None,
+            cls,
+            fn: Callable[..., PromptResult | Awaitable[PromptResult]],
+            name: str | None = None,
+            description: str | None = None,
     ) -> "Prompt":
         """Create a Prompt from a function.
 

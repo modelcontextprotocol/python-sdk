@@ -653,6 +653,21 @@ class ImageContent(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class FileContent(BaseModel):
+    """File content for a message."""
+
+    type: Literal["file"]
+    filename: str
+    data: str
+    """The base64-encoded file data."""
+    mimeType: str
+    """
+    The file mimetype 
+    """
+    annotations: Annotations | None = None
+    model_config = ConfigDict(extra="allow")
+
+
 class SamplingMessage(BaseModel):
     """Describes a message issued to or received from an LLM API."""
 
@@ -797,7 +812,7 @@ class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
 class CallToolResult(Result):
     """The server's response to a tool call."""
 
-    content: list[TextContent | ImageContent | EmbeddedResource]
+    content: list[TextContent | ImageContent | EmbeddedResource | FileContent]
     isError: bool = False
 
 
@@ -1131,7 +1146,7 @@ class ClientRequest(
         | UnsubscribeRequest
         | CallToolRequest
         | ListToolsRequest
-    ]
+        ]
 ):
     pass
 
@@ -1142,7 +1157,7 @@ class ClientNotification(
         | ProgressNotification
         | InitializedNotification
         | RootsListChangedNotification
-    ]
+        ]
 ):
     pass
 
@@ -1164,7 +1179,7 @@ class ServerNotification(
         | ResourceListChangedNotification
         | ToolListChangedNotification
         | PromptListChangedNotification
-    ]
+        ]
 ):
     pass
 
@@ -1181,6 +1196,6 @@ class ServerResult(
         | ReadResourceResult
         | CallToolResult
         | ListToolsResult
-    ]
+        ]
 ):
     pass
