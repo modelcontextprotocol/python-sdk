@@ -136,7 +136,9 @@ async def test_multiple_concurrent_malformed_requests():
                     method="initialize",
                     # params=None  # Missing required params
                 )
-                request_message = SessionMessage(message=JSONRPCMessage(malformed_request))
+                request_message = SessionMessage(
+                    message=JSONRPCMessage(malformed_request)
+                )
                 malformed_requests.append(request_message)
             
             # Send all requests
