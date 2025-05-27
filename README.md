@@ -1410,11 +1410,22 @@ async def run():
 
             # Call a tool (add tool from fastmcp_quickstart)
             result = await session.call_tool("add", arguments={"a": 5, "b": 3})
-            result_unstructured = result.content[0]
-            if isinstance(result_unstructured, types.TextContent):
-                print(f"Tool result: {result_unstructured.text}")
-            result_structured = result.structuredContent
-            print(f"Structured tool result: {result_structured}")
+            # Parse the result (type: CallToolResult)
+            for item in result.content:
+                if isinstance(item, types.TextContent):
+                    # Extract text directly from TextContent
+                    print(f"Tool output (TextContent): {item.text}")
+                elif isinstance(item, types.EmbeddedResource):
+                    # Check if the embedded resource contains text
+                    if isinstance(item.resource, types.TextResourceContents):
+                        print(f"Tool output (EmbeddedResource - Text): {item.resource.text}")
+                    elif isinstance(item.resource, types.BlobResourceContents):
+                        print(f"Tool output (EmbeddedResource - Blob): URI {item.resource.uri}, MIME Type {item.resource.mimeType}")
+                elif isinstance(item, types.ImageContent):
+                    # Showing only a snippet of image data
+                    print(f"Tool output (ImageContent): MIME Type {item.mimeType}, Data (base64): {item.data[:30]}...")
+                else:
+                    print(f"Tool output (Unknown Content Type): {type(item)}")
 
 
 def main():
@@ -1458,6 +1469,25 @@ async def main():
             # List available tools
             tools = await session.list_tools()
             print(f"Available tools: {[tool.name for tool in tools.tools]}")
+
+            # Call a tool
+            tool_result = await session.call_tool("echo", {"message": "hello"})
+            # Parse the result (type: CallToolResult)
+            for item in tool_result.content:
+                if isinstance(item, types.TextContent):
+                    # Extract text directly from TextContent
+                    print(f"Tool output (TextContent): {item.text}")
+                elif isinstance(item, types.EmbeddedResource):
+                    # Check if the embedded resource contains text
+                    if isinstance(item.resource, types.TextResourceContents):
+                        print(f"Tool output (EmbeddedResource - Text): {item.resource.text}")
+                    elif isinstance(item.resource, types.BlobResourceContents):
+                        print(f"Tool output (EmbeddedResource - Blob): URI {item.resource.uri}, MIME Type {item.resource.mimeType}")
+                elif isinstance(item, types.ImageContent):
+                    # Showing only a snippet of image data
+                    print(f"Tool output (ImageContent): MIME Type {item.mimeType}, Data (base64): {item.data[:30]}...")
+                else:
+                    print(f"Tool output (Unknown Content Type): {type(item)}")
 
 
 if __name__ == "__main__":
