@@ -12,6 +12,7 @@ from mcp.types import (
     JSONRPCError,
     JSONRPCMessage,
     JSONRPCRequest,
+    ServerCapabilities,
 )
 
 
@@ -40,7 +41,11 @@ async def test_malformed_initialize_request_does_not_crash_server():
     async with ServerSession(
         read_stream=read_receive_stream,
         write_stream=write_send_stream,
-        init_options=InitializationOptions(),
+        init_options=InitializationOptions(
+            server_name="test_server",
+            server_version="1.0.0",
+            capabilities=ServerCapabilities(),
+        ),
     ):
         # Send the malformed request
         await read_send_stream.send(request_message)
@@ -100,7 +105,11 @@ async def test_multiple_concurrent_malformed_requests():
     async with ServerSession(
         read_stream=read_receive_stream,
         write_stream=write_send_stream,
-        init_options=InitializationOptions(),
+        init_options=InitializationOptions(
+            server_name="test_server",
+            server_version="1.0.0",
+            capabilities=ServerCapabilities(),
+        ),
     ):
         # Send multiple malformed requests concurrently
         malformed_requests = []
