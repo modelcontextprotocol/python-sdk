@@ -18,6 +18,7 @@ from mcp.shared.memory import (
 from mcp.types import (
     BlobResourceContents,
     ImageContent,
+    FileContent,
     TextContent,
     TextResourceContents,
 )
@@ -59,7 +60,7 @@ class TestServer:
         # Test with default mount path
         mcp = FastMCP()
         with patch.object(
-            mcp, "_normalize_path", return_value="/messages/"
+                mcp, "_normalize_path", return_value="/messages/"
         ) as mock_normalize:
             mcp.sse_app()
             # Verify _normalize_path was called with correct args
@@ -69,7 +70,7 @@ class TestServer:
         mcp = FastMCP()
         mcp.settings.mount_path = "/custom"
         with patch.object(
-            mcp, "_normalize_path", return_value="/custom/messages/"
+                mcp, "_normalize_path", return_value="/custom/messages/"
         ) as mock_normalize:
             mcp.sse_app()
             # Verify _normalize_path was called with correct args
@@ -78,7 +79,7 @@ class TestServer:
         # Test with mount_path parameter
         mcp = FastMCP()
         with patch.object(
-            mcp, "_normalize_path", return_value="/param/messages/"
+                mcp, "_normalize_path", return_value="/param/messages/"
         ) as mock_normalize:
             mcp.sse_app(mount_path="/param")
             # Verify _normalize_path was called with correct args
@@ -103,7 +104,7 @@ class TestServer:
         # Verify path values
         assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
         assert (
-            mount_routes[0].path == "/messages"
+                mount_routes[0].path == "/messages"
         ), "Mount route path should be /messages"
 
         # Test with mount path as parameter
@@ -121,7 +122,7 @@ class TestServer:
         # Verify path values
         assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
         assert (
-            mount_routes[0].path == "/messages"
+                mount_routes[0].path == "/messages"
         ), "Mount route path should be /messages"
 
     @pytest.mark.anyio
@@ -131,7 +132,7 @@ class TestServer:
 
         @mcp.tool(
             description=(
-                "🌟 This tool uses emojis and UTF-8 characters: á é í ó ú ñ 漢字 🎉"
+                    "🌟 This tool uses emojis and UTF-8 characters: á é í ó ú ñ 漢字 🎉"
             )
         )
         def hello_world(name: str = "世界") -> str:
@@ -167,7 +168,6 @@ class TestServer:
         mcp = FastMCP()
 
         with pytest.raises(TypeError, match="The @tool decorator was used incorrectly"):
-
             @mcp.tool  # Missing parentheses #type: ignore
             def add(x: int, y: int) -> int:
                 return x + y
@@ -187,9 +187,8 @@ class TestServer:
         mcp = FastMCP()
 
         with pytest.raises(
-            TypeError, match="The @resource decorator was used incorrectly"
+                TypeError, match="The @resource decorator was used incorrectly"
         ):
-
             @mcp.resource  # Missing parentheses #type: ignore
             def get_data(x: str) -> str:
                 return f"Data: {x}"
@@ -207,10 +206,11 @@ def image_tool_fn(path: str) -> Image:
     return Image(path)
 
 
-def mixed_content_tool_fn() -> list[TextContent | ImageContent]:
+def mixed_content_tool_fn() -> list[TextContent | ImageContent | FileContent]:
     return [
         TextContent(type="text", text="Hello"),
         ImageContent(type="image", data="abc", mimeType="image/png"),
+        FileContent(type="file", data="abc", filename="test.pdf", mimeType="application/pdf"),
     ]
 
 
@@ -312,14 +312,18 @@ class TestServerTools:
         mcp.add_tool(mixed_content_tool_fn)
         async with client_session(mcp._mcp_server) as client:
             result = await client.call_tool("mixed_content_tool_fn", {})
-            assert len(result.content) == 2
+            assert len(result.content) == 3
             content1 = result.content[0]
             content2 = result.content[1]
+            content3 = result.content[2]
             assert isinstance(content1, TextContent)
             assert content1.text == "Hello"
             assert isinstance(content2, ImageContent)
             assert content2.mimeType == "image/png"
             assert content2.data == "abc"
+            assert isinstance(content3, FileContent)
+            assert content3.mimeType == "application/pdf"
+            assert content3.data == "abc"
 
     @pytest.mark.anyio
     async def test_tool_mixed_list_with_image(self, tmp_path: Path):
@@ -437,8 +441,8 @@ class TestServerResources:
             result = await client.read_resource(AnyUrl("file://test.bin"))
             assert isinstance(result.contents[0], BlobResourceContents)
             assert (
-                result.contents[0].blob
-                == base64.b64encode(b"Binary file data").decode()
+                    result.contents[0].blob
+                    == base64.b64encode(b"Binary file data").decode()
             )
 
     @pytest.mark.anyio
@@ -468,7 +472,6 @@ class TestServerResourceTemplates:
         mcp = FastMCP()
 
         with pytest.raises(ValueError, match="Mismatch between URI parameters"):
-
             @mcp.resource("resource://data")
             def get_data_fn(param: str) -> str:
                 return f"Data: {param}"
@@ -479,7 +482,6 @@ class TestServerResourceTemplates:
         mcp = FastMCP()
 
         with pytest.raises(ValueError, match="Mismatch between URI parameters"):
-
             @mcp.resource("resource://{param}")
             def get_data() -> str:
                 return "Data"
@@ -513,7 +515,6 @@ class TestServerResourceTemplates:
         mcp = FastMCP()
 
         with pytest.raises(ValueError, match="Mismatch between URI parameters"):
-
             @mcp.resource("resource://{name}/data")
             def get_data(user: str) -> str:
                 return f"Data for {user}"
@@ -540,7 +541,6 @@ class TestServerResourceTemplates:
         mcp = FastMCP()
 
         with pytest.raises(ValueError, match="Mismatch between URI parameters"):
-
             @mcp.resource("resource://{org}/{repo}/data")
             def get_data_mismatched(org: str, repo_2: str) -> str:
                 return f"Data for {org}"
@@ -774,7 +774,6 @@ class TestServerPrompts:
         """Test error when decorator is used incorrectly."""
         mcp = FastMCP()
         with pytest.raises(TypeError, match="decorator was used incorrectly"):
-
             @mcp.prompt  # type: ignore
             def fn() -> str:
                 return "Hello, world!"
