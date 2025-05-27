@@ -85,7 +85,7 @@ from mcp.server.session import ServerSession
 from mcp.server.stdio import stdio_server as stdio_server
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 
 logger = logging.getLogger(__name__)
@@ -215,7 +215,9 @@ class Server(Generic[LifespanResultT]):
         )
 
     @property
-    def request_context(self) -> RequestContext[ServerSession, LifespanResultT]:
+    def request_context(
+        self,
+    ) -> RequestContext[ServerSession, LifespanResultT]:
         """If called outside of a request context, this will raise a LookupError."""
         return request_ctx.get()
 
@@ -555,6 +557,15 @@ class Server(Generic[LifespanResultT]):
 
             token = None
             try:
+                # Extract request context from message metadata
+                request_data = None
+                if (
+                    hasattr(message, "message_metadata")
+                    and message.message_metadata
+                    and isinstance(message.message_metadata, ServerMessageMetadata)
+                ):
+                    request_data = message.message_metadata.request_context
+
                 # Set our global state that can be retrieved via
                 # app.get_request_context()
                 token = request_ctx.set(
@@ -563,6 +574,7 @@ class Server(Generic[LifespanResultT]):
                         message.request_meta,
                         session,
                         lifespan_context,
+                        request=request_data,
                     )
                 )
                 response = await handler(req)

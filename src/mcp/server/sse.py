@@ -52,7 +52,8 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 import mcp.types as types
-from mcp.shared.message import SessionMessage
+from mcp.shared.context import RequestData
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +204,19 @@ class SseServerTransport:
             await writer.send(err)
             return
 
-        session_message = SessionMessage(message)
+        # Extract request headers and other context
+        request_context: RequestData = {
+            "headers": dict(request.headers),
+            "method": request.method,
+            "url": str(request.url),
+            "client": request.client,
+            "path_params": request.path_params,
+            "query_params": dict(request.query_params),
+        }
+
+        # Create session message with request context
+        metadata = ServerMessageMetadata(request_context=request_context)
+        session_message = SessionMessage(message, metadata=metadata)
         logger.debug(f"Sending session message to writer: {session_message}")
         response = Response("Accepted", status_code=202)
         await response(scope, receive, send)

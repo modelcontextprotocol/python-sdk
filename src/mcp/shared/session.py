@@ -80,10 +80,12 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
             ReceiveNotificationT
         ]""",
         on_complete: Callable[["RequestResponder[ReceiveRequestT, SendResultT]"], Any],
+        message_metadata: MessageMetadata = None,
     ) -> None:
         self.request_id = request_id
         self.request_meta = request_meta
         self.request = request
+        self.message_metadata = message_metadata
         self._session = session
         self._completed = False
         self._cancel_scope = anyio.CancelScope()
@@ -364,6 +366,7 @@ class BaseSession(
                         request=validated_request,
                         session=self,
                         on_complete=lambda r: self._in_flight.pop(r.request_id, None),
+                        message_metadata=message.metadata,
                     )
 
                     self._in_flight[responder.request_id] = responder

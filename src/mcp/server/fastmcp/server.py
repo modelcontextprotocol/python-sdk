@@ -124,7 +124,9 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 def lifespan_wrapper(
     app: FastMCP,
     lifespan: Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]],
-) -> Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[object]]:
+) -> Callable[
+    [MCPServer[LifespanResultT]], AbstractAsyncContextManager[object]
+]:
     @asynccontextmanager
     async def wrap(s: MCPServer[LifespanResultT]) -> AsyncIterator[object]:
         async with lifespan(app) as context:
@@ -933,7 +935,8 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
     def __init__(
         self,
         *,
-        request_context: RequestContext[ServerSessionT, LifespanContextT] | None = None,
+        request_context: RequestContext[ServerSessionT, LifespanContextT]
+        | None = None,
         fastmcp: FastMCP | None = None,
         **kwargs: Any,
     ):
@@ -949,7 +952,9 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         return self._fastmcp
 
     @property
-    def request_context(self) -> RequestContext[ServerSessionT, LifespanContextT]:
+    def request_context(
+        self,
+    ) -> RequestContext[ServerSessionT, LifespanContextT]:
         """Access to the underlying request context."""
         if self._request_context is None:
             raise ValueError("Context is not available outside of a request")
