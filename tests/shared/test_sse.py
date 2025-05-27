@@ -333,7 +333,11 @@ class RequestContextServer(Server):
             try:
                 context = self.request_context
                 if context.request:
-                    headers_info = context.request.get("headers", {})
+                    # Check if it's a Starlette Request object
+                    from starlette.requests import Request
+
+                    if isinstance(context.request, Request):
+                        headers_info = dict(context.request.headers)
             except LookupError:
                 pass  # No request context available
 

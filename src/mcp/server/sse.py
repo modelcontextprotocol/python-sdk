@@ -53,7 +53,6 @@ from starlette.types import Receive, Scope, Send
 
 import mcp.types as types
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
-from mcp.types import RequestData
 
 logger = logging.getLogger(__name__)
 
@@ -204,18 +203,9 @@ class SseServerTransport:
             await writer.send(err)
             return
 
-        # Extract request headers and other context
-        request_context: RequestData = {
-            "headers": dict(request.headers),
-            "method": request.method,
-            "url": str(request.url),
-            "client": request.client,
-            "path_params": request.path_params,
-            "query_params": dict(request.query_params),
-        }
-
-        # Create session message with request context
-        metadata = ServerMessageMetadata(request_context=request_context)
+        # Pass the raw request object for maximum flexibility
+        # Consumers can use isinstance to check the request type
+        metadata = ServerMessageMetadata(request_context=request)
         session_message = SessionMessage(message, metadata=metadata)
         logger.debug(f"Sending session message to writer: {session_message}")
         response = Response("Accepted", status_code=202)

@@ -215,9 +215,7 @@ class Server(Generic[LifespanResultT]):
         )
 
     @property
-    def request_context(
-        self,
-    ) -> RequestContext[ServerSession, LifespanResultT]:
+    def request_context(self) -> RequestContext[ServerSession, LifespanResultT]:
         """If called outside of a request context, this will raise a LookupError."""
         return request_ctx.get()
 

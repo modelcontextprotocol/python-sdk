@@ -15,6 +15,7 @@ import pytest
 import uvicorn
 from pydantic import AnyUrl
 from starlette.applications import Starlette
+from starlette.requests import Request
 
 import mcp.types as types
 from mcp.client.session import ClientSession
@@ -89,7 +90,7 @@ def make_fastmcp_app():
         return f"Echo: {message}"
 
     # Create the SSE app
-    app: Starlette = mcp.sse_app()
+    app = mcp.sse_app()
 
     return mcp, app
 
@@ -201,7 +202,7 @@ def make_everything_fastmcp_app():
     """Create a comprehensive FastMCP server with SSE transport."""
     mcp = make_everything_fastmcp()
     # Create the SSE app
-    app: Starlette = mcp.sse_app()
+    app = mcp.sse_app()
     return mcp, app
 
 
@@ -440,11 +441,10 @@ def make_fastmcp_with_context_app():
     def echo_headers(ctx: Context) -> str:
         """Returns the request headers as JSON."""
         headers_info = {}
-        try:
-            if ctx.request_context.request:
-                headers_info = ctx.request_context.request.get("headers", {})
-        except Exception:
-            pass
+        if ctx.request_context.request and isinstance(
+            ctx.request_context.request, Request
+        ):
+            headers_info = dict(ctx.request_context.request.headers)
         return json.dumps(headers_info)
 
     # Tool that returns full request context
@@ -457,17 +457,15 @@ def make_fastmcp_with_context_app():
             "method": None,
             "url": None,
         }
-        try:
-            if ctx.request_context.request:
-                context_data["headers"] = ctx.request_context.request.get("headers", {})
-                context_data["method"] = ctx.request_context.request.get("method")
-                context_data["url"] = ctx.request_context.request.get("url")
-        except Exception:
-            pass
+        if ctx.request_context.request:
+            if isinstance(ctx.request_context.request, Request):
+                context_data["headers"] = dict(ctx.request_context.request.headers)
+                context_data["method"] = ctx.request_context.request.method
+                context_data["url"] = str(ctx.request_context.request.url)
         return json.dumps(context_data)
 
     # Create the SSE app
-    app: Starlette = mcp.sse_app()
+    app = mcp.sse_app()
     return mcp, app
 
 
