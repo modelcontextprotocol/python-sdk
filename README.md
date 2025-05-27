@@ -1451,7 +1451,7 @@ Run from the repository root:
 
 import asyncio
 
-from mcp import ClientSession
+from mcp import ClientSession, types
 from mcp.client.streamable_http import streamablehttp_client
 
 
