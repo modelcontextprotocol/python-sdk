@@ -559,10 +559,8 @@ class Server(Generic[LifespanResultT]):
             try:
                 # Extract request context from message metadata
                 request_data = None
-                if (
-                    hasattr(message, "message_metadata")
-                    and message.message_metadata
-                    and isinstance(message.message_metadata, ServerMessageMetadata)
+                if message.message_metadata is not None and isinstance(
+                    message.message_metadata, ServerMessageMetadata
                 ):
                     request_data = message.message_metadata.request_context
 
