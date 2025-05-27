@@ -807,7 +807,7 @@ Clients can also connect using [Streamable HTTP transport](https://modelcontextp
 
 ```python
 from mcp.client.streamable_http import streamablehttp_client
-from mcp import ClientSession
+from mcp import ClientSession, types
 
 
 async def main():
