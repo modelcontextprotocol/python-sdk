@@ -203,9 +203,8 @@ class SseServerTransport:
             await writer.send(err)
             return
 
-        # Pass the raw request object for maximum flexibility
-        # Consumers can use isinstance to check the request type
-        metadata = ServerMessageMetadata(request_context=request)
+        # Pass the ASGI scope for framework-agnostic access to request data
+        metadata = ServerMessageMetadata(request_context=dict(request.scope))
         session_message = SessionMessage(message, metadata=metadata)
         logger.debug(f"Sending session message to writer: {session_message}")
         response = Response("Accepted", status_code=202)

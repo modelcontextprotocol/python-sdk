@@ -333,11 +333,12 @@ class RequestContextServer(Server):
             try:
                 context = self.request_context
                 if context.request:
-                    # Check if it's a Starlette Request object
-                    from starlette.requests import Request
-
-                    if isinstance(context.request, Request):
-                        headers_info = dict(context.request.headers)
+                    # Extract headers from ASGI scope
+                    headers_list = context.request.get("headers", [])
+                    headers_info = {
+                        k.decode("latin-1"): v.decode("latin-1")
+                        for k, v in headers_list
+                    }
             except LookupError:
                 pass  # No request context available
 

@@ -36,8 +36,9 @@ Cursor = str
 Role = Literal["user", "assistant"]
 RequestId = str | int
 AnyFunction: TypeAlias = Callable[..., Any]
-# HTTP request object from web framework (e.g., starlette.requests.Request)
-RequestData: TypeAlias = object
+# Dictionary containing request metadata (headers, path, method, etc.
+# based on  ASGI scope for most of the trasport implementations)
+RequestData: TypeAlias = dict[str, Any]
 
 
 class RequestParams(BaseModel):
