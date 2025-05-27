@@ -13,6 +13,7 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          version: 0.7.2
 
       - name: Install the project
         run: uv sync --frozen --all-extras --dev --python 3.12
@@ -29,6 +30,7 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          version: 0.7.2
 
       - name: Install the project
         run: uv sync --frozen --all-extras --dev --python 3.12
@@ -50,6 +52,7 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          version: 0.7.2
 
       - name: Install the project
         run: uv sync --frozen --all-extras --dev --python ${{ matrix.python-version }}
