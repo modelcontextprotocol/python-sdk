@@ -23,8 +23,12 @@ async def test_malformed_initialize_request_does_not_crash_server():
     instead of crashing the server (HackerOne #3156202).
     """
     # Create in-memory streams for testing
-    read_send_stream, read_receive_stream = anyio.create_memory_object_stream(10)
-    write_send_stream, write_receive_stream = anyio.create_memory_object_stream(10)
+    read_send_stream, read_receive_stream = anyio.create_memory_object_stream[
+        SessionMessage | Exception
+    ](10)
+    write_send_stream, write_receive_stream = anyio.create_memory_object_stream[
+        SessionMessage
+    ](10)
 
     # Create a malformed initialize request (missing required params field)
     malformed_request = JSONRPCRequest(
@@ -90,6 +94,10 @@ async def test_malformed_initialize_request_does_not_crash_server():
             
         except anyio.WouldBlock:
             pytest.fail("No response received - server likely crashed")
+    
+    # Close the send streams to signal end of communication
+    await read_send_stream.aclose()
+    await write_send_stream.aclose()
 
 
 @pytest.mark.anyio
@@ -98,8 +106,12 @@ async def test_multiple_concurrent_malformed_requests():
     Test that multiple concurrent malformed requests don't crash the server.
     """
     # Create in-memory streams for testing
-    read_send_stream, read_receive_stream = anyio.create_memory_object_stream(100)
-    write_send_stream, write_receive_stream = anyio.create_memory_object_stream(100)
+    read_send_stream, read_receive_stream = anyio.create_memory_object_stream[
+        SessionMessage | Exception
+    ](100)
+    write_send_stream, write_receive_stream = anyio.create_memory_object_stream[
+        SessionMessage
+    ](100)
 
     # Start a server session
     async with ServerSession(
@@ -146,3 +158,7 @@ async def test_multiple_concurrent_malformed_requests():
             assert isinstance(response, JSONRPCError)
             assert response.id == f"malformed_{i}"
             assert response.error.code == INVALID_PARAMS
+    
+    # Close the send streams to signal end of communication
+    await read_send_stream.aclose()
+    await write_send_stream.aclose()
