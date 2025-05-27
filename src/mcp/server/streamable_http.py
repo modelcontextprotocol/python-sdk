@@ -25,6 +25,7 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.taskgroup import CompatTaskGroup
 from mcp.types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
@@ -508,7 +509,7 @@ class StreamableHTTPServerTransport:
                 # Start the SSE response (this will send headers immediately)
                 try:
                     # First send the response to establish the SSE connection
-                    async with anyio.create_task_group() as tg:
+                    async with CompatTaskGroup() as tg:
                         tg.start_soon(response, scope, receive, send)
                         # Then send the message to be processed by the server
                         session_message = SessionMessage(message)
@@ -840,7 +841,7 @@ class StreamableHTTPServerTransport:
         self._write_stream = write_stream
 
         # Start a task group for message routing
-        async with anyio.create_task_group() as tg:
+        async with CompatTaskGroup() as tg:
             # Create a message router that distributes messages to request streams
             async def message_router():
                 try:
