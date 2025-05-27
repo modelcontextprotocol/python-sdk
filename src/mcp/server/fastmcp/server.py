@@ -3,9 +3,8 @@
 from __future__ import annotations as _annotations
 
 import inspect
-import json
 import re
-from collections.abc import AsyncIterator, Callable, Iterable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import (
     AbstractAsyncContextManager,
     asynccontextmanager,
@@ -15,18 +14,30 @@ from typing import Any, Generic, Literal
 
 import anyio
 import pydantic_core
-import uvicorn
 from pydantic import BaseModel, Field
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.requests import Request
+from starlette.responses import Response
 from starlette.routing import Mount, Route
+from starlette.types import Receive, Scope, Send
 
+from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
+from mcp.server.auth.middleware.bearer_auth import (
+    BearerAuthBackend,
+    RequireAuthMiddleware,
+)
+from mcp.server.auth.provider import OAuthAuthorizationServerProvider
+from mcp.server.auth.settings import (
+    AuthSettings,
+)
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
-from mcp.server.fastmcp.tools import ToolManager
+from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.fastmcp.utilities.types import Image
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -36,6 +47,8 @@ from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.session import ServerSession, ServerSessionT
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
+from mcp.server.streamable_http import EventStore
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.shared.context import LifespanContextT, RequestContext
 from mcp.types import (
     AnyFunction,
@@ -43,6 +56,7 @@ from mcp.types import (
     GetPromptResult,
     ImageContent,
     TextContent,
+    ToolAnnotations,
 )
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
@@ -63,6 +77,8 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     model_config = SettingsConfigDict(
         env_prefix="FASTMCP_",
         env_file=".env",
+        env_nested_delimiter="__",
+        nested_model_default_partial_update=True,
         extra="ignore",
     )
 
@@ -71,10 +87,18 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     # HTTP settings
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8000
+    mount_path: str = "/"  # Mount path (e.g. "/github", defaults to root path)
     sse_path: str = "/sse"
     message_path: str = "/messages/"
+    streamable_http_path: str = "/mcp"
+
+    # StreamableHTTP settings
+    json_response: bool = False
+    stateless_http: bool = (
+        False  # If True, uses true stateless mode (new transport per request)
+    )
 
     # resource settings
     warn_on_duplicate_resources: bool = True
@@ -94,6 +118,8 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
         Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]] | None
     ) = Field(None, description="Lifespan context manager")
 
+    auth: AuthSettings | None = None
+
 
 def lifespan_wrapper(
     app: FastMCP,
@@ -109,19 +135,29 @@ def lifespan_wrapper(
 
 class FastMCP:
     def __init__(
-        self, name: str | None = None, instructions: str | None = None, **settings: Any
+        self,
+        name: str | None = None,
+        instructions: str | None = None,
+        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
+        | None = None,
+        event_store: EventStore | None = None,
+        *,
+        tools: list[Tool] | None = None,
+        **settings: Any,
     ):
         self.settings = Settings(**settings)
 
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
             instructions=instructions,
-            lifespan=lifespan_wrapper(self, self.settings.lifespan)
-            if self.settings.lifespan
-            else default_lifespan,
+            lifespan=(
+                lifespan_wrapper(self, self.settings.lifespan)
+                if self.settings.lifespan
+                else default_lifespan
+            ),
         )
         self._tool_manager = ToolManager(
-            warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
+            tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
         )
         self._resource_manager = ResourceManager(
             warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources
@@ -129,7 +165,21 @@ class FastMCP:
         self._prompt_manager = PromptManager(
             warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts
         )
+        if (self.settings.auth is not None) != (auth_server_provider is not None):
+            # TODO: after we support separate authorization servers (see
+            # https://github.com/modelcontextprotocol/modelcontextprotocol/pull/284)
+            # we should validate that if auth is enabled, we have either an
+            # auth_server_provider to host our own authorization server,
+            # OR the URL of a 3rd party authorization server.
+            raise ValueError(
+                "settings.auth must be specified if and only if auth_server_provider "
+                "is specified"
+            )
+        self._auth_server_provider = auth_server_provider
+        self._event_store = event_store
+        self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
+        self._session_manager: StreamableHTTPSessionManager | None = None
 
         # Set up MCP protocol handlers
         self._setup_handlers()
@@ -145,20 +195,47 @@ class FastMCP:
     def instructions(self) -> str | None:
         return self._mcp_server.instructions
 
-    def run(self, transport: Literal["stdio", "sse"] = "stdio") -> None:
+    @property
+    def session_manager(self) -> StreamableHTTPSessionManager:
+        """Get the StreamableHTTP session manager.
+
+        This is exposed to enable advanced use cases like mounting multiple
+        FastMCP servers in a single FastAPI application.
+
+        Raises:
+            RuntimeError: If called before streamable_http_app() has been called.
+        """
+        if self._session_manager is None:
+            raise RuntimeError(
+                "Session manager can only be accessed after"
+                "calling streamable_http_app()."
+                "The session manager is created lazily"
+                "to avoid unnecessary initialization."
+            )
+        return self._session_manager
+
+    def run(
+        self,
+        transport: Literal["stdio", "sse", "streamable-http"] = "stdio",
+        mount_path: str | None = None,
+    ) -> None:
         """Run the FastMCP server. Note this is a synchronous function.
 
         Args:
-            transport: Transport protocol to use ("stdio" or "sse")
+            transport: Transport protocol to use ("stdio", "sse", or "streamable-http")
+            mount_path: Optional mount path for SSE transport
         """
-        TRANSPORTS = Literal["stdio", "sse"]
+        TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
         if transport not in TRANSPORTS.__args__:  # type: ignore
             raise ValueError(f"Unknown transport: {transport}")
 
-        if transport == "stdio":
-            anyio.run(self.run_stdio_async)
-        else:  # transport == "sse"
-            anyio.run(self.run_sse_async)
+        match transport:
+            case "stdio":
+                anyio.run(self.run_stdio_async)
+            case "sse":
+                anyio.run(lambda: self.run_sse_async(mount_path))
+            case "streamable-http":
+                anyio.run(self.run_streamable_http_async)
 
     def _setup_handlers(self) -> None:
         """Set up core MCP protocol handlers."""
@@ -178,6 +255,7 @@ class FastMCP:
                 name=info.name,
                 description=info.description,
                 inputSchema=info.parameters,
+                annotations=info.annotations,
             )
             for info in tools
         ]
@@ -246,6 +324,7 @@ class FastMCP:
         fn: AnyFunction,
         name: str | None = None,
         description: str | None = None,
+        annotations: ToolAnnotations | None = None,
     ) -> None:
         """Add a tool to the server.
 
@@ -256,11 +335,17 @@ class FastMCP:
             fn: The function to register as a tool
             name: Optional name for the tool (defaults to function name)
             description: Optional description of what the tool does
+            annotations: Optional ToolAnnotations providing additional tool information
         """
-        self._tool_manager.add_tool(fn, name=name, description=description)
+        self._tool_manager.add_tool(
+            fn, name=name, description=description, annotations=annotations
+        )
 
     def tool(
-        self, name: str | None = None, description: str | None = None
+        self,
+        name: str | None = None,
+        description: str | None = None,
+        annotations: ToolAnnotations | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
 
@@ -271,6 +356,7 @@ class FastMCP:
         Args:
             name: Optional name for the tool (defaults to function name)
             description: Optional description of what the tool does
+            annotations: Optional ToolAnnotations providing additional tool information
 
         Example:
             @server.tool()
@@ -295,7 +381,9 @@ class FastMCP:
             )
 
         def decorator(fn: AnyFunction) -> AnyFunction:
-            self.add_tool(fn, name=name, description=description)
+            self.add_tool(
+                fn, name=name, description=description, annotations=annotations
+            )
             return fn
 
         return decorator
@@ -381,16 +469,16 @@ class FastMCP:
                     uri_template=uri,
                     name=name,
                     description=description,
-                    mime_type=mime_type or "text/plain",
+                    mime_type=mime_type,
                 )
             else:
                 # Register as regular resource
-                resource = FunctionResource(
-                    uri=AnyUrl(uri),
+                resource = FunctionResource.from_function(
+                    fn=fn,
+                    uri=uri,
                     name=name,
                     description=description,
-                    mime_type=mime_type or "text/plain",
-                    fn=fn,
+                    mime_type=mime_type,
                 )
                 self.add_resource(resource)
             return fn
@@ -455,6 +543,50 @@ class FastMCP:
 
         return decorator
 
+    def custom_route(
+        self,
+        path: str,
+        methods: list[str],
+        name: str | None = None,
+        include_in_schema: bool = True,
+    ):
+        """
+        Decorator to register a custom HTTP route on the FastMCP server.
+
+        Allows adding arbitrary HTTP endpoints outside the standard MCP protocol,
+        which can be useful for OAuth callbacks, health checks, or admin APIs.
+        The handler function must be an async function that accepts a Starlette
+        Request and returns a Response.
+
+        Args:
+            path: URL path for the route (e.g., "/oauth/callback")
+            methods: List of HTTP methods to support (e.g., ["GET", "POST"])
+            name: Optional name for the route (to reference this route with
+                  Starlette's reverse URL lookup feature)
+            include_in_schema: Whether to include in OpenAPI schema, defaults to True
+
+        Example:
+            @server.custom_route("/health", methods=["GET"])
+            async def health_check(request: Request) -> Response:
+                return JSONResponse({"status": "ok"})
+        """
+
+        def decorator(
+            func: Callable[[Request], Awaitable[Response]],
+        ) -> Callable[[Request], Awaitable[Response]]:
+            self._custom_starlette_routes.append(
+                Route(
+                    path,
+                    endpoint=func,
+                    methods=methods,
+                    name=name,
+                    include_in_schema=include_in_schema,
+                )
+            )
+            return func
+
+        return decorator
+
     async def run_stdio_async(self) -> None:
         """Run the server using stdio transport."""
         async with stdio_server() as (read_stream, write_stream):
@@ -464,9 +596,11 @@ class FastMCP:
                 self._mcp_server.create_initialization_options(),
             )
 
-    async def run_sse_async(self) -> None:
+    async def run_sse_async(self, mount_path: str | None = None) -> None:
         """Run the server using SSE transport."""
-        starlette_app = self.sse_app()
+        import uvicorn
+
+        starlette_app = self.sse_app(mount_path)
 
         config = uvicorn.Config(
             starlette_app,
@@ -477,28 +611,232 @@ class FastMCP:
         server = uvicorn.Server(config)
         await server.serve()
 
-    def sse_app(self) -> Starlette:
-        """Return an instance of the SSE server app."""
-        sse = SseServerTransport(self.settings.message_path)
+    async def run_streamable_http_async(self) -> None:
+        """Run the server using StreamableHTTP transport."""
+        import uvicorn
 
-        async def handle_sse(request: Request) -> None:
+        starlette_app = self.streamable_http_app()
+
+        config = uvicorn.Config(
+            starlette_app,
+            host=self.settings.host,
+            port=self.settings.port,
+            log_level=self.settings.log_level.lower(),
+        )
+        server = uvicorn.Server(config)
+        await server.serve()
+
+    def _normalize_path(self, mount_path: str, endpoint: str) -> str:
+        """
+        Combine mount path and endpoint to return a normalized path.
+
+        Args:
+            mount_path: The mount path (e.g. "/github" or "/")
+            endpoint: The endpoint path (e.g. "/messages/")
+
+        Returns:
+            Normalized path (e.g. "/github/messages/")
+        """
+        # Special case: root path
+        if mount_path == "/":
+            return endpoint
+
+        # Remove trailing slash from mount path
+        if mount_path.endswith("/"):
+            mount_path = mount_path[:-1]
+
+        # Ensure endpoint starts with slash
+        if not endpoint.startswith("/"):
+            endpoint = "/" + endpoint
+
+        # Combine paths
+        return mount_path + endpoint
+
+    def sse_app(self, mount_path: str | None = None) -> Starlette:
+        """Return an instance of the SSE server app."""
+        from starlette.middleware import Middleware
+        from starlette.routing import Mount, Route
+
+        # Update mount_path in settings if provided
+        if mount_path is not None:
+            self.settings.mount_path = mount_path
+
+        # Create normalized endpoint considering the mount path
+        normalized_message_endpoint = self._normalize_path(
+            self.settings.mount_path, self.settings.message_path
+        )
+
+        # Set up auth context and dependencies
+
+        sse = SseServerTransport(
+            normalized_message_endpoint,
+        )
+
+        async def handle_sse(scope: Scope, receive: Receive, send: Send):
+            # Add client ID from auth context into request context if available
+
             async with sse.connect_sse(
-                request.scope,
-                request.receive,
-                request._send,  # type: ignore[reportPrivateUsage]
+                scope,
+                receive,
+                send,
             ) as streams:
                 await self._mcp_server.run(
                     streams[0],
                     streams[1],
                     self._mcp_server.create_initialization_options(),
                 )
+            return Response()
+
+        # Create routes
+        routes: list[Route | Mount] = []
+        middleware: list[Middleware] = []
+        required_scopes = []
+
+        # Add auth endpoints if auth provider is configured
+        if self._auth_server_provider:
+            assert self.settings.auth
+            from mcp.server.auth.routes import create_auth_routes
+
+            required_scopes = self.settings.auth.required_scopes or []
+
+            middleware = [
+                # extract auth info from request (but do not require it)
+                Middleware(
+                    AuthenticationMiddleware,
+                    backend=BearerAuthBackend(
+                        provider=self._auth_server_provider,
+                    ),
+                ),
+                # Add the auth context middleware to store
+                # authenticated user in a contextvar
+                Middleware(AuthContextMiddleware),
+            ]
+            routes.extend(
+                create_auth_routes(
+                    provider=self._auth_server_provider,
+                    issuer_url=self.settings.auth.issuer_url,
+                    service_documentation_url=self.settings.auth.service_documentation_url,
+                    client_registration_options=self.settings.auth.client_registration_options,
+                    revocation_options=self.settings.auth.revocation_options,
+                )
+            )
+
+        # When auth is not configured, we shouldn't require auth
+        if self._auth_server_provider:
+            # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
+            routes.append(
+                Route(
+                    self.settings.sse_path,
+                    endpoint=RequireAuthMiddleware(handle_sse, required_scopes),
+                    methods=["GET"],
+                )
+            )
+            routes.append(
+                Mount(
+                    self.settings.message_path,
+                    app=RequireAuthMiddleware(sse.handle_post_message, required_scopes),
+                )
+            )
+        else:
+            # Auth is disabled, no need for RequireAuthMiddleware
+            # Since handle_sse is an ASGI app, we need to create a compatible endpoint
+            async def sse_endpoint(request: Request) -> Response:
+                # Convert the Starlette request to ASGI parameters
+                return await handle_sse(request.scope, request.receive, request._send)  # type: ignore[reportPrivateUsage]
+
+            routes.append(
+                Route(
+                    self.settings.sse_path,
+                    endpoint=sse_endpoint,
+                    methods=["GET"],
+                )
+            )
+            routes.append(
+                Mount(
+                    self.settings.message_path,
+                    app=sse.handle_post_message,
+                )
+            )
+        # mount these routes last, so they have the lowest route matching precedence
+        routes.extend(self._custom_starlette_routes)
+
+        # Create Starlette app with routes and middleware
+        return Starlette(
+            debug=self.settings.debug, routes=routes, middleware=middleware
+        )
+
+    def streamable_http_app(self) -> Starlette:
+        """Return an instance of the StreamableHTTP server app."""
+        from starlette.middleware import Middleware
+        from starlette.routing import Mount
+
+        # Create session manager on first call (lazy initialization)
+        if self._session_manager is None:
+            self._session_manager = StreamableHTTPSessionManager(
+                app=self._mcp_server,
+                event_store=self._event_store,
+                json_response=self.settings.json_response,
+                stateless=self.settings.stateless_http,  # Use the stateless setting
+            )
+
+        # Create the ASGI handler
+        async def handle_streamable_http(
+            scope: Scope, receive: Receive, send: Send
+        ) -> None:
+            await self.session_manager.handle_request(scope, receive, send)
+
+        # Create routes
+        routes: list[Route | Mount] = []
+        middleware: list[Middleware] = []
+        required_scopes = []
+
+        # Add auth endpoints if auth provider is configured
+        if self._auth_server_provider:
+            assert self.settings.auth
+            from mcp.server.auth.routes import create_auth_routes
+
+            required_scopes = self.settings.auth.required_scopes or []
+
+            middleware = [
+                Middleware(
+                    AuthenticationMiddleware,
+                    backend=BearerAuthBackend(
+                        provider=self._auth_server_provider,
+                    ),
+                ),
+                Middleware(AuthContextMiddleware),
+            ]
+            routes.extend(
+                create_auth_routes(
+                    provider=self._auth_server_provider,
+                    issuer_url=self.settings.auth.issuer_url,
+                    service_documentation_url=self.settings.auth.service_documentation_url,
+                    client_registration_options=self.settings.auth.client_registration_options,
+                    revocation_options=self.settings.auth.revocation_options,
+                )
+            )
+            routes.append(
+                Mount(
+                    self.settings.streamable_http_path,
+                    app=RequireAuthMiddleware(handle_streamable_http, required_scopes),
+                )
+            )
+        else:
+            # Auth is disabled, no wrapper needed
+            routes.append(
+                Mount(
+                    self.settings.streamable_http_path,
+                    app=handle_streamable_http,
+                )
+            )
+
+        routes.extend(self._custom_starlette_routes)
 
         return Starlette(
             debug=self.settings.debug,
-            routes=[
-                Route(self.settings.sse_path, endpoint=handle_sse),
-                Mount(self.settings.message_path, app=sse.handle_post_message),
-            ],
+            routes=routes,
+            middleware=middleware,
+            lifespan=lambda app: self.session_manager.run(),
         )
 
     async def list_prompts(self) -> list[MCPPrompt]:
@@ -550,10 +888,7 @@ def _convert_to_content(
         return list(chain.from_iterable(_convert_to_content(item) for item in result))  # type: ignore[reportUnknownVariableType]
 
     if not isinstance(result, str):
-        try:
-            result = json.dumps(pydantic_core.to_jsonable_python(result))
-        except Exception:
-            result = str(result)
+        result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
 
     return [TextContent(type="text", text=result)]
 
@@ -621,15 +956,15 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         return self._request_context
 
     async def report_progress(
-        self, progress: float, total: float | None = None
+        self, progress: float, total: float | None = None, message: str | None = None
     ) -> None:
         """Report progress for the current operation.
 
         Args:
             progress: Current progress value e.g. 24
             total: Optional total value e.g. 100
+            message: Optional message e.g. Starting render...
         """
-
         progress_token = (
             self.request_context.meta.progressToken
             if self.request_context.meta
@@ -640,7 +975,10 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
             return
 
         await self.request_context.session.send_progress_notification(
-            progress_token=progress_token, progress=progress, total=total
+            progress_token=progress_token,
+            progress=progress,
+            total=total,
+            message=message,
         )
 
     async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:
@@ -673,7 +1011,10 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
             **extra: Additional structured data to include
         """
         await self.request_context.session.send_log_message(
-            level=level, data=message, logger=logger_name
+            level=level,
+            data=message,
+            logger=logger_name,
+            related_request_id=self.request_id,
         )
 
     @property

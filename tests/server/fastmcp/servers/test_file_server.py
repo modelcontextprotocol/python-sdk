@@ -114,17 +114,13 @@ async def test_read_resource_file(mcp: FastMCP):
 
 @pytest.mark.anyio
 async def test_delete_file(mcp: FastMCP, test_dir: Path):
-    await mcp.call_tool(
-        "delete_file", arguments=dict(path=str(test_dir / "example.py"))
-    )
+    await mcp.call_tool("delete_file", arguments={"path": str(test_dir / "example.py")})
     assert not (test_dir / "example.py").exists()
 
 
 @pytest.mark.anyio
 async def test_delete_file_and_check_resources(mcp: FastMCP, test_dir: Path):
-    await mcp.call_tool(
-        "delete_file", arguments=dict(path=str(test_dir / "example.py"))
-    )
+    await mcp.call_tool("delete_file", arguments={"path": str(test_dir / "example.py")})
     res_iter = await mcp.read_resource("file://test_dir/example.py")
     res_list = list(res_iter)
     assert len(res_list) == 1

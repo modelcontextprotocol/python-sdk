@@ -19,11 +19,11 @@ from mcp.client.session import (
     SamplingFnT,
 )
 from mcp.server import Server
-from mcp.types import JSONRPCMessage
+from mcp.shared.message import SessionMessage
 
 MessageStream = tuple[
-    MemoryObjectReceiveStream[JSONRPCMessage | Exception],
-    MemoryObjectSendStream[JSONRPCMessage],
+    MemoryObjectReceiveStream[SessionMessage | Exception],
+    MemoryObjectSendStream[SessionMessage],
 ]
 
 
@@ -40,10 +40,10 @@ async def create_client_server_memory_streams() -> (
     """
     # Create streams for both directions
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        JSONRPCMessage | Exception
+        SessionMessage | Exception
     ](1)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        JSONRPCMessage | Exception
+        SessionMessage | Exception
     ](1)
 
     client_streams = (server_to_client_receive, client_to_server_send)
