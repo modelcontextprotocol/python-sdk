@@ -429,7 +429,8 @@ class TestOAuthClientProvider:
 
         assert oauth_provider._has_valid_token()
 
-    def test_has_valid_token_expired(self, oauth_provider, oauth_token):
+    @pytest.mark.anyio
+    async def test_has_valid_token_expired(self, oauth_provider, oauth_token):
         """Test token validation with expired token."""
         oauth_provider._current_tokens = oauth_token
         oauth_provider._token_expiry_time = time.time() - 3600  # Past expiry
@@ -880,7 +881,8 @@ class TestOAuthClientProvider:
         # No scope should be set since client metadata doesn't have explicit scope
         assert "scope" not in auth_params
 
-    def test_scope_priority_no_scope(self, oauth_provider, oauth_client_info):
+    @pytest.mark.anyio
+    async def test_scope_priority_no_scope(self, oauth_provider, oauth_client_info):
         """Test that no scope parameter is set when no scopes specified."""
         oauth_provider.client_metadata.scope = None
         oauth_provider._client_info = oauth_client_info
