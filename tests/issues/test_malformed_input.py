@@ -4,6 +4,7 @@
 import anyio
 import pytest
 
+from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.message import SessionMessage
 from mcp.types import (
@@ -39,7 +40,7 @@ async def test_malformed_initialize_request_does_not_crash_server():
     async with ServerSession(
         read_stream=read_receive_stream,
         write_stream=write_send_stream,
-        initialization_options={},
+        init_options=InitializationOptions(),
     ):
         # Send the malformed request
         await read_send_stream.send(request_message)
@@ -99,7 +100,7 @@ async def test_multiple_concurrent_malformed_requests():
     async with ServerSession(
         read_stream=read_receive_stream,
         write_stream=write_send_stream,
-        initialization_options={},
+        init_options=InitializationOptions(),
     ):
         # Send multiple malformed requests concurrently
         malformed_requests = []
