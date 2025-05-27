@@ -10,9 +10,12 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
+from inline_snapshot import snapshot
 from pydantic import AnyHttpUrl
 
 from mcp.client.auth import OAuthClientProvider
+from mcp.server.auth.routes import build_metadata
+from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -905,3 +908,76 @@ class TestOAuthClientProvider:
                 await oauth_provider._exchange_code_for_token(
                     "invalid_auth_code", oauth_client_info
                 )
+
+
+@pytest.mark.parametrize(
+    (
+        "issuer_url",
+        "service_documentation_url",
+        "authorization_endpoint",
+        "token_endpoint",
+        "registration_endpoint",
+        "revocation_endpoint",
+    ),
+    (
+        pytest.param(
+            "https://auth.example.com",
+            "https://auth.example.com/docs",
+            "https://auth.example.com/authorize",
+            "https://auth.example.com/token",
+            "https://auth.example.com/register",
+            "https://auth.example.com/revoke",
+            id="simple-url",
+        ),
+        pytest.param(
+            "https://auth.example.com/",
+            "https://auth.example.com/docs",
+            "https://auth.example.com/authorize",
+            "https://auth.example.com/token",
+            "https://auth.example.com/register",
+            "https://auth.example.com/revoke",
+            id="with-trailing-slash",
+        ),
+        pytest.param(
+            "https://auth.example.com/v1/mcp",
+            "https://auth.example.com/v1/mcp/docs",
+            "https://auth.example.com/v1/mcp/authorize",
+            "https://auth.example.com/v1/mcp/token",
+            "https://auth.example.com/v1/mcp/register",
+            "https://auth.example.com/v1/mcp/revoke",
+            id="with-path-param",
+        ),
+    ),
+)
+def test_build_metadata(
+    issuer_url: str,
+    service_documentation_url: str,
+    authorization_endpoint: str,
+    token_endpoint: str,
+    registration_endpoint: str,
+    revocation_endpoint: str,
+):
+    metadata = build_metadata(
+        issuer_url=AnyHttpUrl(issuer_url),
+        service_documentation_url=AnyHttpUrl(service_documentation_url),
+        client_registration_options=ClientRegistrationOptions(
+            enabled=True, valid_scopes=["read", "write", "admin"]
+        ),
+        revocation_options=RevocationOptions(enabled=True),
+    )
+
+    assert metadata == snapshot(
+        OAuthMetadata(
+            issuer=AnyHttpUrl(issuer_url),
+            authorization_endpoint=AnyHttpUrl(authorization_endpoint),
+            token_endpoint=AnyHttpUrl(token_endpoint),
+            registration_endpoint=AnyHttpUrl(registration_endpoint),
+            scopes_supported=["read", "write", "admin"],
+            grant_types_supported=["authorization_code", "refresh_token"],
+            token_endpoint_auth_methods_supported=["client_secret_post"],
+            service_documentation=AnyHttpUrl(service_documentation_url),
+            revocation_endpoint=AnyHttpUrl(revocation_endpoint),
+            revocation_endpoint_auth_methods_supported=["client_secret_post"],
+            code_challenge_methods_supported=["S256"],
+        )
+    )
