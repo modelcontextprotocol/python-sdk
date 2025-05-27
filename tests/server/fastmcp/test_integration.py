@@ -15,7 +15,6 @@ import pytest
 import uvicorn
 from pydantic import AnyUrl
 from starlette.applications import Starlette
-from starlette.requests import Request
 
 import mcp.types as types
 from mcp.client.session import ClientSession
