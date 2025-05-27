@@ -153,12 +153,8 @@ def build_metadata(
     client_registration_options: ClientRegistrationOptions,
     revocation_options: RevocationOptions,
 ) -> OAuthMetadata:
-    authorization_url = AnyHttpUrl(
-        str(issuer_url).rstrip("/") + AUTHORIZATION_PATH
-    )
-    token_url = AnyHttpUrl(
-        str(issuer_url).rstrip("/") + TOKEN_PATH
-    )
+    authorization_url = AnyHttpUrl(str(issuer_url).rstrip("/") + AUTHORIZATION_PATH)
+    token_url = AnyHttpUrl(str(issuer_url).rstrip("/") + TOKEN_PATH)
 
     # Create metadata
     metadata = OAuthMetadata(
