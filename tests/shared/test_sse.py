@@ -338,14 +338,9 @@ class RequestContextServer(Server):
                 pass  # No request context available
 
             if name == "echo_headers":
-                # Return the headers as JSON in the response
-                import json
-
                 return [TextContent(type="text", text=json.dumps(headers_info))]
             elif name == "echo_context":
                 # Return context info with request ID
-                import json
-
                 context_data = {
                     "request_id": args.get("request_id"),
                     "headers": headers_info,
@@ -498,9 +493,6 @@ async def test_request_context_isolation(context_server: None, server_url: str) 
                 tool_result = await session.call_tool(
                     "echo_context", {"request_id": f"request-{i}"}
                 )
-
-                # Parse and store the result
-                import json
 
                 assert len(tool_result.content) == 1
                 context_data = json.loads(
