@@ -424,6 +424,7 @@ class BaseSession(
                 error = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
                 await stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))
                 await stream.aclose()
+            self._response_streams.clear()
 
     async def _received_request(
         self, responder: RequestResponder[ReceiveRequestT, SendResultT]
