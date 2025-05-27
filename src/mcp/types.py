@@ -1146,7 +1146,7 @@ class ClientRequest(
         | UnsubscribeRequest
         | CallToolRequest
         | ListToolsRequest
-        ]
+    ]
 ):
     pass
 
@@ -1157,7 +1157,7 @@ class ClientNotification(
         | ProgressNotification
         | InitializedNotification
         | RootsListChangedNotification
-        ]
+    ]
 ):
     pass
 
@@ -1179,7 +1179,7 @@ class ServerNotification(
         | ResourceListChangedNotification
         | ToolListChangedNotification
         | PromptListChangedNotification
-        ]
+    ]
 ):
     pass
 
@@ -1196,6 +1196,6 @@ class ServerResult(
         | ReadResourceResult
         | CallToolResult
         | ListToolsResult
-        ]
+    ]
 ):
     pass

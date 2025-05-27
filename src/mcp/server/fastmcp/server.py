@@ -57,7 +57,7 @@ from mcp.types import (
     ImageContent,
     TextContent,
     ToolAnnotations,
-    FileContent
+    FileContent,
 )
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
@@ -116,15 +116,15 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     )
 
     lifespan: (
-            Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]] | None
+        Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]] | None
     ) = Field(None, description="Lifespan context manager")
 
     auth: AuthSettings | None = None
 
 
 def lifespan_wrapper(
-        app: FastMCP,
-        lifespan: Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]],
+    app: FastMCP,
+    lifespan: Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]],
 ) -> Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[object]]:
     @asynccontextmanager
     async def wrap(s: MCPServer[LifespanResultT]) -> AsyncIterator[object]:
@@ -136,15 +136,15 @@ def lifespan_wrapper(
 
 class FastMCP:
     def __init__(
-            self,
-            name: str | None = None,
-            instructions: str | None = None,
-            auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
-                                  | None = None,
-            event_store: EventStore | None = None,
-            *,
-            tools: list[Tool] | None = None,
-            **settings: Any,
+        self,
+        name: str | None = None,
+        instructions: str | None = None,
+        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
+        | None = None,
+        event_store: EventStore | None = None,
+        *,
+        tools: list[Tool] | None = None,
+        **settings: Any,
     ):
         self.settings = Settings(**settings)
 
@@ -216,9 +216,9 @@ class FastMCP:
         return self._session_manager
 
     def run(
-            self,
-            transport: Literal["stdio", "sse", "streamable-http"] = "stdio",
-            mount_path: str | None = None,
+        self,
+        transport: Literal["stdio", "sse", "streamable-http"] = "stdio",
+        mount_path: str | None = None,
     ) -> None:
         """Run the FastMCP server. Note this is a synchronous function.
 
@@ -273,7 +273,7 @@ class FastMCP:
         return Context(request_context=request_context, fastmcp=self)
 
     async def call_tool(
-            self, name: str, arguments: dict[str, Any]
+        self, name: str, arguments: dict[str, Any]
     ) -> Sequence[TextContent | ImageContent | EmbeddedResource | FileContent]:
         """Call a tool by name with arguments."""
         context = self.get_context()
@@ -321,11 +321,11 @@ class FastMCP:
             raise ResourceError(str(e))
 
     def add_tool(
-            self,
-            fn: AnyFunction,
-            name: str | None = None,
-            description: str | None = None,
-            annotations: ToolAnnotations | None = None,
+        self,
+        fn: AnyFunction,
+        name: str | None = None,
+        description: str | None = None,
+        annotations: ToolAnnotations | None = None,
     ) -> None:
         """Add a tool to the server.
 
@@ -343,10 +343,10 @@ class FastMCP:
         )
 
     def tool(
-            self,
-            name: str | None = None,
-            description: str | None = None,
-            annotations: ToolAnnotations | None = None,
+        self,
+        name: str | None = None,
+        description: str | None = None,
+        annotations: ToolAnnotations | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
 
@@ -398,12 +398,12 @@ class FastMCP:
         self._resource_manager.add_resource(resource)
 
     def resource(
-            self,
-            uri: str,
-            *,
-            name: str | None = None,
-            description: str | None = None,
-            mime_type: str | None = None,
+        self,
+        uri: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        mime_type: str | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a function as a resource.
 
@@ -495,7 +495,7 @@ class FastMCP:
         self._prompt_manager.add_prompt(prompt)
 
     def prompt(
-            self, name: str | None = None, description: str | None = None
+        self, name: str | None = None, description: str | None = None
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a prompt.
 
@@ -545,11 +545,11 @@ class FastMCP:
         return decorator
 
     def custom_route(
-            self,
-            path: str,
-            methods: list[str],
-            name: str | None = None,
-            include_in_schema: bool = True,
+        self,
+        path: str,
+        methods: list[str],
+        name: str | None = None,
+        include_in_schema: bool = True,
     ):
         """
         Decorator to register a custom HTTP route on the FastMCP server.
@@ -573,7 +573,7 @@ class FastMCP:
         """
 
         def decorator(
-                func: Callable[[Request], Awaitable[Response]],
+            func: Callable[[Request], Awaitable[Response]],
         ) -> Callable[[Request], Awaitable[Response]]:
             self._custom_starlette_routes.append(
                 Route(
@@ -677,9 +677,9 @@ class FastMCP:
             # Add client ID from auth context into request context if available
 
             async with sse.connect_sse(
-                    scope,
-                    receive,
-                    send,
+                scope,
+                receive,
+                send,
             ) as streams:
                 await self._mcp_server.run(
                     streams[0],
@@ -743,8 +743,7 @@ class FastMCP:
             # Since handle_sse is an ASGI app, we need to create a compatible endpoint
             async def sse_endpoint(request: Request) -> Response:
                 # Convert the Starlette request to ASGI parameters
-                return await handle_sse(request.scope, request.receive,
-                                        request._send)  # type: ignore[reportPrivateUsage]
+                return await handle_sse(request.scope, request.receive, request._send)  # type: ignore[reportPrivateUsage]
 
             routes.append(
                 Route(
@@ -783,7 +782,7 @@ class FastMCP:
 
         # Create the ASGI handler
         async def handle_streamable_http(
-                scope: Scope, receive: Receive, send: Send
+            scope: Scope, receive: Receive, send: Send
         ) -> None:
             await self.session_manager.handle_request(scope, receive, send)
 
@@ -861,7 +860,7 @@ class FastMCP:
         ]
 
     async def get_prompt(
-            self, name: str, arguments: dict[str, Any] | None = None
+        self, name: str, arguments: dict[str, Any] | None = None
     ) -> GetPromptResult:
         """Get a prompt by name with arguments."""
         try:
@@ -874,7 +873,7 @@ class FastMCP:
 
 
 def _convert_to_content(
-        result: Any,
+    result: Any,
 ) -> Sequence[TextContent | ImageContent | EmbeddedResource | FileContent]:
     """Convert a result to a sequence of content objects."""
     if result is None:
@@ -887,8 +886,7 @@ def _convert_to_content(
         return [result.to_image_content()]
 
     if isinstance(result, list | tuple):
-        return list(chain.from_iterable(
-            _convert_to_content(item) for item in result))  # type: ignore[reportUnknownVariableType]
+        return list(chain.from_iterable(_convert_to_content(item) for item in result))  # type: ignore[reportUnknownVariableType]
 
     if not isinstance(result, str):
         result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
@@ -934,11 +932,11 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
     _fastmcp: FastMCP | None
 
     def __init__(
-            self,
-            *,
-            request_context: RequestContext[ServerSessionT, LifespanContextT] | None = None,
-            fastmcp: FastMCP | None = None,
-            **kwargs: Any,
+        self,
+        *,
+        request_context: RequestContext[ServerSessionT, LifespanContextT] | None = None,
+        fastmcp: FastMCP | None = None,
+        **kwargs: Any,
     ):
         super().__init__(**kwargs)
         self._request_context = request_context
@@ -959,7 +957,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         return self._request_context
 
     async def report_progress(
-            self, progress: float, total: float | None = None, message: str | None = None
+        self, progress: float, total: float | None = None, message: str | None = None
     ) -> None:
         """Report progress for the current operation.
 
@@ -994,16 +992,16 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
             The resource content as either text or bytes
         """
         assert (
-                self._fastmcp is not None
+            self._fastmcp is not None
         ), "Context is not available outside of a request"
         return await self._fastmcp.read_resource(uri)
 
     async def log(
-            self,
-            level: Literal["debug", "info", "warning", "error"],
-            message: str,
-            *,
-            logger_name: str | None = None,
+        self,
+        level: Literal["debug", "info", "warning", "error"],
+        message: str,
+        *,
+        logger_name: str | None = None,
     ) -> None:
         """Send a log message to the client.
 

@@ -47,7 +47,7 @@ message_validator = TypeAdapter[UserMessage | AssistantMessage](
 )
 
 SyncPromptResult = (
-        str | Message | dict[str, Any] | Sequence[str | Message | dict[str, Any]]
+    str | Message | dict[str, Any] | Sequence[str | Message | dict[str, Any]]
 )
 PromptResult = SyncPromptResult | Awaitable[SyncPromptResult]
 
@@ -78,10 +78,10 @@ class Prompt(BaseModel):
 
     @classmethod
     def from_function(
-            cls,
-            fn: Callable[..., PromptResult | Awaitable[PromptResult]],
-            name: str | None = None,
-            description: str | None = None,
+        cls,
+        fn: Callable[..., PromptResult | Awaitable[PromptResult]],
+        name: str | None = None,
+        description: str | None = None,
     ) -> "Prompt":
         """Create a Prompt from a function.
 
