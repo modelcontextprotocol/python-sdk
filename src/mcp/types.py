@@ -36,6 +36,8 @@ Cursor = str
 Role = Literal["user", "assistant"]
 RequestId = str | int
 AnyFunction: TypeAlias = Callable[..., Any]
+# Http request-specific data (e.g., headers, auth info)
+RequestData = dict[str, Any]
 
 
 class RequestParams(BaseModel):

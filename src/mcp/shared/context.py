@@ -4,13 +4,10 @@ from typing import Any, Generic
 from typing_extensions import TypeVar
 
 from mcp.shared.session import BaseSession
-from mcp.types import RequestId, RequestParams
+from mcp.types import RequestData, RequestId, RequestParams
 
 SessionT = TypeVar("SessionT", bound=BaseSession[Any, Any, Any, Any, Any])
 LifespanContextT = TypeVar("LifespanContextT")
-
-# Type alias for request-specific data (e.g., headers, auth info)
-RequestData = dict[str, Any]
 
 
 @dataclass
