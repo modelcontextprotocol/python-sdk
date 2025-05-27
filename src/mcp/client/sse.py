@@ -53,7 +53,7 @@ async def sse_client(
 
     async with anyio.create_task_group() as tg:
         try:
-            logger.info(f"Connecting to SSE endpoint: {remove_request_params(url)}")
+            logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
             async with httpx_client_factory(headers=headers, auth=auth) as client:
                 async with aconnect_sse(
                     client,
@@ -73,7 +73,7 @@ async def sse_client(
                                 match sse.event:
                                     case "endpoint":
                                         endpoint_url = urljoin(url, sse.data)
-                                        logger.info(
+                                        logger.debug(
                                             f"Received endpoint URL: {endpoint_url}"
                                         )
 
@@ -146,7 +146,7 @@ async def sse_client(
                             await write_stream.aclose()
 
                     endpoint_url = await tg.start(sse_reader)
-                    logger.info(
+                    logger.debug(
                         f"Starting post writer with endpoint URL: {endpoint_url}"
                     )
                     tg.start_soon(post_writer, endpoint_url)
