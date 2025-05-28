@@ -458,7 +458,6 @@ def make_fastmcp_with_context_app():
             "path": None,
         }
         if ctx.request_context.request:
-            # Now we can access Request attributes directly
             request = ctx.request_context.request
             context_data["headers"] = dict(request.headers)
             context_data["method"] = request.method

@@ -328,20 +328,14 @@ class RequestContextServer(Server[object, Request]):
 
         @self.call_tool()
         async def handle_call_tool(name: str, args: dict) -> list[TextContent]:
-            # Capture request context if available and return it
             headers_info = {}
-            try:
-                context = self.request_context
-                if context.request:
-                    # The request is a Starlette Request object
-                    headers_info = dict(context.request.headers)
-            except LookupError:
-                pass  # No request context available
+            context = self.request_context
+            if context.request:
+                headers_info = dict(context.request.headers)
 
             if name == "echo_headers":
                 return [TextContent(type="text", text=json.dumps(headers_info))]
             elif name == "echo_context":
-                # Return context info with request ID
                 context_data = {
                     "request_id": args.get("request_id"),
                     "headers": headers_info,
