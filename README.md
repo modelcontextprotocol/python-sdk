@@ -320,7 +320,11 @@ providing an implementation of the `OAuthAuthorizationServerProvider` protocol.
 ```python
 from mcp import FastMCP
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
-from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
+from mcp.server.auth.settings import (
+    AuthSettings,
+    ClientRegistrationOptions,
+    RevocationOptions,
+)
 
 
 class MyOAuthServerProvider(OAuthAuthorizationServerProvider):
@@ -328,7 +332,8 @@ class MyOAuthServerProvider(OAuthAuthorizationServerProvider):
     ...
 
 
-mcp = FastMCP("My App",
+mcp = FastMCP(
+    "My App",
     auth_server_provider=MyOAuthServerProvider(),
     auth=AuthSettings(
         issuer_url="https://myapp.com",
