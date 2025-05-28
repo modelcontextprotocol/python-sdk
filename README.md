@@ -315,7 +315,7 @@ async def long_task(files: list[str], ctx: Context) -> str:
 Authentication can be used by servers that want to expose tools accessing protected resources.
 
 `mcp.server.auth` implements an OAuth 2.0 server interface, which servers can use by
-providing an implementation of the `OAuthServerProvider` protocol.
+providing an implementation of the `OAuthAuthorizationServerProvider` protocol.
 
 ```python
 from mcp import FastMCP
@@ -345,7 +345,7 @@ mcp = FastMCP("My App",
 )
 ```
 
-See [OAuthServerProvider](src/mcp/server/auth/provider.py) for more details.
+See [OAuthAuthorizationServerProvider](src/mcp/server/auth/provider.py) for more details.
 
 ## Running Your Server
 
