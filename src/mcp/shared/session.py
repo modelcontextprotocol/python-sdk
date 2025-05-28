@@ -377,9 +377,9 @@ class BaseSession(
                     except Exception as e:
                         # For request validation errors, send a proper JSON-RPC error
                         # response instead of crashing the server
-                        logging.warning(
-                            f"Failed to validate request: {e}. "
-                            f"Message was: {message.message.root}"
+                        logging.warning(f"Failed to validate request: {e}")
+                        logging.debug(
+                            f"Message that failed validation: {message.message.root}"
                         )
                         error_response = JSONRPCError(
                             jsonrpc="2.0",
