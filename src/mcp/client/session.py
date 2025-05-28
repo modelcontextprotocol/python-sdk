@@ -7,7 +7,8 @@ from pydantic import AnyUrl, TypeAdapter
 
 import mcp.types as types
 from mcp.shared.context import RequestContext
-from mcp.shared.session import BaseSession, RequestResponder
+from mcp.shared.message import SessionMessage
+from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
@@ -92,8 +93,8 @@ class ClientSession(
 ):
     def __init__(
         self,
-        read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception],
-        write_stream: MemoryObjectSendStream[types.JSONRPCMessage],
+        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
+        write_stream: MemoryObjectSendStream[SessionMessage],
         read_timeout_seconds: timedelta | None = None,
         sampling_callback: SamplingFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
@@ -167,7 +168,11 @@ class ClientSession(
         )
 
     async def send_progress_notification(
-        self, progress_token: str | int, progress: float, total: float | None = None
+        self,
+        progress_token: str | int,
+        progress: float,
+        total: float | None = None,
+        message: str | None = None,
     ) -> None:
         """Send a progress notification."""
         await self.send_notification(
@@ -178,6 +183,7 @@ class ClientSession(
                         progressToken=progress_token,
                         progress=progress,
                         total=total,
+                        message=message,
                     ),
                 ),
             )
@@ -195,23 +201,33 @@ class ClientSession(
             types.EmptyResult,
         )
 
-    async def list_resources(self) -> types.ListResourcesResult:
+    async def list_resources(
+        self, cursor: str | None = None
+    ) -> types.ListResourcesResult:
         """Send a resources/list request."""
         return await self.send_request(
             types.ClientRequest(
                 types.ListResourcesRequest(
                     method="resources/list",
+                    params=types.PaginatedRequestParams(cursor=cursor)
+                    if cursor is not None
+                    else None,
                 )
             ),
             types.ListResourcesResult,
         )
 
-    async def list_resource_templates(self) -> types.ListResourceTemplatesResult:
+    async def list_resource_templates(
+        self, cursor: str | None = None
+    ) -> types.ListResourceTemplatesResult:
         """Send a resources/templates/list request."""
         return await self.send_request(
             types.ClientRequest(
                 types.ListResourceTemplatesRequest(
                     method="resources/templates/list",
+                    params=types.PaginatedRequestParams(cursor=cursor)
+                    if cursor is not None
+                    else None,
                 )
             ),
             types.ListResourceTemplatesResult,
@@ -254,25 +270,38 @@ class ClientSession(
         )
 
     async def call_tool(
-        self, name: str, arguments: dict[str, Any] | None = None
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: timedelta | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> types.CallToolResult:
-        """Send a tools/call request."""
+        """Send a tools/call request with optional progress callback support."""
+
         return await self.send_request(
             types.ClientRequest(
                 types.CallToolRequest(
                     method="tools/call",
-                    params=types.CallToolRequestParams(name=name, arguments=arguments),
+                    params=types.CallToolRequestParams(
+                        name=name,
+                        arguments=arguments,
+                    ),
                 )
             ),
             types.CallToolResult,
+            request_read_timeout_seconds=read_timeout_seconds,
+            progress_callback=progress_callback,
         )
 
-    async def list_prompts(self) -> types.ListPromptsResult:
+    async def list_prompts(self, cursor: str | None = None) -> types.ListPromptsResult:
         """Send a prompts/list request."""
         return await self.send_request(
             types.ClientRequest(
                 types.ListPromptsRequest(
                     method="prompts/list",
+                    params=types.PaginatedRequestParams(cursor=cursor)
+                    if cursor is not None
+                    else None,
                 )
             ),
             types.ListPromptsResult,
@@ -311,12 +340,15 @@ class ClientSession(
             types.CompleteResult,
         )
 
-    async def list_tools(self) -> types.ListToolsResult:
+    async def list_tools(self, cursor: str | None = None) -> types.ListToolsResult:
         """Send a tools/list request."""
         return await self.send_request(
             types.ClientRequest(
                 types.ListToolsRequest(
                     method="tools/list",
+                    params=types.PaginatedRequestParams(cursor=cursor)
+                    if cursor is not None
+                    else None,
                 )
             ),
             types.ListToolsResult,

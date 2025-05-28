@@ -10,6 +10,7 @@ from websockets.asyncio.client import connect as ws_connect
 from websockets.typing import Subprotocol
 
 import mcp.types as types
+from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +20,8 @@ async def websocket_client(
     url: str,
 ) -> AsyncGenerator[
     tuple[
-        MemoryObjectReceiveStream[types.JSONRPCMessage | Exception],
-        MemoryObjectSendStream[types.JSONRPCMessage],
+        MemoryObjectReceiveStream[SessionMessage | Exception],
+        MemoryObjectSendStream[SessionMessage],
     ],
     None,
 ]:
@@ -39,10 +40,10 @@ async def websocket_client(
     # Create two in-memory streams:
     # - One for incoming messages (read_stream, written by ws_reader)
     # - One for outgoing messages (write_stream, read by ws_writer)
-    read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception]
-    read_stream_writer: MemoryObjectSendStream[types.JSONRPCMessage | Exception]
-    write_stream: MemoryObjectSendStream[types.JSONRPCMessage]
-    write_stream_reader: MemoryObjectReceiveStream[types.JSONRPCMessage]
+    read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
+    read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
+    write_stream: MemoryObjectSendStream[SessionMessage]
+    write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
@@ -59,7 +60,8 @@ async def websocket_client(
                 async for raw_text in ws:
                     try:
                         message = types.JSONRPCMessage.model_validate_json(raw_text)
-                        await read_stream_writer.send(message)
+                        session_message = SessionMessage(message)
+                        await read_stream_writer.send(session_message)
                     except ValidationError as exc:
                         # If JSON parse or model validation fails, send the exception
                         await read_stream_writer.send(exc)
@@ -70,9 +72,9 @@ async def websocket_client(
             sends them to the server.
             """
             async with write_stream_reader:
-                async for message in write_stream_reader:
+                async for session_message in write_stream_reader:
                     # Convert to a dict, then to JSON
-                    msg_dict = message.model_dump(
+                    msg_dict = session_message.message.model_dump(
                         by_alias=True, mode="json", exclude_none=True
                     )
                     await ws.send(json.dumps(msg_dict))

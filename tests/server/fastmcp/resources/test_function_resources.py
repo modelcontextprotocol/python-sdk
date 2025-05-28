@@ -100,7 +100,7 @@ class TestFunctionResource:
             fn=lambda: MyModel(name="test"),
         )
         content = await resource.read()
-        assert content == '{"name": "test"}'
+        assert content == '{\n  "name": "test"\n}'
 
     @pytest.mark.anyio
     async def test_custom_type_conversion(self):
@@ -136,3 +136,22 @@ class TestFunctionResource:
         content = await resource.read()
         assert content == "Hello, world!"
         assert resource.mime_type == "text/plain"
+
+    @pytest.mark.anyio
+    async def test_from_function(self):
+        """Test creating a FunctionResource from a function."""
+
+        async def get_data() -> str:
+            """get_data returns a string"""
+            return "Hello, world!"
+
+        resource = FunctionResource.from_function(
+            fn=get_data,
+            uri="function://test",
+            name="test",
+        )
+
+        assert resource.description == "get_data returns a string"
+        assert resource.mime_type == "text/plain"
+        assert resource.name == "test"
+        assert resource.uri == AnyUrl("function://test")
