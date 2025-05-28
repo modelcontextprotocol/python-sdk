@@ -14,6 +14,7 @@ from typing_extensions import Self
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.types import (
+    CONNECTION_CLOSED,
     CancelledNotification,
     ClientNotification,
     ClientRequest,
@@ -416,6 +417,14 @@ class BaseSession(
                                 f"request ID: {message}"
                             )
                         )
+
+            # after the read stream is closed, we need to send errors
+            # to any pending requests
+            for id, stream in self._response_streams.items():
+                error = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
+                await stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))
+                await stream.aclose()
+            self._response_streams.clear()
 
     async def _received_request(
         self, responder: RequestResponder[ReceiveRequestT, SendResultT]
