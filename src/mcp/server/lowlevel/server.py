@@ -72,11 +72,12 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
+from typing_extensions import TypeVar
 
 import mcp.types as types
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -85,15 +86,16 @@ from mcp.server.session import ServerSession
 from mcp.server.stdio import stdio_server as stdio_server
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 
 logger = logging.getLogger(__name__)
 
 LifespanResultT = TypeVar("LifespanResultT")
+RequestT = TypeVar("RequestT", default=Any)
 
 # This will be properly typed in each Server instance's context
-request_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any]] = (
+request_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any, Any]] = (
     contextvars.ContextVar("request_ctx")
 )
 
@@ -111,7 +113,7 @@ class NotificationOptions:
 
 
 @asynccontextmanager
-async def lifespan(server: Server[LifespanResultT]) -> AsyncIterator[object]:
+async def lifespan(server: Server[LifespanResultT, RequestT]) -> AsyncIterator[object]:
     """Default lifespan context manager that does nothing.
 
     Args:
@@ -123,14 +125,15 @@ async def lifespan(server: Server[LifespanResultT]) -> AsyncIterator[object]:
     yield {}
 
 
-class Server(Generic[LifespanResultT]):
+class Server(Generic[LifespanResultT, RequestT]):
     def __init__(
         self,
         name: str,
         version: str | None = None,
         instructions: str | None = None,
         lifespan: Callable[
-            [Server[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]
+            [Server[LifespanResultT, RequestT]],
+            AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
     ):
         self.name = name
@@ -215,7 +218,9 @@ class Server(Generic[LifespanResultT]):
         )
 
     @property
-    def request_context(self) -> RequestContext[ServerSession, LifespanResultT]:
+    def request_context(
+        self,
+    ) -> RequestContext[ServerSession, LifespanResultT, RequestT]:
         """If called outside of a request context, this will raise a LookupError."""
         return request_ctx.get()
 
@@ -555,6 +560,13 @@ class Server(Generic[LifespanResultT]):
 
             token = None
             try:
+                # Extract request context from message metadata
+                request_data = None
+                if message.message_metadata is not None and isinstance(
+                    message.message_metadata, ServerMessageMetadata
+                ):
+                    request_data = message.message_metadata.request_context
+
                 # Set our global state that can be retrieved via
                 # app.get_request_context()
                 token = request_ctx.set(
@@ -563,6 +575,7 @@ class Server(Generic[LifespanResultT]):
                         message.request_meta,
                         session,
                         lifespan_context,
+                        request=request_data,
                     )
                 )
                 response = await handler(req)
