@@ -69,7 +69,7 @@ class Event:
 @dataclass
 class ToolEvent(Event):
     """Tool-related event"""
-    tool_id: str
+    tool_id: str = ""
     tool_name: Optional[str] = None
     tool_version: Optional[str] = None
     provider_id: Optional[str] = None
@@ -78,7 +78,7 @@ class ToolEvent(Event):
 @dataclass
 class SecurityEvent(Event):
     """Security-related event"""
-    severity: str  # low, medium, high, critical
+    severity: str = "medium"  # low, medium, high, critical
     threat_type: Optional[str] = None
     details: Optional[Dict[str, Any]] = None
 
@@ -86,7 +86,7 @@ class SecurityEvent(Event):
 @dataclass
 class OAuthEvent(Event):
     """OAuth-related event"""
-    provider: str
+    provider: str = ""
     token_id: Optional[str] = None
     scopes: Optional[List[str]] = None
 
@@ -94,7 +94,7 @@ class OAuthEvent(Event):
 @dataclass
 class CallStackEvent(Event):
     """Call stack-related event"""
-    session_id: str
+    session_id: str = ""
     caller_tool: Optional[str] = None
     callee_tool: Optional[str] = None
     call_depth: Optional[int] = None

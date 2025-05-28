@@ -4,7 +4,7 @@ Main ETDI client for secure tool discovery and invocation
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Callable
 from datetime import datetime
 
 from mcp.client.session import ClientSession
