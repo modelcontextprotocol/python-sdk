@@ -1216,6 +1216,3 @@ class ServerInfo(BaseModel):
             resources=self.resources,
             resource_templates=self.resource_templates,
         )
-
-
-    
