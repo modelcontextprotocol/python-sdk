@@ -118,9 +118,9 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
         description="List of dependencies to install in the server environment",
     )
 
-    lifespan: Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]] | None = Field(
-        None, description="Lifespan context manager"
-    )
+    lifespan: (
+        Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]] | None
+    ) = Field(None, description="Lifespan context manager")
 
     auth: AuthSettings | None = None
 
@@ -424,7 +424,8 @@ class FastMCP:
         # Check if user passed function directly instead of calling decorator
         if callable(name):
             raise TypeError(
-                "The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool"
+                "The @tool decorator was used incorrectly. "
+                "Did you forget to call it? Use @tool() instead of @tool"
             )
 
         def decorator(fn: AnyFunction) -> AnyFunction:
@@ -506,7 +507,8 @@ class FastMCP:
 
                 if uri_params != func_params:
                     raise ValueError(
-                        f"Mismatch between URI parameters {uri_params} and function parameters {func_params}"
+                        f"Mismatch between URI parameters {uri_params} "
+                        f"and function parameters {func_params}"
                     )
 
                 # Register as template
@@ -539,7 +541,9 @@ class FastMCP:
         """
         self._prompt_manager.add_prompt(prompt)
 
-    def prompt(self, name: str | None = None, description: str | None = None) -> Callable[[AnyFunction], AnyFunction]:
+    def prompt(
+        self, name: str | None = None, description: str | None = None
+    ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a prompt.
 
         Args:
@@ -902,7 +906,9 @@ class FastMCP:
             for prompt in prompts
         ]
 
-    async def get_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> GetPromptResult:
+    async def get_prompt(
+        self, name: str, arguments: dict[str, Any] | None = None
+    ) -> GetPromptResult:
         """Get a prompt by name with arguments."""
         try:
             messages = await self._prompt_manager.render_prompt(name, arguments)
@@ -1032,7 +1038,9 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         Returns:
             The resource content as either text or bytes
         """
-        assert self._fastmcp is not None, "Context is not available outside of a request"
+        assert (
+            self._fastmcp is not None
+        ), "Context is not available outside of a request"
         return await self._fastmcp.read_resource(uri)
 
     async def log(
@@ -1060,7 +1068,11 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
     @property
     def client_id(self) -> str | None:
         """Get the client ID if available."""
-        return getattr(self.request_context.meta, "client_id", None) if self.request_context.meta else None
+        return (
+            getattr(self.request_context.meta, "client_id", None)
+            if self.request_context.meta
+            else None
+        )
 
     @property
     def request_id(self) -> str:
