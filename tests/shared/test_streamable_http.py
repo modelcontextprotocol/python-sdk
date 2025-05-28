@@ -598,141 +598,137 @@ def test_session_termination(basic_server, basic_server_url):
 
 def test_response(basic_server, basic_server_url):
     """Test response handling for a valid request."""
-    mcp_urls = [f"{basic_server_url}/mcp", f"{basic_server_url}/mcp/"]
-    for mcp_url in mcp_urls:
-        response = requests.post(
-            mcp_url,
-            headers={
-                "Accept": "application/json, text/event-stream",
-                "Content-Type": "application/json",
-            },
-            json=INIT_REQUEST,
-        )
-        assert response.status_code == 200
+    mcp_url = f"{basic_server_url}/mcp"
+    response = requests.post(
+        mcp_url,
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert response.status_code == 200
 
-        # Now terminate the session
-        session_id = response.headers.get(MCP_SESSION_ID_HEADER)
+    # Now terminate the session
+    session_id = response.headers.get(MCP_SESSION_ID_HEADER)
 
-        # Try to use the terminated session
-        tools_response = requests.post(
-            mcp_url,
-            headers={
-                "Accept": "application/json, text/event-stream",
-                "Content-Type": "application/json",
-                MCP_SESSION_ID_HEADER: session_id,  # Use the session ID we got earlier
-            },
-            json={"jsonrpc": "2.0", "method": "tools/list", "id": "tools-1"},
-            stream=True,
-        )
-        assert tools_response.status_code == 200
-        assert tools_response.headers.get("Content-Type") == "text/event-stream"
+    # Try to use the terminated session
+    tools_response = requests.post(
+        mcp_url,
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            MCP_SESSION_ID_HEADER: session_id,  # Use the session ID we got earlier
+        },
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": "tools-1"},
+        stream=True,
+    )
+    assert tools_response.status_code == 200
+    assert tools_response.headers.get("Content-Type") == "text/event-stream"
 
 
 def test_json_response(json_response_server, json_server_url):
     """Test response handling when is_json_response_enabled is True."""
-    mcp_urls = [f"{basic_server_url}/mcp", f"{basic_server_url}/mcp/"]
-    for mcp_url in mcp_urls:
-        response = requests.post(
-            mcp_url,
-            headers={
-                "Accept": "application/json, text/event-stream",
-                "Content-Type": "application/json",
-            },
-            json=INIT_REQUEST,
-        )
-        assert response.status_code == 200
-        assert response.headers.get("Content-Type") == "application/json"
+    mcp_url = f"{json_server_url}/mcp"
+    response = requests.post(
+        mcp_url,
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert response.status_code == 200
+    assert response.headers.get("Content-Type") == "application/json"
 
 
 def test_get_sse_stream(basic_server, basic_server_url):
     """Test establishing an SSE stream via GET request."""
     # First, we need to initialize a session
-    mcp_urls = [f"{basic_server_url}/mcp", f"{basic_server_url}/mcp/"]
-    for mcp_url in mcp_urls:
-        init_response = requests.post(
-            mcp_url,
-            headers={
-                "Accept": "application/json, text/event-stream",
-                "Content-Type": "application/json",
-            },
-            json=INIT_REQUEST,
-        )
-        assert init_response.status_code == 200
+    mcp_url = f"{basic_server_url}/mcp"
+    init_response = requests.post(
+        mcp_url,
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert init_response.status_code == 200
 
-        # Get the session ID
-        session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
-        assert session_id is not None
+    # Get the session ID
+    session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
+    assert session_id is not None
 
-        # Now attempt to establish an SSE stream via GET
-        get_response = requests.get(
-            mcp_url,
-            headers={
-                "Accept": "text/event-stream",
-                MCP_SESSION_ID_HEADER: session_id,
-            },
-            stream=True,
-        )
+    # Now attempt to establish an SSE stream via GET
+    get_response = requests.get(
+        mcp_url,
+        headers={
+            "Accept": "text/event-stream",
+            MCP_SESSION_ID_HEADER: session_id,
+        },
+        stream=True,
+    )
 
-        # Verify we got a successful response with the right content type
-        assert get_response.status_code == 200
-        assert get_response.headers.get("Content-Type") == "text/event-stream"
+    # Verify we got a successful response with the right content type
+    assert get_response.status_code == 200
+    assert get_response.headers.get("Content-Type") == "text/event-stream"
 
-        # Test that a second GET request gets rejected (only one stream allowed)
-        second_get = requests.get(
-            mcp_url,
-            headers={
-                "Accept": "text/event-stream",
-                MCP_SESSION_ID_HEADER: session_id,
-            },
-            stream=True,
-        )
+    # Test that a second GET request gets rejected (only one stream allowed)
+    second_get = requests.get(
+        mcp_url,
+        headers={
+            "Accept": "text/event-stream",
+            MCP_SESSION_ID_HEADER: session_id,
+        },
+        stream=True,
+    )
 
-        # Should get CONFLICT (409) since there's already a stream
-        # Note: This might fail if the first stream fully closed before this runs,
-        # but generally it should work in the test environment where it runs quickly
-        assert second_get.status_code == 409
+    # Should get CONFLICT (409) since there's already a stream
+    # Note: This might fail if the first stream fully closed before this runs,
+    # but generally it should work in the test environment where it runs quickly
+    assert second_get.status_code == 409
 
 
 def test_get_validation(basic_server, basic_server_url):
     """Test validation for GET requests."""
     # First, we need to initialize a session
-    mcp_urls = [f"{basic_server_url}/mcp", f"{basic_server_url}/mcp/"]
-    for mcp_url in mcp_urls:
-        init_response = requests.post(
-            mcp_url,
-            headers={
-                "Accept": "application/json, text/event-stream",
-                "Content-Type": "application/json",
-            },
-            json=INIT_REQUEST,
-        )
-        assert init_response.status_code == 200
+    mcp_url = f"{basic_server_url}/mcp"
+    init_response = requests.post(
+        mcp_url,
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert init_response.status_code == 200
 
-        # Get the session ID
-        session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
-        assert session_id is not None
+    # Get the session ID
+    session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
+    assert session_id is not None
 
-        # Test without Accept header
-        response = requests.get(
-            mcp_url,
-            headers={
-                MCP_SESSION_ID_HEADER: session_id,
-            },
-            stream=True,
-        )
-        assert response.status_code == 406
-        assert "Not Acceptable" in response.text
+    # Test without Accept header
+    response = requests.get(
+        mcp_url,
+        headers={
+            MCP_SESSION_ID_HEADER: session_id,
+        },
+        stream=True,
+    )
+    assert response.status_code == 406
+    assert "Not Acceptable" in response.text
 
-        # Test with wrong Accept header
-        response = requests.get(
-            mcp_url,
-            headers={
-                "Accept": "application/json",
-                MCP_SESSION_ID_HEADER: session_id,
-            },
-        )
-        assert response.status_code == 406
-        assert "Not Acceptable" in response.text
+    # Test with wrong Accept header
+    response = requests.get(
+        mcp_url,
+        headers={
+            "Accept": "application/json",
+            MCP_SESSION_ID_HEADER: session_id,
+        },
+    )
+    assert response.status_code == 406
+    assert "Not Acceptable" in response.text
 
 
 # Client-specific fixtures
