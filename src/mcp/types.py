@@ -122,7 +122,6 @@ class JSONRPCRequest(Request[dict[str, Any] | None, str]):
     id: RequestId
     method: str
     params: dict[str, Any] | None = None
-    webhooks: dict[str, Any] | None = None
 
 
 class JSONRPCNotification(Notification[dict[str, Any] | None, str]):

@@ -8,6 +8,7 @@ responses, with streaming support for long-running operations.
 """
 
 import asyncio
+import base64
 import json
 import logging
 import re
@@ -655,8 +656,6 @@ class StreamableHTTPServerTransport:
                         creds_dict = json.loads(webhook.authentication.credentials)
                         if "username" in creds_dict and "password" in creds_dict:
                             # Create basic auth header from username and password
-                            import base64
-
                             auth_string = (
                                 f"{creds_dict['username']}:{creds_dict['password']}"
                             )
