@@ -85,7 +85,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # prompt settings
     warn_on_duplicate_prompts: bool = True
 
-    show_server_info: bool = True
+    show_server_info: bool = False
 
     dependencies: list[str] = Field(
         default_factory=list,
@@ -157,26 +157,28 @@ class FastMCP:
         if transport not in TRANSPORTS.__args__:  # type: ignore
             raise ValueError(f"Unknown transport: {transport}")
 
-        async def run(): await self._run(transport)
-        anyio.run(run)
+        anyio.run(self._run, transport)
     
     async def _run(self, transport: Literal["stdio", "sse"]):
         if self.settings.show_server_info:
-            server_info = await self.get_server_info()
-            logger.debug(f"Server name: {server_info.name}")
-            logger.debug(f"Server: {server_info.host}:{server_info.port}")
-            logger.debug(f"Instructions: {server_info.instructions}")
-            for asset_type, asset_list in server_info.assets.items():
-                if not asset_list:
-                    continue
-                logger.debug(f"{asset_type}:")
-                for asset in asset_list:
-                    logger.debug(f"  - {asset.name} - {asset.description}")
-            logger.debug("Server running...")
+            await self._log_server_info()
         if transport == "stdio":
             await self.run_stdio_async()
         else:  # transport == "sse"
             await self.run_sse_async()
+
+    async def _log_server_info(self):
+        server_info = await self.get_server_info()
+        logger.info(f"Server name: {server_info.name}")
+        logger.info(f"Server: {server_info.host}:{server_info.port}")
+        logger.info(f"Instructions: {server_info.instructions}")
+        for asset_type, asset_list in server_info.assets.items():
+            if not asset_list:
+                continue
+            logger.info(f"{asset_type}:")
+            for asset in asset_list:
+                logger.info(f"  - {asset.name} - {asset.description}")
+        logger.info("Server running...")
 
     async def get_server_info(self) -> ServerInfo:
         """

@@ -6,6 +6,7 @@ from typing import (
     Literal,
     TypeAlias,
     TypeVar,
+    TypedDict,
 )
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
@@ -1129,6 +1130,14 @@ class ServerResult(
 ):
     pass
 
+
+class ServerInfoAssets(TypedDict):
+    tools: list[Tool]
+    prompts: list[Prompt]
+    resources: list[Resource]
+    resource_templates: list[ResourceTemplate]
+
+
 class ServerInfo(BaseModel):   
     name: str
     host: str
@@ -1140,16 +1149,13 @@ class ServerInfo(BaseModel):
     resource_templates: list[ResourceTemplate]
 
     @property
-    def assets(self) -> dict[
-        str, list[Tool] | list[Prompt] | list[Resource] | list[ResourceTemplate]
-    ]:
-        assets_dict = {
-            "tools": self.tools,
-            "prompts": self.prompts,
-            "resources": self.resources,
-            "resource_templates": self.resource_templates
-        }
-        return assets_dict
+    def assets(self) -> ServerInfoAssets:
+        return ServerInfoAssets(
+            tools=self.tools,
+            prompts=self.prompts,
+            resources=self.resources,
+            resource_templates=self.resource_templates,
+        )
 
 
     
