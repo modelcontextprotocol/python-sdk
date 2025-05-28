@@ -72,4 +72,10 @@ class ToolManager:
         if not tool:
             raise ToolError(f"Unknown tool: {name}")
 
+        if context is not None:
+            try:
+                context.has_webhook = context.request_context.has_webhook
+            except Exception:
+                logger.debug("Request context is not available.")
+
         return await tool.run(arguments, context=context)
