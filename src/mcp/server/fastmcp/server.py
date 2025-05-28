@@ -3,7 +3,6 @@
 from __future__ import annotations as _annotations
 
 import inspect
-import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import (
     AbstractAsyncContextManager,

@@ -164,12 +164,13 @@ class ResourceTemplate(BaseModel):
         try:
             # Prepare parameters for function call
             # For optional parameters not in URL, use their default values
-            fn_params = {}
 
             # First add extracted parameters
-            for name, value in params.items():
-                if name in self.required_params or name in self.optional_params:
-                    fn_params[name] = value
+            fn_params = {
+                name: value
+                for name, value in params.items()
+                if name in self.required_params or name in self.optional_params
+            }
 
             # self.fn is now multiply-decorated:
             # 1. validate_call for coercion/validation
