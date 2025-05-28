@@ -10,11 +10,13 @@ import multiprocessing
 import socket
 import time
 from collections.abc import Generator
+from typing import Any
 
 import pytest
 import uvicorn
 from pydantic import AnyUrl
 from starlette.applications import Starlette
+from starlette.requests import Request
 
 import mcp.types as types
 from mcp.client.session import ClientSession
@@ -437,20 +439,17 @@ def make_fastmcp_with_context_app():
 
     # Tool that echoes request headers
     @mcp.tool(description="Echo request headers from context")
-    def echo_headers(ctx: Context) -> str:
+    def echo_headers(ctx: Context[Any, Any, Request]) -> str:
         """Returns the request headers as JSON."""
         headers_info = {}
         if ctx.request_context.request:
-            # Extract headers from ASGI scope
-            headers_list = ctx.request_context.request.get("headers", [])
-            headers_info = {
-                k.decode("latin-1"): v.decode("latin-1") for k, v in headers_list
-            }
+            # Now the type system knows request is a Starlette Request object
+            headers_info = dict(ctx.request_context.request.headers)
         return json.dumps(headers_info)
 
     # Tool that returns full request context
     @mcp.tool(description="Echo request context with custom data")
-    def echo_context(custom_request_id: str, ctx: Context) -> str:
+    def echo_context(custom_request_id: str, ctx: Context[Any, Any, Request]) -> str:
         """Returns request context including headers and custom data."""
         context_data = {
             "custom_request_id": custom_request_id,
@@ -459,12 +458,11 @@ def make_fastmcp_with_context_app():
             "path": None,
         }
         if ctx.request_context.request:
-            # Extract data from ASGI scope
-            headers_list = ctx.request_context.request.get("headers", [])
-            context_data["headers"] = {
-                k.decode("latin-1"): v.decode("latin-1") for k, v in headers_list
-            }
-            context_data["method"] = ctx.request_context.request.get("method")
+            # Now we can access Request attributes directly
+            request = ctx.request_context.request
+            context_data["headers"] = dict(request.headers)
+            context_data["method"] = request.method
+            context_data["path"] = request.url.path
         return json.dumps(context_data)
 
     # Create the SSE app

@@ -8,7 +8,7 @@ to support transport-specific features like resumability.
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from mcp.types import JSONRPCMessage, RequestData, RequestId
+from mcp.types import JSONRPCMessage, RequestId
 
 ResumptionToken = str
 
@@ -31,7 +31,7 @@ class ServerMessageMetadata:
 
     related_request_id: RequestId | None = None
     # Request-specific context (e.g., headers, auth info)
-    request_context: RequestData | None = None
+    request_context: object | None = None
 
 
 MessageMetadata = ClientMessageMetadata | ServerMessageMetadata | None

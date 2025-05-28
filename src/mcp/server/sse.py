@@ -204,7 +204,7 @@ class SseServerTransport:
             return
 
         # Pass the ASGI scope for framework-agnostic access to request data
-        metadata = ServerMessageMetadata(request_context=dict(request.scope))
+        metadata = ServerMessageMetadata(request_context=request)
         session_message = SessionMessage(message, metadata=metadata)
         logger.debug(f"Sending session message to writer: {session_message}")
         response = Response("Accepted", status_code=202)

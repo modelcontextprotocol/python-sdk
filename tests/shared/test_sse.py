@@ -322,7 +322,7 @@ async def test_sse_client_basic_connection_mounted_app(
 
 
 # Test server with request context that returns headers in the response
-class RequestContextServer(Server):
+class RequestContextServer(Server[object, Request]):
     def __init__(self):
         super().__init__("request_context_server")
 
@@ -333,12 +333,8 @@ class RequestContextServer(Server):
             try:
                 context = self.request_context
                 if context.request:
-                    # Extract headers from ASGI scope
-                    headers_list = context.request.get("headers", [])
-                    headers_info = {
-                        k.decode("latin-1"): v.decode("latin-1")
-                        for k, v in headers_list
-                    }
+                    # The request is a Starlette Request object
+                    headers_info = dict(context.request.headers)
             except LookupError:
                 pass  # No request context available
 
