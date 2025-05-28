@@ -5,8 +5,8 @@ from typing import (
     Generic,
     Literal,
     TypeAlias,
-    TypeVar,
     TypedDict,
+    TypeVar,
 )
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
