@@ -11,8 +11,8 @@ import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
-from mcp.types import JSONRPCMessage
 
 if not sys.warnoptions:
     import warnings
@@ -36,11 +36,15 @@ async def message_handler(
 
 
 async def run_session(
-    read_stream: MemoryObjectReceiveStream[JSONRPCMessage | Exception],
-    write_stream: MemoryObjectSendStream[JSONRPCMessage],
+    read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
+    write_stream: MemoryObjectSendStream[SessionMessage],
+    client_info: types.Implementation | None = None,
 ):
     async with ClientSession(
-        read_stream, write_stream, message_handler=message_handler
+        read_stream,
+        write_stream,
+        message_handler=message_handler,
+        client_info=client_info,
     ) as session:
         logger.info("Initializing session")
         await session.initialize()

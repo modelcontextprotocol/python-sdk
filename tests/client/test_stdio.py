@@ -4,14 +4,21 @@ import pytest
 from anyio import fail_after
 
 from mcp.client.stdio import (
-    ProcessTerminatedEarlyError,
     StdioServerParameters,
     stdio_client,
 )
+from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 tee: str = shutil.which("tee")  # type: ignore
 uv: str = shutil.which("uv")  # type: ignore
+
+
+@pytest.mark.anyio
+@pytest.mark.skipif(tee is None, reason="could not find tee command")
+async def test_stdio_context_manager_exiting():
+    async with stdio_client(StdioServerParameters(command=tee)) as (_, _):
+        pass
 
 
 @pytest.mark.anyio
@@ -28,7 +35,8 @@ async def test_stdio_client():
 
         async with write_stream:
             for message in messages:
-                await write_stream.send(message)
+                session_message = SessionMessage(message)
+                await write_stream.send(session_message)
 
         read_messages = []
         async with read_stream:
@@ -36,7 +44,7 @@ async def test_stdio_client():
                 if isinstance(message, Exception):
                     raise message
 
-                read_messages.append(message)
+                read_messages.append(message.message)
                 if len(read_messages) == 2:
                     break
 
@@ -57,7 +65,7 @@ async def test_stdio_client_bad_path():
         command="uv", args=["run", "non-existent-file.py"]
     )
 
-    with pytest.raises(ProcessTerminatedEarlyError):
+    with pytest.raises(Exception) as exc_info:
         try:
             with fail_after(1):
                 async with stdio_client(server_parameters) as (
