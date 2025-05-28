@@ -405,14 +405,14 @@ class TestResourceTemplate:
             "limit": 10,
         }
 
-        # Create with all params
+        # Create with all params (limit will be string "20",Pydantic handles conversion)
         uri = "items://electronics/1234?filter=new&sort=price&limit=20"
         params = {
             "category": "electronics",
             "id": "1234",
             "filter": "new",
             "sort": "price",
-            "limit": "20",
+            "limit": "20",  # value from URI is a string
         }
         resource = await template.create_resource(uri, params)
         result = await resource.read()
@@ -422,5 +422,133 @@ class TestResourceTemplate:
             "id": "1234",
             "filter": "new",
             "sort": "price",
-            "limit": 20,
+            "limit": 20,  # Pydantic converted "20" to 20
         }
+
+    @pytest.mark.anyio
+    async def test_create_resource_optional_param_validation_fallback(self):
+        """
+        Test that if optional parameters fail Pydantic validation,
+        their default values are used due to the
+        use_defaults_on_optional_validation_error decorator.
+        """
+
+        def func_with_optional_typed_params(
+            key: str, opt_int: int = 42, opt_bool: bool = True
+        ) -> dict:
+            return {"key": key, "opt_int": opt_int, "opt_bool": opt_bool}
+
+        template = ResourceTemplate.from_function(
+            fn=func_with_optional_typed_params,
+            uri_template="test://{key}{?opt_int,opt_bool}",
+            name="test_optional_fallback",
+        )
+
+        # Case 1: opt_int is invalid, opt_bool is not provided
+        # URI like "test://mykey?opt_int=notanint"
+        params_invalid_int = {"key": "mykey", "opt_int": "notanint"}
+        resource1 = await template.create_resource(
+            "test://mykey?opt_int=notanint", params_invalid_int
+        )
+        result1_str = await resource1.read()
+        result1 = json.loads(result1_str)
+        assert result1["key"] == "mykey"
+        assert result1["opt_int"] == 42  # Default used
+        assert result1["opt_bool"] is True  # Default used
+
+        # Case 2: opt_bool is invalid, opt_int is valid
+        # URI like "test://mykey?opt_int=100&opt_bool=notabool"
+        params_invalid_bool = {
+            "key": "mykey",
+            "opt_int": "100",  # Valid string for int
+            "opt_bool": "notabool",
+        }
+        resource2 = await template.create_resource(
+            "test://mykey?opt_int=100&opt_bool=notabool", params_invalid_bool
+        )
+        result2_str = await resource2.read()
+        result2 = json.loads(result2_str)
+        assert result2["key"] == "mykey"
+        assert result2["opt_int"] == 100  # Provided valid value used
+        assert result2["opt_bool"] is True  # Default used
+
+        # Case 3: Both opt_int and opt_bool are invalid
+        # URI like "test://mykey?opt_int=bad&opt_bool=bad"
+        params_both_invalid = {
+            "key": "mykey",
+            "opt_int": "bad",
+            "opt_bool": "bad",
+        }
+        resource3 = await template.create_resource(
+            "test://mykey?opt_int=bad&opt_bool=bad", params_both_invalid
+        )
+        result3_str = await resource3.read()
+        result3 = json.loads(result3_str)
+        assert result3["key"] == "mykey"
+        assert result3["opt_int"] == 42  # Default used
+        assert result3["opt_bool"] is True  # Default used
+
+        # Case 4: Empty value for opt_int (should fall back to default)
+        # URI like "test://mykey?opt_int="
+        params_empty_int = {"key": "mykey"}
+        resource4 = await template.create_resource(
+            "test://mykey?opt_int=", params_empty_int
+        )
+        result4_str = await resource4.read()
+        result4 = json.loads(result4_str)
+        assert result4["key"] == "mykey"
+        assert result4["opt_int"] == 42  # Default used
+        assert result4["opt_bool"] is True  # Default used
+
+        # Case 5: Empty value for opt_bool (should fall back to default)
+        # URI like "test://mykey?opt_bool="
+        params_empty_bool = {"key": "mykey"}
+        resource5 = await template.create_resource(
+            "test://mykey?opt_bool=", params_empty_bool
+        )
+        result5_str = await resource5.read()
+        result5 = json.loads(result5_str)
+        assert result5["key"] == "mykey"
+        assert result5["opt_int"] == 42  # Default used
+        assert result5["opt_bool"] is True  # Default used
+
+        # Case 6: Optional string param with empty value, should use default value
+        def func_opt_str(key: str, opt_s: str = "default_val") -> dict:
+            return {"key": key, "opt_s": opt_s}
+
+        template_str = ResourceTemplate.from_function(
+            fn=func_opt_str, uri_template="test://{key}{?opt_s}", name="test_opt_str"
+        )
+        params_empty_str = {"key": "mykey"}
+        resource6 = await template_str.create_resource(
+            "test://mykey?opt_s=", params_empty_str
+        )
+        result6_str = await resource6.read()
+        result6 = json.loads(result6_str)
+        assert result6["key"] == "mykey"
+        assert (
+            result6["opt_s"] == "default_val"
+        )  # Pydantic allows empty string for str type
+
+    @pytest.mark.anyio
+    async def test_create_resource_required_param_validation_error(self):
+        """
+        Test that if a required parameter fails Pydantic validation, an error is raised
+        and not suppressed by the new decorator.
+        """
+
+        def func_with_required_typed_param(req_int: int, key: str) -> dict:
+            return {"req_int": req_int, "key": key}
+
+        template = ResourceTemplate.from_function(
+            fn=func_with_required_typed_param,
+            uri_template="test://{key}/{req_int}",  # req_int is part of path
+            name="test_req_error",
+        )
+
+        # req_int is "notanint", which is invalid for int type
+        params_invalid_req = {"key": "mykey", "req_int": "notanint"}
+        with pytest.raises(ValueError, match="Error creating resource from template"):
+            # This ValueError comes from ResourceTemplate.create_resource own try-except
+            # which catches Pydantic's ValidationError.
+            await template.create_resource("test://mykey/notanint", params_invalid_req)

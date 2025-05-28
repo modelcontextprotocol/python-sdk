@@ -11,6 +11,9 @@ from typing import Any
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
 from mcp.server.fastmcp.resources.types import FunctionResource, Resource
+from mcp.server.fastmcp.utilities.func_metadata import (
+    use_defaults_on_optional_validation_error,
+)
 
 
 class ResourceTemplate(BaseModel):
@@ -47,18 +50,22 @@ class ResourceTemplate(BaseModel):
         mime_type: str | None = None,
     ) -> ResourceTemplate:
         """Create a template from a function."""
-        func_name = name or fn.__name__
+        original_fn = fn
+        func_name = name or original_fn.__name__
         if func_name == "<lambda>":
             raise ValueError("You must provide a name for lambda functions")
 
-        # Get schema from TypeAdapter - will fail if function isn't properly typed
-        parameters = TypeAdapter(fn).json_schema()
+        # Get schema from TypeAdapter using the original function for correct schema
+        parameters = TypeAdapter(original_fn).json_schema()
 
-        # ensure the arguments are properly cast
-        fn = validate_call(fn)
+        # First, apply pydantic's validation and coercion
+        validated_fn = validate_call(original_fn)
 
-        # Extract required and optional parameters from function signature
-        required_params, optional_params = cls._analyze_function_params(fn)
+        # Then, apply our decorator to handle default fallback for optional params
+        final_fn = use_defaults_on_optional_validation_error(validated_fn)
+
+        # Extract required and optional params from the original function's signature
+        required_params, optional_params = cls._analyze_function_params(original_fn)
 
         # Extract path parameters from URI template
         path_params: set[str] = set(
@@ -93,9 +100,9 @@ class ResourceTemplate(BaseModel):
         return cls(
             uri_template=uri_template,
             name=func_name,
-            description=description or fn.__doc__ or "",
+            description=description or original_fn.__doc__ or "",
             mime_type=mime_type or "text/plain",
-            fn=fn,
+            fn=final_fn,
             parameters=parameters,
             required_params=required_params,
             optional_params=optional_params,
@@ -103,11 +110,15 @@ class ResourceTemplate(BaseModel):
 
     @staticmethod
     def _analyze_function_params(fn: Callable[..., Any]) -> tuple[set[str], set[str]]:
-        """Analyze function signature to extract required and optional parameters."""
+        """Analyze function signature to extract required and optional parameters.
+        This should operate on the original, unwrapped function.
+        """
+        # Ensure we are looking at the original function if it was wrapped elsewhere
+        original_fn_for_analysis = inspect.unwrap(fn)
         required_params: set[str] = set()
         optional_params: set[str] = set()
 
-        signature = inspect.signature(fn)
+        signature = inspect.signature(original_fn_for_analysis)
         for name, param in signature.parameters.items():
             # Parameters with default values are optional
             if param.default is param.empty:
@@ -160,7 +171,9 @@ class ResourceTemplate(BaseModel):
                 if name in self.required_params or name in self.optional_params:
                     fn_params[name] = value
 
-            # Call function and check if result is a coroutine
+            # self.fn is now multiply-decorated:
+            # 1. validate_call for coercion/validation
+            # 2. our new decorator for default fallback on optional param validation err
             result = self.fn(**fn_params)
             if inspect.iscoroutine(result):
                 result = await result
@@ -173,4 +186,6 @@ class ResourceTemplate(BaseModel):
                 fn=lambda: result,  # Capture result in closure
             )
         except Exception as e:
+            # This will catch errors from validate_call (e.g., for required params)
+            # or from our decorator if retry also fails, or any other errors.
             raise ValueError(f"Error creating resource from template: {e}")

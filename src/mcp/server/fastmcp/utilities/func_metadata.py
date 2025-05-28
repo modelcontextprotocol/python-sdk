@@ -1,3 +1,4 @@
+import functools
 import inspect
 import json
 from collections.abc import Awaitable, Callable, Sequence
@@ -7,7 +8,14 @@ from typing import (
     ForwardRef,
 )
 
-from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, create_model
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    WithJsonSchema,
+    create_model,
+)
 from pydantic._internal._typing_extra import eval_type_backport
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
@@ -212,3 +220,118 @@ def _get_typed_signature(call: Callable[..., Any]) -> inspect.Signature:
     ]
     typed_signature = inspect.Signature(typed_params)
     return typed_signature
+
+
+def use_defaults_on_optional_validation_error(
+    decorated_fn: Callable[..., Any],
+) -> Callable[..., Any]:
+    """
+    Decorator for a function already wrapped by pydantic.validate_call.
+    If the wrapped function call fails due to a ValidationError, this decorator
+    checks if the error was caused by an optional parameter. If so, it retries
+    the call, explicitly omitting the failing optional parameter(s) to allow
+    Pydantic/the function to use their default values.
+
+    If the error is for a required parameter, or if the retry fails, the original
+    error is re-raised.
+    """
+    # Get the original function's signature (before validate_call) to inspect defaults
+    original_fn = inspect.unwrap(decorated_fn)
+    original_sig = inspect.signature(original_fn)
+    optional_params_with_defaults = {
+        name: param.default
+        for name, param in original_sig.parameters.items()
+        if param.default is not inspect.Parameter.empty
+    }
+
+    @functools.wraps(decorated_fn)
+    async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return await decorated_fn(*args, **kwargs)
+        except ValidationError as e:
+            # Check if the validation error is solely for optional parameters
+            failing_optional_params_to_retry: dict[str, bool] = {}
+            failing_required_params: list[str] = []  # Explicitly typed
+
+            for error in e.errors():
+                # error['loc'] is a tuple, e.g., ('param_name',)
+                # Pydantic error locations are tuples of strings or ints.
+                # For field errors, the first element is the field name (str).
+                if error["loc"] and isinstance(error["loc"][0], str):
+                    param_name: str = error["loc"][0]
+                    if param_name in optional_params_with_defaults:
+                        # It's an optional param that failed. Mark for retry by exclude.
+                        failing_optional_params_to_retry[param_name] = True
+                    else:
+                        # It's a required parameter or a non-parameter error
+                        failing_required_params.append(param_name)
+                else:  # Non-parameter specific error or unexpected error structure
+                    raise e
+
+            if failing_required_params or not failing_optional_params_to_retry:
+                # re-raise if any req params failed, or if no opt params were identified
+                logger.debug(
+                    f"Validation failed for required params or no optional params "
+                    f"identified. Re-raising original error for {original_fn.__name__}."
+                )
+                raise e
+
+            # At this point, only optional parameters caused the ValidationError.
+            # Retry the call, removing the failing optional params from kwargs.
+            # This allows validate_call/the function to use their defaults.
+            new_kwargs = {
+                k: v
+                for k, v in kwargs.items()
+                if k not in failing_optional_params_to_retry
+            }
+
+            # Preserve positional arguments
+            # failing_optional_params_to_retry.keys() is a KeysView[str]
+            # list(KeysView[str]) is list[str]
+            logger.info(
+                f"Retrying {original_fn.__name__} with default values"
+                f"for optional params: {list(failing_optional_params_to_retry.keys())}"
+            )
+            return await decorated_fn(*args, **new_kwargs)
+
+    @functools.wraps(decorated_fn)
+    def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return decorated_fn(*args, **kwargs)
+        except ValidationError as e:
+            failing_optional_params_to_retry: dict[str, bool] = {}
+            failing_required_params: list[str] = []  # Explicitly typed
+
+            for error in e.errors():
+                if error["loc"] and isinstance(error["loc"][0], str):
+                    param_name: str = error["loc"][0]
+                    if param_name in optional_params_with_defaults:
+                        failing_optional_params_to_retry[param_name] = True
+                    else:
+                        failing_required_params.append(param_name)
+                else:
+                    raise e
+
+            if failing_required_params or not failing_optional_params_to_retry:
+                logger.debug(
+                    f"Validation failed for required params or no optional params "
+                    f"identified. Re-raising original error for {original_fn.__name__}."
+                )
+                raise e
+
+            new_kwargs = {
+                k: v
+                for k, v in kwargs.items()
+                if k not in failing_optional_params_to_retry
+            }
+            logger.info(
+                f"Retrying {original_fn.__name__} with default values"
+                f"for optional params: {list(failing_optional_params_to_retry.keys())}"
+            )
+            return decorated_fn(*args, **new_kwargs)
+
+    if inspect.iscoroutinefunction(
+        original_fn
+    ):  # Check original_fn because decorated_fn might be a partial or already wrapped
+        return async_wrapper
+    return sync_wrapper

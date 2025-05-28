@@ -2,9 +2,12 @@ from typing import Annotated
 
 import annotated_types
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, validate_call
 
-from mcp.server.fastmcp.utilities.func_metadata import func_metadata
+from mcp.server.fastmcp.utilities.func_metadata import (
+    func_metadata,
+    use_defaults_on_optional_validation_error,
+)
 
 
 class SomeInputModelA(BaseModel):
@@ -414,3 +417,124 @@ def test_str_vs_int():
     result = meta.pre_parse_json({"a": "123", "b": 123})
     assert result["a"] == "123"
     assert result["b"] == 123
+
+
+# Test functions for use_defaults_on_optional_validation_error decorator
+
+
+def sync_func_for_decorator(
+    req_param: str, opt_int: int = 10, opt_bool: bool = False
+) -> dict:
+    return {"req_param": req_param, "opt_int": opt_int, "opt_bool": opt_bool}
+
+
+async def async_func_for_decorator(
+    req_param: str, opt_int: int = 20, opt_str: str = "default"
+) -> dict:
+    return {"req_param": req_param, "opt_int": opt_int, "opt_str": opt_str}
+
+
+class TestUseDefaultsOnOptionalValidationErrorDecorator:
+    @pytest.fixture
+    def decorated_sync_func(self):
+        # Apply validate_call first, then our decorator
+        return use_defaults_on_optional_validation_error(
+            validate_call(sync_func_for_decorator)
+        )
+
+    @pytest.fixture
+    def decorated_async_func(self):
+        # Apply validate_call first, then our decorator
+        return use_defaults_on_optional_validation_error(
+            validate_call(async_func_for_decorator)
+        )
+
+    def test_sync_all_valid(self, decorated_sync_func):
+        result = decorated_sync_func(req_param="test", opt_int=100, opt_bool=True)
+        assert result == {"req_param": "test", "opt_int": 100, "opt_bool": True}
+
+    def test_sync_omit_optionals(self, decorated_sync_func):
+        result = decorated_sync_func(req_param="test")
+        assert result == {"req_param": "test", "opt_int": 10, "opt_bool": False}
+
+    def test_sync_invalid_opt_int(self, decorated_sync_func):
+        # opt_int="bad" should cause ValidationError, decorator catches, uses default 10
+        result = decorated_sync_func(req_param="test", opt_int="bad")
+        assert result == {"req_param": "test", "opt_int": 10, "opt_bool": False}
+
+    def test_sync_invalid_opt_bool(self, decorated_sync_func):
+        # opt_bool="bad" should cause ValidationError, decorator catches, uses default False
+        result = decorated_sync_func(req_param="test", opt_bool="bad")
+        assert result == {"req_param": "test", "opt_int": 10, "opt_bool": False}
+
+    def test_sync_invalid_opt_int_and_valid_opt_bool(self, decorated_sync_func):
+        result = decorated_sync_func(req_param="test", opt_int="bad", opt_bool=True)
+        assert result == {"req_param": "test", "opt_int": 10, "opt_bool": True}
+
+    def test_sync_all_optionals_invalid(self, decorated_sync_func):
+        result = decorated_sync_func(req_param="test", opt_int="bad", opt_bool="bad")
+        assert result == {"req_param": "test", "opt_int": 10, "opt_bool": False}
+
+    def test_sync_required_param_missing(self, decorated_sync_func):
+        with pytest.raises(ValidationError):
+            decorated_sync_func(opt_int=100)  # Missing req_param
+
+    def test_sync_required_param_invalid(self, decorated_sync_func):
+        # If req_param itself was typed, e.g., req_param: int, and we passed "bad"
+        # For this test, sync_func_for_decorator has req_param: str, which is flexible.
+        # Let's define a quick one for this specific case.
+        def temp_sync_func(req_int_param: int, opt_str: str = "s") -> dict:
+            return {"req_int_param": req_int_param, "opt_str": opt_str}
+
+        decorated_temp_func = use_defaults_on_optional_validation_error(
+            validate_call(temp_sync_func)
+        )
+        with pytest.raises(ValidationError):
+            decorated_temp_func(req_int_param="notanint")
+
+    @pytest.mark.anyio
+    async def test_async_all_valid(self, decorated_async_func):
+        result = await decorated_async_func(
+            req_param="async_test", opt_int=200, opt_str="custom"
+        )
+        assert result == {
+            "req_param": "async_test",
+            "opt_int": 200,
+            "opt_str": "custom",
+        }
+
+    @pytest.mark.anyio
+    async def test_async_omit_optionals(self, decorated_async_func):
+        result = await decorated_async_func(req_param="async_test")
+        assert result == {
+            "req_param": "async_test",
+            "opt_int": 20,
+            "opt_str": "default",
+        }
+
+    @pytest.mark.anyio
+    async def test_async_invalid_opt_int(self, decorated_async_func):
+        result = await decorated_async_func(req_param="async_test", opt_int="bad")
+        assert result == {
+            "req_param": "async_test",
+            "opt_int": 20,  # Default
+            "opt_str": "default",
+        }
+
+    @pytest.mark.anyio
+    async def test_async_invalid_opt_str_but_is_int(self, decorated_async_func):
+        # opt_str=123 (int) for str type should cause ValidationError, decorator uses default "default"
+        # Note: pydantic's validate_call might auto-convert int to str if not in strict mode.
+        # Let's assume default strictness where int is not directly valid for str.
+        # If validate_call is not strict, this test might need adjustment or a stricter type.
+        result = await decorated_async_func(req_param="async_test", opt_str=123)
+        assert result == {
+            "req_param": "async_test",
+            "opt_int": 20,
+            "opt_str": "default",  # Default
+        }
+
+    @pytest.mark.anyio
+    async def test_async_required_param_missing(self, decorated_async_func):
+        with pytest.raises(ValidationError):
+            await decorated_async_func(opt_int=100)

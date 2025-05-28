@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from pydantic import AnyUrl
 
@@ -169,3 +171,115 @@ async def test_resource_template_client_interaction():
             await session.read_resource(
                 AnyUrl("resource://users/123/invalid")
             )  # Invalid template
+
+
+@pytest.mark.anyio
+async def test_resource_template_optional_param_default_fallback_e2e():
+    """Test end-to-end that optional params fallback to defaults on validation error."""
+    mcp = FastMCP("FallbackDemo")
+
+    @mcp.resource("resource://config/{section}{?theme,timeout,is_feature_enabled}")
+    def get_config(
+        section: str,
+        theme: str = "dark",
+        timeout: int = 30,
+        is_feature_enabled: bool = False,
+    ) -> dict:
+        return {
+            "section": section,
+            "theme": theme,
+            "timeout": timeout,
+            "is_feature_enabled": is_feature_enabled,
+        }
+
+    async with client_session(mcp._mcp_server) as client:
+        await client.initialize()
+
+        # 1. All defaults for optional params
+        uri1 = "resource://config/network"
+        res1 = await client.read_resource(AnyUrl(uri1))
+        assert res1.contents and isinstance(res1.contents[0], TextResourceContents)
+        data1 = json.loads(res1.contents[0].text)
+        assert data1 == {
+            "section": "network",
+            "theme": "dark",
+            "timeout": 30,
+            "is_feature_enabled": False,
+        }
+
+        # 2. Valid optional params (theme is URL encoded, timeout is valid int string)
+        uri2 = (
+            "resource://config/ui?theme=light%20blue&timeout=60&is_feature_enabled=true"
+        )
+        res2 = await client.read_resource(AnyUrl(uri2))
+        assert res2.contents and isinstance(res2.contents[0], TextResourceContents)
+        data2 = json.loads(res2.contents[0].text)
+        assert data2 == {
+            "section": "ui",
+            "theme": "light blue",
+            "timeout": 60,
+            "is_feature_enabled": True,
+        }
+
+        # 3.Invalid 'timeout'(optional int),valid 'theme','is_feature_enabled' not given
+        # timeout=abc should use default 30
+        uri3 = "resource://config/storage?theme=grayscale&timeout=abc"
+        res3 = await client.read_resource(AnyUrl(uri3))
+        assert res3.contents and isinstance(res3.contents[0], TextResourceContents)
+        data3 = json.loads(res3.contents[0].text)
+        assert data3 == {
+            "section": "storage",
+            "theme": "grayscale",
+            "timeout": 30,  # Fallback to default
+            "is_feature_enabled": False,  # Fallback to default
+        }
+
+        # 4.Invalid 'is_feature_enabled'(optional bool),'timeout'valid,'theme' not given
+        # is_feature_enabled=notbool should use default False
+        uri4 = "resource://config/user?timeout=15&is_feature_enabled=notbool"
+        res4 = await client.read_resource(AnyUrl(uri4))
+        assert res4.contents and isinstance(res4.contents[0], TextResourceContents)
+        data4 = json.loads(res4.contents[0].text)
+        assert data4 == {
+            "section": "user",
+            "theme": "dark",  # Fallback to default
+            "timeout": 15,
+            "is_feature_enabled": False,  # Fallback to default
+        }
+
+        # 5. Empty value for optional 'theme' (string type)
+        uri5 = "resource://config/general?theme="
+        res5 = await client.read_resource(AnyUrl(uri5))
+        assert res5.contents and isinstance(res5.contents[0], TextResourceContents)
+        data5 = json.loads(res5.contents[0].text)
+        assert data5 == {
+            "section": "general",
+            "theme": "dark",  # Fallback to default because param is removed by parse_qs
+            "timeout": 30,
+            "is_feature_enabled": False,
+        }
+
+        # 6. Empty value for optional 'timeout' (int type)
+        # timeout= (empty value) should fall back to default
+        uri6 = "resource://config/advanced?timeout="
+        res6 = await client.read_resource(AnyUrl(uri6))
+        assert res6.contents and isinstance(res6.contents[0], TextResourceContents)
+        data6 = json.loads(res6.contents[0].text)
+        assert data6 == {
+            "section": "advanced",
+            "theme": "dark",
+            "timeout": 30,  # Fallback to default because param is removed by parse_qs
+            "is_feature_enabled": False,
+        }
+
+        # 7. Invalid required path param type
+        # This scenario is more about the FastMCP.read_resource and its error handling
+        @mcp.resource("resource://item/{item_code}/check")  # item_code is string here
+        def check_item(item_code: int) -> dict:  # but int in function
+            return {"item_code_type": str(type(item_code)), "valid_code": item_code > 0}
+
+        uri7 = "resource://item/notaninteger/check"
+        with pytest.raises(Exception, match="Error creating resource from template"):
+            # The err is caught by FastMCP.read_resource and re-raised as ResourceError,
+            # which the client sees as a general McpError or similar.
+            await client.read_resource(AnyUrl(uri7))
