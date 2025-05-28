@@ -56,7 +56,7 @@ class StreamableHTTPSessionManager:
 
     def __init__(
         self,
-        app: MCPServer[Any],
+        app: MCPServer[Any, Any],
         event_store: EventStore | None = None,
         json_response: bool = False,
         stateless: bool = False,

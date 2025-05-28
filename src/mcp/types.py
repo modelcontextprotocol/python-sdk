@@ -53,6 +53,14 @@ class RequestParams(BaseModel):
     meta: Meta | None = Field(alias="_meta", default=None)
 
 
+class PaginatedRequestParams(RequestParams):
+    cursor: Cursor | None = None
+    """
+    An opaque token representing the current pagination position.
+    If provided, the server should return results starting after this cursor.
+    """
+
+
 class NotificationParams(BaseModel):
     class Meta(BaseModel):
         model_config = ConfigDict(extra="allow")
@@ -79,12 +87,13 @@ class Request(BaseModel, Generic[RequestParamsT, MethodT]):
     model_config = ConfigDict(extra="allow")
 
 
-class PaginatedRequest(Request[RequestParamsT, MethodT]):
-    cursor: Cursor | None = None
-    """
-    An opaque token representing the current pagination position.
-    If provided, the server should return results starting after this cursor.
-    """
+class PaginatedRequest(
+    Request[PaginatedRequestParams | None, MethodT], Generic[MethodT]
+):
+    """Base class for paginated requests,
+    matching the schema's PaginatedRequest interface."""
+
+    params: PaginatedRequestParams | None = None
 
 
 class Notification(BaseModel, Generic[NotificationParamsT, MethodT]):
@@ -139,6 +148,10 @@ class JSONRPCResponse(BaseModel):
     result: dict[str, Any]
     model_config = ConfigDict(extra="allow")
 
+
+# SDK error codes
+CONNECTION_CLOSED = -32000
+# REQUEST_TIMEOUT = -32001  # the typescript sdk uses this
 
 # Standard JSON-RPC error codes
 PARSE_ERROR = -32700
@@ -360,13 +373,10 @@ class ProgressNotification(
     params: ProgressNotificationParams
 
 
-class ListResourcesRequest(
-    PaginatedRequest[RequestParams | None, Literal["resources/list"]]
-):
+class ListResourcesRequest(PaginatedRequest[Literal["resources/list"]]):
     """Sent from the client to request a list of resources the server has."""
 
     method: Literal["resources/list"]
-    params: RequestParams | None = None
 
 
 class Annotations(BaseModel):
@@ -425,12 +435,11 @@ class ListResourcesResult(PaginatedResult):
 
 
 class ListResourceTemplatesRequest(
-    PaginatedRequest[RequestParams | None, Literal["resources/templates/list"]]
+    PaginatedRequest[Literal["resources/templates/list"]]
 ):
     """Sent from the client to request a list of resource templates the server has."""
 
     method: Literal["resources/templates/list"]
-    params: RequestParams | None = None
 
 
 class ListResourceTemplatesResult(PaginatedResult):
@@ -572,13 +581,10 @@ class ResourceUpdatedNotification(
     params: ResourceUpdatedNotificationParams
 
 
-class ListPromptsRequest(
-    PaginatedRequest[RequestParams | None, Literal["prompts/list"]]
-):
+class ListPromptsRequest(PaginatedRequest[Literal["prompts/list"]]):
     """Sent from the client to request a list of prompts and prompt templates."""
 
     method: Literal["prompts/list"]
-    params: RequestParams | None = None
 
 
 class PromptArgument(BaseModel):
@@ -726,11 +732,11 @@ class Webhook(BaseModel):
     """Authentication required to communicate with the webhook"""
 
 
-class ListToolsRequest(PaginatedRequest[RequestParams | None, Literal["tools/list"]]):
+
+class ListToolsRequest(PaginatedRequest[Literal["tools/list"]]):
     """Sent from the client to request a list of tools the server has."""
 
     method: Literal["tools/list"]
-    params: RequestParams | None = None
 
 
 class ToolAnnotations(BaseModel):
@@ -764,7 +770,7 @@ class ToolAnnotations(BaseModel):
 
     idempotentHint: bool | None = None
     """
-    If true, calling the tool repeatedly with the same arguments 
+    If true, calling the tool repeatedly with the same arguments
     will have no additional effect on the its environment.
     (This property is meaningful only when `readOnlyHint == false`)
     Default: false
