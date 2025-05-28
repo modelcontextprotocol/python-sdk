@@ -187,6 +187,8 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                 pass
             await read_stream.aclose()
             await write_stream.aclose()
+            await read_stream_writer.aclose()
+            await write_stream_reader.aclose()
 
 
 def _get_executable_command(command: str) -> str:
