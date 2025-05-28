@@ -9,9 +9,9 @@ from typing import Any
 import anyio
 import anyio.to_thread
 import httpx
-import pydantic.json
+import pydantic
 import pydantic_core
-from pydantic import Field, ValidationInfo
+from pydantic import AnyUrl, Field, ValidationInfo, validate_call
 
 from mcp.server.fastmcp.resources.base import Resource
 
@@ -59,17 +59,39 @@ class FunctionResource(Resource):
             )
             if isinstance(result, Resource):
                 return await result.read()
-            if isinstance(result, bytes):
+            elif isinstance(result, bytes):
                 return result
-            if isinstance(result, str):
+            elif isinstance(result, str):
                 return result
-            try:
-                return json.dumps(pydantic_core.to_jsonable_python(result))
-            except (TypeError, pydantic_core.PydanticSerializationError):
-                # If JSON serialization fails, try str()
-                return str(result)
+            else:
+                return pydantic_core.to_json(result, fallback=str, indent=2).decode()
         except Exception as e:
             raise ValueError(f"Error reading resource {self.uri}: {e}")
+
+    @classmethod
+    def from_function(
+        cls,
+        fn: Callable[..., Any],
+        uri: str,
+        name: str | None = None,
+        description: str | None = None,
+        mime_type: str | None = None,
+    ) -> "FunctionResource":
+        """Create a FunctionResource from a function."""
+        func_name = name or fn.__name__
+        if func_name == "<lambda>":
+            raise ValueError("You must provide a name for lambda functions")
+
+        # ensure the arguments are properly cast
+        fn = validate_call(fn)
+
+        return cls(
+            uri=AnyUrl(uri),
+            name=func_name,
+            description=description or fn.__doc__ or "",
+            mime_type=mime_type or "text/plain",
+            fn=fn,
+        )
 
 
 class FileResource(Resource):

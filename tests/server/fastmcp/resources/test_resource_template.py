@@ -247,7 +247,7 @@ class TestResourceTemplate:
 
         assert isinstance(resource, FunctionResource)
         content = await resource.read()
-        assert content == "hello"
+        assert content == '"hello"'
 
     @pytest.mark.anyio
     async def test_create_resource_with_optional_params(self):
