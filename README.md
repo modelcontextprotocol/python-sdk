@@ -30,6 +30,7 @@
     - [Prompts](#prompts)
     - [Images](#images)
     - [Context](#context)
+    - [Authentication](#authentication)
   - [Running Your Server](#running-your-server)
     - [Development Mode](#development-mode)
     - [Claude Desktop Integration](#claude-desktop-integration)
@@ -317,8 +318,17 @@ Authentication can be used by servers that want to expose tools accessing protec
 `mcp.server.auth` implements an OAuth 2.0 server interface, which servers can use by
 providing an implementation of the `OAuthServerProvider` protocol.
 
-```
-mcp = FastMCP("My App",
+```python
+from mcp.server.auth.settings import (
+    AuthSettings,
+    ClientRegistrationOptions,
+    RevocationOptions,
+)
+from mcp.server.fastmcp import FastMCP
+
+mcp = (
+    FastMCP(
+        "My App",
         auth_server_provider=MyOAuthServerProvider(),
         auth=AuthSettings(
             issuer_url="https://myapp.com",
@@ -332,6 +342,7 @@ mcp = FastMCP("My App",
             ),
             required_scopes=["myscope"],
         ),
+    ),
 )
 ```
 
