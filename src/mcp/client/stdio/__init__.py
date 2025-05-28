@@ -177,10 +177,14 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             yield read_stream, write_stream
         finally:
             # Clean up process to prevent any dangling orphaned processes
-            if sys.platform == "win32":
-                await terminate_windows_process(process)
-            else:
-                process.terminate()
+            try:
+                if sys.platform == "win32":
+                    await terminate_windows_process(process)
+                else:
+                    process.terminate()
+            except ProcessLookupError:
+                # Process already exited, which is fine
+                pass
             await read_stream.aclose()
             await write_stream.aclose()
 
