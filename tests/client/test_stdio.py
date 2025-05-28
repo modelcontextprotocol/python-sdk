@@ -91,4 +91,8 @@ async def test_stdio_client_nonexistent_command():
 
     # The error should indicate the command was not found
     error_message = str(exc_info.value)
-    assert "nonexistent" in error_message or "not found" in error_message.lower()
+    assert (
+        "nonexistent" in error_message
+        or "not found" in error_message.lower()
+        or "cannot find the file" in error_message.lower()  # Windows error message
+    )
