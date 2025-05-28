@@ -77,10 +77,10 @@ class ClientSessionGroup:
     the client and can be accessed via the session.
 
     Example Usage:
-        name_fn = lambda name, server_info: f"{(server_info.name)}-{name}"
+        name_fn = lambda name, server_info: f"{(server_info.name)}_{name}"
         async with ClientSessionGroup(component_name_hook=name_fn) as group:
             for server_params in server_params:
-                group.connect_to_server(server_param)
+                await group.connect_to_server(server_param)
             ...
 
     """
@@ -145,14 +145,14 @@ class ClientSessionGroup:
     ) -> bool | None:
         """Closes session exit stacks and main exit stack upon completion."""
 
+        # Only close the main exit stack if we created it
+        if self._owns_exit_stack:
+            await self._exit_stack.aclose()
+
         # Concurrently close session stacks.
         async with anyio.create_task_group() as tg:
             for exit_stack in self._session_exit_stacks.values():
                 tg.start_soon(exit_stack.aclose)
-
-        # Only close the main exit stack if we created it
-        if self._owns_exit_stack:
-            await self._exit_stack.aclose()
 
     @property
     def sessions(self) -> list[mcp.ClientSession]:

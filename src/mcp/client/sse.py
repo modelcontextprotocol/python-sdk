@@ -10,7 +10,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from httpx_sse import aconnect_sse
 
 import mcp.types as types
-from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -26,12 +26,21 @@ async def sse_client(
     headers: dict[str, Any] | None = None,
     timeout: float = 5,
     sse_read_timeout: float = 60 * 5,
+    httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
+    auth: httpx.Auth | None = None,
 ):
     """
     Client transport for SSE.
 
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
+
+    Args:
+        url: The SSE endpoint URL.
+        headers: Optional headers to include in requests.
+        timeout: HTTP timeout for regular operations.
+        sse_read_timeout: Timeout for SSE read operations.
+        auth: Optional HTTPX authentication handler.
     """
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
@@ -44,8 +53,8 @@ async def sse_client(
 
     async with anyio.create_task_group() as tg:
         try:
-            logger.info(f"Connecting to SSE endpoint: {remove_request_params(url)}")
-            async with create_mcp_http_client(headers=headers) as client:
+            logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
+            async with httpx_client_factory(headers=headers, auth=auth) as client:
                 async with aconnect_sse(
                     client,
                     "GET",
@@ -64,7 +73,7 @@ async def sse_client(
                                 match sse.event:
                                     case "endpoint":
                                         endpoint_url = urljoin(url, sse.data)
-                                        logger.info(
+                                        logger.debug(
                                             f"Received endpoint URL: {endpoint_url}"
                                         )
 
@@ -137,7 +146,7 @@ async def sse_client(
                             await write_stream.aclose()
 
                     endpoint_url = await tg.start(sse_reader)
-                    logger.info(
+                    logger.debug(
                         f"Starting post writer with endpoint URL: {endpoint_url}"
                     )
                     tg.start_soon(post_writer, endpoint_url)

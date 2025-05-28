@@ -9,11 +9,11 @@ from mcp.shared.memory import (
 pytestmark = pytest.mark.anyio
 
 
-async def test_list_tools_cursor_parameter():
-    """Test that the cursor parameter is accepted for list_tools.
+async def test_list_tools_cursor_parameter(stream_spy):
+    """Test that the cursor parameter is accepted for list_tools
+    and that it is correctly passed to the server.
 
-    Note: FastMCP doesn't currently implement pagination, so this test
-    only verifies that the cursor parameter is accepted by the client.
+    See: https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/pagination#request-format
     """
     server = FastMCP("test")
 
@@ -29,28 +29,46 @@ async def test_list_tools_cursor_parameter():
         return "Result 2"
 
     async with create_session(server._mcp_server) as client_session:
+        spies = stream_spy()
+
         # Test without cursor parameter (omitted)
-        result1 = await client_session.list_tools()
-        assert len(result1.tools) == 2
+        _ = await client_session.list_tools()
+        list_tools_requests = spies.get_client_requests(method="tools/list")
+        assert len(list_tools_requests) == 1
+        assert list_tools_requests[0].params is None
+
+        spies.clear()
 
         # Test with cursor=None
-        result2 = await client_session.list_tools(cursor=None)
-        assert len(result2.tools) == 2
+        _ = await client_session.list_tools(cursor=None)
+        list_tools_requests = spies.get_client_requests(method="tools/list")
+        assert len(list_tools_requests) == 1
+        assert list_tools_requests[0].params is None
+
+        spies.clear()
 
         # Test with cursor as string
-        result3 = await client_session.list_tools(cursor="some_cursor_value")
-        assert len(result3.tools) == 2
+        _ = await client_session.list_tools(cursor="some_cursor_value")
+        list_tools_requests = spies.get_client_requests(method="tools/list")
+        assert len(list_tools_requests) == 1
+        assert list_tools_requests[0].params is not None
+        assert list_tools_requests[0].params["cursor"] == "some_cursor_value"
+
+        spies.clear()
 
         # Test with empty string cursor
-        result4 = await client_session.list_tools(cursor="")
-        assert len(result4.tools) == 2
+        _ = await client_session.list_tools(cursor="")
+        list_tools_requests = spies.get_client_requests(method="tools/list")
+        assert len(list_tools_requests) == 1
+        assert list_tools_requests[0].params is not None
+        assert list_tools_requests[0].params["cursor"] == ""
 
 
-async def test_list_resources_cursor_parameter():
-    """Test that the cursor parameter is accepted for list_resources.
+async def test_list_resources_cursor_parameter(stream_spy):
+    """Test that the cursor parameter is accepted for list_resources
+    and that it is correctly passed to the server.
 
-    Note: FastMCP doesn't currently implement pagination, so this test
-    only verifies that the cursor parameter is accepted by the client.
+    See: https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/pagination#request-format
     """
     server = FastMCP("test")
 
@@ -61,28 +79,45 @@ async def test_list_resources_cursor_parameter():
         return "Test data"
 
     async with create_session(server._mcp_server) as client_session:
+        spies = stream_spy()
+
         # Test without cursor parameter (omitted)
-        result1 = await client_session.list_resources()
-        assert len(result1.resources) >= 1
+        _ = await client_session.list_resources()
+        list_resources_requests = spies.get_client_requests(method="resources/list")
+        assert len(list_resources_requests) == 1
+        assert list_resources_requests[0].params is None
+
+        spies.clear()
 
         # Test with cursor=None
-        result2 = await client_session.list_resources(cursor=None)
-        assert len(result2.resources) >= 1
+        _ = await client_session.list_resources(cursor=None)
+        list_resources_requests = spies.get_client_requests(method="resources/list")
+        assert len(list_resources_requests) == 1
+        assert list_resources_requests[0].params is None
+
+        spies.clear()
 
         # Test with cursor as string
-        result3 = await client_session.list_resources(cursor="some_cursor")
-        assert len(result3.resources) >= 1
+        _ = await client_session.list_resources(cursor="some_cursor")
+        list_resources_requests = spies.get_client_requests(method="resources/list")
+        assert len(list_resources_requests) == 1
+        assert list_resources_requests[0].params is not None
+        assert list_resources_requests[0].params["cursor"] == "some_cursor"
+
+        spies.clear()
 
         # Test with empty string cursor
-        result4 = await client_session.list_resources(cursor="")
-        assert len(result4.resources) >= 1
+        _ = await client_session.list_resources(cursor="")
+        list_resources_requests = spies.get_client_requests(method="resources/list")
+        assert len(list_resources_requests) == 1
+        assert list_resources_requests[0].params is not None
+        assert list_resources_requests[0].params["cursor"] == ""
 
 
-async def test_list_prompts_cursor_parameter():
-    """Test that the cursor parameter is accepted for list_prompts.
-
-    Note: FastMCP doesn't currently implement pagination, so this test
-    only verifies that the cursor parameter is accepted by the client.
+async def test_list_prompts_cursor_parameter(stream_spy):
+    """Test that the cursor parameter is accepted for list_prompts
+    and that it is correctly passed to the server.
+    See: https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/pagination#request-format
     """
     server = FastMCP("test")
 
@@ -93,28 +128,46 @@ async def test_list_prompts_cursor_parameter():
         return f"Hello, {name}!"
 
     async with create_session(server._mcp_server) as client_session:
+        spies = stream_spy()
+
         # Test without cursor parameter (omitted)
-        result1 = await client_session.list_prompts()
-        assert len(result1.prompts) >= 1
+        _ = await client_session.list_prompts()
+        list_prompts_requests = spies.get_client_requests(method="prompts/list")
+        assert len(list_prompts_requests) == 1
+        assert list_prompts_requests[0].params is None
+
+        spies.clear()
 
         # Test with cursor=None
-        result2 = await client_session.list_prompts(cursor=None)
-        assert len(result2.prompts) >= 1
+        _ = await client_session.list_prompts(cursor=None)
+        list_prompts_requests = spies.get_client_requests(method="prompts/list")
+        assert len(list_prompts_requests) == 1
+        assert list_prompts_requests[0].params is None
+
+        spies.clear()
 
         # Test with cursor as string
-        result3 = await client_session.list_prompts(cursor="some_cursor")
-        assert len(result3.prompts) >= 1
+        _ = await client_session.list_prompts(cursor="some_cursor")
+        list_prompts_requests = spies.get_client_requests(method="prompts/list")
+        assert len(list_prompts_requests) == 1
+        assert list_prompts_requests[0].params is not None
+        assert list_prompts_requests[0].params["cursor"] == "some_cursor"
+
+        spies.clear()
 
         # Test with empty string cursor
-        result4 = await client_session.list_prompts(cursor="")
-        assert len(result4.prompts) >= 1
+        _ = await client_session.list_prompts(cursor="")
+        list_prompts_requests = spies.get_client_requests(method="prompts/list")
+        assert len(list_prompts_requests) == 1
+        assert list_prompts_requests[0].params is not None
+        assert list_prompts_requests[0].params["cursor"] == ""
 
 
-async def test_list_resource_templates_cursor_parameter():
-    """Test that the cursor parameter is accepted for list_resource_templates.
+async def test_list_resource_templates_cursor_parameter(stream_spy):
+    """Test that the cursor parameter is accepted for list_resource_templates
+    and that it is correctly passed to the server.
 
-    Note: FastMCP doesn't currently implement pagination, so this test
-    only verifies that the cursor parameter is accepted by the client.
+    See: https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/pagination#request-format
     """
     server = FastMCP("test")
 
@@ -125,18 +178,44 @@ async def test_list_resource_templates_cursor_parameter():
         return f"Data for {name}"
 
     async with create_session(server._mcp_server) as client_session:
+        spies = stream_spy()
+
         # Test without cursor parameter (omitted)
-        result1 = await client_session.list_resource_templates()
-        assert len(result1.resourceTemplates) >= 1
+        _ = await client_session.list_resource_templates()
+        list_templates_requests = spies.get_client_requests(
+            method="resources/templates/list"
+        )
+        assert len(list_templates_requests) == 1
+        assert list_templates_requests[0].params is None
+
+        spies.clear()
 
         # Test with cursor=None
-        result2 = await client_session.list_resource_templates(cursor=None)
-        assert len(result2.resourceTemplates) >= 1
+        _ = await client_session.list_resource_templates(cursor=None)
+        list_templates_requests = spies.get_client_requests(
+            method="resources/templates/list"
+        )
+        assert len(list_templates_requests) == 1
+        assert list_templates_requests[0].params is None
+
+        spies.clear()
 
         # Test with cursor as string
-        result3 = await client_session.list_resource_templates(cursor="some_cursor")
-        assert len(result3.resourceTemplates) >= 1
+        _ = await client_session.list_resource_templates(cursor="some_cursor")
+        list_templates_requests = spies.get_client_requests(
+            method="resources/templates/list"
+        )
+        assert len(list_templates_requests) == 1
+        assert list_templates_requests[0].params is not None
+        assert list_templates_requests[0].params["cursor"] == "some_cursor"
+
+        spies.clear()
 
         # Test with empty string cursor
-        result4 = await client_session.list_resource_templates(cursor="")
-        assert len(result4.resourceTemplates) >= 1
+        _ = await client_session.list_resource_templates(cursor="")
+        list_templates_requests = spies.get_client_requests(
+            method="resources/templates/list"
+        )
+        assert len(list_templates_requests) == 1
+        assert list_templates_requests[0].params is not None
+        assert list_templates_requests[0].params["cursor"] == ""

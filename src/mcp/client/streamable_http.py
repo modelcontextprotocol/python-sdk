@@ -19,7 +19,7 @@ from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
-from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
     ErrorData,
@@ -83,6 +83,7 @@ class StreamableHTTPTransport:
         headers: dict[str, Any] | None = None,
         timeout: timedelta = timedelta(seconds=30),
         sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
+        auth: httpx.Auth | None = None,
     ) -> None:
         """Initialize the StreamableHTTP transport.
 
@@ -91,11 +92,13 @@ class StreamableHTTPTransport:
             headers: Optional headers to include in requests.
             timeout: HTTP timeout for regular operations.
             sse_read_timeout: Timeout for SSE read operations.
+            auth: Optional HTTPX authentication handler.
         """
         self.url = url
         self.headers = headers or {}
         self.timeout = timeout
         self.sse_read_timeout = sse_read_timeout
+        self.auth = auth
         self.session_id: str | None = None
         self.request_headers = {
             ACCEPT: f"{JSON}, {SSE}",
@@ -427,6 +430,8 @@ async def streamablehttp_client(
     timeout: timedelta = timedelta(seconds=30),
     sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
     terminate_on_close: bool = True,
+    httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
+    auth: httpx.Auth | None = None,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -447,7 +452,7 @@ async def streamablehttp_client(
             - write_stream: Stream for sending messages to the server
             - get_session_id_callback: Function to retrieve the current session ID
     """
-    transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout)
+    transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout, auth)
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream[
         SessionMessage | Exception
@@ -458,13 +463,14 @@ async def streamablehttp_client(
 
     async with anyio.create_task_group() as tg:
         try:
-            logger.info(f"Connecting to StreamableHTTP endpoint: {url}")
+            logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 
-            async with create_mcp_http_client(
+            async with httpx_client_factory(
                 headers=transport.request_headers,
                 timeout=httpx.Timeout(
                     transport.timeout.seconds, read=transport.sse_read_timeout.seconds
                 ),
+                auth=transport.auth,
             ) as client:
                 # Define callbacks that need access to tg
                 def start_get_stream() -> None:
