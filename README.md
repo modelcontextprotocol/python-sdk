@@ -317,21 +317,21 @@ Authentication can be used by servers that want to expose tools accessing protec
 `mcp.server.auth` implements an OAuth 2.0 server interface, which servers can use by
 providing an implementation of the `OAuthServerProvider` protocol.
 
-```
+```python
 mcp = FastMCP("My App",
-        auth_server_provider=MyOAuthServerProvider(),
-        auth=AuthSettings(
-            issuer_url="https://myapp.com",
-            revocation_options=RevocationOptions(
-                enabled=True,
-            ),
-            client_registration_options=ClientRegistrationOptions(
-                enabled=True,
-                valid_scopes=["myscope", "myotherscope"],
-                default_scopes=["myscope"],
-            ),
-            required_scopes=["myscope"],
+    auth_server_provider=MyOAuthServerProvider(),
+    auth=AuthSettings(
+        issuer_url="https://myapp.com",
+        revocation_options=RevocationOptions(
+            enabled=True,
         ),
+        client_registration_options=ClientRegistrationOptions(
+            enabled=True,
+            valid_scopes=["myscope", "myotherscope"],
+            default_scopes=["myscope"],
+        ),
+        required_scopes=["myscope"],
+    ),
 )
 ```
 
@@ -462,14 +462,11 @@ For low level server with Streamable HTTP implementations, see:
 - Stateful server: [`examples/servers/simple-streamablehttp/`](examples/servers/simple-streamablehttp/)
 - Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](examples/servers/simple-streamablehttp-stateless/)
 
-
-
 The streamable HTTP transport supports:
 - Stateful and stateless operation modes
 - Resumability with event stores
-- JSON or SSE response formats  
+- JSON or SSE response formats
 - Better scalability for multi-node deployments
-
 
 ### Mounting to an Existing ASGI Server
 
