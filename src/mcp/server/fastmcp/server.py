@@ -42,6 +42,7 @@ from mcp.types import (
     GetPromptResult,
     ImageContent,
     ServerInfo,
+    ServerInfoAsset,
     TextContent,
 )
 from mcp.types import Prompt as MCPPrompt
@@ -92,9 +93,9 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
         description="List of dependencies to install in the server environment",
     )
 
-    lifespan: (
-        Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]] | None
-    ) = Field(None, description="Lifespan context manager")
+    lifespan: Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]] | None = Field(
+        None, description="Lifespan context manager"
+    )
 
 
 def lifespan_wrapper(
@@ -110,27 +111,17 @@ def lifespan_wrapper(
 
 
 class FastMCP:
-    def __init__(
-        self, name: str | None = None, instructions: str | None = None, **settings: Any
-    ):
+    def __init__(self, name: str | None = None, instructions: str | None = None, **settings: Any):
         self.settings = Settings(**settings)
 
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
             instructions=instructions,
-            lifespan=lifespan_wrapper(self, self.settings.lifespan)
-            if self.settings.lifespan
-            else default_lifespan,
+            lifespan=lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan,
         )
-        self._tool_manager = ToolManager(
-            warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
-        )
-        self._resource_manager = ResourceManager(
-            warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources
-        )
-        self._prompt_manager = PromptManager(
-            warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts
-        )
+        self._tool_manager = ToolManager(warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
+        self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
+        self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         self.dependencies = self.settings.dependencies
 
         # Set up MCP protocol handlers
@@ -158,7 +149,7 @@ class FastMCP:
             raise ValueError(f"Unknown transport: {transport}")
 
         anyio.run(self._run, transport)
-    
+
     async def _run(self, transport: Literal["stdio", "sse"]):
         if self.settings.show_server_info:
             await self._log_server_info()
@@ -172,7 +163,8 @@ class FastMCP:
         logger.info(f"Server name: {server_info.name}")
         logger.info(f"Server: {server_info.host}:{server_info.port}")
         logger.info(f"Instructions: {server_info.instructions}")
-        for asset_type, asset_list in server_info.assets.items():
+        for asset_type, asset_list in server_info.assets.model_dump().items():
+            asset_list: list[ServerInfoAsset]
             if not asset_list:
                 continue
             logger.info(f"{asset_type}:")
@@ -185,7 +177,7 @@ class FastMCP:
         Asynchronously retrieves and returns server information.
 
         This method gathers details about the server, including its name, host, port,
-        instructions, and various assets such as tools, resources, 
+        instructions, and various assets such as tools, resources,
         prompts, and resource templates.
 
         Returns: ServerInfo
@@ -198,7 +190,7 @@ class FastMCP:
             tools=await self.list_tools() or [],
             resources=await self.list_resources() or [],
             prompts=await self.list_prompts() or [],
-            resource_templates=await self.list_resource_templates() or []
+            resource_templates=await self.list_resource_templates() or [],
         )
 
     def _setup_handlers(self) -> None:
@@ -300,9 +292,7 @@ class FastMCP:
         """
         self._tool_manager.add_tool(fn, name=name, description=description)
 
-    def tool(
-        self, name: str | None = None, description: str | None = None
-    ) -> Callable[[AnyFunction], AnyFunction]:
+    def tool(self, name: str | None = None, description: str | None = None) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
 
         Tools can optionally request a Context object by adding a parameter with the
@@ -331,8 +321,7 @@ class FastMCP:
         # Check if user passed function directly instead of calling decorator
         if callable(name):
             raise TypeError(
-                "The @tool decorator was used incorrectly. "
-                "Did you forget to call it? Use @tool() instead of @tool"
+                "The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool"
             )
 
         def decorator(fn: AnyFunction) -> AnyFunction:
@@ -412,8 +401,7 @@ class FastMCP:
 
                 if uri_params != func_params:
                     raise ValueError(
-                        f"Mismatch between URI parameters {uri_params} "
-                        f"and function parameters {func_params}"
+                        f"Mismatch between URI parameters {uri_params} and function parameters {func_params}"
                     )
 
                 # Register as template
@@ -446,9 +434,7 @@ class FastMCP:
         """
         self._prompt_manager.add_prompt(prompt)
 
-    def prompt(
-        self, name: str | None = None, description: str | None = None
-    ) -> Callable[[AnyFunction], AnyFunction]:
+    def prompt(self, name: str | None = None, description: str | None = None) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a prompt.
 
         Args:
@@ -563,9 +549,7 @@ class FastMCP:
             for prompt in prompts
         ]
 
-    async def get_prompt(
-        self, name: str, arguments: dict[str, Any] | None = None
-    ) -> GetPromptResult:
+    async def get_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> GetPromptResult:
         """Get a prompt by name with arguments."""
         try:
             messages = await self._prompt_manager.render_prompt(name, arguments)
@@ -663,9 +647,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
             raise ValueError("Context is not available outside of a request")
         return self._request_context
 
-    async def report_progress(
-        self, progress: float, total: float | None = None
-    ) -> None:
+    async def report_progress(self, progress: float, total: float | None = None) -> None:
         """Report progress for the current operation.
 
         Args:
@@ -673,11 +655,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
             total: Optional total value e.g. 100
         """
 
-        progress_token = (
-            self.request_context.meta.progressToken
-            if self.request_context.meta
-            else None
-        )
+        progress_token = self.request_context.meta.progressToken if self.request_context.meta else None
 
         if progress_token is None:
             return
@@ -695,9 +673,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         Returns:
             The resource content as either text or bytes
         """
-        assert (
-            self._fastmcp is not None
-        ), "Context is not available outside of a request"
+        assert self._fastmcp is not None, "Context is not available outside of a request"
         return await self._fastmcp.read_resource(uri)
 
     async def log(
@@ -715,18 +691,12 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
             logger_name: Optional logger name
             **extra: Additional structured data to include
         """
-        await self.request_context.session.send_log_message(
-            level=level, data=message, logger=logger_name
-        )
+        await self.request_context.session.send_log_message(level=level, data=message, logger=logger_name)
 
     @property
     def client_id(self) -> str | None:
         """Get the client ID if available."""
-        return (
-            getattr(self.request_context.meta, "client_id", None)
-            if self.request_context.meta
-            else None
-        )
+        return getattr(self.request_context.meta, "client_id", None) if self.request_context.meta else None
 
     @property
     def request_id(self) -> str:
