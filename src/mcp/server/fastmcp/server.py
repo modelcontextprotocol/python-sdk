@@ -234,7 +234,11 @@ class FastMCP:
 
         anyio.run(self._run, transport)
     
-    async def _run(self, transport: Literal["stdio", "sse", "streamable-http"]):
+    async def _run(
+        self, 
+        transport: Literal["stdio", "sse", "streamable-http"],
+        mount_path: str | None = None,
+    ) -> None:
         if self.settings.show_server_info:
             await self._log_server_info()
         match transport:
