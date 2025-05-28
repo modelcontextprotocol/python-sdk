@@ -149,7 +149,7 @@ class FastMCP:
     ):
         self.settings = Settings(**settings)
 
-        self._mcp_server: MCPServer[object, Request] = MCPServer(
+        self._mcp_server = MCPServer(
             name=name or "FastMCP",
             instructions=instructions,
             lifespan=(
