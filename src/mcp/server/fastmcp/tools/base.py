@@ -14,7 +14,7 @@ from mcp.types import ToolAnnotations
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
     from mcp.server.session import ServerSessionT
-    from mcp.shared.context import LifespanContextT
+    from mcp.shared.context import LifespanContextT, RequestT
 
 
 class Tool(BaseModel):
@@ -85,7 +85,7 @@ class Tool(BaseModel):
     async def run(
         self,
         arguments: dict[str, Any],
-        context: Context[ServerSessionT, LifespanContextT] | None = None,
+        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
     ) -> Any:
         """Run the tool with arguments."""
         try:

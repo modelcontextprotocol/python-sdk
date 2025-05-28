@@ -49,7 +49,7 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.shared.context import LifespanContextT, RequestContext
+from mcp.shared.context import LifespanContextT, RequestContext, RequestT
 from mcp.types import (
     AnyFunction,
     EmbeddedResource,
@@ -124,9 +124,11 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 def lifespan_wrapper(
     app: FastMCP,
     lifespan: Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]],
-) -> Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[object]]:
+) -> Callable[
+    [MCPServer[LifespanResultT, Request]], AbstractAsyncContextManager[object]
+]:
     @asynccontextmanager
-    async def wrap(s: MCPServer[LifespanResultT]) -> AsyncIterator[object]:
+    async def wrap(s: MCPServer[LifespanResultT, Request]) -> AsyncIterator[object]:
         async with lifespan(app) as context:
             yield context
 
@@ -260,7 +262,7 @@ class FastMCP:
             for info in tools
         ]
 
-    def get_context(self) -> Context[ServerSession, object]:
+    def get_context(self) -> Context[ServerSession, object, Request]:
         """
         Returns a Context object. Note that the context will only be valid
         during a request; outside a request, most methods will error.
@@ -893,7 +895,7 @@ def _convert_to_content(
     return [TextContent(type="text", text=result)]
 
 
-class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
+class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     """Context object providing access to MCP capabilities.
 
     This provides a cleaner interface to MCP's RequestContext functionality.
@@ -927,13 +929,15 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
     The context is optional - tools that don't need it can omit the parameter.
     """
 
-    _request_context: RequestContext[ServerSessionT, LifespanContextT] | None
+    _request_context: RequestContext[ServerSessionT, LifespanContextT, RequestT] | None
     _fastmcp: FastMCP | None
 
     def __init__(
         self,
         *,
-        request_context: RequestContext[ServerSessionT, LifespanContextT] | None = None,
+        request_context: (
+            RequestContext[ServerSessionT, LifespanContextT, RequestT] | None
+        ) = None,
         fastmcp: FastMCP | None = None,
         **kwargs: Any,
     ):
@@ -949,7 +953,9 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         return self._fastmcp
 
     @property
-    def request_context(self) -> RequestContext[ServerSessionT, LifespanContextT]:
+    def request_context(
+        self,
+    ) -> RequestContext[ServerSessionT, LifespanContextT, RequestT]:
         """Access to the underlying request context."""
         if self._request_context is None:
             raise ValueError("Context is not available outside of a request")
