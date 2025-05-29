@@ -315,27 +315,42 @@ async def long_task(files: list[str], ctx: Context) -> str:
 Authentication can be used by servers that want to expose tools accessing protected resources.
 
 `mcp.server.auth` implements an OAuth 2.0 server interface, which servers can use by
-providing an implementation of the `OAuthServerProvider` protocol.
+providing an implementation of the `OAuthAuthorizationServerProvider` protocol.
 
-```
-mcp = FastMCP("My App",
-        auth_server_provider=MyOAuthServerProvider(),
-        auth=AuthSettings(
-            issuer_url="https://myapp.com",
-            revocation_options=RevocationOptions(
-                enabled=True,
-            ),
-            client_registration_options=ClientRegistrationOptions(
-                enabled=True,
-                valid_scopes=["myscope", "myotherscope"],
-                default_scopes=["myscope"],
-            ),
-            required_scopes=["myscope"],
+```python
+from mcp import FastMCP
+from mcp.server.auth.provider import OAuthAuthorizationServerProvider
+from mcp.server.auth.settings import (
+    AuthSettings,
+    ClientRegistrationOptions,
+    RevocationOptions,
+)
+
+
+class MyOAuthServerProvider(OAuthAuthorizationServerProvider):
+    # See an example on how to implement at `examples/servers/simple-auth`
+    ...
+
+
+mcp = FastMCP(
+    "My App",
+    auth_server_provider=MyOAuthServerProvider(),
+    auth=AuthSettings(
+        issuer_url="https://myapp.com",
+        revocation_options=RevocationOptions(
+            enabled=True,
         ),
+        client_registration_options=ClientRegistrationOptions(
+            enabled=True,
+            valid_scopes=["myscope", "myotherscope"],
+            default_scopes=["myscope"],
+        ),
+        required_scopes=["myscope"],
+    ),
 )
 ```
 
-See [OAuthServerProvider](src/mcp/server/auth/provider.py) for more details.
+See [OAuthAuthorizationServerProvider](src/mcp/server/auth/provider.py) for more details.
 
 ## Running Your Server
 
@@ -462,14 +477,11 @@ For low level server with Streamable HTTP implementations, see:
 - Stateful server: [`examples/servers/simple-streamablehttp/`](examples/servers/simple-streamablehttp/)
 - Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](examples/servers/simple-streamablehttp-stateless/)
 
-
-
 The streamable HTTP transport supports:
 - Stateful and stateless operation modes
 - Resumability with event stores
-- JSON or SSE response formats  
+- JSON or SSE response formats
 - Better scalability for multi-node deployments
-
 
 ### Mounting to an Existing ASGI Server
 
