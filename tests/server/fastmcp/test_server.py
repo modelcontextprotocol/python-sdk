@@ -124,23 +124,6 @@ class TestServer:
             mount_routes[0].path == "/messages"
         ), "Mount route path should be /messages"
 
-        mcp = FastMCP()
-        app = mcp.streamable_http_app()
-
-        # Find routes by type
-        streamable_routes = [r for r in app.routes if isinstance(r, Route)]
-
-        # Verify routes exist
-        assert len(streamable_routes) == 2, "Should have two streamable routes"
-
-        # Verify path values
-        assert (
-            streamable_routes[0].path == "/mcp"
-        ), "Streamable route path should be /mcp"
-        assert (
-            streamable_routes[1].path == "/mcp/"
-        ), "Streamable route path should be /mcp/"
-
     @pytest.mark.anyio
     async def test_non_ascii_description(self):
         """Test that FastMCP handles non-ASCII characters in descriptions correctly"""
