@@ -44,8 +44,8 @@ class ETDISecureServer(FastMCP):
             self.security_middleware = OAuthSecurityMiddleware(self.oauth_configs)
             await self.security_middleware.initialize()
             
-            # Initialize base FastMCP
-            await super().initialize()
+            # FastMCP doesn't have an initialize method, so we skip this
+            # The FastMCP initialization happens in the constructor
             
             self._initialized = True
             logger.info("ETDI secure server initialized")
@@ -57,7 +57,7 @@ class ETDISecureServer(FastMCP):
         """Cleanup resources"""
         if self.security_middleware:
             await self.security_middleware.cleanup()
-        await super().cleanup()
+        # FastMCP doesn't have a cleanup method, so we skip this
         self._initialized = False
     
     def secure_tool(self, permissions: List[str], provider: Optional[str] = None):
