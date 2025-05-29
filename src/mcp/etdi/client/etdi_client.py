@@ -453,19 +453,26 @@ class ETDIClient:
             
             session = self._mcp_sessions[server_id]
             
-            # Sign request if tool requires it
+            # Sign request if tool requires it and create enhanced request
             if tool.require_request_signing and self._request_signer:
                 # Create signature headers for the tool invocation
                 signature_headers = self._request_signer.sign_tool_invocation(tool_id, params)
                 
-                # Add signature headers to the session (implementation would depend on transport)
-                if hasattr(session, 'add_headers'):
-                    session.add_headers(signature_headers)
+                # Create signed MCP request using ETDI protocol extension
+                from ..types_extensions import create_signed_call_tool_request
+                signed_request = create_signed_call_tool_request(
+                    name=tool_id,
+                    arguments=params,
+                    signature_headers=signature_headers
+                )
+                
+                # Invoke tool via MCP with signed request
+                result = await session.call_tool(signed_request)
                 
                 logger.debug(f"Signed request for tool {tool_id} requiring request signing")
-            
-            # Invoke tool via MCP
-            result = await session.call_tool(tool_id, params)
+            else:
+                # Invoke tool via MCP without signing
+                result = await session.call_tool(tool_id, params)
             
             # Emit invocation event
             emit_tool_event(
@@ -799,3 +806,62 @@ class ETDIClient:
         except Exception as e:
             logger.error(f"Error getting stats: {e}")
             return {"error": str(e)}
+    
+    async def _inject_signature_headers(self, session: Any, signature_headers: Dict[str, str]) -> None:
+        """
+        Inject signature headers into MCP session transport
+        
+        Args:
+            session: MCP session object
+            signature_headers: Headers to inject
+        """
+        try:
+            # Check if transport is ETDI-enhanced
+            if hasattr(session, '_transport') and hasattr(session._transport, 'add_signature_headers'):
+                # Use ETDI transport wrapper
+                session._transport.add_signature_headers(signature_headers)
+                logger.debug("Injected signature headers using ETDI transport wrapper")
+                return
+            
+            # Fallback to manual injection for non-ETDI transports
+            if hasattr(session, '_transport'):
+                transport = session._transport
+                transport_type = type(transport).__name__
+                
+                # Handle different transport types
+                if 'SSE' in transport_type or 'HTTP' in transport_type:
+                    # For SSE/HTTP transports, add headers to the HTTP client
+                    if hasattr(transport, '_client') and hasattr(transport._client, 'headers'):
+                        transport._client.headers.update(signature_headers)
+                        logger.debug(f"Injected signature headers into {transport_type} transport")
+                    elif hasattr(transport, 'headers'):
+                        transport.headers.update(signature_headers)
+                        logger.debug(f"Injected signature headers into {transport_type} transport")
+                
+                elif 'WebSocket' in transport_type or 'WS' in transport_type:
+                    # For WebSocket transports, store headers for next message
+                    if not hasattr(transport, '_etdi_headers'):
+                        transport._etdi_headers = {}
+                    transport._etdi_headers.update(signature_headers)
+                    logger.debug(f"Stored signature headers for {transport_type} transport")
+                
+                elif 'Stdio' in transport_type:
+                    # For stdio transport, embed headers in message envelope
+                    if not hasattr(transport, '_etdi_headers'):
+                        transport._etdi_headers = {}
+                    transport._etdi_headers.update(signature_headers)
+                    logger.debug(f"Stored signature headers for {transport_type} transport")
+                
+                else:
+                    logger.warning(f"Unknown transport type {transport_type}, cannot inject signature headers")
+            
+            # Fallback: store headers on session for custom handling
+            else:
+                if not hasattr(session, '_etdi_signature_headers'):
+                    session._etdi_signature_headers = {}
+                session._etdi_signature_headers.update(signature_headers)
+                logger.debug("Stored signature headers on session object")
+                
+        except Exception as e:
+            logger.error(f"Failed to inject signature headers: {e}")
+            # Don't raise - signing is best effort for compatibility

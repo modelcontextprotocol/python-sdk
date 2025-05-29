@@ -24,6 +24,8 @@ class ETDISecureClientSession(ClientSession):
         self,
         verifier: ETDIVerifier,
         approval_manager: ApprovalManager,
+        request_signer: Optional[Any] = None,
+        security_level: Optional[Any] = None,
         **kwargs
     ):
         """
@@ -32,11 +34,15 @@ class ETDISecureClientSession(ClientSession):
         Args:
             verifier: ETDI tool verifier
             approval_manager: Tool approval manager
+            request_signer: Request signer for cryptographic signing
+            security_level: Security level (BASIC, ENHANCED, STRICT)
             **kwargs: Additional arguments for base ClientSession
         """
         super().__init__(**kwargs)
         self.verifier = verifier
         self.approval_manager = approval_manager
+        self.request_signer = request_signer
+        self.security_level = security_level
         self._etdi_tools: Dict[str, ETDIToolDefinition] = {}
     
     async def list_tools(self) -> List[ETDIToolDefinition]:
@@ -116,9 +122,52 @@ class ETDISecureClientSession(ClientSession):
                 else:
                     raise ETDIError(f"Tool {name} cannot be invoked: {check_result.reason}")
             
-            # Call the tool using standard MCP
-            request = CallToolRequest(name=name, arguments=arguments)
-            result = await super().call_tool(request)
+            # Check if tool requires request signing and we're in STRICT mode
+            requires_signing = (
+                hasattr(etdi_tool, 'require_request_signing') and
+                etdi_tool.require_request_signing and
+                self.request_signer is not None
+            )
+            
+            if requires_signing:
+                # Import SecurityLevel here to avoid circular imports
+                try:
+                    from ..types import SecurityLevel
+                    
+                    if self.security_level == SecurityLevel.STRICT:
+                        # Sign the request using ETDI protocol extension
+                        signature_headers = self.request_signer.sign_tool_invocation(name, arguments)
+                        
+                        # Create signed MCP request
+                        from ..types_extensions import create_signed_call_tool_request
+                        signed_request = create_signed_call_tool_request(
+                            name=name,
+                            arguments=arguments,
+                            signature_headers=signature_headers
+                        )
+                        
+                        # Call the tool using signed request
+                        result = await super().call_tool(signed_request)
+                        
+                        logger.debug(f"Signed request for tool {name} in STRICT mode")
+                    else:
+                        # Warn but don't block in non-STRICT modes
+                        logger.warning(
+                            f"Tool {name} requires request signing but session is not in STRICT mode. "
+                            "Request signing is only enforced in STRICT mode for backward compatibility."
+                        )
+                        # Call without signing
+                        request = CallToolRequest(name=name, arguments=arguments)
+                        result = await super().call_tool(request)
+                except ImportError:
+                    logger.warning("SecurityLevel not available, skipping request signing")
+                    # Call without signing
+                    request = CallToolRequest(name=name, arguments=arguments)
+                    result = await super().call_tool(request)
+            else:
+                # Call the tool using standard MCP
+                request = CallToolRequest(name=name, arguments=arguments)
+                result = await super().call_tool(request)
             
             logger.info(f"Successfully called tool {name}")
             return result
@@ -224,3 +273,61 @@ class ETDISecureClientSession(ClientSession):
             "changes_detected": changes.get("changes_detected", False),
             "changes": changes.get("changes", [])
         }
+    
+    async def _inject_signature_headers(self, signature_headers: Dict[str, str]) -> None:
+        """
+        Inject signature headers into the MCP session transport
+        
+        Args:
+            signature_headers: Headers to inject
+        """
+        try:
+            # Check if transport is ETDI-enhanced
+            if hasattr(self, '_transport') and hasattr(self._transport, 'add_signature_headers'):
+                # Use ETDI transport wrapper
+                self._transport.add_signature_headers(signature_headers)
+                logger.debug("Injected signature headers using ETDI transport wrapper")
+                return
+            
+            # Fallback to manual injection for non-ETDI transports
+            if hasattr(self, '_transport'):
+                transport = self._transport
+                transport_type = type(transport).__name__
+                
+                # Handle different transport types
+                if 'SSE' in transport_type or 'HTTP' in transport_type:
+                    # For SSE/HTTP transports, add headers to the HTTP client
+                    if hasattr(transport, '_client') and hasattr(transport._client, 'headers'):
+                        transport._client.headers.update(signature_headers)
+                        logger.debug(f"Injected signature headers into {transport_type} transport")
+                    elif hasattr(transport, 'headers'):
+                        transport.headers.update(signature_headers)
+                        logger.debug(f"Injected signature headers into {transport_type} transport")
+                
+                elif 'WebSocket' in transport_type or 'WS' in transport_type:
+                    # For WebSocket transports, store headers for next message
+                    if not hasattr(transport, '_etdi_headers'):
+                        transport._etdi_headers = {}
+                    transport._etdi_headers.update(signature_headers)
+                    logger.debug(f"Stored signature headers for {transport_type} transport")
+                
+                elif 'Stdio' in transport_type:
+                    # For stdio transport, embed headers in message envelope
+                    if not hasattr(transport, '_etdi_headers'):
+                        transport._etdi_headers = {}
+                    transport._etdi_headers.update(signature_headers)
+                    logger.debug(f"Stored signature headers for {transport_type} transport")
+                
+                else:
+                    logger.warning(f"Unknown transport type {transport_type}, cannot inject signature headers")
+            
+            # Fallback: store headers on session for custom handling
+            else:
+                if not hasattr(self, '_etdi_signature_headers'):
+                    self._etdi_signature_headers = {}
+                self._etdi_signature_headers.update(signature_headers)
+                logger.debug("Stored signature headers on session object")
+                
+        except Exception as e:
+            logger.error(f"Failed to inject signature headers: {e}")
+            # Don't raise - signing is best effort for compatibility

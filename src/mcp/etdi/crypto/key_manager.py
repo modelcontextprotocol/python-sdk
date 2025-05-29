@@ -23,6 +23,7 @@ class KeyPair:
     public_key: rsa.RSAPublicKey
     key_id: str
     created_at: datetime
+    algorithm: str = "RSA-2048"
     expires_at: Optional[datetime] = None
     
     def to_pem(self) -> Tuple[bytes, bytes]:
@@ -106,6 +107,7 @@ class KeyManager:
             public_key=public_key,
             key_id=key_id,
             created_at=created_at,
+            algorithm=f"RSA-{key_size}",
             expires_at=expires_at
         )
         

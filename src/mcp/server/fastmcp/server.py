@@ -564,33 +564,46 @@ class FastMCP:
             if not request_context:
                 return False
             
-            # Extract request details (this would need to be implemented based on transport)
-            # For now, we'll simulate the verification
-            headers = getattr(request_context, 'headers', {})
-            
-            # Check for signature headers
-            signature = headers.get('X-ETDI-Signature')
-            key_id = headers.get('X-ETDI-Key-ID')
-            timestamp = headers.get('X-ETDI-Timestamp')
-            
-            if not all([signature, key_id, timestamp]):
+            # Get the current MCP request from context
+            current_request = getattr(request_context, 'request', None)
+            if not current_request:
                 return False
             
-            # Verify signature using the signature verifier
-            # This is a simplified implementation - in practice, you'd need
-            # to reconstruct the full request details
-            method = getattr(request_context, 'method', 'POST')
-            url = getattr(request_context, 'url', '/mcp/tools/call')
-            body = getattr(request_context, 'body', '')
-            
-            is_valid, error = self._signature_verifier.verify_request_signature(
-                method, url, headers, body
-            )
-            
-            if not is_valid:
-                logger.warning(f"Request signature verification failed: {error}")
-            
-            return is_valid
+            # Check if this is a CallToolRequest with ETDI signature headers
+            if hasattr(current_request, 'params'):
+                params = current_request.params
+                
+                # Extract ETDI signature headers from request parameters
+                signature_headers = {}
+                if hasattr(params, 'etdi_signature') and params.etdi_signature:
+                    signature_headers['X-ETDI-Signature'] = params.etdi_signature
+                if hasattr(params, 'etdi_timestamp') and params.etdi_timestamp:
+                    signature_headers['X-ETDI-Timestamp'] = params.etdi_timestamp
+                if hasattr(params, 'etdi_key_id') and params.etdi_key_id:
+                    signature_headers['X-ETDI-Key-ID'] = params.etdi_key_id
+                if hasattr(params, 'etdi_algorithm') and params.etdi_algorithm:
+                    signature_headers['X-ETDI-Algorithm'] = params.etdi_algorithm
+                
+                # If no signature headers found, check if request has signature
+                if not signature_headers:
+                    return False
+                
+                # Verify the tool invocation signature
+                is_valid = self._signature_verifier.verify_tool_invocation_signature(
+                    tool_name=params.name,
+                    arguments=params.arguments or {},
+                    signature_headers=signature_headers
+                )
+                
+                if not is_valid:
+                    logger.warning(f"Tool invocation signature verification failed for {params.name}")
+                else:
+                    logger.debug(f"Tool invocation signature verified for {params.name}")
+                
+                return is_valid
+            else:
+                # No signature headers in request
+                return False
             
         except Exception as e:
             logger.error(f"Error verifying request signature: {e}")
