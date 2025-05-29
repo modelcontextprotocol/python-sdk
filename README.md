@@ -18,20 +18,25 @@ ETDI is designed for **zero-friction adoption** with existing MCP infrastructure
 
 ### **🔌 Drop-in Integration**
 ```python
-# Existing MCP server becomes ETDI-secured with FastMCP integration
+# Existing FastMCP server becomes ETDI-secured with decorator
 from mcp.server.fastmcp import FastMCP
-from mcp.etdi.server import ETDISecureServer
 
 app = FastMCP("My Server")
 
-# Add ETDI security to existing FastMCP tools
+# Standard tool (no security)
 @app.tool()
-def my_tool(data: str) -> str:
+def standard_tool(data: str) -> str:
     return f"Processed: {data}"
 
-# Enable ETDI security for the entire server
-etdi_server = ETDISecureServer(oauth_configs=[oauth_config])
-etdi_server.integrate_fastmcp(app)
+# ETDI-secured tool with OAuth + Request Signing
+@app.tool(
+    etdi=True,
+    etdi_permissions=["data:read", "data:write"],
+    etdi_oauth_scopes=["tools:execute"],
+    etdi_require_request_signing=True
+)
+def secure_tool(sensitive_data: str) -> str:
+    return f"Securely processed: {sensitive_data}"
 ```
 
 ### **🌐 Universal Discovery**
@@ -316,25 +321,81 @@ python -m mcp.etdi.cli analyze-tool --tool-id "my-tool"
 
 ## Request Signing
 
-For maximum security, ETDI supports cryptographic request signing:
+ETDI supports cryptographic request signing with RSA-SHA256 signatures embedded directly in MCP protocol messages:
 
+### **Client-Side Request Signing**
 ```python
 from mcp.etdi.client import ETDIClient
-from mcp.etdi import SecurityLevel
+from mcp.etdi.types import SecurityLevel
 
-# Enable request signing
-client = ETDIClient({
-    "security_level": SecurityLevel.STRICT,
-    "enable_request_signing": True,
-    "key_config": {
-        "algorithm": "RS256",
-        "key_size": 2048
-    }
-})
+# Enable automatic request signing
+client = ETDIClient(ETDIClientConfig(
+    security_level=SecurityLevel.STRICT,
+    enable_request_signing=True
+))
 
-# All tool invocations will be cryptographically signed
-result = await client.invoke_tool("secure-tool", params)
+await client.initialize()
+
+# All tool invocations to tools requiring signatures will be automatically signed
+result = await client.invoke_tool("secure-tool", {"data": "sensitive"})
 ```
+
+### **Server-Side Request Verification**
+```python
+from mcp.server.fastmcp import FastMCP
+
+app = FastMCP("Secure Server")
+
+# Tool requiring cryptographic request signatures
+@app.tool(
+    etdi=True,
+    etdi_require_request_signing=True,
+    etdi_permissions=["banking:transfer"]
+)
+def transfer_funds(amount: float, to_account: str) -> str:
+    """High-security tool requiring signed requests"""
+    return f"Transferred ${amount} to {to_account}"
+
+# Initialize request signing verification
+app.initialize_request_signing()
+```
+
+### **How It Works**
+1. **Client generates RSA key pair** automatically
+2. **Signs tool invocation** with private key
+3. **Embeds signature in MCP request parameters** (not transport headers)
+4. **Server extracts signature** from MCP request
+5. **Verifies signature** using client's public key
+6. **Enforces in STRICT mode** only
+
+### **Protocol Integration**
+Request signing extends the MCP protocol itself using the `extra="allow"` feature:
+
+```python
+# Standard MCP request
+{
+  "method": "tools/call",
+  "params": {
+    "name": "my_tool",
+    "arguments": {"param": "value"}
+  }
+}
+
+# ETDI signed request (backward compatible)
+{
+  "method": "tools/call",
+  "params": {
+    "name": "my_tool",
+    "arguments": {"param": "value"},
+    "etdi_signature": "base64-encoded-signature",
+    "etdi_timestamp": "2024-01-01T12:00:00Z",
+    "etdi_key_id": "client-key-id",
+    "etdi_algorithm": "RS256"
+  }
+}
+```
+
+This approach ensures **full compatibility** with all MCP transports (stdio, websocket, SSE) without requiring transport-layer modifications.
 
 ## Examples
 
@@ -345,8 +406,15 @@ See the `examples/etdi/` directory for comprehensive examples:
 - `secure_server_example.py`: Secure server implementation
 - `inspector_example.py`: Security analysis tools
 - `call_stack_example.py`: Call stack verification
+- `caller_callee_authorization_example.py`: Authorization between tools
+- `protocol_call_stack_example.py`: Protocol-level call stack analysis
 - `e2e_secure_client.py`: End-to-end secure client
 - `e2e_secure_server.py`: End-to-end secure server
+- `comprehensive_request_signing_example.py`: Complete request signing demo
+- `request_signing_example.py`: Request signing implementation details
+- `request_signing_server_example.py`: Server-side request verification
+- `clean_api_example.py`: Clean API usage patterns
+- `test_complete_security.py`: Complete security testing
 
 ## Testing
 
@@ -376,6 +444,18 @@ pytest tests/etdi/test_integration.py
 
 # Request signing tests
 pytest tests/etdi/test_request_signing.py
+
+# Request signing fix tests (protocol extension)
+pytest tests/etdi/test_request_signing_fix.py
+
+# ETDI client tests
+pytest tests/etdi/test_etdi_client.py
+
+# ETDI implementation tests
+pytest tests/etdi/test_etdi_implementation.py
+
+# ETDI-only functionality tests
+pytest tests/etdi/test_etdi_only.py
 ```
 
 ## Deployment
