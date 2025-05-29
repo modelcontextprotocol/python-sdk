@@ -770,7 +770,7 @@ class FastMCP:
     def streamable_http_app(self) -> Starlette:
         """Return an instance of the StreamableHTTP server app."""
         from starlette.middleware import Middleware
-        from starlette.routing import Route
+        from starlette.routing import Mount
 
         # Create session manager on first call (lazy initialization)
         if self._session_manager is None:
