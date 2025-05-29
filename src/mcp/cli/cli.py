@@ -14,8 +14,33 @@ from mcp.server import Server as LowLevelServer
 try:
     import typer
 except ImportError:
-    print("Error: typer is required. Install with 'pip install mcp[cli]'")
-    sys.exit(1)
+    # Only exit if this module is being run directly, not imported
+    if __name__ == "__main__":
+        print("Error: typer is required. Install with 'pip install mcp[cli]'")
+        sys.exit(1)
+    else:
+        # Create a dummy typer for import compatibility
+        class DummyContext:
+            pass
+            
+        class DummyTyper:
+            Context = DummyContext
+            
+            def __init__(self):
+                pass
+            def command(self, *args, **kwargs):
+                def decorator(func):
+                    return func
+                return decorator
+            def __call__(self, *args, **kwargs):
+                return self
+            def Typer(self, *args, **kwargs):
+                return self
+            def Argument(self, *args, **kwargs):
+                return None
+            def Option(self, *args, **kwargs):
+                return None
+        typer = DummyTyper()
 
 try:
     from mcp.cli import claude

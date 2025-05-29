@@ -64,6 +64,7 @@ try:
     _mcp_server_available = True
 except ImportError:
     _mcp_server_available = False
+    ETDISecureServer = None
 
 from .oauth import (
     OAuthProvider,
@@ -145,6 +146,7 @@ if _mcp_client_available:
         "ETDISecureClientSession",
     ])
 
+# Add ETDISecureServer if it was successfully imported
 if _mcp_server_available:
     __all__.extend([
         "ETDISecureServer",

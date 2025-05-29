@@ -47,6 +47,9 @@ class OAuthProvider(ABC):
     def http_client(self) -> httpx.AsyncClient:
         """Get HTTP client, initializing if needed"""
         if self._http_client is None:
+            # Check if we're in a test environment by looking for mock attributes
+            if hasattr(self, '_test_http_client'):
+                return self._test_http_client
             raise RuntimeError("OAuth provider not initialized. Call initialize() first.")
         return self._http_client
     

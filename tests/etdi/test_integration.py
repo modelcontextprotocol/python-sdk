@@ -11,10 +11,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timedelta
 
 from mcp.etdi import (
-    ETDIClient, ETDISecureServer, SecurityAnalyzer, TokenDebugger, OAuthValidator,
+    ETDIClient, SecurityAnalyzer, TokenDebugger, OAuthValidator,
     ETDIToolDefinition, Permission, SecurityInfo, OAuthInfo, OAuthConfig,
     SecurityLevel, VerificationStatus
 )
+# Import ETDISecureServer directly to avoid circular dependency
+from mcp.etdi.server.secure_server import ETDISecureServer
+from mcp.etdi.oauth import Auth0Provider
 from mcp.etdi.exceptions import ETDIError, OAuthError, PermissionError, ConfigurationError
 
 
@@ -122,7 +125,7 @@ class TestPositiveScenarios:
         
         # Valid tool should have decent security score
         assert result.overall_security_score > 50
-        assert result.tool_id == "test-tool"
+        assert result.tool_id == "valid-tool"
         assert result.permission_analysis.total_permissions == 1
         
         # Should have OAuth analysis
@@ -342,6 +345,7 @@ class TestNegativeScenarios:
         )
         
         provider = Auth0Provider(config)
+        await provider.initialize()
         
         # Token with mismatched tool ID
         token_with_wrong_tool_id = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL3Rlc3QuYXV0aDAuY29tLyIsInN1YiI6Indyb25nLXRvb2wtaWQiLCJhdWQiOiJodHRwczovL3Rlc3QtYXBpLmV4YW1wbGUuY29tIiwiZXhwIjo5OTk5OTk5OTk5LCJ0b29sX2lkIjoid3JvbmctdG9vbC1pZCJ9.signature"
@@ -351,7 +355,17 @@ class TestNegativeScenarios:
             "toolVersion": "1.0.0"
         }
         
-        result = await provider.validate_token(token_with_wrong_tool_id, expected_claims)
+        # Mock the JWT verification to focus on tool ID validation
+        with patch.object(provider, '_verify_jwt_signature') as mock_verify:
+            mock_verify.return_value = {
+                "iss": "https://test.auth0.com/",
+                "sub": "wrong-tool-id",
+                "aud": "https://test-api.example.com",
+                "exp": 9999999999,
+                "tool_id": "wrong-tool-id"
+            }
+            
+            result = await provider.validate_token(token_with_wrong_tool_id, expected_claims)
         
         # Should fail validation due to tool ID mismatch
         assert result.valid is False

@@ -399,8 +399,22 @@ class SecurityAnalyzer:
         """Calculate overall security score (0-100)"""
         score = 100.0
         
-        # Deduct points for findings
+        # Check for critical security issues that should result in very low scores
+        has_missing_security = any(f.code == "MISSING_SECURITY" for f in result.security_findings)
+        has_broad_permissions = any(f.code == "BROAD_PERMISSION" for f in result.permission_analysis.findings)
+        
+        # Tools with missing security info should get very low scores
+        if has_missing_security:
+            score -= 50  # Major penalty for missing security
+        
+        # Tools with broad permissions are dangerous
+        if has_broad_permissions:
+            score -= 30  # Major penalty for broad permissions
+        
+        # Deduct points for other findings
         for finding in result.security_findings:
+            if finding.code == "MISSING_SECURITY":
+                continue  # Already handled above
             if finding.severity == SecurityFindingSeverity.CRITICAL:
                 score -= 30
             elif finding.severity == SecurityFindingSeverity.HIGH:
@@ -412,6 +426,8 @@ class SecurityAnalyzer:
         
         # Deduct points for permission analysis findings
         for finding in result.permission_analysis.findings:
+            if finding.code == "BROAD_PERMISSION":
+                continue  # Already handled above
             if finding.severity == SecurityFindingSeverity.HIGH:
                 score -= 15
             elif finding.severity == SecurityFindingSeverity.MEDIUM:
@@ -431,12 +447,13 @@ class SecurityAnalyzer:
                 elif finding.severity == SecurityFindingSeverity.LOW:
                     score -= 3
         
-        # Bonus points for good practices
-        if result.oauth_analysis and result.oauth_analysis.token_valid:
-            score += 10
-        
-        if result.permission_analysis.total_permissions > 0:
-            score += 5
+        # Bonus points for good practices (but not if major issues exist)
+        if not has_missing_security and not has_broad_permissions:
+            if result.oauth_analysis and result.oauth_analysis.token_valid:
+                score += 10
+            
+            if result.permission_analysis.total_permissions > 0:
+                score += 5
         
         return max(0.0, min(100.0, score))
     

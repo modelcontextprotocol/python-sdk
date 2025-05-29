@@ -44,8 +44,8 @@ class ETDISecureServer(FastMCP):
             self.security_middleware = OAuthSecurityMiddleware(self.oauth_configs)
             await self.security_middleware.initialize()
             
-            # Initialize base FastMCP
-            await super().initialize()
+            # FastMCP doesn't have an initialize method, so we skip this
+            # The FastMCP initialization happens in the constructor
             
             self._initialized = True
             logger.info("ETDI secure server initialized")
@@ -57,7 +57,7 @@ class ETDISecureServer(FastMCP):
         """Cleanup resources"""
         if self.security_middleware:
             await self.security_middleware.cleanup()
-        await super().cleanup()
+        # FastMCP doesn't have a cleanup method, so we skip this
         self._initialized = False
     
     def secure_tool(self, permissions: List[str], provider: Optional[str] = None):
@@ -109,10 +109,11 @@ class ETDISecureServer(FastMCP):
         return decorator
     
     async def register_etdi_tool(
-        self, 
+        self,
         tool_definition: ETDIToolDefinition,
         implementation: Callable,
-        provider: Optional[str] = None
+        provider: Optional[str] = None,
+        require_request_signing: bool = False
     ) -> ETDIToolDefinition:
         """
         Register a tool with ETDI security
@@ -121,6 +122,7 @@ class ETDISecureServer(FastMCP):
             tool_definition: Tool definition
             implementation: Tool implementation function
             provider: OAuth provider to use
+            require_request_signing: Require cryptographic request signing (STRICT mode only)
             
         Returns:
             Enhanced tool definition with OAuth token
@@ -141,6 +143,12 @@ class ETDISecureServer(FastMCP):
             # Create secured implementation
             async def secured_implementation(*args, **kwargs):
                 context = self._get_invocation_context()
+                
+                # Check request signing if required
+                if require_request_signing:
+                    if not await self._verify_request_signature(context):
+                        raise ETDIError(f"Request signature verification failed for tool: {enhanced_tool.id}")
+                
                 is_valid = await self.security_middleware.validate_tool_invocation(
                     enhanced_tool.id,
                     context
@@ -150,6 +158,9 @@ class ETDISecureServer(FastMCP):
                     raise ETDIError(f"Tool invocation not authorized: {enhanced_tool.id}")
                 
                 return await implementation(*args, **kwargs)
+            
+            # Store request signing requirement
+            secured_implementation._etdi_require_request_signing = require_request_signing
             
             # Register with FastMCP
             self._register_tool_with_fastmcp(enhanced_tool, secured_implementation)
@@ -321,6 +332,51 @@ class ETDISecureServer(FastMCP):
         """
         if self.security_middleware:
             self.security_middleware.register_tool_enhancer(enhancer)
+    
+    async def _verify_request_signature(self, context: Dict[str, Any]) -> bool:
+        """Verify request signature for ETDI tools"""
+        try:
+            # Import crypto components
+            from ..crypto import SignatureVerifier, KeyManager
+            
+            # Initialize signature verifier if not already done
+            if not hasattr(self, '_signature_verifier'):
+                key_manager = KeyManager()
+                self._signature_verifier = SignatureVerifier(key_manager)
+            
+            # Extract request details from context
+            headers = context.get('headers', {})
+            method = context.get('method', 'POST')
+            url = context.get('url', '/mcp/tools/call')
+            body = context.get('body', '')
+            
+            # Verify signature
+            is_valid, error = self._signature_verifier.verify_request_signature(
+                method, url, headers, body
+            )
+            
+            if not is_valid:
+                logger.warning(f"Request signature verification failed: {error}")
+            
+            return is_valid
+            
+        except Exception as e:
+            logger.error(f"Error verifying request signature: {e}")
+            return False
+    
+    def initialize_request_signing(self, key_store_path: Optional[str] = None) -> None:
+        """Initialize request signing verification"""
+        try:
+            from ..crypto import KeyManager, SignatureVerifier
+            
+            key_manager = KeyManager(key_store_path)
+            self._signature_verifier = SignatureVerifier(key_manager)
+            
+            logger.info("Request signing verification initialized for ETDISecureServer")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize request signing: {e}")
+            raise ETDIError(f"Request signing initialization failed: {e}")
 
 
 # Convenience function for creating secure servers

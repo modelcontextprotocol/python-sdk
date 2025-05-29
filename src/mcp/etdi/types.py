@@ -147,6 +147,7 @@ class ETDIToolDefinition:
     security: Optional[SecurityInfo] = None
     call_stack_constraints: Optional[CallStackConstraints] = None
     verification_status: VerificationStatus = VerificationStatus.UNVERIFIED
+    require_request_signing: bool = False
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -159,7 +160,8 @@ class ETDIToolDefinition:
             "permissions": [p.to_dict() for p in self.permissions],
             "security": self.security.to_dict() if self.security else None,
             "call_stack_constraints": self.call_stack_constraints.to_dict() if self.call_stack_constraints else None,
-            "verification_status": self.verification_status.value
+            "verification_status": self.verification_status.value,
+            "require_request_signing": self.require_request_signing
         }
     
     @classmethod
@@ -178,7 +180,8 @@ class ETDIToolDefinition:
             permissions=permissions,
             security=SecurityInfo.from_dict(security_data) if security_data else None,
             call_stack_constraints=CallStackConstraints.from_dict(constraints_data) if constraints_data else None,
-            verification_status=VerificationStatus(data.get("verification_status", "unverified"))
+            verification_status=VerificationStatus(data.get("verification_status", "unverified")),
+            require_request_signing=data.get("require_request_signing", False)
         )
     
     def get_permission_scopes(self) -> List[str]:
@@ -326,6 +329,12 @@ class ETDIClientConfig:
     verification_cache_ttl: int = 300  # 5 minutes
     allow_non_etdi_tools: bool = True
     show_unverified_tools: bool = False
+    enable_request_signing: bool = False  # Only enabled in STRICT mode by default
+    
+    def __post_init__(self):
+        """Convert string security level to enum if needed"""
+        if isinstance(self.security_level, str):
+            self.security_level = SecurityLevel(self.security_level)
     
     def to_dict(self) -> Dict[str, Any]:
         return {

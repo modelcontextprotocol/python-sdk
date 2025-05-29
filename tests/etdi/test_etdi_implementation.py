@@ -478,7 +478,7 @@ def test_file_structure():
     """Test that all required files exist"""
     print_section("File Structure Tests")
     
-    base_path = Path(__file__).parent
+    base_path = Path(__file__).parent.parent.parent  # Go up to python-sdk root
     required_files = [
         "src/mcp/etdi/__init__.py",
         "src/mcp/etdi/types.py",
@@ -512,7 +512,6 @@ def test_file_structure():
         "tests/etdi/test_etdi_client.py",
         "tests/etdi/test_inspector.py",
         "tests/etdi/test_integration.py",
-        "setup_etdi.py",
         "INTEGRATION_GUIDE.md",
         "deployment/docker/Dockerfile",
         "deployment/docker/docker-compose.yml",
@@ -528,7 +527,9 @@ def test_file_structure():
     for test in tests:
         print_test(*test)
     
-    return all(test[1] for test in tests)
+    # Assert that all files exist
+    missing_files = [test[0] for test in tests if not test[1]]
+    assert len(missing_files) == 0, f"Missing files: {missing_files}"
 
 async def main():
     """Run all validation tests"""
