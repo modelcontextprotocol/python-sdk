@@ -1044,7 +1044,6 @@ async def test_streamablehttp_client_resumption(event_server):
     """Test client session to resume a long running tool."""
     _, server_url = event_server
 
-    print("what is happening")
     # Variables to track the state
     captured_session_id = None
     captured_resumption_token = None
