@@ -2,6 +2,8 @@ import shutil
 
 import pytest
 
+import sys
+
 from mcp.client.session import ClientSession
 from mcp.client.stdio import (
     StdioServerParameters,
@@ -14,16 +16,21 @@ from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPC
 tee: str = shutil.which("tee")  # type: ignore
 python: str = shutil.which("python")  # type: ignore
 
-
 @pytest.mark.anyio
-@pytest.mark.skipif(tee is None, reason="could not find tee command")
+@pytest.mark.skipif(
+    tee is None or sys.platform.startswith("win"),
+    reason="tee command not available or platform is Windows"
+)
 async def test_stdio_context_manager_exiting():
     async with stdio_client(StdioServerParameters(command=tee)) as (_, _):
         pass
 
 
 @pytest.mark.anyio
-@pytest.mark.skipif(tee is None, reason="could not find tee command")
+@pytest.mark.skipif(
+    tee is None or sys.platform.startswith("win"),
+    reason="tee command not available or platform is Windows"
+)
 async def test_stdio_client():
     server_parameters = StdioServerParameters(command=tee)
 
