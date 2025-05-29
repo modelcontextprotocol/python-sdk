@@ -603,7 +603,7 @@ class FastMCP:
         import uvicorn
 
         starlette_app = self.sse_app(mount_path)
-        
+
         config = uvicorn.Config(
             starlette_app,
             host=self.settings.host,
