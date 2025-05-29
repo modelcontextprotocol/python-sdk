@@ -603,7 +603,7 @@ class FastMCP:
         import uvicorn
 
         starlette_app = self.sse_app(mount_path)
-
+        
         config = uvicorn.Config(
             starlette_app,
             host=self.settings.host,
@@ -618,7 +618,7 @@ class FastMCP:
         import uvicorn
 
         starlette_app = self.streamable_http_app()
-
+        starlette_app.router.redirect_slashes = False
         config = uvicorn.Config(
             starlette_app,
             host=self.settings.host,
@@ -783,7 +783,9 @@ class FastMCP:
 
         # Create the ASGI handler
         async def handle_streamable_http(request: Request) -> Response:
-            await self.session_manager.handle_request(request.scope, request.receive, request._send)
+            await self.session_manager.handle_request(
+                request.scope, request.receive, request._send
+            )
             return Response()
 
         # Create routes
@@ -793,7 +795,7 @@ class FastMCP:
 
         # Always register both /mcp and /mcp/ for full compatibility
         _main_path = self.settings.streamable_http_path.removesuffix("/")
-        _alt_path  = _main_path + "/"
+        _alt_path = _main_path + "/"
 
         # Add auth endpoints if auth provider is configured
         if self._auth_server_provider:
@@ -820,31 +822,39 @@ class FastMCP:
                     revocation_options=self.settings.auth.revocation_options,
                 )
             )
-            routes.extend([
-                Route(
-                    _main_path,
-                    endpoint=RequireAuthMiddleware(handle_streamable_http, required_scopes),
-                    methods=["GET", "POST", "OPTIONS"]
-                ),
-                Route(
-                    _alt_path,
-                    endpoint=RequireAuthMiddleware(handle_streamable_http, required_scopes),
-                    methods=["GET", "POST", "OPTIONS"]
-                )]
+            routes.extend(
+                [
+                    Route(
+                        _main_path,
+                        endpoint=RequireAuthMiddleware(
+                            handle_streamable_http, required_scopes
+                        ),
+                        methods=["GET", "POST", "OPTIONS"],
+                    ),
+                    Route(
+                        _alt_path,
+                        endpoint=RequireAuthMiddleware(
+                            handle_streamable_http, required_scopes
+                        ),
+                        methods=["GET", "POST", "OPTIONS"],
+                    ),
+                ]
             )
         else:
             # Auth is disabled, no wrapper needed
-            routes.extend([
-                Route(
-                    _main_path,
-                    endpoint=handle_streamable_http,
-                    methods=["GET", "POST", "OPTIONS"]
-                ),
-                Route(
-                    _alt_path,
-                    endpoint=handle_streamable_http,
-                    methods=["GET", "POST", "OPTIONS"]
-                )]
+            routes.extend(
+                [
+                    Route(
+                        _main_path,
+                        endpoint=handle_streamable_http,
+                        methods=["GET", "POST", "OPTIONS"],
+                    ),
+                    Route(
+                        _alt_path,
+                        endpoint=handle_streamable_http,
+                        methods=["GET", "POST", "OPTIONS"],
+                    ),
+                ]
             )
 
         routes.extend(self._custom_starlette_routes)
