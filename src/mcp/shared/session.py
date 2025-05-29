@@ -421,7 +421,7 @@ class BaseSession(
                                         notification.root.params.message,
                                     )
                                 except Exception as e:
-                                    logging.warning(
+                                    logging.error(
                                         "Progress callback raised an exception: %s",
                                         e,
                                     )
