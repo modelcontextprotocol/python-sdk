@@ -782,10 +782,11 @@ class FastMCP:
             )
 
         # Create the ASGI handler
-        async def handle_streamable_http(
-            scope: Scope, receive: Receive, send: Send
-        ) -> None:
-            await self.session_manager.handle_request(scope, receive, send)
+        async def handle_streamable_http(request: Request) -> Response:
+            await self.session_manager.handle_request(
+                request.scope, request.receive, request._send
+            )
+            return Response()
 
         # Create routes
         routes: list[Route] = []
