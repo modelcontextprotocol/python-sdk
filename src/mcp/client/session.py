@@ -122,6 +122,9 @@ class ClientSession(
             else None
         )
         roots = (
+            # TODO: Should this be based on whether we
+            # _will_ send notifications, or only whether
+            # they're supported?
             types.RootsCapability(listChanged=True)
             if self._list_roots_callback is not _default_list_roots_callback
             else None
