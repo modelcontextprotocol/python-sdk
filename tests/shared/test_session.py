@@ -17,6 +17,7 @@ from mcp.types import (
     ClientNotification,
     ClientRequest,
     EmptyResult,
+    TextContent,
 )
 
 
@@ -181,3 +182,77 @@ async def test_connection_closed():
                 await ev_closed.wait()
             with anyio.fail_after(1):
                 await ev_response.wait()
+
+
+@pytest.mark.anyio
+async def test_async_request_handling_with_taskgroup():
+    """Test that multiple sampling requests are handled asynchronously."""
+    # Track completion order
+    completion_order = []
+
+    def make_server() -> Server:
+        server = Server(name="AsyncTestServer")
+
+        @server.call_tool()
+        async def handle_call_tool(name: str, arguments: dict | None) -> list:
+            nonlocal completion_order
+
+            if name.startswith("timed_tool"):
+                # Extract wait time from tool name (e.g., "timed_tool_0.2")
+                wait_time = float(name.split("_")[-1])
+
+                # Wait for the specified time
+                await anyio.sleep(wait_time)
+
+                # Record completion
+                completion_order.append(wait_time)
+
+                return [TextContent(type="text", text=f"Waited {wait_time}s")]
+
+            raise ValueError(f"Unknown tool: {name}")
+
+        @server.list_tools()
+        async def handle_list_tools() -> list[types.Tool]:
+            return [
+                types.Tool(
+                    name="timed_tool_0.1",
+                    description="Tool that waits 0.1s",
+                    inputSchema={},
+                ),
+                types.Tool(
+                    name="timed_tool_0.2",
+                    description="Tool that waits 0.2s",
+                    inputSchema={},
+                ),
+                types.Tool(
+                    name="timed_tool_0.05",
+                    description="Tool that waits 0.05s",
+                    inputSchema={},
+                ),
+            ]
+
+        return server
+
+    async with create_connected_server_and_client_session(
+        make_server()
+    ) as client_session:
+        # Test basic async handling with a single request
+        result = await client_session.send_request(
+            ClientRequest(
+                types.CallToolRequest(
+                    method="tools/call",
+                    params=types.CallToolRequestParams(
+                        name="timed_tool_0.1", arguments={}
+                    ),
+                )
+            ),
+            types.CallToolResult,
+        )
+
+        # Verify the request completed successfully
+        assert result.content[0].text == "Waited 0.1s"
+        assert len(completion_order) == 1
+        assert completion_order[0] == 0.1
+
+        # Verify no pending requests remain
+        assert len(client_session._in_flight) == 0
