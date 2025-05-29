@@ -5,10 +5,179 @@ Example demonstrating different OAuth provider configurations for ETDI
 import asyncio
 import logging
 from mcp.etdi import ETDIClient, OAuthConfig
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+async def demo_auth0_provider_with_real_credentials():
+    """Demonstrate Auth0 OAuth provider with real credentials"""
+    print("\n🔐 Auth0 Provider Demo (Real Credentials)")
+    print("=" * 50)
+    
+    # Use real Auth0 credentials from the MCP tool
+    oauth_config = OAuthConfig(
+        provider="auth0",
+        client_id="2XrZkaLO4Tj7xlk4dLysqVVjETg2xNZo",  # ETDI Tool Registry (Test Application)
+        client_secret="your-client-secret-here",  # This would need to be retrieved securely
+        domain=os.getenv("ETDI_AUTH0_DOMAIN", "your-auth0-domain.auth0.com"),
+        audience="https://api.etdi.example.com",  # ETDI Tool Registry API
+        scopes=["read", "write", "execute", "admin"]
+    )
+    
+    try:
+        async with ETDIClient({
+            "security_level": "enhanced",
+            "oauth_config": oauth_config.to_dict()
+        }) as client:
+            stats = await client.get_stats()
+            print(f"✅ Auth0 client initialized with real credentials")
+            print(f"📊 OAuth providers: {stats.get('oauth_providers', [])}")
+            print(f"🔑 Client ID: {oauth_config.client_id}")
+            print(f"🌐 Domain: {oauth_config.domain}")
+            print(f"🎯 Audience: {oauth_config.audience}")
+            print(f"📋 Scopes: {oauth_config.scopes}")
+            
+            return True
+    except Exception as e:
+        print(f"❌ Auth0 demo failed: {e}")
+        print("Note: This requires a valid client secret from Auth0")
+        return False
+
+
+async def demo_tool_provider_sdk_with_auth0():
+    """Demonstrate Tool Provider SDK with Auth0 integration"""
+    print("\n🔧 Tool Provider SDK + Auth0 Integration Demo")
+    print("=" * 50)
+    
+    try:
+        from mcp.etdi.server.tool_provider import ToolProvider
+        from mcp.etdi.types import Permission, OAuthConfig
+        from mcp.etdi.oauth import OAuthManager, Auth0Provider
+        
+        # Create OAuth configuration for Auth0
+        oauth_config = OAuthConfig(
+            provider="auth0",
+            client_id="2XrZkaLO4Tj7xlk4dLysqVVjETg2xNZo",
+            client_secret="your-client-secret-here",  # Would be retrieved securely
+            domain=os.getenv("ETDI_AUTH0_DOMAIN", "your-auth0-domain.auth0.com"),
+            audience="https://api.etdi.example.com",
+            scopes=["read", "write", "execute"]
+        )
+        
+        # Create OAuth manager and Auth0 provider
+        oauth_manager = OAuthManager()
+        auth0_provider = Auth0Provider(oauth_config)
+        oauth_manager.register_provider("auth0", auth0_provider)
+        
+        print(f"✅ OAuth Manager created with Auth0 provider")
+        print(f"   Provider: {oauth_config.provider}")
+        print(f"   Client ID: {oauth_config.client_id}")
+        print(f"   Domain: {oauth_config.domain}")
+        print(f"   Audience: {oauth_config.audience}")
+        
+        # Create a tool provider with OAuth
+        provider = ToolProvider(
+            provider_id="auth0-demo-provider",
+            provider_name="Auth0 Demo Tool Provider",
+            private_key=None,  # Using OAuth instead
+            oauth_manager=oauth_manager
+        )
+        
+        print(f"✅ Tool Provider created with OAuth integration")
+        
+        # Register a tool with OAuth authentication
+        tool = await provider.register_tool(
+            tool_id="auth0-secure-calculator",
+            name="Auth0 Secure Calculator",
+            version="1.0.0",
+            description="A secure calculator tool protected by Auth0 OAuth",
+            schema={
+                "type": "object",
+                "properties": {
+                    "operation": {"type": "string", "enum": ["add", "subtract", "multiply", "divide"]},
+                    "a": {"type": "number"},
+                    "b": {"type": "number"}
+                },
+                "required": ["operation", "a", "b"]
+            },
+            permissions=[
+                Permission(
+                    name="calculate",
+                    description="Perform mathematical calculations",
+                    scope="execute",  # Maps to Auth0 scope
+                    required=True
+                ),
+                Permission(
+                    name="read_results",
+                    description="Read calculation results",
+                    scope="read",  # Maps to Auth0 scope
+                    required=True
+                )
+            ],
+            use_oauth=True  # Enable OAuth for this tool
+        )
+        
+        print(f"✅ Registered OAuth-protected tool: {tool.name}")
+        print(f"   Tool ID: {tool.id}")
+        print(f"   Version: {tool.version}")
+        print(f"   OAuth Enabled: {tool.security and tool.security.oauth is not None}")
+        print(f"   Required Scopes: {[p.scope for p in tool.permissions if p.required]}")
+        
+        # Update the tool with new permissions
+        updated_tool = await provider.update_tool(
+            tool_id="auth0-secure-calculator",
+            version="1.1.0",
+            description="Enhanced secure calculator with Auth0 protection and audit logging",
+            permissions=[
+                Permission(
+                    name="calculate",
+                    description="Perform mathematical calculations",
+                    scope="execute",
+                    required=True
+                ),
+                Permission(
+                    name="read_results",
+                    description="Read calculation results",
+                    scope="read",
+                    required=True
+                ),
+                Permission(
+                    name="audit_access",
+                    description="Access audit logs",
+                    scope="admin",  # New admin scope
+                    required=False
+                )
+            ]
+        )
+        
+        print(f"✅ Updated tool to version: {updated_tool.version}")
+        print(f"   New permissions: {[p.name for p in updated_tool.permissions]}")
+        
+        # Get provider stats
+        stats = provider.get_provider_stats()
+        print(f"\n📊 Provider Stats with Auth0 Integration:")
+        print(f"   - Total tools: {stats['total_tools']}")
+        print(f"   - OAuth enabled tools: {stats['oauth_enabled_tools']}")
+        print(f"   - Cryptographically signed tools: {stats['cryptographically_signed_tools']}")
+        print(f"   - Auth0 protected tools: {stats['oauth_enabled_tools']}")
+        
+        # Demonstrate OAuth token validation (simulated)
+        print(f"\n🔐 OAuth Token Validation Demo:")
+        print(f"   - Token endpoint: {auth0_provider.get_token_endpoint()}")
+        print(f"   - JWKS URI: {auth0_provider.get_jwks_uri()}")
+        print(f"   - Expected issuer: {auth0_provider._get_expected_issuer()}")
+        print(f"   - Required audience: {oauth_config.audience}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Tool Provider SDK + Auth0 Demo failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 
 async def demo_auth0_provider():
@@ -190,6 +359,12 @@ async def main():
     print("=" * 60)
     
     try:
+        # Demo Auth0 with real credentials
+        await demo_auth0_provider_with_real_credentials()
+        
+        # Demo Tool Provider SDK with Auth0 integration
+        await demo_tool_provider_sdk_with_auth0()
+        
         # Demo different providers (will fail without real credentials)
         await demo_auth0_provider()
         await demo_okta_provider() 

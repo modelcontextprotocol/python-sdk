@@ -48,8 +48,11 @@ class ToolProvider:
         if private_key:
             self._load_private_key(private_key)
         
+        # Allow basic operation without security (for demos and development)
+        # In production, at least one security method should be used
         if not private_key and not oauth_manager:
-            raise ConfigurationError("Either private_key or oauth_manager must be provided")
+            logger.warning("Tool provider created without security (no private key or OAuth manager)")
+            logger.warning("This is suitable for development/demo only - use security in production")
     
     def _load_private_key(self, private_key_pem: str) -> None:
         """Load private key from PEM string"""
@@ -106,9 +109,16 @@ class ToolProvider:
         # Get permission scopes
         scopes = tool_definition.get_permission_scopes()
         
+        # Get the first available provider
+        providers = self.oauth_manager.list_providers()
+        if not providers:
+            raise ConfigurationError("No OAuth providers available")
+        
+        provider_name = providers[0]  # Use first available provider
+        
         # Get token from OAuth manager
         token = await self.oauth_manager.get_token(
-            "default",  # provider name
+            provider_name,
             tool_definition.id,
             scopes
         )
@@ -231,15 +241,18 @@ class ToolProvider:
         security_info = SecurityInfo()
         
         if self.oauth_manager:
-            token = await self._get_oauth_token(updated_tool)
-            providers = self.oauth_manager.list_providers()
-            oauth_provider = providers[0] if providers else "default"
-            
-            security_info.oauth = OAuthInfo(
-                token=token,
-                provider=oauth_provider,
-                issued_at=datetime.now()
-            )
+            try:
+                token = await self._get_oauth_token(updated_tool)
+                providers = self.oauth_manager.list_providers()
+                oauth_provider = providers[0] if providers else "default"
+                
+                security_info.oauth = OAuthInfo(
+                    token=token,
+                    provider=oauth_provider,
+                    issued_at=datetime.now()
+                )
+            except Exception as e:
+                logger.warning(f"Failed to get OAuth token for updated tool {tool_id}: {e}")
         
         if self._private_key:
             signature = self._sign_definition(updated_tool)

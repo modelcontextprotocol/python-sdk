@@ -16,6 +16,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Dict, Any
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -29,22 +30,24 @@ async def demo_tool_provider_sdk():
     
     try:
         from mcp.etdi.server.tool_provider import ToolProvider
-        from mcp.etdi.types import Permission
+        from mcp.etdi.types import Permission, OAuthConfig
+        from mcp.etdi.oauth import OAuthManager, Auth0Provider
         
-        # Create a tool provider
-        provider = ToolProvider(
-            provider_id="demo-provider",
-            provider_name="Demo Tool Provider",
-            private_key=None,  # Will use OAuth instead for demo
-            oauth_manager=None  # Simplified for demo
+        # First, demonstrate basic tool provider without OAuth
+        print("📋 Creating Basic Tool Provider (No OAuth)")
+        basic_provider = ToolProvider(
+            provider_id="basic-demo-provider",
+            provider_name="Basic Demo Tool Provider",
+            private_key=None,
+            oauth_manager=None
         )
         
-        # Register a tool
-        tool = await provider.register_tool(
-            tool_id="demo-calculator",
-            name="Demo Calculator",
+        # Register a basic tool without OAuth
+        basic_tool = await basic_provider.register_tool(
+            tool_id="basic-calculator",
+            name="Basic Calculator",
             version="1.0.0",
-            description="A demonstration calculator tool",
+            description="A basic calculator tool (no OAuth required)",
             schema={
                 "type": "object",
                 "properties": {
@@ -62,33 +65,197 @@ async def demo_tool_provider_sdk():
                     required=True
                 )
             ],
-            use_oauth=False  # Skip OAuth for demo
+            use_oauth=False  # No OAuth for this tool
         )
         
-        print(f"✅ Registered tool: {tool.name} (ID: {tool.id})")
-        print(f"   Version: {tool.version}")
-        print(f"   Permissions: {[p.name for p in tool.permissions]}")
+        print(f"✅ Registered basic tool: {basic_tool.name}")
+        print(f"   Tool ID: {basic_tool.id}")
+        print(f"   Version: {basic_tool.version}")
+        print(f"   OAuth Enabled: {basic_tool.security and basic_tool.security.oauth is not None}")
         
-        # Update the tool
-        updated_tool = await provider.update_tool(
-            tool_id="demo-calculator",
+        # Now demonstrate OAuth configuration (but handle auth failures gracefully)
+        print(f"\n📋 Creating OAuth-Enabled Tool Provider")
+        
+        # Create OAuth configuration using real Auth0 credentials
+        oauth_config = OAuthConfig(
+            provider="auth0",
+            client_id="2XrZkaLO4Tj7xlk4dLysqVVjETg2xNZo",  # ETDI Tool Registry (Test Application)
+            client_secret="demo-secret",  # Placeholder - would need real secret for production
+            domain=os.getenv("ETDI_AUTH0_DOMAIN", "your-auth0-domain.auth0.com"),
+            audience="https://api.etdi.example.com",  # ETDI Tool Registry API
+            scopes=["read", "write", "execute", "admin"]
+        )
+        
+        # Create OAuth manager and Auth0 provider
+        oauth_manager = OAuthManager()
+        auth0_provider = Auth0Provider(oauth_config)
+        oauth_manager.register_provider("auth0", auth0_provider)
+        
+        print(f"✅ OAuth Manager created with Auth0 provider")
+        print(f"   Provider: {oauth_config.provider}")
+        print(f"   Client ID: {oauth_config.client_id}")
+        print(f"   Domain: {oauth_config.domain}")
+        print(f"   Audience: {oauth_config.audience}")
+        
+        # Create a tool provider with OAuth integration
+        oauth_provider = ToolProvider(
+            provider_id="auth0-demo-provider",
+            provider_name="Auth0 Demo Tool Provider",
+            private_key=None,  # Using OAuth instead of cryptographic signing
+            oauth_manager=oauth_manager
+        )
+        
+        print(f"✅ Tool Provider created with OAuth integration")
+        
+        # Try to register a tool with OAuth authentication (handle auth failure gracefully)
+        print(f"\n🔐 Attempting OAuth-protected tool registration...")
+        
+        try:
+            oauth_tool = await oauth_provider.register_tool(
+                tool_id="auth0-secure-calculator",
+                name="Auth0 Secure Calculator",
+                version="1.0.0",
+                description="A secure calculator tool protected by Auth0 OAuth",
+                schema={
+                    "type": "object",
+                    "properties": {
+                        "operation": {"type": "string", "enum": ["add", "subtract", "multiply", "divide"]},
+                        "a": {"type": "number"},
+                        "b": {"type": "number"}
+                    },
+                    "required": ["operation", "a", "b"]
+                },
+                permissions=[
+                    Permission(
+                        name="calculate",
+                        description="Perform mathematical calculations",
+                        scope="execute",  # Maps to Auth0 API scope
+                        required=True
+                    ),
+                    Permission(
+                        name="read_results",
+                        description="Read calculation results",
+                        scope="read",  # Maps to Auth0 API scope
+                        required=True
+                    )
+                ],
+                use_oauth=True  # Enable OAuth for this tool
+            )
+            
+            print(f"🎉 SUCCESS! Registered OAuth-protected tool: {oauth_tool.name}")
+            print(f"   Tool ID: {oauth_tool.id}")
+            print(f"   Version: {oauth_tool.version}")
+            print(f"   OAuth Enabled: {oauth_tool.security and oauth_tool.security.oauth is not None}")
+            print(f"   Required Scopes: {[p.scope for p in oauth_tool.permissions if p.required]}")
+            
+        except Exception as oauth_error:
+            print(f"⚠️ OAuth tool registration failed (expected with demo credentials): {oauth_error}")
+            print(f"   This is normal - the demo uses placeholder credentials")
+            print(f"   In production, you would use real Auth0 client secrets")
+            
+            # Register the same tool without OAuth as fallback
+            fallback_tool = await oauth_provider.register_tool(
+                tool_id="fallback-secure-calculator",
+                name="Fallback Secure Calculator",
+                version="1.0.0",
+                description="A secure calculator tool (OAuth disabled for demo)",
+                schema={
+                    "type": "object",
+                    "properties": {
+                        "operation": {"type": "string", "enum": ["add", "subtract", "multiply", "divide"]},
+                        "a": {"type": "number"},
+                        "b": {"type": "number"}
+                    },
+                    "required": ["operation", "a", "b"]
+                },
+                permissions=[
+                    Permission(
+                        name="calculate",
+                        description="Perform mathematical calculations",
+                        scope="execute",
+                        required=True
+                    ),
+                    Permission(
+                        name="read_results",
+                        description="Read calculation results",
+                        scope="read",
+                        required=True
+                    )
+                ],
+                use_oauth=False  # Disable OAuth for demo
+            )
+            
+            print(f"✅ Registered fallback tool: {fallback_tool.name}")
+            print(f"   Tool ID: {fallback_tool.id}")
+            print(f"   OAuth Enabled: {fallback_tool.security and fallback_tool.security.oauth is not None}")
+        
+        # Update a tool to show versioning
+        updated_tool = await basic_provider.update_tool(
+            tool_id="basic-calculator",
             version="1.1.0",
-            description="Enhanced calculator with more operations"
+            description="Enhanced basic calculator with additional operations",
+            permissions=[
+                Permission(
+                    name="calculate",
+                    description="Perform mathematical calculations",
+                    scope="math:calculate",
+                    required=True
+                ),
+                Permission(
+                    name="advanced_math",
+                    description="Perform advanced mathematical operations",
+                    scope="math:advanced",
+                    required=False
+                )
+            ]
         )
         
-        print(f"✅ Updated tool to version: {updated_tool.version}")
+        print(f"\n✅ Updated tool to version: {updated_tool.version}")
+        print(f"   New permissions: {[p.name for p in updated_tool.permissions]}")
         
-        # Get provider stats
-        stats = provider.get_provider_stats()
-        print(f"📊 Provider Stats:")
-        print(f"   - Total tools: {stats['total_tools']}")
-        print(f"   - OAuth enabled: {stats['oauth_enabled_tools']}")
-        print(f"   - Signed tools: {stats['cryptographically_signed_tools']}")
+        # Get provider stats for both providers
+        basic_stats = basic_provider.get_provider_stats()
+        oauth_stats = oauth_provider.get_provider_stats()
+        
+        print(f"\n📊 Provider Statistics:")
+        print(f"   Basic Provider:")
+        print(f"     - Total tools: {basic_stats['total_tools']}")
+        print(f"     - OAuth enabled tools: {basic_stats['oauth_enabled_tools']}")
+        print(f"     - Cryptographically signed tools: {basic_stats['cryptographically_signed_tools']}")
+        
+        print(f"   OAuth Provider:")
+        print(f"     - Total tools: {oauth_stats['total_tools']}")
+        print(f"     - OAuth enabled tools: {oauth_stats['oauth_enabled_tools']}")
+        print(f"     - Cryptographically signed tools: {oauth_stats['cryptographically_signed_tools']}")
+        
+        # Demonstrate OAuth integration details
+        print(f"\n🔐 Auth0 Integration Details:")
+        print(f"   - Token endpoint: {auth0_provider.get_token_endpoint()}")
+        print(f"   - JWKS URI: {auth0_provider.get_jwks_uri()}")
+        print(f"   - Expected issuer: {auth0_provider._get_expected_issuer()}")
+        print(f"   - Required audience: {oauth_config.audience}")
+        print(f"   - Available scopes: {oauth_config.scopes}")
+        
+        print(f"\n🎯 Tool Provider SDK Features Demonstrated:")
+        print(f"   ✅ Basic tool registration (no OAuth)")
+        print(f"   ✅ OAuth provider configuration")
+        print(f"   ✅ Tool versioning and updates")
+        print(f"   ✅ Permission management")
+        print(f"   ✅ Provider statistics")
+        print(f"   ✅ Graceful OAuth failure handling")
+        
+        print(f"\n💡 Production Notes:")
+        print(f"   • Replace demo credentials with real Auth0 secrets")
+        print(f"   • Configure proper client grants in Auth0")
+        print(f"   • Use environment variables for sensitive data")
+        print(f"   • Implement proper error handling and retry logic")
         
         return True
         
     except Exception as e:
         print(f"❌ Tool Provider Demo failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
