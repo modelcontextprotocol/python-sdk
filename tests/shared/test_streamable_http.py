@@ -173,7 +173,7 @@ class ServerTest(Server):
                 )
 
                 # need to wait for long enough that the client can reliably stop the tool before this finishes
-                await anyio.sleep(1)
+                await anyio.sleep(0.3)
 
                 await ctx.session.send_log_message(
                     level="info",
@@ -183,7 +183,7 @@ class ServerTest(Server):
                 )
 
                 # Adding another message just to make it even less likely that this tool will exit before the client can stop it
-                await anyio.sleep(1)
+                await anyio.sleep(0.3)
 
                 await ctx.session.send_log_message(
                     level="info",
