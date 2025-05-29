@@ -218,7 +218,7 @@ class RootsCapability(BaseModel):
 
 
 class SamplingCapability(BaseModel):
-    """Capability for logging operations."""
+    """Capability for sampling operations."""
 
     model_config = ConfigDict(extra="allow")
 
