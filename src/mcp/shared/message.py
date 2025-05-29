@@ -30,6 +30,8 @@ class ServerMessageMetadata:
     """Metadata specific to server messages."""
 
     related_request_id: RequestId | None = None
+    # Request-specific context (e.g., headers, auth info)
+    request_context: object | None = None
 
 
 MessageMetadata = ClientMessageMetadata | ServerMessageMetadata | None
