@@ -18,26 +18,26 @@ ETDI is designed for **zero-friction adoption** with existing MCP infrastructure
 
 ### **🔌 Drop-in Integration**
 ```python
-# Existing MCP server becomes ETDI-secured with one decorator
+# Existing MCP server becomes ETDI-secured with FastMCP integration
 from mcp.server.fastmcp import FastMCP
+from mcp.etdi.server import ETDISecureServer
 
 app = FastMCP("My Server")
 
-# Before: Regular MCP tool
+# Add ETDI security to existing FastMCP tools
 @app.tool()
 def my_tool(data: str) -> str:
     return f"Processed: {data}"
 
-# After: ETDI-secured tool (existing code unchanged!)
-@app.tool(etdi=True, etdi_permissions=['data:read'])
-def my_tool(data: str) -> str:
-    return f"Processed: {data}"  # Same logic, now cryptographically secured
+# Enable ETDI security for the entire server
+etdi_server = ETDISecureServer(oauth_configs=[oauth_config])
+etdi_server.integrate_fastmcp(app)
 ```
 
 ### **🌐 Universal Discovery**
 ```python
 # ETDI client discovers ALL MCP servers (ETDI and non-ETDI)
-from mcp.etdi.client.etdi_client import ETDIClient
+from mcp.etdi.client import ETDIClient
 
 client = ETDIClient(config)
 await client.connect_to_server(["python", "-m", "any_mcp_server"], "server-name")
@@ -59,13 +59,15 @@ tools = await client.discover_tools()  # Works with any MCP server!
 - **Permission Management**: Fine-grained permission control with OAuth scopes
 - **Version Control**: Automatic detection of tool changes requiring re-approval
 - **Approval Management**: Encrypted storage of user tool approvals
-- **🔌 Seamless Integration**: Add security to existing MCP tools with simple decorators
+- **Request Signing**: RSA/ECDSA cryptographic signing for enhanced security
+- **Security Inspector Tools**: Built-in tools for security analysis and debugging
 
 ### Security Features
 - **Tool Poisoning Prevention**: Cryptographic verification prevents malicious tool impersonation
 - **Rug Pull Protection**: Version and permission change detection prevents unauthorized modifications
 - **Multiple Security Levels**: Basic, Enhanced, and Strict security modes
 - **Audit Logging**: Comprehensive security event logging
+- **Call Stack Verification**: Prevents unauthorized nested tool calls
 - **🛡️ Non-Breaking Security**: Security features don't break existing MCP workflows
 
 ## Installation
@@ -85,7 +87,7 @@ pip install mcp[etdi,dev]
 
 ```python
 import asyncio
-from mcp.etdi import ETDIClient, OAuthConfig
+from mcp.etdi import ETDIClient, OAuthConfig, SecurityLevel
 
 async def main():
     # Configure OAuth provider
@@ -94,14 +96,20 @@ async def main():
         client_id="your-client-id",
         client_secret="your-client-secret",
         domain="your-domain.auth0.com",
-        audience="https://your-api.example.com"
+        audience="https://your-api.example.com",
+        scopes=["read:tools", "execute:tools"]
     )
     
     # Initialize ETDI client
     async with ETDIClient({
-        "security_level": "enhanced",
-        "oauth_config": oauth_config.to_dict()
+        "security_level": SecurityLevel.ENHANCED,
+        "oauth_config": oauth_config.to_dict(),
+        "allow_non_etdi_tools": True,
+        "show_unverified_tools": False
     }) as client:
+        
+        # Connect to MCP servers
+        await client.connect_to_server(["python", "-m", "my_server"], "my-server")
         
         # Discover and verify tools
         tools = await client.discover_tools()
@@ -122,7 +130,8 @@ asyncio.run(main())
 
 ```python
 import asyncio
-from mcp.etdi import ETDISecureServer, OAuthConfig
+from mcp.etdi.server import ETDISecureServer
+from mcp.etdi import OAuthConfig
 
 async def main():
     # Configure OAuth
@@ -131,7 +140,9 @@ async def main():
             provider="auth0",
             client_id="your-client-id",
             client_secret="your-client-secret",
-            domain="your-domain.auth0.com"
+            domain="your-domain.auth0.com",
+            audience="https://your-api.example.com",
+            scopes=["read:tools", "execute:tools"]
         )
     ]
     
@@ -196,172 +207,66 @@ azure_config = OAuthConfig(
 )
 ```
 
-## 🔄 MCP Ecosystem Integration
+## Security Inspector Tools
 
-ETDI is designed to work seamlessly with the entire MCP ecosystem, providing security enhancements without breaking existing workflows.
+ETDI includes built-in security analysis and debugging tools:
 
-### **Connecting to Any MCP Server**
-
-ETDI clients can connect to and discover tools from **any MCP server**, whether it uses ETDI security or not:
+### Security Analyzer
 
 ```python
-from mcp.etdi.client.etdi_client import ETDIClient
+from mcp.etdi.inspector import SecurityAnalyzer
 
-# Connect to existing MCP servers
-client = ETDIClient(config)
+analyzer = SecurityAnalyzer()
 
-# Connect to a standard MCP server (no ETDI)
-await client.connect_to_server(["python", "-m", "mcp_weather_server"], "weather")
-
-# Connect to an ETDI-enabled server
-await client.connect_to_server(["python", "-m", "secure_banking_server"], "banking")
-
-# Connect to any MCP server via stdio
-await client.connect_to_server(["node", "my-js-mcp-server.js"], "js-server")
-
-# Discover tools from ALL connected servers
-all_tools = await client.discover_tools()
-
-# ETDI automatically handles security for ETDI tools,
-# and provides basic compatibility for non-ETDI tools
-for tool in all_tools:
-    if tool.verification_status.value == "verified":
-        print(f"✅ ETDI-secured: {tool.name}")
-    else:
-        print(f"🔓 Standard MCP: {tool.name}")
+# Analyze tool security
+result = await analyzer.analyze_tool(tool_definition)
+print(f"Security Score: {result.security_score}")
+print(f"Vulnerabilities: {result.vulnerabilities}")
 ```
 
-### **Upgrading Existing MCP Servers**
-
-Transform any existing MCP server into an ETDI-secured server with minimal changes:
+### Token Debugger
 
 ```python
-# BEFORE: Standard MCP server with FastMCP
-from mcp.server.fastmcp import FastMCP
+from mcp.etdi.inspector import TokenDebugger
 
-app = FastMCP("My Banking Server")
+debugger = TokenDebugger()
 
-@app.tool()
-def transfer_money(from_account: str, to_account: str, amount: float) -> str:
-    # Existing business logic unchanged
-    return f"Transferred ${amount} from {from_account} to {to_account}"
-
-@app.tool()
-def get_balance(account_id: str) -> str:
-    # Existing business logic unchanged
-    return f"Account {account_id} balance: $1,234.56"
-
-# AFTER: ETDI-secured server (same code + security decorators)
-from mcp.server.fastmcp import FastMCP
-
-app = FastMCP("My Banking Server")
-
-@app.tool(etdi=True, etdi_permissions=['banking:write'], etdi_max_call_depth=2)
-def transfer_money(from_account: str, to_account: str, amount: float) -> str:
-    # Same business logic - now cryptographically secured!
-    return f"Transferred ${amount} from {from_account} to {to_account}"
-
-@app.tool(etdi=True, etdi_permissions=['banking:read'])
-def get_balance(account_id: str) -> str:
-    # Same business logic - now with permission control!
-    return f"Account {account_id} balance: $1,234.56"
+# Debug JWT tokens
+debug_info = await debugger.debug_token(jwt_token)
+print(f"Token valid: {debug_info.valid}")
+print(f"Claims: {debug_info.claims}")
+print(f"Issues: {debug_info.issues}")
 ```
 
-### **Mixed Environment Support**
-
-ETDI supports mixed environments where some tools are secured and others are not:
+### OAuth Validator
 
 ```python
-# Client configuration for mixed environments
-config = ETDIClientConfig(
-    security_level=SecurityLevel.ENHANCED,  # Strict for ETDI tools
-    allow_non_etdi_tools=True,              # Allow standard MCP tools
-    show_unverified_tools=True              # Show all available tools
-)
+from mcp.etdi.inspector import OAuthValidator
 
-client = ETDIClient(config)
+validator = OAuthValidator()
 
-# Discover tools from multiple server types
-tools = await client.discover_tools()
-
-for tool in tools:
-    if tool.verification_status.value == "verified":
-        # ETDI tool - full security verification
-        await client.approve_tool(tool)
-        result = await client.invoke_tool(tool.id, params)
-    else:
-        # Standard MCP tool - basic compatibility mode
-        print(f"⚠️ Using unverified tool: {tool.name}")
-        # Still works, but without ETDI security guarantees
+# Validate OAuth configuration
+result = await validator.validate_provider("auth0", oauth_config)
+print(f"Configuration valid: {result.configuration_valid}")
+print(f"Provider reachable: {result.is_reachable}")
 ```
 
-### **Migration Strategies**
+## CLI Tools
 
-#### **1. Gradual Migration**
-```python
-# Start with basic security, upgrade incrementally
-@app.tool(etdi=True)  # Basic ETDI security
-def step1_tool(): pass
+ETDI provides command-line tools for configuration and debugging:
 
-@app.tool(etdi=True, etdi_permissions=['data:read'])  # Add permissions
-def step2_tool(): pass
+```bash
+# Initialize ETDI configuration
+python -m mcp.etdi.cli init --provider auth0
 
-@app.tool(etdi=True, etdi_permissions=['data:write'], etdi_max_call_depth=3)  # Full security
-def step3_tool(): pass
-```
+# Validate OAuth configuration
+python -m mcp.etdi.cli validate-oauth --config etdi-config.json
 
-#### **2. Parallel Deployment**
-```python
-# Run ETDI and non-ETDI versions side by side
-@app.tool()  # Original version for backward compatibility
-def legacy_calculator(a: int, b: int) -> int:
-    return a + b
+# Debug JWT tokens
+python -m mcp.etdi.cli debug-token --token "eyJ..."
 
-@app.tool(etdi=True, etdi_permissions=['math:calculate'])  # Secured version
-def secure_calculator(a: int, b: int) -> int:
-    return a + b  # Same logic, enhanced security
-```
-
-### **Ecosystem Compatibility Matrix**
-
-| Component | ETDI Client | Standard MCP Client | ETDI Server | Standard MCP Server |
-|-----------|-------------|-------------------|-------------|-------------------|
-| **ETDI Client** | ✅ Full Security | ✅ Discovers Tools | ✅ Full Security | ✅ Basic Compatibility |
-| **Standard MCP Client** | ✅ Basic Compatibility | ✅ Standard MCP | ✅ Basic Compatibility | ✅ Standard MCP |
-| **ETDI Server** | ✅ Full Security | ✅ Basic Compatibility | N/A | N/A |
-| **Standard MCP Server** | ✅ Basic Compatibility | ✅ Standard MCP | N/A | N/A |
-
-### **Real-World Integration Examples**
-
-#### **Enterprise Deployment**
-```python
-# Enterprise setup: Mix of legacy and secured systems
-enterprise_client = ETDIClient({
-    "security_level": "strict",           # Strict for financial tools
-    "allow_non_etdi_tools": True,         # Allow legacy systems
-    "oauth_config": enterprise_oauth      # Enterprise OAuth
-})
-
-# Connect to various systems
-await enterprise_client.connect_to_server(["python", "-m", "legacy_crm"], "crm")
-await enterprise_client.connect_to_server(["python", "-m", "secure_banking"], "banking")
-await enterprise_client.connect_to_server(["node", "analytics-server.js"], "analytics")
-
-# All tools available, security applied where possible
-tools = await enterprise_client.discover_tools()
-```
-
-#### **Development Environment**
-```python
-# Development: Relaxed security for testing
-dev_client = ETDIClient({
-    "security_level": "basic",            # Relaxed for development
-    "allow_non_etdi_tools": True,         # Allow all tools
-    "show_unverified_tools": True         # Show everything
-})
-
-# Test against any MCP server
-await dev_client.connect_to_server(["python", "-m", "test_server"], "test")
+# Analyze tool security
+python -m mcp.etdi.cli analyze-tool --tool-id "my-tool"
 ```
 
 ## Security Levels
@@ -379,6 +284,7 @@ await dev_client.connect_to_server(["python", "-m", "test_server"], "test")
 
 ### Strict
 - Full OAuth enforcement
+- Request signing required
 - No unverified tools allowed
 - Maximum security for sensitive environments
 
@@ -388,18 +294,47 @@ await dev_client.connect_to_server(["python", "-m", "test_server"], "test")
 - **ETDIClient**: Main client interface with security verification
 - **ETDIVerifier**: OAuth token verification and change detection
 - **ApprovalManager**: Encrypted storage of user approvals
-- **ETDISecureClientSession**: Enhanced MCP client session
+- **SecureSession**: Enhanced MCP client session with security
 
 ### Server-Side Components
 - **ETDISecureServer**: OAuth-protected MCP server
-- **OAuthSecurityMiddleware**: Security middleware for tool protection
+- **SecurityMiddleware**: Security middleware for tool protection
 - **TokenManager**: OAuth token lifecycle management
+- **ToolProvider**: Secure tool registration and management
 
 ### OAuth Providers
-- **Auth0Provider**: Auth0 integration
-- **OktaProvider**: Okta integration  
-- **AzureADProvider**: Azure AD integration
-- **OAuthManager**: Multi-provider management
+- **Auth0Provider**: Auth0 integration with JWKS validation
+- **OktaProvider**: Okta integration with custom scopes
+- **AzureADProvider**: Azure AD integration with tenant support
+- **OAuthManager**: Multi-provider management and failover
+
+### Inspector Tools
+- **SecurityAnalyzer**: Tool security analysis and scoring
+- **TokenDebugger**: JWT token debugging and validation
+- **OAuthValidator**: OAuth configuration validation
+- **CallStackVerifier**: Call stack verification and analysis
+
+## Request Signing
+
+For maximum security, ETDI supports cryptographic request signing:
+
+```python
+from mcp.etdi.client import ETDIClient
+from mcp.etdi import SecurityLevel
+
+# Enable request signing
+client = ETDIClient({
+    "security_level": SecurityLevel.STRICT,
+    "enable_request_signing": True,
+    "key_config": {
+        "algorithm": "RS256",
+        "key_size": 2048
+    }
+})
+
+# All tool invocations will be cryptographically signed
+result = await client.invoke_tool("secure-tool", params)
+```
 
 ## Examples
 
@@ -408,6 +343,10 @@ See the `examples/etdi/` directory for comprehensive examples:
 - `basic_usage.py`: Basic ETDI client usage
 - `oauth_providers.py`: OAuth provider configurations
 - `secure_server_example.py`: Secure server implementation
+- `inspector_example.py`: Security analysis tools
+- `call_stack_example.py`: Call stack verification
+- `e2e_secure_client.py`: End-to-end secure client
+- `e2e_secure_server.py`: End-to-end secure server
 
 ## Testing
 
@@ -423,22 +362,94 @@ Run with coverage:
 pytest tests/etdi/ --cov=src/mcp/etdi --cov-report=html
 ```
 
+Run specific test categories:
+
+```bash
+# OAuth provider tests
+pytest tests/etdi/test_oauth_providers.py
+
+# Security inspector tests
+pytest tests/etdi/test_inspector.py
+
+# Integration tests
+pytest tests/etdi/test_integration.py
+
+# Request signing tests
+pytest tests/etdi/test_request_signing.py
+```
+
+## Deployment
+
+### Docker Deployment
+
+```bash
+# Build ETDI-enabled container
+docker build -f deployment/docker/Dockerfile -t my-etdi-server .
+
+# Run with configuration
+docker run -v $(pwd)/deployment/config:/config my-etdi-server
+```
+
+### Docker Compose
+
+```bash
+# Start complete ETDI environment
+docker-compose -f deployment/docker/docker-compose.yml up
+```
+
 ## Security Considerations
 
 ### Tool Verification
 - Always verify tools before approval
 - Monitor for version and permission changes
 - Use appropriate security levels for your environment
+- Implement proper call stack depth limits
 
 ### OAuth Configuration
 - Store OAuth credentials securely
 - Use appropriate scopes for your tools
 - Implement proper token rotation
+- Validate OAuth provider configurations
 
 ### Permission Management
 - Follow principle of least privilege
 - Regularly audit tool permissions
 - Monitor approval and usage patterns
+- Use fine-grained permission scopes
+
+### Request Signing
+- Use strong cryptographic algorithms (RS256, ES256)
+- Implement proper key rotation
+- Validate signatures on all requests
+- Monitor for signature validation failures
+
+## Troubleshooting
+
+### Common Issues
+
+1. **OAuth Token Validation Failures**
+   ```bash
+   python -m mcp.etdi.cli debug-token --token "your-token"
+   ```
+
+2. **Provider Configuration Issues**
+   ```bash
+   python -m mcp.etdi.cli validate-oauth --config etdi-config.json
+   ```
+
+3. **Tool Security Analysis**
+   ```bash
+   python -m mcp.etdi.cli analyze-tool --tool-id "problematic-tool"
+   ```
+
+### Debug Mode
+
+Enable debug logging for detailed troubleshooting:
+
+```python
+import logging
+logging.getLogger('mcp.etdi').setLevel(logging.DEBUG)
+```
 
 ## Contributing
 
@@ -455,10 +466,9 @@ MIT License - see LICENSE file for details.
 
 ## Documentation
 
-- [Core Documentation](docs/core/README.md)
-- [Development Guide](docs/development/README.md)
-- [Implementation Guide](docs/implementation/README.md)
-- [API Reference](docs/development/api-reference.md)
+- [Integration Guide](INTEGRATION_GUIDE.md)
+- [API Reference](docs/api.md)
+- [Security Best Practices](docs/security.md)
 
 ## Support
 

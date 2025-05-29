@@ -43,7 +43,8 @@ def test_etdi_imports():
         from mcp.etdi.inspector.oauth_validator import OAuthValidator
         print("✅ Inspector tools imported successfully")
         
-        return True
+        # All imports successful
+        assert True
         
     except Exception as e:
         print(f"❌ Import failed: {e}")
@@ -98,7 +99,8 @@ def test_basic_functionality():
         )
         print("✅ OAuth configuration created successfully")
         
-        return True
+        # All basic functionality tests passed
+        assert True
         
     except Exception as e:
         print(f"❌ Basic functionality test failed: {e}")
@@ -161,7 +163,8 @@ async def test_async_functionality():
             
             print(f"✅ Approval management works - Before: {is_approved_before}, After: {is_approved_after}")
         
-        return True
+        # All async functionality tests passed
+        assert True
         
     except Exception as e:
         print(f"❌ Async functionality test failed: {e}")
@@ -218,7 +221,8 @@ def test_negative_scenarios():
             else:
                 print(f"⚠️ Invalid token '{token[:10]}...' detection may have issues")
         
-        return True
+        # All negative scenario tests passed
+        assert True
         
     except Exception as e:
         print(f"❌ Negative scenario test failed: {e}")

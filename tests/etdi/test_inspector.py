@@ -65,7 +65,8 @@ def oauth_config():
         client_id="test-client-id",
         client_secret="test-client-secret",
         domain="test.auth0.com",
-        audience="https://test-api.example.com"
+        audience="https://test-api.example.com",
+        scopes=["read:tools", "execute:tools"]
     )
 
 

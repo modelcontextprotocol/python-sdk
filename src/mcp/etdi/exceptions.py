@@ -199,3 +199,29 @@ class StorageError(ETDIError):
             "operation": operation,
             "storage_type": storage_type
         })
+
+
+class KeyExchangeError(ETDIError):
+    """Raised when cryptographic key exchange fails"""
+    
+    def __init__(self, message: str, entity_id: Optional[str] = None, protocol: Optional[str] = None):
+        super().__init__(message, "KEY_EXCHANGE_ERROR")
+        self.entity_id = entity_id
+        self.protocol = protocol
+        self.details.update({
+            "entity_id": entity_id,
+            "protocol": protocol
+        })
+
+
+class RequestSigningError(ETDIError):
+    """Raised when request signing operations fail"""
+    
+    def __init__(self, message: str, key_id: Optional[str] = None, operation: Optional[str] = None):
+        super().__init__(message, "REQUEST_SIGNING_ERROR")
+        self.key_id = key_id
+        self.operation = operation
+        self.details.update({
+            "key_id": key_id,
+            "operation": operation
+        })

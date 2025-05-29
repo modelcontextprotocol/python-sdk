@@ -80,13 +80,15 @@ class TestAuth0Provider:
         mock_response.status_code = 200
         mock_response.json.return_value = {"access_token": mock_jwt_token}
         
-        with patch.object(provider, 'http_client') as mock_client:
-            mock_client.post = AsyncMock(return_value=mock_response)
-            
-            token = await provider.get_token("test-tool", ["read:tools"])
-            
-            assert token == mock_jwt_token
-            mock_client.post.assert_called_once()
+        # Set up mock client directly
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        provider._test_http_client = mock_client
+        
+        token = await provider.get_token("test-tool", ["read:tools"])
+        
+        assert token == mock_jwt_token
+        mock_client.post.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_get_token_failure(self, auth0_config):
@@ -102,11 +104,13 @@ class TestAuth0Provider:
         }
         mock_response.headers = {"content-type": "application/json"}
         
-        with patch.object(provider, 'http_client') as mock_client:
-            mock_client.post = AsyncMock(return_value=mock_response)
-            
-            with pytest.raises(OAuthError) as exc_info:
-                await provider.get_token("test-tool", ["read:tools"])
+        # Set up mock client directly
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        provider._test_http_client = mock_client
+        
+        with pytest.raises(OAuthError) as exc_info:
+            await provider.get_token("test-tool", ["read:tools"])
             
             assert "Auth0 token request failed" in str(exc_info.value)
             assert exc_info.value.oauth_error == "invalid_client"
@@ -241,22 +245,24 @@ class TestAzureADProvider:
         mock_response.status_code = 200
         mock_response.json.return_value = {"access_token": mock_jwt_token}
         
-        with patch.object(provider, 'http_client') as mock_client:
-            mock_client.post = AsyncMock(return_value=mock_response)
-            
-            # Test with custom permissions that should be formatted
-            await provider.get_token("test-tool", ["read:data", "write:data"])
-            
-            # Verify the call was made with properly formatted scopes
-            call_args = mock_client.post.call_args
-            data = call_args[1]['data']
-            
-            # Should format custom scopes with app ID prefix
-            expected_scopes = [
-                f"api://{azure_config.client_id}/read:data",
-                f"api://{azure_config.client_id}/write:data"
-            ]
-            assert data['scope'] == " ".join(expected_scopes)
+        # Set up mock client directly
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        provider._test_http_client = mock_client
+        
+        # Test with custom permissions that should be formatted
+        await provider.get_token("test-tool", ["read:data", "write:data"])
+        
+        # Verify the call was made with properly formatted scopes
+        call_args = mock_client.post.call_args
+        data = call_args[1]['data']
+        
+        # Should format custom scopes with app ID prefix
+        expected_scopes = [
+            f"api://{azure_config.client_id}/read:data",
+            f"api://{azure_config.client_id}/write:data"
+        ]
+        assert data['scope'] == " ".join(expected_scopes)
     
     @pytest.mark.asyncio
     async def test_validate_token_azure_claims(self, azure_config):

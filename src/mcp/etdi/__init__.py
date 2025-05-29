@@ -145,7 +145,8 @@ if _mcp_client_available:
         "ETDISecureClientSession",
     ])
 
-if _mcp_server_available:
+# Always add ETDISecureServer if it was successfully imported
+if _mcp_server_available or 'ETDISecureServer' in globals():
     __all__.extend([
         "ETDISecureServer",
     ])

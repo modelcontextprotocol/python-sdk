@@ -50,12 +50,13 @@ from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 
 # Try to import ETDI components
+# Lazy import ETDI to avoid circular dependencies
+ETDI_AVAILABLE = False
 try:
-    from mcp.etdi import ETDIToolDefinition, CallStackConstraints, Permission, SecurityInfo
-    from mcp.etdi.types import OAuthConfig
+    import mcp.etdi.types
     ETDI_AVAILABLE = True
 except ImportError:
-    ETDI_AVAILABLE = False
+    pass
 
 
 class SecurityError(Exception):
@@ -194,8 +195,11 @@ class FastMCP:
         
         # ETDI security components
         if ETDI_AVAILABLE:
-            from mcp.etdi import CallStackVerifier
-            self._etdi_verifier = CallStackVerifier()
+            try:
+                from mcp.etdi import CallStackVerifier
+                self._etdi_verifier = CallStackVerifier()
+            except ImportError:
+                self._etdi_verifier = None
             self._current_session_id = "fastmcp_session"
             self._current_user_permissions = []  # Will be set by auth middleware
         else:
@@ -372,6 +376,7 @@ class FastMCP:
         etdi_max_call_depth: int | None = None,
         etdi_allowed_callees: list[str] | None = None,
         etdi_blocked_callees: list[str] | None = None,
+        etdi_require_request_signing: bool = False,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
 
@@ -389,6 +394,7 @@ class FastMCP:
             etdi_max_call_depth: Maximum call stack depth for this tool
             etdi_allowed_callees: List of tool IDs this tool is allowed to call
             etdi_blocked_callees: List of tool IDs this tool is blocked from calling
+            etdi_require_request_signing: Require cryptographic request signing (STRICT security level only)
 
         Example:
             @server.tool()
@@ -403,6 +409,10 @@ class FastMCP:
             @server.tool(etdi=True, etdi_permissions=['data:read'], etdi_max_call_depth=3)
             def secure_tool(x: int) -> str:
                 return f"Securely processed: {x}"
+
+            @server.tool(etdi=True, etdi_require_request_signing=True, etdi_permissions=['banking:write'])
+            def ultra_secure_tool(amount: float) -> str:
+                return f"Ultra-secure transaction: ${amount}"
 
             @server.tool()
             async def async_tool(x: int, context: Context) -> str:
@@ -419,6 +429,9 @@ class FastMCP:
         def decorator(fn: AnyFunction) -> AnyFunction:
             # Handle ETDI integration
             if etdi and ETDI_AVAILABLE:
+                # Lazy import ETDI components
+                from mcp.etdi import ETDIToolDefinition, CallStackConstraints, Permission
+                
                 # Create ETDI tool definition
                 tool_name = name or fn.__name__
                 tool_description = description or fn.__doc__ or f"Tool: {tool_name}"
@@ -458,9 +471,10 @@ class FastMCP:
                 # Store ETDI metadata on the function for later use
                 fn._etdi_tool_definition = etdi_tool
                 fn._etdi_enabled = True
+                fn._etdi_require_request_signing = etdi_require_request_signing
                 
                 # AUTOMATICALLY wrap the function with security enforcement
-                fn = self._wrap_with_etdi_security(fn, etdi_tool)
+                fn = self._wrap_with_etdi_security(fn, etdi_tool, etdi_require_request_signing)
                 
             elif etdi and not ETDI_AVAILABLE:
                 # Warn if ETDI requested but not available
@@ -481,27 +495,45 @@ class FastMCP:
 
         return decorator
     
-    def _wrap_with_etdi_security(self, fn: AnyFunction, etdi_tool: 'ETDIToolDefinition') -> AnyFunction:
+    def _wrap_with_etdi_security(self, fn: AnyFunction, etdi_tool: 'ETDIToolDefinition', require_request_signing: bool = False) -> AnyFunction:
         """Automatically wrap function with ETDI security enforcement"""
         if not ETDI_AVAILABLE:
             return fn
             
         def security_wrapper(*args, **kwargs):
-            # 1. Check permissions
+            # 1. Check request signing (STRICT security level only)
+            if require_request_signing:
+                # Lazy import to avoid circular dependency
+                from mcp.etdi.types import SecurityLevel
+                from mcp.etdi.exceptions import SecurityError
+                
+                if self.settings.security_level == SecurityLevel.STRICT:
+                    if not self._verify_request_signature():
+                        raise SecurityError("Request signature verification failed. This tool requires cryptographic request signing.")
+                elif self.settings.security_level != SecurityLevel.STRICT:
+                    # Warn but don't block - backward compatibility
+                    import warnings
+                    warnings.warn(
+                        f"Tool '{etdi_tool.name}' requires request signing but server is not in STRICT security mode. "
+                        "Request signing is only enforced in STRICT mode for backward compatibility.",
+                        UserWarning
+                    )
+            
+            # 2. Check permissions
             if etdi_tool.permissions:
                 required_perms = [p.scope for p in etdi_tool.permissions if p.required]
                 if not self._check_permissions(required_perms):
                     missing = set(required_perms) - set(self._current_user_permissions)
                     raise PermissionError(f"Access denied. Missing permissions: {missing}")
             
-            # 2. Verify call stack constraints
+            # 3. Verify call stack constraints
             if etdi_tool.call_stack_constraints and self._etdi_verifier:
                 try:
                     self._etdi_verifier.verify_call(etdi_tool, session_id=self._current_session_id)
                 except Exception as e:
                     raise SecurityError(f"ETDI security violation: {e}")
             
-            # 3. Execute the original function if security checks pass
+            # 4. Execute the original function if security checks pass
             return fn(*args, **kwargs)
         
         # Preserve function metadata
@@ -509,6 +541,7 @@ class FastMCP:
         security_wrapper.__doc__ = fn.__doc__
         security_wrapper._etdi_tool_definition = etdi_tool
         security_wrapper._etdi_enabled = True
+        security_wrapper._etdi_require_request_signing = require_request_signing
         
         return security_wrapper
     
@@ -519,6 +552,67 @@ class FastMCP:
     def set_user_permissions(self, permissions: list[str]) -> None:
         """Set current user permissions (called by auth middleware)"""
         self._current_user_permissions = permissions
+    
+    def _verify_request_signature(self) -> bool:
+        """Verify cryptographic signature of the current request"""
+        if not ETDI_AVAILABLE or not hasattr(self, '_signature_verifier'):
+            return False
+        
+        try:
+            # Get current request context
+            request_context = self.get_context().request_context
+            if not request_context:
+                return False
+            
+            # Extract request details (this would need to be implemented based on transport)
+            # For now, we'll simulate the verification
+            headers = getattr(request_context, 'headers', {})
+            
+            # Check for signature headers
+            signature = headers.get('X-ETDI-Signature')
+            key_id = headers.get('X-ETDI-Key-ID')
+            timestamp = headers.get('X-ETDI-Timestamp')
+            
+            if not all([signature, key_id, timestamp]):
+                return False
+            
+            # Verify signature using the signature verifier
+            # This is a simplified implementation - in practice, you'd need
+            # to reconstruct the full request details
+            method = getattr(request_context, 'method', 'POST')
+            url = getattr(request_context, 'url', '/mcp/tools/call')
+            body = getattr(request_context, 'body', '')
+            
+            is_valid, error = self._signature_verifier.verify_request_signature(
+                method, url, headers, body
+            )
+            
+            if not is_valid:
+                logger.warning(f"Request signature verification failed: {error}")
+            
+            return is_valid
+            
+        except Exception as e:
+            logger.error(f"Error verifying request signature: {e}")
+            return False
+    
+    def initialize_request_signing(self, key_store_path: str | None = None) -> None:
+        """Initialize request signing verification (STRICT mode only)"""
+        if not ETDI_AVAILABLE:
+            return
+        
+        try:
+            from mcp.etdi.crypto import KeyManager, SignatureVerifier
+            
+            key_manager = KeyManager(key_store_path)
+            self._signature_verifier = SignatureVerifier(key_manager)
+            self._key_manager = key_manager
+            
+            logger.info("Request signing verification initialized")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize request signing: {e}")
+            raise
 
     def add_resource(self, resource: Resource) -> None:
         """Add a resource to the server.

@@ -57,6 +57,10 @@ class ETDIClient:
         self._mcp_sessions: Dict[str, ClientSession] = {}
         self._discovered_tools: Dict[str, ETDIToolDefinition] = {}
         
+        # Request signing components
+        self._request_signer = None
+        self._key_exchange_manager = None
+        
         # Event system integration
         self.event_emitter = get_event_emitter()
         
@@ -85,6 +89,10 @@ class ETDIClient:
                 encryption_key=storage_config.get("encryption_key")
             )
             
+            # Initialize request signing if enabled
+            if self.config.enable_request_signing or self.config.security_level == SecurityLevel.STRICT:
+                await self._initialize_request_signing()
+            
             # Initialize OAuth manager
             await self.oauth_manager.initialize_all()
             
@@ -95,7 +103,7 @@ class ETDIClient:
                 EventType.CLIENT_INITIALIZED,
                 "etdi_client",
                 "ETDIClient",
-                data={"security_level": self.config.security_level.value}
+                data={"security_level": self.config.security_level.value if hasattr(self.config.security_level, 'value') else str(self.config.security_level)}
             )
             
             logger.info("ETDI client initialized successfully")
@@ -445,6 +453,17 @@ class ETDIClient:
             
             session = self._mcp_sessions[server_id]
             
+            # Sign request if tool requires it
+            if tool.require_request_signing and self._request_signer:
+                # Create signature headers for the tool invocation
+                signature_headers = self._request_signer.sign_tool_invocation(tool_id, params)
+                
+                # Add signature headers to the session (implementation would depend on transport)
+                if hasattr(session, 'add_headers'):
+                    session.add_headers(signature_headers)
+                
+                logger.debug(f"Signed request for tool {tool_id} requiring request signing")
+            
             # Invoke tool via MCP
             result = await session.call_tool(tool_id, params)
             
@@ -676,6 +695,34 @@ class ETDIClient:
                     callback(data)
                 except Exception as e:
                     logger.error(f"Error in event callback for {event}: {e}")
+    
+    async def _initialize_request_signing(self) -> None:
+        """Initialize request signing components"""
+        try:
+            from ..crypto import KeyManager, RequestSigner, KeyExchangeManager
+            
+            # Initialize key manager
+            key_config = self.config.key_config or {}
+            key_store_path = key_config.get("private_key_path") or "~/.etdi/keys/client"
+            
+            key_manager = KeyManager(key_store_path)
+            
+            # Create or load client key pair
+            client_key_id = f"etdi-client-{hash(str(self.config))}"
+            key_pair = key_manager.get_or_create_key_pair(client_key_id)
+            
+            # Initialize request signer
+            self._request_signer = RequestSigner(key_manager, client_key_id)
+            
+            # Initialize key exchange manager
+            self._key_exchange_manager = KeyExchangeManager(key_manager, client_key_id)
+            
+            logger.info("Request signing initialized for ETDI client")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize request signing: {e}")
+            if self.config.security_level == SecurityLevel.STRICT:
+                raise ETDIError(f"Request signing required in STRICT mode but initialization failed: {e}")
     
     async def _setup_oauth_providers(self) -> None:
         """Setup OAuth providers from configuration"""

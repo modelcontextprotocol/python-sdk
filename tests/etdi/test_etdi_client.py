@@ -258,7 +258,11 @@ class TestETDIClient:
              patch.object(client, 'verifier') as mock_verifier, \
              patch.object(client, 'approval_manager') as mock_approval:
             
-            mock_init.return_value = None
+            # Mock initialize to set _initialized flag
+            async def mock_initialize():
+                client._initialized = True
+            mock_init.side_effect = mock_initialize
+            
             mock_verifier.get_verification_stats = AsyncMock(return_value=mock_verification_stats)
             mock_approval.get_storage_stats = AsyncMock(return_value=mock_storage_stats)
             
