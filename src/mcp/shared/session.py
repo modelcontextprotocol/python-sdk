@@ -14,6 +14,7 @@ from typing_extensions import Self
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.types import (
+    CONNECTION_CLOSED,
     CancelledNotification,
     ClientNotification,
     ClientRequest,
@@ -80,10 +81,12 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
             ReceiveNotificationT
         ]""",
         on_complete: Callable[["RequestResponder[ReceiveRequestT, SendResultT]"], Any],
+        message_metadata: MessageMetadata = None,
     ) -> None:
         self.request_id = request_id
         self.request_meta = request_meta
         self.request = request
+        self.message_metadata = message_metadata
         self._session = session
         self._completed = False
         self._cancel_scope = anyio.CancelScope()
@@ -364,6 +367,7 @@ class BaseSession(
                         request=validated_request,
                         session=self,
                         on_complete=lambda r: self._in_flight.pop(r.request_id, None),
+                        message_metadata=message.metadata,
                     )
 
                     self._in_flight[responder.request_id] = responder
@@ -416,6 +420,14 @@ class BaseSession(
                                 f"request ID: {message}"
                             )
                         )
+
+            # after the read stream is closed, we need to send errors
+            # to any pending requests
+            for id, stream in self._response_streams.items():
+                error = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
+                await stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))
+                await stream.aclose()
+            self._response_streams.clear()
 
     async def _received_request(
         self, responder: RequestResponder[ReceiveRequestT, SendResultT]
