@@ -248,14 +248,18 @@ class StreamableHTTPSessionManager:
                                 exc_info=True,
                             )
                         finally:
-                            # Cleanup logic
+                            # Only remove from instances if not terminated
                             if (
                                 http_transport.mcp_session_id
                                 and http_transport.mcp_session_id
                                 in self._server_instances
+                                and not (
+                                    hasattr(http_transport, "_terminated")
+                                    and http_transport._terminated
+                                )
                             ):
                                 logger.info(
-                                    "Cleaning up crashed/terminated session "
+                                    "Cleaning up crashed session "
                                     f"{http_transport.mcp_session_id} from "
                                     "active instances."
                                 )
