@@ -172,11 +172,22 @@ class ServerTest(Server):
                     related_request_id=ctx.request_id,  # need for stream association
                 )
 
-                await anyio.sleep(0.1)
+                # need to wait for long enough that the client can reliably stop the tool before this finishes
+                await anyio.sleep(1)
 
                 await ctx.session.send_log_message(
                     level="info",
                     data="Tool is almost done",
+                    logger="tool",
+                    related_request_id=ctx.request_id,
+                )
+
+                # Adding another message just to make it even less likely that this tool will exit before the client can stop it
+                await anyio.sleep(1)
+
+                await ctx.session.send_log_message(
+                    level="info",
+                    data="Tool is done",
                     logger="tool",
                     related_request_id=ctx.request_id,
                 )
@@ -1033,6 +1044,7 @@ async def test_streamablehttp_client_resumption(event_server):
     """Test client session to resume a long running tool."""
     _, server_url = event_server
 
+    print("what is happening")
     # Variables to track the state
     captured_session_id = None
     captured_resumption_token = None
@@ -1098,6 +1110,10 @@ async def test_streamablehttp_client_resumption(event_server):
                 while not tool_started or not captured_resumption_token:
                     await anyio.sleep(0.1)
                 tg.cancel_scope.cancel()
+
+    # Make sure we only have one notification.. otherwise the test is flaky
+    # More than one notification means the tool likely could have finished already and will not call the message handler again upon resumption
+    assert len(captured_notifications) == 1
 
     # Store pre notifications and clear the captured notifications
     # for the post-resumption check
