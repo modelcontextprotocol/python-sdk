@@ -108,8 +108,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-    try:
-        command = _get_executable_command(server.command)
+    command = _get_executable_command(server.command)
 
         # Open process with stderr piped for capture
         process = await _create_platform_compatible_process(
@@ -179,18 +178,12 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             yield read_stream, write_stream
         finally:
             # Clean up process to prevent any dangling orphaned processes
-            try:
-                if sys.platform == "win32":
-                    await terminate_windows_process(process)
-                else:
-                    process.terminate()
-            except ProcessLookupError:
-                # Process already exited, which is fine
-                pass
+            if sys.platform == "win32":
+                await terminate_windows_process(process)
+            else:
+                process.terminate()
             await read_stream.aclose()
             await write_stream.aclose()
-            await read_stream_writer.aclose()
-            await write_stream_reader.aclose()
 
 
 def _get_executable_command(command: str) -> str:

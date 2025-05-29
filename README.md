@@ -585,11 +585,14 @@ For low level server with Streamable HTTP implementations, see:
 - Stateful server: [`examples/servers/simple-streamablehttp/`](examples/servers/simple-streamablehttp/)
 - Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](examples/servers/simple-streamablehttp-stateless/)
 
+
+
 The streamable HTTP transport supports:
 - Stateful and stateless operation modes
 - Resumability with event stores
-- JSON or SSE response formats
+- JSON or SSE response formats  
 - Better scalability for multi-node deployments
+
 
 ### Mounting to an Existing ASGI Server
 
