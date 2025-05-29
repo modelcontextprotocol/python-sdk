@@ -8,7 +8,7 @@ from typing import Any, Generic, Protocol, TypeVar
 import anyio
 import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from typing_extensions import Self
 
 from mcp.shared.exceptions import McpError
@@ -357,7 +357,7 @@ class BaseSession(
                                 by_alias=True, mode="json", exclude_none=True
                             )
                         )
-                    except Exception as e:
+                    except ValidationError as e:
                         # For other validation errors, log and continue
                         logging.warning(
                             "Failed to validate request: %s. Message was: %s",
@@ -389,7 +389,7 @@ class BaseSession(
                                 by_alias=True, mode="json", exclude_none=True
                             )
                         )
-                    except Exception as e:
+                    except ValidationError as e:
                         # For other validation errors, log and continue
                         logging.warning(
                             "Failed to validate notification: %s. Message was: %s",
