@@ -17,6 +17,7 @@ theme:
         name: Switch to dark mode
 nav:
   - Home: index.md
+  - ETDI Concepts: etdi-concepts.md
   - Getting Started: getting-started.md
   - Attack Prevention:
       - Overview: attack-prevention.md

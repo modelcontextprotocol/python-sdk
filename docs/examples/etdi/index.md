@@ -52,6 +52,12 @@ This section provides an overview of the ETDI examples. Each example has its own
 -   **[`test_complete_security.py`](test_complete_security.md)**: Test suite for complete security validation.
 -   **[`verify_implementation.py`](verify_implementation.md)**: Verifies ETDI installation and configuration.
 
+### Request Signing Examples
+
+- **`request_signing_example.py`**: Demonstrates client-side request signing using RSA/ECDSA algorithms.
+- **`request_signing_server_example.py`**: Shows server-side signature verification for incoming requests.
+- **`comprehensive_request_signing_example.py`**: Provides an end-to-end workflow for request signing and verification between client and server.
+
 ### Specific Attack Demonstrations
 
 -   **[Tool Poisoning Demo](./tool_poisoning_demo.md)**: Contains a live demonstration of tool poisoning attacks and ETDI's prevention mechanisms. (Corresponds to `examples/etdi/tool_poisoning_demo/`)

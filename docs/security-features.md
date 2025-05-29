@@ -1,5 +1,7 @@
 # ETDI Security Features
 
+For a conceptual and architectural overview, see [ETDI Concepts](etdi-concepts.md).
+
 ETDI provides a rich set of security features designed to protect AI tool interactions at multiple levels. These features work together to ensure tool authenticity, enforce access control, monitor behavior, and provide comprehensive auditability.
 
 ## 1. Authentication
@@ -37,6 +39,34 @@ Ensuring tools are authentic, have not been tampered with, and their versions ar
 -   **Immutable Versioning**: Each version of a tool has a unique identifier, and its definition (including code references or hashes) is immutable. This is key to [Rug Poisoning Protection](attack-prevention/rug-poisoning.md).
 -   **Audit Logging for Security Monitoring**: ETDI supports robust audit logging (see section 4). These logs can be fed into external security monitoring systems (like SIEMs) to detect anomalous behavior (e.g., resource access patterns, API call frequency) and trigger alerts or manual intervention. The ETDI framework focuses on providing the necessary data for such external analysis and monitoring systems.
 -   **Approval Workflows**: ETDI clients require explicit user approval for new tools or new versions of existing tools, especially if permissions change. This gives users control over which tools can operate on their behalf.
+
+## 3a. Request Signing
+
+ETDI implements cryptographic request signing to ensure the authenticity and integrity of every tool invocation and API request. This feature provides:
+
+- **Supported Algorithms**: RSA (RS256, RS384, RS512) and ECDSA (ES256, ES384, ES512) signatures.
+- **Key Management**: Automatic key generation, rotation, and secure persistence using the ETDI key management subsystem.
+- **Integration**: Request signing is seamlessly integrated with ETDI tool definitions and is supported by FastMCP servers for both client and server-side verification.
+- **Backward Compatibility**: Request signing is non-breaking and existing tools continue to work without modification.
+
+**Implementation:**
+- Signing and verification logic is implemented in `src/mcp/etdi/crypto/request_signer.py`.
+- Key exchange and management is handled by `src/mcp/etdi/crypto/key_exchange.py`.
+- Comprehensive tests are in `tests/etdi/test_request_signing.py`.
+
+**Examples:**
+- Client-side signing: `examples/etdi/request_signing_example.py`
+- Server-side verification: `examples/etdi/request_signing_server_example.py`
+- End-to-end workflow: `examples/etdi/comprehensive_request_signing_example.py`
+
+Request signing provides strong guarantees that requests and tool invocations are authentic and have not been tampered with in transit.
+
+### Best Practices for Request Signing
+
+- Enable request signing for all sensitive or production deployments to ensure authenticity and integrity of requests.
+- You can adopt request signing incrementally—existing tools and clients will continue to work without modification.
+- Use strong key management practices and rotate keys regularly (handled automatically by ETDI).
+- Refer to the provided examples for client-side, server-side, and end-to-end signing workflows.
 
 ## 4. Audit Logging
 

@@ -33,6 +33,15 @@ Below is a summary of some important examples. Please refer to the specific sub-
 -   **Documentation**: [`docs/examples/etdi/tool_poisoning_demo.md`](./etdi/tool_poisoning_demo.md)
 -   **Description**: Demonstrates how ETDI prevents tool poisoning attacks by verifying tool authenticity and integrity.
 
+### Request Signing Examples
+
+- **File**: `examples/etdi/request_signing_example.py`
+  - **Description**: Demonstrates client-side request signing using RSA/ECDSA algorithms.
+- **File**: `examples/etdi/request_signing_server_example.py`
+  - **Description**: Shows server-side signature verification for incoming requests.
+- **File**: `examples/etdi/comprehensive_request_signing_example.py`
+  - **Description**: Provides an end-to-end workflow for request signing and verification between client and server.
+
 ## Navigating the Examples
 
 -   Each major example or category has its own index page within the `docs/examples/` directory.

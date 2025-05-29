@@ -1,5 +1,7 @@
 # Getting Started with ETDI
 
+For a conceptual overview of ETDI and its security model, see [ETDI Concepts](etdi-concepts.md).
+
 This guide will help you set up the Enhanced Tool Definition Interface (ETDI) security framework and create your first secure AI tool server.
 
 ## Prerequisites
@@ -62,6 +64,29 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+## Enabling Request Signing
+
+Request signing ensures that every tool invocation and API request is cryptographically signed and verifiable, protecting against tampering and impersonation. ETDI supports RSA and ECDSA algorithms, with automatic key management.
+
+Request signing is non-breaking and can be enabled incrementally—existing tools continue to work without modification.
+
+### Minimal Example
+
+```python
+from mcp.etdi import SecureServer
+
+server = SecureServer(
+    name="my-secure-server",
+    enable_request_signing=True,  # Enable request signing for all tools
+)
+
+@server.tool("secure_tool", etdi_require_request_signing=True)
+async def secure_tool(data: str) -> str:
+    return f"Signed and secure: {data}"
+```
+
+For a full end-to-end example, see [Request Signing Example](../examples/etdi/request_signing_example.py).
+
 ## Security Configuration
 
 Configure security levels and policies:
@@ -85,6 +110,7 @@ server = SecureServer(security_policy=policy)
 - [Authentication Setup](security-features.md): Configure OAuth and enterprise SSO
 - [Tool Poisoning Prevention](attack-prevention.md): Protect against malicious tools
 - [Examples](examples/index.md): Explore real-world examples and demos
+- [Request Signing Example](examples/etdi/request_signing_example.py): See how to implement and use request signing
 
 ## Verification
 
@@ -95,3 +121,25 @@ python examples/etdi/verify_implementation.py
 ```
 
 This script will verify that ETDI is properly installed and configured.
+
+## End-to-End ETDI Security Workflow
+
+Follow these steps for a complete, secure ETDI deployment:
+
+1. **Start a Secure Server**
+   - Use the Quick Start or Security Configuration examples above to launch a server with ETDI security features enabled.
+   - Optionally, enable request signing for all tools (see 'Enabling Request Signing' above).
+
+2. **Run a Secure Client**
+   - Use the ETDI client to discover, verify, and approve tools.
+   - Example: See `examples/etdi/basic_usage.py` for a minimal client workflow.
+
+3. **Invoke Tools Securely**
+   - Invoke tools from the client. If request signing is enabled, all invocations will be cryptographically signed and verified.
+   - Example: See `examples/etdi/request_signing_example.py` for client-side signing.
+
+4. **Check Security and Audit Logs**
+   - Review server and client output for verification status, approval, and audit logs.
+   - Example: See `examples/etdi/verify_implementation.py` to verify your setup.
+
+This workflow ensures that your tools are protected against tampering, impersonation, and unauthorized access, leveraging all core ETDI security features.

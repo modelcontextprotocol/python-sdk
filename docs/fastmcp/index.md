@@ -178,6 +178,7 @@ if __name__ == "__main__":
     )
     def file_processor(filename: str, content: str) -> str: # ...
     ```
+-   **Request Signing**: FastMCP servers support ETDI request signing for secure tool invocations, ensuring authenticity and integrity of every request. See `examples/etdi/request_signing_server_example.py` for usage.
 
 ## Benefits
 
