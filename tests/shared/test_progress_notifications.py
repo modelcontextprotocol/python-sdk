@@ -359,10 +359,10 @@ async def test_progress_callback_exception_logging():
     """Test that exceptions in progress callbacks are logged and \
         don't crash the session."""
     # Track logged warnings
-    logged_warnings = []
+    logged_errors = []
 
-    def mock_warning(msg, *args):
-        logged_warnings.append(msg % args if args else msg)
+    def mock_log_error(msg, *args):
+        logged_errors.append(msg % args if args else msg)
 
     # Create a progress callback that raises an exception
     async def failing_progress_callback(
@@ -399,7 +399,7 @@ async def test_progress_callback_exception_logging():
         ]
 
     # Test with mocked logging
-    with patch("mcp.shared.session.logging.warning", side_effect=mock_warning):
+    with patch("mcp.shared.session.logging.error", side_effect=mock_log_error):
         async with create_connected_server_and_client_session(server) as client_session:
             # Send a request with a failing progress callback
             result = await client_session.send_request(
@@ -422,8 +422,8 @@ async def test_progress_callback_exception_logging():
             assert content.text == "progress_result"
 
             # Check that a warning was logged for the progress callback exception
-            assert len(logged_warnings) > 0
+            assert len(logged_errors) > 0
             assert any(
                 "Progress callback raised an exception" in warning
-                for warning in logged_warnings
+                for warning in logged_errors
             )
