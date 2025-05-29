@@ -255,7 +255,7 @@ class StreamableHTTPSessionManager:
                                 in self._server_instances
                                 and not (
                                     hasattr(http_transport, "_terminated")
-                                    and http_transport._terminated
+                                    and http_transport._terminated  # pyright: ignore
                                 )
                             ):
                                 logger.info(
