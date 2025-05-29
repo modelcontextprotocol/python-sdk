@@ -351,7 +351,7 @@ class BaseSession(
             self._read_stream,
             self._write_stream,
         ):
-            async with asyncio.TaskGroup() as tg:
+            async with anyio.create_task_group() as tg:
                 async for message in self._read_stream:
                     if isinstance(message, Exception):
                         await self._handle_incoming(message)
@@ -374,14 +374,14 @@ class BaseSession(
                             message_metadata=message.metadata,
                         )
 
-                        self._in_flight[responder.request_id] = responder
-                        task = tg.create_task(self._received_request(responder))
-
-                        def _callback(task: asyncio.Task[None]) -> None:
+                        async def _handle_received_request() -> None:
+                            await self._received_request(responder)
                             if not responder._completed:  # type: ignore[reportPrivateUsage]
-                                tg.create_task(self._handle_incoming(responder))
+                                await self._handle_incoming(responder)
 
-                        task.add_done_callback(_callback)
+
+                        self._in_flight[responder.request_id] = responder
+                        tg.start_soon(_handle_received_request)
 
                     elif isinstance(message.message.root, JSONRPCNotification):
                         try:
