@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
@@ -378,7 +377,6 @@ class BaseSession(
                             await self._received_request(responder)
                             if not responder._completed:  # type: ignore[reportPrivateUsage]
                                 await self._handle_incoming(responder)
-
 
                         self._in_flight[responder.request_id] = responder
                         tg.start_soon(_handle_received_request)
