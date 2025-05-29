@@ -9,7 +9,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
-from mcp.server.fastmcp.resources.types import FunctionResource, Resource
+from mcp.server.fastmcp.resources.types import FunctionResource
+from mcp.server.fastmcp.resources.base import Resource
 
 
 class ResourceTemplate(BaseModel):
@@ -60,7 +61,16 @@ class ResourceTemplate(BaseModel):
     def matches(self, uri: str) -> dict[str, Any] | None:
         """Check if URI matches template and extract parameters."""
         # Convert template to regex pattern
-        pattern = self.uri_template.replace("{", "(?P<").replace("}", ">[^/]+)")
+        # Use a more permissive pattern that allows forward slashes in parameter values
+        pattern = self.uri_template
+        
+        # Find all parameter names in the template
+        param_names = re.findall(r"{([^}]+)}", pattern)
+        
+        # Replace each parameter with a named capture group that allows any character
+        for param_name in param_names:
+            pattern = pattern.replace(f"{{{param_name}}}", f"(?P<{param_name}>.+)")
+        
         match = re.match(f"^{pattern}$", uri)
         if match:
             return match.groupdict()
