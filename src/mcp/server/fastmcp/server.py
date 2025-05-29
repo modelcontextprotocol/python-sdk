@@ -854,7 +854,6 @@ class FastMCP:
             routes=routes,
             middleware=middleware,
             lifespan=lambda app: self.session_manager.run(),
-            redirect_slashes=False,
         )
 
     async def list_prompts(self) -> list[MCPPrompt]:
