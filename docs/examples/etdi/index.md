@@ -66,7 +66,7 @@ Many examples showcase these core ETDI capabilities:
 4.  **Call Stack Security**: Maximum depth limits, allowed/blocked callee lists, real-time verification.
 5.  **Enterprise Compliance**: Comprehensive audit trails, automated compliance checking, security scoring and reporting.
 
-## 🏢 Enterprise Use Cases (Conceptual Code Snippets)
+## 🏢 Illustrative Enterprise Use Cases
 
 These snippets illustrate how ETDI features might be applied in various sensitive contexts.
 
@@ -101,13 +101,6 @@ def doctor_lookup():  # Isolated access to identified data
 def process_classified():  # Cannot leak data externally
     pass
 ```
-
-## 📊 Measurable Security Improvements (Conceptual)
-
--   **90% fewer** privilege escalation paths through call chain controls
--   **100% verification** of tool authenticity through signatures
--   **50% faster** security audits through automated trails
--   **Zero** unauthorized data access through OAuth scopes
 
 ## 🚀 Getting Started with Examples
 

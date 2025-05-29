@@ -45,8 +45,7 @@ async def main():
     server = SecureServer(
         name="my-secure-server",
         security_level=SecurityLevel.HIGH,
-        enable_tool_verification=True,
-        enable_behavior_monitoring=True
+        enable_tool_verification=True
     )
     
     # Register a secure tool
@@ -73,7 +72,6 @@ from mcp.etdi.types import SecurityPolicy, SecurityLevel
 policy = SecurityPolicy(
     security_level=SecurityLevel.HIGH,
     require_tool_signatures=True,
-    enable_behavior_monitoring=True,
     enable_call_chain_validation=True,
     max_call_depth=10,
     audit_all_calls=True

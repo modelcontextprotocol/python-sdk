@@ -24,12 +24,12 @@ Tool Poisoning is a significant security threat in systems that utilize external
 The Enhanced Tool Definition Interface (ETDI) provides a robust framework to combat tool poisoning attacks through multiple layers of security:
 
 1.  **Cryptographic Signatures & Verification**:
-    *   **Authenticity**: Tools are cryptographically signed by their providers. ETDI clients verify these signatures against trusted provider public keys before execution.
+    *   **Authenticity**: Tools are cryptographically signed by their providers. ETDI clients verify these signatures, typically by having access to the provider's public key or by retrieving it from a trusted source, before execution.
     *   **Integrity**: The signature ensures that the tool's definition and metadata have not been tampered with since publication.
 
 2.  **Provider Authentication & Trust Management**:
-    *   **OAuth 2.0 Integration**: ETDI encourages tools to be protected by OAuth 2.0, ensuring that the tool provider is authenticated.
-    *   **Trusted Provider Registry (Conceptual)**: Systems can maintain a list of trusted provider identities and their corresponding public keys.
+    *   **OAuth 2.0 Integration**: ETDI encourages tools to be protected by OAuth 2.0, ensuring that the tool provider is authenticated. This helps confirm the identity of the entity serving the tool.
+    *   **Client-Side Verification**: The ETDI client is responsible for verifying the authenticity of the tool provider, often through mechanisms like checking the issuer of an OAuth token or validating a known signature.
 
 3.  **Rich Security Metadata**:
     *   ETDI tool definitions include comprehensive security metadata, such as required permissions (scopes), call stack constraints, and data handling policies.

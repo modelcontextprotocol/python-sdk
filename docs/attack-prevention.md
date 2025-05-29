@@ -7,7 +7,7 @@ ETDI provides robust protection against advanced AI security threats, including 
 Tool poisoning occurs when a malicious actor introduces or replaces a tool with a compromised version. ETDI prevents this via:
 
 - **Cryptographic Signatures**: All tools are signed and verified at registration and invocation. See [Tool Poisoning Demo](attack-prevention/tool-poisoning.md) for details.
-- **Behavioral Verification**: Tools are monitored for anomalous behavior and policy violations.
+- **Audit Logs for Monitoring**: Comprehensive audit logs capture tool activity, which can be fed into external monitoring systems to detect anomalous behavior and policy violations.
 - **Approval Workflow**: Users must explicitly approve new or changed tools before use.
 
 ### Example: Secure Tool Registration
@@ -70,25 +70,6 @@ ETDI implements call stack security through several mechanisms:
 These features collectively ensure that tool interactions are confined to well-defined boundaries, significantly reducing the attack surface.
 
 Refer to example scripts like `protocol_call_stack_example.py` and `caller_callee_authorization_example.py` in the [Examples & Demos](examples/index.md) section for practical implementations.
-
-## Call Chain Validation (Legacy)
-
-This section is an older description and is superseded by the more detailed "Call Stack Security" section above. It is kept for historical context but the principles are better elaborated above.
-
-- **Stack Constraints**: Prevents privilege escalation by enforcing max call depth and allowed call chains.
-- **Caller/Callee Authorization**: Only authorized tools can invoke each other.
-
-### Example: Call Chain Policy (Legacy)
-
-```python
-from mcp.etdi.types import SecurityPolicy
-
-policy = SecurityPolicy(
-    max_call_depth=5,
-    allowed_callers={"tool_a": ["tool_b", "tool_c"]}
-)
-server = SecureServer(security_policy=policy)
-```
 
 ## Real-World Attack Scenarios
 

@@ -28,25 +28,10 @@ ETDI employs a multi-layered defense strategy to detect and mitigate rug poisoni
 
 ### 1. Immutable Tool Versioning & Cryptographic Hashing
 
--   **Concept**: Every version of an ETDI tool definition (including its code, schema, permissions, and security policies) is cryptographically hashed. This hash acts as a unique, immutable fingerprint for that specific version.
--   **Protection**: If any part of the tool definition changes, the hash will change. ETDI clients can verify that the tool they are about to invoke matches the hash of the version they previously approved.
--   **Example**:
-    ```python
-    # Conceptual client-side check
-    approved_tool_version = "1.0.0"
-    approved_tool_hash = "sha256-abc123xyz789..." # Hash of Tool v1.0.0
-
-    # Client discovers tool 'SuperTool' v1.0.0 from server
-    # Server provides tool definition for 'SuperTool' v1.0.0
-    current_tool_hash = calculate_hash(tool_definition_from_server) # Conceptual hash calculation
-
-    if current_tool_hash != approved_tool_hash:
-        raise SecurityError(f"Tool 'SuperTool' v{approved_tool_version} has changed since approval! Possible rug pull.")
-    else:
-        # Proceed with invocation
-        print("Tool version and integrity verified.")
-    ```
--   **Relevant ETDI Features**: `ToolDefinition.version`. The hash is implicitly part of the signature and verification process. See [Security Features](../security-features.md#3-tool-integrity-verification) for details on tool verification.
+-   **Concept**: Every version of an ETDI tool definition (including its code, schema, permissions, and security policies) is ideally associated with a cryptographic hash. This hash acts as a unique, immutable fingerprint for that specific version.
+-   **Protection**: If any part of the tool definition changes, its hash would change. ETDI clients, through their verification mechanisms (often tied to cryptographic signatures which inherently hash the content), can detect if a tool has changed from a previously known and approved version. This prevents invoking a tool that has been altered since its last approval.
+-   **Verification Process**: When a client encounters a tool, it retrieves its definition. This definition is cryptographically signed by the provider. The signature verification process implicitly checks the integrity of the entire tool definition. If the client has previously approved a specific version (identified by its name and version string, and potentially its signature/hash), it can detect if the current version presented by the server is different or has been tampered with. A mismatch would lead to rejection or a re-approval requirement.
+-   **Relevant ETDI Features**: `ToolDefinition.version`, cryptographic signature verification which covers the integrity of the tool definition. See [Security Features](../security-features.md#3-tool-integrity-verification) for details on tool verification.
 
 ### 2. Change Detection & Re-approval Workflow
 

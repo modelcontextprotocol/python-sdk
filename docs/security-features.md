@@ -35,7 +35,7 @@ Ensuring tools are authentic, have not been tampered with, and their versions ar
 
 -   **Cryptographic Signatures**: Tool definitions can be cryptographically signed by their providers. ETDI clients verify these signatures to ensure the tool definition hasn't been altered since publication.
 -   **Immutable Versioning**: Each version of a tool has a unique identifier, and its definition (including code references or hashes) is immutable. This is key to [Rug Poisoning Protection](attack-prevention/rug-poisoning.md).
--   **Behavioral Verification & Monitoring (Conceptual)**: While direct real-time behavioral blocking might be an advanced feature, ETDI supports robust audit logging. These logs can be fed into external security monitoring systems (like SIEMs) to detect anomalous behavior (e.g., resource access patterns, API call frequency) and trigger alerts or manual intervention. The core ETDI framework focuses on providing the necessary data for such systems.
+-   **Audit Logging for Security Monitoring**: ETDI supports robust audit logging (see section 4). These logs can be fed into external security monitoring systems (like SIEMs) to detect anomalous behavior (e.g., resource access patterns, API call frequency) and trigger alerts or manual intervention. The ETDI framework focuses on providing the necessary data for such external analysis and monitoring systems.
 -   **Approval Workflows**: ETDI clients require explicit user approval for new tools or new versions of existing tools, especially if permissions change. This gives users control over which tools can operate on their behalf.
 
 ## 4. Audit Logging
@@ -65,7 +65,6 @@ from mcp.etdi.types import SecurityPolicy, SecurityLevel # OAuthConfig removed a
 policy = SecurityPolicy(
     security_level=SecurityLevel.HIGH,       # Or STRICT, ENHANCED, BASIC
     require_tool_signatures=True,
-    # enable_behavior_monitoring=True, # Removed conceptual flag
     enable_call_chain_validation=True,
     max_call_depth=5,
     audit_all_calls=True,

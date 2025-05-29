@@ -10,8 +10,8 @@ Prevent tool poisoning, rug poisoning, and unauthorized access with cryptographi
 - **👁️ Rug Poisoning Protection**: Change detection and reapproval workflows  
 - **🔐 Call Chain Validation**: Stack constraints and caller/callee authorization
 - **🔑 Enterprise Authentication**: OAuth 2.0, SAML, and SSO integration
-- **📊 Comprehensive Auditing**: Security events, compliance reporting, and forensics
-- **⚡ Real-time Monitoring**: Live threat detection and automated response
+- **📊 Comprehensive Auditing**: Detailed logs for security events, compliance, and forensics.
+- **📈 Data for Monitoring**: Provides rich data to feed into external real-time monitoring and threat detection systems.
 
 ## Quick Start
 
@@ -22,8 +22,7 @@ from mcp.etdi.auth import OAuthHandler
 # Create secure server with ETDI protection
 server = SecureServer(
     security_level="high",
-    enable_tool_verification=True,
-    enable_behavior_monitoring=True
+    enable_tool_verification=True
 )
 
 # Add OAuth authentication
