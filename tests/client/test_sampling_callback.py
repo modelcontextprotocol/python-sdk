@@ -89,6 +89,7 @@ async def test_concurrent_sampling_callback():
         params: CreateMessageRequestParams,
     ) -> CreateMessageResult:
         # Extract delay from the message content (e.g., "delay_0.3")
+        assert isinstance(params.messages[0].content, TextContent)
         message_text = params.messages[0].content.text
         if message_text.startswith("delay_"):
             delay = float(message_text.split("_")[1])

@@ -250,6 +250,7 @@ async def test_async_request_handling_with_taskgroup():
         )
 
         # Verify the request completed successfully
+        assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Waited 0.1s"
         assert len(completion_order) == 1
         assert completion_order[0] == 0.1
