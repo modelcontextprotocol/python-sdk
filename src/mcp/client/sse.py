@@ -102,9 +102,13 @@ async def sse_client(
                                             # Normalize ID to int if it's a numeric string.
                                             # Some non-standard SSE servers return numeric IDs as strings,
                                             # even if the original request used an integer ID.
-                                            if isinstance(message.root, types.JSONRPCResponse):
+                                            if isinstance(  # noqa: E501
+                                                    message.root, 
+                                                    types.JSONRPCResponse
+                                                ):
                                                 msg_id = message.root.id
-                                                if isinstance(msg_id, str) and msg_id.isdigit():
+                                                if (isinstance(msg_id, str) and 
+                                                    msg_id.isdigit()):
                                                     message.root.id = int(msg_id)
                                                 elif not isinstance(msg_id, int):
                                                     logger.warning(
@@ -112,7 +116,7 @@ async def sse_client(
                                                         f"invalid ID: {msg_id!r}"
                                                     )
                                                     continue
-
+                                            
                                             logger.debug(
                                                 f"Received server message: {message}"
                                             )
