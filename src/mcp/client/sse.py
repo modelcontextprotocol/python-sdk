@@ -98,6 +98,19 @@ async def sse_client(
                                             message = types.JSONRPCMessage.model_validate_json(  # noqa: E501
                                                 sse.data
                                             )
+                                            
+                                            # Extract the message ID safely from the root object
+                                            msg_id = getattr(getattr(message, "root", None), "id", None)
+                                    
+                                            # Normalize ID to integer if it's a numeric string
+                                            # Some non-standard SSE servers may return numeric IDs as strings,
+                                            # even if the original request used an integer ID.
+                                            if isinstance(msg_id, str) and msg_id.isdigit():
+                                                message.root.id = int(msg_id)
+                                            elif not isinstance(msg_id, int):
+                                                logger.warning(f"Ignored message with invalid ID: {msg_id!r}")
+                                                continue
+
                                             logger.debug(
                                                 f"Received server message: {message}"
                                             )
