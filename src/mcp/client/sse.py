@@ -99,9 +99,8 @@ async def sse_client(
                                                 sse.data
                                             )
                                             
-                                            # Normalize ID to int if it's a numeric string.
-                                            # Some non-standard SSE servers return numeric IDs as strings,
-                                            # even if the original request used an integer ID.
+                                            # Normalize ID to int 
+                                            # if it's a numeric string.
                                             if isinstance(  # noqa: E501
                                                     message.root, 
                                                     types.JSONRPCResponse
