@@ -172,7 +172,8 @@ class ServerTest(Server):
                     related_request_id=ctx.request_id,  # need for stream association
                 )
 
-                # need to wait for long enough that the client can reliably stop the tool before this finishes
+                # need to wait for long enough that the client can
+                # reliably stop the tool before this finishes
                 await anyio.sleep(0.3)
 
                 await ctx.session.send_log_message(
@@ -182,7 +183,9 @@ class ServerTest(Server):
                     related_request_id=ctx.request_id,
                 )
 
-                # Adding another message just to make it even less likely that this tool will exit before the client can stop it
+                # Adding another message just to make it even less
+                # likely that this tool will exit before the client
+                # can stop it
                 await anyio.sleep(0.3)
 
                 await ctx.session.send_log_message(
@@ -1111,7 +1114,8 @@ async def test_streamablehttp_client_resumption(event_server):
                 tg.cancel_scope.cancel()
 
     # Make sure we only have one notification.. otherwise the test is flaky
-    # More than one notification means the tool likely could have finished already and will not call the message handler again upon resumption
+    # More than one notification means the tool likely could have finished
+    # already and will not call the message handler again upon resumption
     assert len(captured_notifications) == 1
 
     # Store pre notifications and clear the captured notifications
@@ -1140,7 +1144,9 @@ async def test_streamablehttp_client_resumption(event_server):
             metadata = ClientMessageMetadata(
                 resumption_token=captured_resumption_token,
             )
-            # We need to wait for the tool to send another message so this doesn't deadlock.  Fixing is out of scope for this PR.  More details in https://github.com/modelcontextprotocol/python-sdk/issues/860
+            # We need to wait for the tool to send another message so this doesn't
+            # deadlock.  Fixing is out of scope for this PR.  More details in
+            # https://github.com/modelcontextprotocol/python-sdk/issues/860
             await anyio.sleep(0.2)
             result = await session.send_request(
                 types.ClientRequest(
@@ -1154,7 +1160,6 @@ async def test_streamablehttp_client_resumption(event_server):
                 types.CallToolResult,
                 metadata=metadata,
             )
-
 
             # We should get a complete result
             assert len(result.content) == 1
