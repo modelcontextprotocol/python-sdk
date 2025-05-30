@@ -134,7 +134,7 @@ mcp install server.py
 
 Alternatively, you can test it with the MCP Inspector:
 ```bash
-mcp dev server.py
+uv run mcp dev server.py
 ```
 
 ## What is MCP?
