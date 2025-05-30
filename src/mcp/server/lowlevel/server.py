@@ -405,7 +405,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                 ...,
                 Awaitable[
                     Iterable[
-                        types.TextContent | types.ImageContent | types.EmbeddedResource
+                        types.TextContent
+                        | types.ImageContent
+                        | types.AudioContent
+                        | types.EmbeddedResource
                     ]
                 ],
             ],

@@ -47,7 +47,12 @@ def main(
     @app.call_tool()
     async def call_tool(
         name: str, arguments: dict
-    ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+    ) -> list[
+        types.TextContent
+        | types.ImageContent
+        | types.AudioContent
+        | types.EmbeddedResource
+    ]:
         ctx = app.request_context
         interval = arguments.get("interval", 1.0)
         count = arguments.get("count", 5)
