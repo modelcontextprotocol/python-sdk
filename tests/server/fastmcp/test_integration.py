@@ -22,7 +22,7 @@ import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.resources import FunctionResource
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import RequestContext
@@ -101,10 +101,7 @@ def make_fastmcp_app():
 
 
 def make_everything_fastmcp() -> FastMCP:
-    """Create a FastMCP server with all features enabled for testing."""
-    from mcp.server.fastmcp import Context
-    from mcp.server.transport_security import TransportSecuritySettings
-    
+    """Create a FastMCP server with all features enabled for testing."""    
     transport_security = TransportSecuritySettings(
         allowed_hosts=["127.0.0.1:*", "localhost:*"],
         allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]

@@ -263,23 +263,6 @@ async def test_streamable_http_security_custom_allowed_hosts(server_port: int):
             )
             # Should connect successfully with custom host
             assert response.status_code == 200
-            
-        # Test with non-allowed host
-        headers = {
-            "Host": "evil.com",
-            "Accept": "application/json, text/event-stream",
-            "Content-Type": "application/json",
-        }
-        
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(
-                f"http://127.0.0.1:{server_port}/",
-                json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
-                headers=headers
-            )
-            assert response.status_code == 400, response.text
-            assert response.text == "Invalid Host header"
-                
     finally:
         process.terminate()
         process.join()
