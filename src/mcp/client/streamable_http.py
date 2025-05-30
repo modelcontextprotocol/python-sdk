@@ -463,7 +463,7 @@ async def streamablehttp_client(
 
     async with anyio.create_task_group() as tg:
         try:
-            logger.info(f"Connecting to StreamableHTTP endpoint: {url}")
+            logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 
             async with httpx_client_factory(
                 headers=transport.request_headers,

@@ -56,7 +56,7 @@ from mcp.server.transport_security import (
     TransportSecurityMiddleware,
     TransportSecuritySettings,
 )
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +227,9 @@ class SseServerTransport:
             await writer.send(err)
             return
 
-        session_message = SessionMessage(message)
+        # Pass the ASGI scope for framework-agnostic access to request data
+        metadata = ServerMessageMetadata(request_context=request)
+        session_message = SessionMessage(message, metadata=metadata)
         logger.debug(f"Sending session message to writer: {session_message}")
         response = Response("Accepted", status_code=202)
         await response(scope, receive, send)

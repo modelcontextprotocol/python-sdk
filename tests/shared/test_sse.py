@@ -1,3 +1,4 @@
+import json
 import multiprocessing
 import socket
 import time
@@ -17,6 +18,7 @@ from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import McpError
 from mcp.types import (
     EmptyResult,
@@ -371,7 +373,6 @@ class RequestContextServer(Server[object, Request]):
 
 def run_context_server(server_port: int) -> None:
     """Run a server that captures request context"""
-    from mcp.server.transport_security import TransportSecuritySettings
     # Configure security with allowed hosts/origins for testing
     security_settings = TransportSecuritySettings(
         allowed_hosts=["127.0.0.1:*", "localhost:*"],
