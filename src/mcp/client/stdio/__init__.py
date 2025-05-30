@@ -115,11 +115,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         process = await _create_platform_compatible_process(
             command=command,
             args=server.args,
-            env=(
-                {**get_default_environment(), **server.env}
-                if server.env is not None
-                else get_default_environment()
-            ),
+            env=({**get_default_environment(), **server.env} if server.env is not None else get_default_environment()),
             errlog=errlog,
             cwd=server.cwd,
         )
@@ -163,9 +159,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         try:
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
-                    json = session_message.message.model_dump_json(
-                        by_alias=True, exclude_none=True
-                    )
+                    json = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
                     await process.stdin.send(
                         (json + "\n").encode(
                             encoding=server.encoding,
@@ -229,8 +223,6 @@ async def _create_platform_compatible_process(
     if sys.platform == "win32":
         process = await create_windows_process(command, args, env, errlog, cwd)
     else:
-        process = await anyio.open_process(
-            [command, *args], env=env, stderr=errlog, cwd=cwd
-        )
+        process = await anyio.open_process([command, *args], env=env, stderr=errlog, cwd=cwd)
 
     return process

@@ -24,9 +24,7 @@ async def test_resource_templates():
     # Note: list_resource_templates() returns a decorator that wraps the handler
     # The handler returns a ServerResult with a ListResourceTemplatesResult inside
     result = await mcp._mcp_server.request_handlers[types.ListResourceTemplatesRequest](
-        types.ListResourceTemplatesRequest(
-            method="resources/templates/list", params=None
-        )
+        types.ListResourceTemplatesRequest(method="resources/templates/list", params=None)
     )
     assert isinstance(result.root, types.ListResourceTemplatesResult)
     templates = result.root.resourceTemplates

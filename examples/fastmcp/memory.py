@@ -47,18 +47,14 @@ mcp = FastMCP(
 
 DB_DSN = "postgresql://postgres:postgres@localhost:54320/memory_db"
 # reset memory with rm ~/.fastmcp/{USER}/memory/*
-PROFILE_DIR = (
-    Path.home() / ".fastmcp" / os.environ.get("USER", "anon") / "memory"
-).resolve()
+PROFILE_DIR = (Path.home() / ".fastmcp" / os.environ.get("USER", "anon") / "memory").resolve()
 PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
     a_array = np.array(a, dtype=np.float64)
     b_array = np.array(b, dtype=np.float64)
-    return np.dot(a_array, b_array) / (
-        np.linalg.norm(a_array) * np.linalg.norm(b_array)
-    )
+    return np.dot(a_array, b_array) / (np.linalg.norm(a_array) * np.linalg.norm(b_array))
 
 
 async def do_ai[T](
@@ -97,9 +93,7 @@ class MemoryNode(BaseModel):
     summary: str = ""
     importance: float = 1.0
     access_count: int = 0
-    timestamp: float = Field(
-        default_factory=lambda: datetime.now(timezone.utc).timestamp()
-    )
+    timestamp: float = Field(default_factory=lambda: datetime.now(timezone.utc).timestamp())
     embedding: list[float]
 
     @classmethod
@@ -152,9 +146,7 @@ class MemoryNode(BaseModel):
         self.importance += other.importance
         self.access_count += other.access_count
         self.embedding = [(a + b) / 2 for a, b in zip(self.embedding, other.embedding)]
-        self.summary = await do_ai(
-            self.content, "Summarize the following text concisely.", str, deps
-        )
+        self.summary = await do_ai(self.content, "Summarize the following text concisely.", str, deps)
         await self.save(deps)
         # Delete the merged node from the database
         if other.id is not None:
@@ -221,9 +213,7 @@ async def find_similar_memories(embedding: list[float], deps: Deps) -> list[Memo
 
 async def update_importance(user_embedding: list[float], deps: Deps):
     async with deps.pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT id, importance, access_count, embedding FROM memories"
-        )
+        rows = await conn.fetch("SELECT id, importance, access_count, embedding FROM memories")
         for row in rows:
             memory_embedding = row["embedding"]
             similarity = cosine_similarity(user_embedding, memory_embedding)
@@ -273,9 +263,7 @@ async def display_memory_tree(deps: Deps) -> str:
         )
     result = ""
     for row in rows:
-        effective_importance = row["importance"] * (
-            1 + math.log(row["access_count"] + 1)
-        )
+        effective_importance = row["importance"] * (1 + math.log(row["access_count"] + 1))
         summary = row["summary"] or row["content"]
         result += f"- {summary} (Importance: {effective_importance:.2f})\n"
     return result
@@ -283,15 +271,11 @@ async def display_memory_tree(deps: Deps) -> str:
 
 @mcp.tool()
 async def remember(
-    contents: list[str] = Field(
-        description="List of observations or memories to store"
-    ),
+    contents: list[str] = Field(description="List of observations or memories to store"),
 ):
     deps = Deps(openai=AsyncOpenAI(), pool=await get_db_pool())
     try:
-        return "\n".join(
-            await asyncio.gather(*[add_memory(content, deps) for content in contents])
-        )
+        return "\n".join(await asyncio.gather(*[add_memory(content, deps) for content in contents]))
     finally:
         await deps.pool.close()
 
@@ -305,9 +289,7 @@ async def read_profile() -> str:
 
 
 async def initialize_database():
-    pool = await asyncpg.create_pool(
-        "postgresql://postgres:postgres@localhost:54320/postgres"
-    )
+    pool = await asyncpg.create_pool("postgresql://postgres:postgres@localhost:54320/postgres")
     try:
         async with pool.acquire() as conn:
             await conn.execute("""

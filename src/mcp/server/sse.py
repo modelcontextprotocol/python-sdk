@@ -116,20 +116,14 @@ class SseServerTransport:
         full_message_path_for_client = root_path.rstrip("/") + self._endpoint
 
         # This is the URI (path + query) the client will use to POST messages.
-        client_post_uri_data = (
-            f"{quote(full_message_path_for_client)}?session_id={session_id.hex}"
-        )
+        client_post_uri_data = f"{quote(full_message_path_for_client)}?session_id={session_id.hex}"
 
-        sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[
-            dict[str, Any]
-        ](0)
+        sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, Any]](0)
 
         async def sse_writer():
             logger.debug("Starting SSE writer")
             async with sse_stream_writer, write_stream_reader:
-                await sse_stream_writer.send(
-                    {"event": "endpoint", "data": client_post_uri_data}
-                )
+                await sse_stream_writer.send({"event": "endpoint", "data": client_post_uri_data})
                 logger.debug(f"Sent endpoint event: {client_post_uri_data}")
 
                 async for session_message in write_stream_reader:
@@ -137,9 +131,7 @@ class SseServerTransport:
                     await sse_stream_writer.send(
                         {
                             "event": "message",
-                            "data": session_message.message.model_dump_json(
-                                by_alias=True, exclude_none=True
-                            ),
+                            "data": session_message.message.model_dump_json(by_alias=True, exclude_none=True),
                         }
                     )
 
@@ -151,9 +143,9 @@ class SseServerTransport:
                 In this case we close our side of the streams to signal the client that
                 the connection has been closed.
                 """
-                await EventSourceResponse(
-                    content=sse_stream_reader, data_sender_callable=sse_writer
-                )(scope, receive, send)
+                await EventSourceResponse(content=sse_stream_reader, data_sender_callable=sse_writer)(
+                    scope, receive, send
+                )
                 await read_stream_writer.aclose()
                 await write_stream_reader.aclose()
                 logging.debug(f"Client session disconnected {session_id}")
@@ -164,9 +156,7 @@ class SseServerTransport:
             logger.debug("Yielding read and write streams")
             yield (read_stream, write_stream)
 
-    async def handle_post_message(
-        self, scope: Scope, receive: Receive, send: Send
-    ) -> None:
+    async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:
         logger.debug("Handling POST message")
         request = Request(scope, receive)
 

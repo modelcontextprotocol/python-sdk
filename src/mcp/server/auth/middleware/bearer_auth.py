@@ -1,11 +1,7 @@
 import time
 from typing import Any
 
-from starlette.authentication import (
-    AuthCredentials,
-    AuthenticationBackend,
-    SimpleUser,
-)
+from starlette.authentication import AuthCredentials, AuthenticationBackend, SimpleUser
 from starlette.exceptions import HTTPException
 from starlette.requests import HTTPConnection
 from starlette.types import Receive, Scope, Send
@@ -35,11 +31,7 @@ class BearerAuthBackend(AuthenticationBackend):
 
     async def authenticate(self, conn: HTTPConnection):
         auth_header = next(
-            (
-                conn.headers.get(key)
-                for key in conn.headers
-                if key.lower() == "authorization"
-            ),
+            (conn.headers.get(key) for key in conn.headers if key.lower() == "authorization"),
             None,
         )
         if not auth_header or not auth_header.lower().startswith("bearer "):
@@ -87,10 +79,7 @@ class RequireAuthMiddleware:
 
         for required_scope in self.required_scopes:
             # auth_credentials should always be provided; this is just paranoia
-            if (
-                auth_credentials is None
-                or required_scope not in auth_credentials.scopes
-            ):
+            if auth_credentials is None or required_scope not in auth_credentials.scopes:
                 raise HTTPException(status_code=403, detail="Insufficient scope")
 
         await self.app(scope, receive, send)

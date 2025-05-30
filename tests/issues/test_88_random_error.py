@@ -35,9 +35,7 @@ async def test_notification_validation_error(tmp_path: Path):
     slow_request_complete = anyio.Event()
 
     @server.call_tool()
-    async def slow_tool(
-        name: str, arg
-    ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+    async def slow_tool(name: str, arg) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
         nonlocal request_count
         request_count += 1
 
@@ -74,9 +72,7 @@ async def test_notification_validation_error(tmp_path: Path):
         # - Long enough for fast operations (>10ms)
         # - Short enough for slow operations (<200ms)
         # - Not too short to avoid flakiness
-        async with ClientSession(
-            read_stream, write_stream, read_timeout_seconds=timedelta(milliseconds=50)
-        ) as session:
+        async with ClientSession(read_stream, write_stream, read_timeout_seconds=timedelta(milliseconds=50)) as session:
             await session.initialize()
 
             # First call should work (fast operation)

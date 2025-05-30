@@ -56,11 +56,7 @@ async def test_read_resource_binary(temp_file: Path):
 
     @server.read_resource()
     async def read_resource(uri: AnyUrl) -> Iterable[ReadResourceContents]:
-        return [
-            ReadResourceContents(
-                content=b"Hello World", mime_type="application/octet-stream"
-            )
-        ]
+        return [ReadResourceContents(content=b"Hello World", mime_type="application/octet-stream")]
 
     # Get the handler directly from the server
     handler = server.request_handlers[types.ReadResourceRequest]

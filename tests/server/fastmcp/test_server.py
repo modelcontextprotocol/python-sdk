@@ -58,9 +58,7 @@ class TestServer:
         """Test SSE app creation with different mount paths."""
         # Test with default mount path
         mcp = FastMCP()
-        with patch.object(
-            mcp, "_normalize_path", return_value="/messages/"
-        ) as mock_normalize:
+        with patch.object(mcp, "_normalize_path", return_value="/messages/") as mock_normalize:
             mcp.sse_app()
             # Verify _normalize_path was called with correct args
             mock_normalize.assert_called_once_with("/", "/messages/")
@@ -68,18 +66,14 @@ class TestServer:
         # Test with custom mount path in settings
         mcp = FastMCP()
         mcp.settings.mount_path = "/custom"
-        with patch.object(
-            mcp, "_normalize_path", return_value="/custom/messages/"
-        ) as mock_normalize:
+        with patch.object(mcp, "_normalize_path", return_value="/custom/messages/") as mock_normalize:
             mcp.sse_app()
             # Verify _normalize_path was called with correct args
             mock_normalize.assert_called_once_with("/custom", "/messages/")
 
         # Test with mount_path parameter
         mcp = FastMCP()
-        with patch.object(
-            mcp, "_normalize_path", return_value="/param/messages/"
-        ) as mock_normalize:
+        with patch.object(mcp, "_normalize_path", return_value="/param/messages/") as mock_normalize:
             mcp.sse_app(mount_path="/param")
             # Verify _normalize_path was called with correct args
             mock_normalize.assert_called_once_with("/param", "/messages/")
@@ -102,9 +96,7 @@ class TestServer:
 
         # Verify path values
         assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
-        assert (
-            mount_routes[0].path == "/messages"
-        ), "Mount route path should be /messages"
+        assert mount_routes[0].path == "/messages", "Mount route path should be /messages"
 
         # Test with mount path as parameter
         mcp = FastMCP()
@@ -120,20 +112,14 @@ class TestServer:
 
         # Verify path values
         assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
-        assert (
-            mount_routes[0].path == "/messages"
-        ), "Mount route path should be /messages"
+        assert mount_routes[0].path == "/messages", "Mount route path should be /messages"
 
     @pytest.mark.anyio
     async def test_non_ascii_description(self):
         """Test that FastMCP handles non-ASCII characters in descriptions correctly"""
         mcp = FastMCP()
 
-        @mcp.tool(
-            description=(
-                "🌟 This tool uses emojis and UTF-8 characters: á é í ó ú ñ 漢字 🎉"
-            )
-        )
+        @mcp.tool(description=("🌟 This tool uses emojis and UTF-8 characters: á é í ó ú ñ 漢字 🎉"))
         def hello_world(name: str = "世界") -> str:
             return f"¡Hola, {name}! 👋"
 
@@ -186,9 +172,7 @@ class TestServer:
     async def test_add_resource_decorator_incorrect_usage(self):
         mcp = FastMCP()
 
-        with pytest.raises(
-            TypeError, match="The @resource decorator was used incorrectly"
-        ):
+        with pytest.raises(TypeError, match="The @resource decorator was used incorrectly"):
 
             @mcp.resource  # Missing parentheses #type: ignore
             def get_data(x: str) -> str:
@@ -369,9 +353,7 @@ class TestServerResources:
         def get_text():
             return "Hello, world!"
 
-        resource = FunctionResource(
-            uri=AnyUrl("resource://test"), name="test", fn=get_text
-        )
+        resource = FunctionResource(uri=AnyUrl("resource://test"), name="test", fn=get_text)
         mcp.add_resource(resource)
 
         async with client_session(mcp._mcp_server) as client:
@@ -407,9 +389,7 @@ class TestServerResources:
         text_file = tmp_path / "test.txt"
         text_file.write_text("Hello from file!")
 
-        resource = FileResource(
-            uri=AnyUrl("file://test.txt"), name="test.txt", path=text_file
-        )
+        resource = FileResource(uri=AnyUrl("file://test.txt"), name="test.txt", path=text_file)
         mcp.add_resource(resource)
 
         async with client_session(mcp._mcp_server) as client:
@@ -436,10 +416,7 @@ class TestServerResources:
         async with client_session(mcp._mcp_server) as client:
             result = await client.read_resource(AnyUrl("file://test.bin"))
             assert isinstance(result.contents[0], BlobResourceContents)
-            assert (
-                result.contents[0].blob
-                == base64.b64encode(b"Binary file data").decode()
-            )
+            assert result.contents[0].blob == base64.b64encode(b"Binary file data").decode()
 
     @pytest.mark.anyio
     async def test_function_resource(self):
@@ -528,9 +505,7 @@ class TestServerResourceTemplates:
             return f"Data for {org}/{repo}"
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(
-                AnyUrl("resource://cursor/fastmcp/data")
-            )
+            result = await client.read_resource(AnyUrl("resource://cursor/fastmcp/data"))
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Data for cursor/fastmcp"
 

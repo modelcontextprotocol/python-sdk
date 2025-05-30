@@ -28,15 +28,11 @@ from mcp.server.fastmcp import FastMCP
 
 
 class SurgeSettings(BaseSettings):
-    model_config: SettingsConfigDict = SettingsConfigDict(
-        env_prefix="SURGE_", env_file=".env"
-    )
+    model_config: SettingsConfigDict = SettingsConfigDict(env_prefix="SURGE_", env_file=".env")
 
     api_key: str
     account_id: str
-    my_phone_number: Annotated[
-        str, BeforeValidator(lambda v: "+" + v if not v.startswith("+") else v)
-    ]
+    my_phone_number: Annotated[str, BeforeValidator(lambda v: "+" + v if not v.startswith("+") else v)]
     my_first_name: str
     my_last_name: str
 

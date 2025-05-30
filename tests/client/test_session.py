@@ -28,12 +28,8 @@ from mcp.types import (
 
 @pytest.mark.anyio
 async def test_client_session_initialize():
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     initialized_notification = None
 
@@ -70,9 +66,7 @@ async def test_client_session_initialize():
                         JSONRPCResponse(
                             jsonrpc="2.0",
                             id=jsonrpc_request.root.id,
-                            result=result.model_dump(
-                                by_alias=True, mode="json", exclude_none=True
-                            ),
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                         )
                     )
                 )
@@ -81,16 +75,12 @@ async def test_client_session_initialize():
             jsonrpc_notification = session_notification.message
             assert isinstance(jsonrpc_notification.root, JSONRPCNotification)
             initialized_notification = ClientNotification.model_validate(
-                jsonrpc_notification.model_dump(
-                    by_alias=True, mode="json", exclude_none=True
-                )
+                jsonrpc_notification.model_dump(by_alias=True, mode="json", exclude_none=True)
             )
 
     # Create a message handler to catch exceptions
     async def message_handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult]
-        | types.ServerNotification
-        | Exception,
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
             raise message
@@ -124,12 +114,8 @@ async def test_client_session_initialize():
 
 @pytest.mark.anyio
 async def test_client_session_custom_client_info():
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     custom_client_info = Implementation(name="test-client", version="1.2.3")
     received_client_info = None
@@ -161,9 +147,7 @@ async def test_client_session_custom_client_info():
                         JSONRPCResponse(
                             jsonrpc="2.0",
                             id=jsonrpc_request.root.id,
-                            result=result.model_dump(
-                                by_alias=True, mode="json", exclude_none=True
-                            ),
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                         )
                     )
                 )
@@ -192,12 +176,8 @@ async def test_client_session_custom_client_info():
 
 @pytest.mark.anyio
 async def test_client_session_default_client_info():
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     received_client_info = None
 
@@ -228,9 +208,7 @@ async def test_client_session_default_client_info():
                         JSONRPCResponse(
                             jsonrpc="2.0",
                             id=jsonrpc_request.root.id,
-                            result=result.model_dump(
-                                by_alias=True, mode="json", exclude_none=True
-                            ),
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                         )
                     )
                 )
@@ -259,12 +237,8 @@ async def test_client_session_default_client_info():
 @pytest.mark.anyio
 async def test_client_session_version_negotiation_success():
     """Test successful version negotiation with supported version"""
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     async def mock_server():
         session_message = await client_to_server_receive.receive()
@@ -294,9 +268,7 @@ async def test_client_session_version_negotiation_success():
                         JSONRPCResponse(
                             jsonrpc="2.0",
                             id=jsonrpc_request.root.id,
-                            result=result.model_dump(
-                                by_alias=True, mode="json", exclude_none=True
-                            ),
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                         )
                     )
                 )
@@ -327,12 +299,8 @@ async def test_client_session_version_negotiation_success():
 @pytest.mark.anyio
 async def test_client_session_version_negotiation_failure():
     """Test version negotiation failure with unsupported version"""
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     async def mock_server():
         session_message = await client_to_server_receive.receive()
@@ -359,9 +327,7 @@ async def test_client_session_version_negotiation_failure():
                         JSONRPCResponse(
                             jsonrpc="2.0",
                             id=jsonrpc_request.root.id,
-                            result=result.model_dump(
-                                by_alias=True, mode="json", exclude_none=True
-                            ),
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                         )
                     )
                 )
@@ -388,12 +354,8 @@ async def test_client_session_version_negotiation_failure():
 @pytest.mark.anyio
 async def test_client_capabilities_default():
     """Test that client capabilities are properly set with default callbacks"""
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     received_capabilities = None
 
@@ -424,9 +386,7 @@ async def test_client_capabilities_default():
                         JSONRPCResponse(
                             jsonrpc="2.0",
                             id=jsonrpc_request.root.id,
-                            result=result.model_dump(
-                                by_alias=True, mode="json", exclude_none=True
-                            ),
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                         )
                     )
                 )
@@ -457,12 +417,8 @@ async def test_client_capabilities_default():
 @pytest.mark.anyio
 async def test_client_capabilities_with_custom_callbacks():
     """Test that client capabilities are properly set with custom callbacks"""
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     received_capabilities = None
 
@@ -508,9 +464,7 @@ async def test_client_capabilities_with_custom_callbacks():
                         JSONRPCResponse(
                             jsonrpc="2.0",
                             id=jsonrpc_request.root.id,
-                            result=result.model_dump(
-                                by_alias=True, mode="json", exclude_none=True
-                            ),
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                         )
                     )
                 )
@@ -536,14 +490,8 @@ async def test_client_capabilities_with_custom_callbacks():
 
     # Assert that capabilities are properly set with custom callbacks
     assert received_capabilities is not None
-    assert (
-        received_capabilities.sampling is not None
-    )  # Custom sampling callback provided
+    assert received_capabilities.sampling is not None  # Custom sampling callback provided
     assert isinstance(received_capabilities.sampling, types.SamplingCapability)
-    assert (
-        received_capabilities.roots is not None
-    )  # Custom list_roots callback provided
+    assert received_capabilities.roots is not None  # Custom list_roots callback provided
     assert isinstance(received_capabilities.roots, types.RootsCapability)
-    assert (
-        received_capabilities.roots.listChanged is True
-    )  # Should be True for custom callback
+    assert received_capabilities.roots.listChanged is True  # Should be True for custom callback

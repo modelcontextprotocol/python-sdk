@@ -116,18 +116,14 @@ def no_expiry_access_token() -> AccessToken:
 class TestBearerAuthBackend:
     """Tests for the BearerAuthBackend class."""
 
-    async def test_no_auth_header(
-        self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
-    ):
+    async def test_no_auth_header(self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]):
         """Test authentication with no Authorization header."""
         backend = BearerAuthBackend(provider=mock_oauth_provider)
         request = Request({"type": "http", "headers": []})
         result = await backend.authenticate(request)
         assert result is None
 
-    async def test_non_bearer_auth_header(
-        self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
-    ):
+    async def test_non_bearer_auth_header(self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]):
         """Test authentication with non-Bearer Authorization header."""
         backend = BearerAuthBackend(provider=mock_oauth_provider)
         request = Request(
@@ -139,9 +135,7 @@ class TestBearerAuthBackend:
         result = await backend.authenticate(request)
         assert result is None
 
-    async def test_invalid_token(
-        self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
-    ):
+    async def test_invalid_token(self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]):
         """Test authentication with invalid token."""
         backend = BearerAuthBackend(provider=mock_oauth_provider)
         request = Request(
@@ -160,9 +154,7 @@ class TestBearerAuthBackend:
     ):
         """Test authentication with expired token."""
         backend = BearerAuthBackend(provider=mock_oauth_provider)
-        add_token_to_provider(
-            mock_oauth_provider, "expired_token", expired_access_token
-        )
+        add_token_to_provider(mock_oauth_provider, "expired_token", expired_access_token)
         request = Request(
             {
                 "type": "http",
@@ -203,9 +195,7 @@ class TestBearerAuthBackend:
     ):
         """Test authentication with token that has no expiry."""
         backend = BearerAuthBackend(provider=mock_oauth_provider)
-        add_token_to_provider(
-            mock_oauth_provider, "no_expiry_token", no_expiry_access_token
-        )
+        add_token_to_provider(mock_oauth_provider, "no_expiry_token", no_expiry_access_token)
         request = Request(
             {
                 "type": "http",
