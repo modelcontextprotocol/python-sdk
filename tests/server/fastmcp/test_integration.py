@@ -22,8 +22,9 @@ import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.resources import FunctionResource
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import RequestContext
 from mcp.types import (
     CreateMessageRequestParams,
@@ -82,7 +83,11 @@ def stateless_http_server_url(stateless_http_server_port: int) -> str:
 # Create a function to make the FastMCP server app
 def make_fastmcp_app():
     """Create a FastMCP server without auth settings."""
-    mcp = FastMCP(name="NoAuthServer")
+    transport_security = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"],
+        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+    )
+    mcp = FastMCP(name="NoAuthServer", transport_security=transport_security)
 
     # Add a simple tool
     @mcp.tool(description="A simple echo tool")
@@ -96,10 +101,12 @@ def make_fastmcp_app():
 
 
 def make_everything_fastmcp() -> FastMCP:
-    """Create a FastMCP server with all features enabled for testing."""
-    from mcp.server.fastmcp import Context
-
-    mcp = FastMCP(name="EverythingServer")
+    """Create a FastMCP server with all features enabled for testing."""    
+    transport_security = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"],
+        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+    )
+    mcp = FastMCP(name="EverythingServer", transport_security=transport_security)
 
     # Tool with context for logging and progress
     @mcp.tool(description="A tool that demonstrates logging and progress")
@@ -234,9 +241,12 @@ def make_everything_fastmcp_app():
 
 
 def make_fastmcp_streamable_http_app():
-    """Create a FastMCP server with StreamableHTTP transport."""
-
-    mcp = FastMCP(name="NoAuthServer")
+    """Create a FastMCP server with StreamableHTTP transport."""    
+    transport_security = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"],
+        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+    )
+    mcp = FastMCP(name="NoAuthServer", transport_security=transport_security)
 
     # Add a simple tool
     @mcp.tool(description="A simple echo tool")
@@ -260,9 +270,16 @@ def make_everything_fastmcp_streamable_http_app():
 
 
 def make_fastmcp_stateless_http_app():
-    """Create a FastMCP server with stateless StreamableHTTP transport."""
-
-    mcp = FastMCP(name="StatelessServer", stateless_http=True)
+    """Create a FastMCP server with stateless StreamableHTTP transport."""    
+    transport_security = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"],
+        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+    )
+    mcp = FastMCP(
+        name="StatelessServer",
+        stateless_http=True,
+        transport_security=transport_security
+    )
 
     # Add a simple tool
     @mcp.tool(description="A simple echo tool")
