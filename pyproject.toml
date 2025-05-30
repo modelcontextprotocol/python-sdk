@@ -96,8 +96,6 @@ Issues = "https://github.com/modelcontextprotocol/python-sdk/issues"
 [project.scripts]
 mcp = "mcp.cli.cli:main"
 etdi = "mcp.etdi.cli:main"
-docs-serve = "mkdocs serve"
-docs-build = "mkdocs build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcp"]
