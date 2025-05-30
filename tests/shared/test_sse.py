@@ -83,7 +83,6 @@ class ServerTest(Server):
 # Test fixtures
 def make_server_app() -> Starlette:
     """Create test Starlette app with SSE transport"""
-    from mcp.server.transport_security import TransportSecuritySettings
     # Configure security with allowed hosts/origins for testing
     security_settings = TransportSecuritySettings(
         allowed_hosts=["127.0.0.1:*", "localhost:*"],

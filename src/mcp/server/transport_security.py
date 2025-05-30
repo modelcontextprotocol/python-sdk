@@ -23,16 +23,14 @@ class TransportSecuritySettings(BaseModel):
     
     allowed_hosts: list[str] = Field(
         default=[],
-        description="List of allowed Host header values. If None, all hosts "
-        "are allowed when protection is disabled, or only localhost/127.0.0.1 "
-        "when enabled."
+        description="List of allowed Host header values. Only applies when " + 
+            "enable_dns_rebinding_protection is True."
     )
     
     allowed_origins: list[str] = Field(
         default=[],
-        description="List of allowed Origin header values. If None, all "
-        "origins are allowed when protection is disabled, or only localhost "
-        "origins when enabled."
+        description="List of allowed Origin header values. Only applies when " + 
+            "enable_dns_rebinding_protection is True."
     )
 
 

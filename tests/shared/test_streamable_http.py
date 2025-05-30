@@ -36,6 +36,7 @@ from mcp.server.streamable_http import (
     StreamId,
 )
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import (
@@ -227,7 +228,6 @@ def create_app(
     server = ServerTest()
 
     # Create the session manager
-    from mcp.server.transport_security import TransportSecuritySettings
     security_settings = TransportSecuritySettings(
         allowed_hosts=["127.0.0.1:*", "localhost:*"],
         allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
@@ -446,12 +446,9 @@ def test_content_type_validation(basic_server, basic_server_url):
         },
         data="This is not JSON",
     )
-    # May return 400 (security middleware) or 415 (transport validation)
-    assert response.status_code in (400, 415)
-    assert any(
-        msg in response.text
-        for msg in ["Invalid Content-Type", "Unsupported Media Type"]
-    )
+
+    assert response.status_code == 400
+    assert "Invalid Content-Type" in response.text
 
 
 def test_json_validation(basic_server, basic_server_url):
