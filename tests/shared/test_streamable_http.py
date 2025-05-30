@@ -225,10 +225,16 @@ def create_app(
     server = ServerTest()
 
     # Create the session manager
+    from mcp.server.transport_security import TransportSecuritySettings
+    security_settings = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"],
+        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+    )
     session_manager = StreamableHTTPSessionManager(
         app=server,
         event_store=event_store,
         json_response=is_json_response_enabled,
+        security_settings=security_settings,
     )
 
     # Create an ASGI application that uses the session manager
@@ -438,8 +444,12 @@ def test_content_type_validation(basic_server, basic_server_url):
         },
         data="This is not JSON",
     )
-    assert response.status_code == 415
-    assert "Unsupported Media Type" in response.text
+    # May return 400 (security middleware) or 415 (transport validation)
+    assert response.status_code in (400, 415)
+    assert any(
+        msg in response.text
+        for msg in ["Invalid Content-Type", "Unsupported Media Type"]
+    )
 
 
 def test_json_validation(basic_server, basic_server_url):

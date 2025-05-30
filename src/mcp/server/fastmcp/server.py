@@ -49,6 +49,7 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext
 from mcp.types import (
     AnyFunction,
@@ -119,6 +120,9 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     ) = Field(None, description="Lifespan context manager")
 
     auth: AuthSettings | None = None
+    
+    # Transport security settings (DNS rebinding protection)
+    transport_security: TransportSecuritySettings | None = None
 
 
 def lifespan_wrapper(
@@ -670,6 +674,7 @@ class FastMCP:
 
         sse = SseServerTransport(
             normalized_message_endpoint,
+            security_settings=self.settings.transport_security,
         )
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):
@@ -777,6 +782,7 @@ class FastMCP:
                 event_store=self._event_store,
                 json_response=self.settings.json_response,
                 stateless=self.settings.stateless_http,  # Use the stateless setting
+                security_settings=self.settings.transport_security,
             )
 
         # Create the ASGI handler
