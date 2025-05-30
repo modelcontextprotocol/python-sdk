@@ -79,9 +79,10 @@ client = [
 docs = [
     "mkdocs>=1.5.0",
     "mkdocs-material[imaging]>=9.0.0",
-    "mkdocstrings[python]>=0.20.0",
-    "mkdocs-social-plugin>=0.1.0",
     "mkdocs-glightbox>=0.3.4",
+    "mkdocstrings[python]>=0.20.0",
+    "pycairo>=1.20.0",
+    "cairosvg>=2.5.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]

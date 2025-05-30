@@ -44,12 +44,6 @@ Details about the legitimate tool, malicious tool, and secure client used in thi
 
 ETDI prevents this through a multi-stage verification process, typically involving checking for ETDI metadata, cryptographic signatures, OAuth protection, and provider identity.
 
-### Trust Levels & Decisions (Conceptual)
-
-- **TRUSTED (e.g., 80-100 points)** → ✅ ALLOW execution
-- **PARTIALLY_TRUSTED (e.g., 50-79 points)** → ⚠️ WARN user
-- **UNTRUSTED (e.g., 0-49 points)** → 🛑 BLOCK execution
-
 ## Running the Demo
 
 ### Prerequisites
