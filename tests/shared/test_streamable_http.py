@@ -1140,6 +1140,8 @@ async def test_streamablehttp_client_resumption(event_server):
             metadata = ClientMessageMetadata(
                 resumption_token=captured_resumption_token,
             )
+            # We need to wait for the tool to send another message so this doesn't deadlock.  Fixing is out of scope for this PR.  More details in https://github.com/modelcontextprotocol/python-sdk/issues/860
+            await anyio.sleep(0.2)
             result = await session.send_request(
                 types.ClientRequest(
                     types.CallToolRequest(
@@ -1153,13 +1155,14 @@ async def test_streamablehttp_client_resumption(event_server):
                 metadata=metadata,
             )
 
+
             # We should get a complete result
             assert len(result.content) == 1
             assert result.content[0].type == "text"
             assert "Completed" in result.content[0].text
 
             # We should have received the remaining notifications
-            assert len(captured_notifications) > 0
+            assert len(captured_notifications) == 2
 
             # Should not have the first notification
             # Check that "Tool started" notification isn't repeated when resuming
