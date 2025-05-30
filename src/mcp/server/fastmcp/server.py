@@ -618,7 +618,7 @@ class FastMCP:
         import uvicorn
 
         starlette_app = self.streamable_http_app()
-
+        
         config = uvicorn.Config(
             starlette_app,
             host=self.settings.host,
@@ -788,8 +788,10 @@ class FastMCP:
             await self.session_manager.handle_request(scope, receive, send)
 
         async def streamable_http_endpoint(request: Request):
-            return await handle_streamable_http(request.scope, request.receive, request._send)  # type: ignore[reportPrivateUsage]
-        
+            return await handle_streamable_http(
+                request.scope, request.receive, request._send
+            )  # type: ignore[reportPrivateUsage]
+
         # Normalize the main path (no trailing slash)
         _main_path = self.settings.streamable_http_path.removesuffix("/")
 
@@ -800,7 +802,7 @@ class FastMCP:
             redirect_slashes=False,
         )
 
-        routes: list[Route | Mount ] = []
+        routes: list[Route | Mount] = []
         middleware: list[Middleware] = []
         required_scopes = []
 
@@ -829,13 +831,11 @@ class FastMCP:
                     revocation_options=self.settings.auth.revocation_options,
                 )
             )
-            
+
             routes.append(
                 Mount(
                     _main_path,
-                    app=RequireAuthMiddleware(
-                        streamable_router, required_scopes
-                    ),
+                    app=RequireAuthMiddleware(streamable_router, required_scopes),
                 )
             )
         else:
