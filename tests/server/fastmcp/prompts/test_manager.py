@@ -30,7 +30,7 @@ class TestPromptManager:
         assert manager.get_prompt("test_prompt") == prompt
 
     def test_add_prompt_object_ignores_name_and_description(self):
-        """Test that name and description args are ignored when adding a Prompt object."""
+        """Test if name and description args are ignored when adding a Prompt object."""
 
         def fn() -> str:
             return "Hello, world!"

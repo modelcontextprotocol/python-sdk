@@ -500,7 +500,8 @@ class FastMCP:
         Args:
             prompt_or_fn: Either a Prompt instance or a function to create a prompt from
             name: Optional name for the prompt (only used if prompt_or_fn is a function)
-            description: Optional description of the prompt (only used if prompt_or_fn is a function)
+            description: Optional description of the prompt
+                         (only used if prompt_or_fn is a function)
         """
         self._prompt_manager.add_prompt(
             prompt_or_fn, name=name, description=description

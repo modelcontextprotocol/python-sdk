@@ -11,8 +11,8 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.prompts.base import (
     EmbeddedResource,
     Message,
-    UserMessage,
     Prompt,
+    UserMessage,
 )
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
 from mcp.server.fastmcp.utilities.types import Image
