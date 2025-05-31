@@ -4,6 +4,7 @@ from typing import Any
 
 from mcp.server.fastmcp.prompts.base import Message, Prompt
 from mcp.server.fastmcp.utilities.logging import get_logger
+from mcp.types import AnyFunction
 
 logger = get_logger(__name__)
 
@@ -25,9 +26,24 @@ class PromptManager:
 
     def add_prompt(
         self,
-        prompt: Prompt,
+        prompt_or_fn: Prompt | AnyFunction,
+        name: str | None = None,
+        description: str | None = None,
     ) -> Prompt:
-        """Add a prompt to the manager."""
+        """Add a prompt to the manager.
+
+        Args:
+            prompt_or_fn: Either a Prompt instance or a function to create a prompt from
+            name: Optional name for the prompt (only used if prompt_or_fn is a function)
+            description: Optional description of the prompt
+                         (only used if prompt_or_fn is a function)
+        """
+        if isinstance(prompt_or_fn, Prompt):
+            prompt = prompt_or_fn
+        else:
+            prompt = Prompt.from_function(
+                prompt_or_fn, name=name, description=description
+            )
 
         # Check for duplicates
         existing = self._prompts.get(prompt.name)
