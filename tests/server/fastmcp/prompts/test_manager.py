@@ -17,6 +17,35 @@ class TestPromptManager:
         assert added.name == "fn"
         assert manager.get_prompt("fn") == added
 
+    def test_add_prompt_object(self):
+        """Test adding a Prompt object directly."""
+
+        def fn() -> str:
+            return "Hello, world!"
+
+        prompt = Prompt.from_function(fn, name="test_prompt", description="Test prompt")
+        manager = PromptManager()
+        added = manager.add_prompt(prompt)
+        assert added == prompt
+        assert manager.get_prompt("test_prompt") == prompt
+
+    def test_add_prompt_object_ignores_name_and_description(self):
+        """Test that name and description args are ignored when adding a Prompt object."""
+
+        def fn() -> str:
+            return "Hello, world!"
+
+        prompt = Prompt.from_function(
+            fn, name="original_name", description="Original description"
+        )
+        manager = PromptManager()
+        # These should be ignored
+        added = manager.add_prompt(
+            prompt, name="ignored_name", description="ignored_description"
+        )
+        assert added.name == "original_name"
+        assert added.description == "Original description"
+
     def test_add_duplicate_prompt(self, caplog):
         """Test adding the same prompt twice."""
 

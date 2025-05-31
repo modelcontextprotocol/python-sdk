@@ -36,6 +36,7 @@ from mcp.server.auth.settings import (
 )
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import PromptManager
+from mcp.server.fastmcp.prompts.base import Prompt
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.fastmcp.tools import ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
@@ -486,18 +487,20 @@ class FastMCP:
 
     def add_prompt(
         self,
-        fn: AnyFunction,
+        prompt_or_fn: Prompt | AnyFunction,
         name: str | None = None,
         description: str | None = None,
     ) -> None:
         """Add a prompt to the server.
 
         Args:
-            fn: Function to create a prompt from
-            name: Optional name for the prompt
-            description: Optional description of the prompt
+            prompt_or_fn: Either a Prompt instance or a function to create a prompt from
+            name: Optional name for the prompt (only used if prompt_or_fn is a function)
+            description: Optional description of the prompt (only used if prompt_or_fn is a function)
         """
-        self._prompt_manager.add_prompt(fn, name=name, description=description)
+        self._prompt_manager.add_prompt(
+            prompt_or_fn, name=name, description=description
+        )
 
     def prompt(
         self, name: str | None = None, description: str | None = None
