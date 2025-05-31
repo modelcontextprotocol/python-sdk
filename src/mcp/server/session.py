@@ -301,7 +301,7 @@ class ServerSession(
                         progress=progress,
                         total=total,
                         message=message,
-                        resource_uri=resource_uri,
+                        resourceUri=resource_uri,
                     ),
                 )
             ),

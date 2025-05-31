@@ -31,6 +31,7 @@ for reference.
 
 LATEST_PROTOCOL_VERSION = "2025-03-26"
 
+AsyncToken = str | int
 ProgressToken = str | int
 Cursor = str
 Role = Literal["user", "assistant"]
@@ -260,6 +261,12 @@ class ToolsCapability(BaseModel):
     """Whether this server supports notifications for changes to the tool list."""
     model_config = ConfigDict(extra="allow")
 
+class AsyncCapability(BaseModel):
+    """Capability for async operations."""
+
+    maxKeepAliveTime: int | None = None
+    """The maximum keep alive time in seconds for async requests."""
+    model_config = ConfigDict(extra="allow")
 
 class LoggingCapability(BaseModel):
     """Capability for logging operations."""
@@ -279,6 +286,9 @@ class ServerCapabilities(BaseModel):
     resources: ResourcesCapability | None = None
     """Present if the server offers any resources to read."""
     tools: ToolsCapability | None = None
+    """Present if the server offers async tool calling support."""
+    async_: AsyncCapability | None = Field(alias='async', default=None)
+
     """Present if the server offers any tools to call."""
     model_config = ConfigDict(extra="allow")
 
@@ -356,7 +366,7 @@ class ProgressNotificationParams(NotificationParams):
     Message related to progress. This should provide relevant human readable 
     progress information.
     """
-    resource_uri: Annotated[AnyUrl, UrlConstraints(host_required=False)] | None = None
+    resourceUri: Annotated[AnyUrl, UrlConstraints(host_required=False)] | None = None
     """
     An optional reference to an ephemeral resource associated with this 
     progress, servers may delete these at their descretion, but are encouraged 
@@ -767,6 +777,12 @@ class ToolAnnotations(BaseModel):
     of a memory tool is not.
     Default: true
     """
+    preferAsync: bool | None = None
+    """
+    If true, should ideally be called using the async protocol
+    as requests are expected to be long running.
+    Default: false
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -797,19 +813,61 @@ class CallToolRequestParams(RequestParams):
     arguments: dict[str, Any] | None = None
     model_config = ConfigDict(extra="allow")
 
-
 class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
     """Used by the client to invoke a tool provided by the server."""
 
     method: Literal["tools/call"]
     params: CallToolRequestParams
 
+class CallToolAsyncRequestParams(CallToolRequestParams):
+    """Parameters for calling a tool asynchronously."""
+
+    keepAlive: int | None = None
+    model_config = ConfigDict(extra="allow")
+
+class CallToolAsyncRequest(Request[CallToolAsyncRequestParams, Literal["tools/async/call"]]):
+    """Used by the client to invoke a tool provided by the server asynchronously."""
+    method: Literal["tools/async/call"]
+    params: CallToolAsyncRequestParams
+
+class JoinCallToolRequestParams(RequestParams):
+    """Parameters for joining an asynchronous tool call."""
+    token: AsyncToken
+    keepAlive: int | None = None
+    model_config = ConfigDict(extra="allow")
+
+class JoinCallToolAsyncRequest(Request[JoinCallToolRequestParams, Literal["tools/async/join"]]):
+    """Used by the client to join an tool call executing on the server asynchronously."""
+    method: Literal["tools/async/join"]
+    params: JoinCallToolRequestParams
+
+class CancelToolAsyncNotificationParams(NotificationParams):
+    token: AsyncToken
+
+class CancelToolAsyncNotification(Notification[CancelToolAsyncNotificationParams, Literal["tools/async/cancel"]]):
+    method: Literal["tools/async/cancel"]
+    params: CancelToolAsyncNotificationParams
+
+class GetToolAsyncResultRequestParams(RequestParams):
+    token: AsyncToken
+
+class GetToolAsyncResultRequest(Request[GetToolAsyncResultRequestParams, Literal["tools/async/get"]]):
+    method: Literal["tools/async/get"]
+    params: GetToolAsyncResultRequestParams
 
 class CallToolResult(Result):
     """The server's response to a tool call."""
 
     content: list[TextContent | ImageContent | EmbeddedResource]
     isError: bool = False
+    isPending: bool = False
+
+class CallToolAsyncResult(Result):
+    """The servers response to an async tool call"""
+    token: AsyncToken | None = None
+    recieved: int | None = None
+    keepAlive: int | None = None
+    accepted: bool
 
 
 class ToolListChangedNotification(
@@ -1141,6 +1199,8 @@ class ClientRequest(
         | SubscribeRequest
         | UnsubscribeRequest
         | CallToolRequest
+        | CallToolAsyncRequest
+        | JoinCallToolAsyncRequest
         | ListToolsRequest
     ]
 ):
@@ -1152,6 +1212,7 @@ class ClientNotification(
         CancelledNotification
         | ProgressNotification
         | InitializedNotification
+        | CancelToolAsyncNotification
         | RootsListChangedNotification
     ]
 ):
@@ -1191,6 +1252,7 @@ class ServerResult(
         | ListResourceTemplatesResult
         | ReadResourceResult
         | CallToolResult
+        | CallToolAsyncResult
         | ListToolsResult
     ]
 ):
