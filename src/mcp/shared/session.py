@@ -433,7 +433,7 @@ class BaseSession(
                                         notification.root.params.progress,
                                         notification.root.params.total,
                                         notification.root.params.message,
-                                        notification.root.params.resource_uri,
+                                        notification.root.params.resourceUri,
                                     )
 
                             await self._received_notification(notification)
