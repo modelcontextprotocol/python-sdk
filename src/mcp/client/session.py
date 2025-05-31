@@ -150,12 +150,18 @@ class ClientSession(
         )
 
     async def initialize(self) -> types.InitializeResult:
-        sampling = types.SamplingCapability()
-        roots = types.RootsCapability(
+        sampling = (
+            types.SamplingCapability()
+            if self._sampling_callback is not _default_sampling_callback
+            else None
+        )
+        roots = (
             # TODO: Should this be based on whether we
             # _will_ send notifications, or only whether
             # they're supported?
-            listChanged=True,
+            types.RootsCapability(listChanged=True)
+            if self._list_roots_callback is not _default_list_roots_callback
+            else None
         )
 
         result = await self.send_request(

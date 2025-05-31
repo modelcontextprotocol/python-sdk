@@ -149,6 +149,10 @@ class JSONRPCResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+# SDK error codes
+CONNECTION_CLOSED = -32000
+# REQUEST_TIMEOUT = -32001  # the typescript sdk uses this
+
 # Standard JSON-RPC error codes
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
@@ -214,7 +218,7 @@ class RootsCapability(BaseModel):
 
 
 class SamplingCapability(BaseModel):
-    """Capability for logging operations."""
+    """Capability for sampling operations."""
 
     model_config = ConfigDict(extra="allow")
 

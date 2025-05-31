@@ -9,7 +9,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.server.session import ServerSessionT
-from mcp.shared.context import LifespanContextT
+from mcp.shared.context import LifespanContextT, RequestT
 from mcp.types import ToolAnnotations
 
 
@@ -347,7 +347,7 @@ class TestContextHandling:
         assert tool.context_kwarg is None
 
         def tool_with_parametrized_context(
-            x: int, ctx: Context[ServerSessionT, LifespanContextT]
+            x: int, ctx: Context[ServerSessionT, LifespanContextT, RequestT]
         ) -> str:
             return str(x)
 
