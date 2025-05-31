@@ -147,7 +147,7 @@ class FastMCP:
         tools: list[Tool] | None = None,
         **settings: Any,
     ):
-        self.settings = Settings(**settings)
+        self.settings = Settings(**settings) # type: ignore
 
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
