@@ -47,11 +47,12 @@ from pydantic import AnyUrl
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (
     BaseSession,
     RequestResponder,
 )
+from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 
 class InitializationState(Enum):
@@ -150,13 +151,16 @@ class ServerSession(
     ):
         match responder.request.root:
             case types.InitializeRequest(params=params):
+                requested_version = params.protocolVersion
                 self._initialization_state = InitializationState.Initializing
                 self._client_params = params
                 with responder:
                     await responder.respond(
                         types.ServerResult(
                             types.InitializeResult(
-                                protocolVersion=types.LATEST_PROTOCOL_VERSION,
+                                protocolVersion=requested_version
+                                if requested_version in SUPPORTED_PROTOCOL_VERSIONS
+                                else types.LATEST_PROTOCOL_VERSION,
                                 capabilities=self._init_options.capabilities,
                                 serverInfo=types.Implementation(
                                     name=self._init_options.server_name,
@@ -230,10 +234,11 @@ class ServerSession(
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         model_preferences: types.ModelPreferences | None = None,
+        related_request_id: types.RequestId | None = None,
     ) -> types.CreateMessageResult:
         """Send a sampling/create_message request."""
         return await self.send_request(
-            types.ServerRequest(
+            request=types.ServerRequest(
                 types.CreateMessageRequest(
                     method="sampling/createMessage",
                     params=types.CreateMessageRequestParams(
@@ -248,7 +253,10 @@ class ServerSession(
                     ),
                 )
             ),
-            types.CreateMessageResult,
+            result_type=types.CreateMessageResult,
+            metadata=ServerMessageMetadata(
+                related_request_id=related_request_id,
+            ),
         )
 
     async def list_roots(self) -> types.ListRootsResult:
@@ -278,6 +286,7 @@ class ServerSession(
         progress_token: str | int,
         progress: float,
         total: float | None = None,
+        message: str | None = None,
         related_request_id: str | None = None,
     ) -> None:
         """Send a progress notification."""
@@ -289,6 +298,7 @@ class ServerSession(
                         progressToken=progress_token,
                         progress=progress,
                         total=total,
+                        message=message,
                     ),
                 )
             ),

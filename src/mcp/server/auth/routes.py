@@ -147,31 +147,15 @@ def create_auth_routes(
     return routes
 
 
-def modify_url_path(url: AnyHttpUrl, path_mapper: Callable[[str], str]) -> AnyHttpUrl:
-    return AnyHttpUrl.build(
-        scheme=url.scheme,
-        username=url.username,
-        password=url.password,
-        host=url.host,
-        port=url.port,
-        path=path_mapper(url.path or ""),
-        query=url.query,
-        fragment=url.fragment,
-    )
-
-
 def build_metadata(
     issuer_url: AnyHttpUrl,
     service_documentation_url: AnyHttpUrl | None,
     client_registration_options: ClientRegistrationOptions,
     revocation_options: RevocationOptions,
 ) -> OAuthMetadata:
-    authorization_url = modify_url_path(
-        issuer_url, lambda path: path.rstrip("/") + AUTHORIZATION_PATH.lstrip("/")
-    )
-    token_url = modify_url_path(
-        issuer_url, lambda path: path.rstrip("/") + TOKEN_PATH.lstrip("/")
-    )
+    authorization_url = AnyHttpUrl(str(issuer_url).rstrip("/") + AUTHORIZATION_PATH)
+    token_url = AnyHttpUrl(str(issuer_url).rstrip("/") + TOKEN_PATH)
+
     # Create metadata
     metadata = OAuthMetadata(
         issuer=issuer_url,
@@ -193,14 +177,14 @@ def build_metadata(
 
     # Add registration endpoint if supported
     if client_registration_options.enabled:
-        metadata.registration_endpoint = modify_url_path(
-            issuer_url, lambda path: path.rstrip("/") + REGISTRATION_PATH.lstrip("/")
+        metadata.registration_endpoint = AnyHttpUrl(
+            str(issuer_url).rstrip("/") + REGISTRATION_PATH
         )
 
     # Add revocation endpoint if supported
     if revocation_options.enabled:
-        metadata.revocation_endpoint = modify_url_path(
-            issuer_url, lambda path: path.rstrip("/") + REVOCATION_PATH.lstrip("/")
+        metadata.revocation_endpoint = AnyHttpUrl(
+            str(issuer_url).rstrip("/") + REVOCATION_PATH
         )
         metadata.revocation_endpoint_auth_methods_supported = ["client_secret_post"]
 

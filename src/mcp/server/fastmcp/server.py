@@ -38,7 +38,7 @@ from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import PromptManager
 from mcp.server.fastmcp.prompts.base import Prompt
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
-from mcp.server.fastmcp.tools import ToolManager
+from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.fastmcp.utilities.types import Image
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -50,7 +50,7 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.shared.context import LifespanContextT, RequestContext
+from mcp.shared.context import LifespanContextT, RequestContext, RequestT
 from mcp.types import (
     AnyFunction,
     EmbeddedResource,
@@ -88,7 +88,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     # HTTP settings
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8000
     mount_path: str = "/"  # Mount path (e.g. "/github", defaults to root path)
     sse_path: str = "/sse"
@@ -125,9 +125,11 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 def lifespan_wrapper(
     app: FastMCP,
     lifespan: Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]],
-) -> Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[object]]:
+) -> Callable[
+    [MCPServer[LifespanResultT, Request]], AbstractAsyncContextManager[object]
+]:
     @asynccontextmanager
-    async def wrap(s: MCPServer[LifespanResultT]) -> AsyncIterator[object]:
+    async def wrap(s: MCPServer[LifespanResultT, Request]) -> AsyncIterator[object]:
         async with lifespan(app) as context:
             yield context
 
@@ -143,6 +145,8 @@ class FastMCP:
             OAuthAuthorizationServerProvider[Any, Any, Any] | None
         ) = None,
         event_store: EventStore | None = None,
+        *,
+        tools: list[Tool] | None = None,
         **settings: Any,
     ):
         self.settings = Settings(**settings)
@@ -157,7 +161,7 @@ class FastMCP:
             ),
         )
         self._tool_manager = ToolManager(
-            warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
+            tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools
         )
         self._resource_manager = ResourceManager(
             warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources
@@ -260,7 +264,7 @@ class FastMCP:
             for info in tools
         ]
 
-    def get_context(self) -> Context[ServerSession, object]:
+    def get_context(self) -> Context[ServerSession, object, Request]:
         """
         Returns a Context object. Note that the context will only be valid
         during a request; outside a request, most methods will error.
@@ -469,16 +473,16 @@ class FastMCP:
                     uri_template=uri,
                     name=name,
                     description=description,
-                    mime_type=mime_type or "text/plain",
+                    mime_type=mime_type,
                 )
             else:
                 # Register as regular resource
-                resource = FunctionResource(
-                    uri=AnyUrl(uri),
+                resource = FunctionResource.from_function(
+                    fn=fn,
+                    uri=uri,
                     name=name,
                     description=description,
-                    mime_type=mime_type or "text/plain",
-                    fn=fn,
+                    mime_type=mime_type,
                 )
                 self.add_resource(resource)
             return fn
@@ -901,7 +905,7 @@ def _convert_to_content(
     return [TextContent(type="text", text=result)]
 
 
-class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
+class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     """Context object providing access to MCP capabilities.
 
     This provides a cleaner interface to MCP's RequestContext functionality.
@@ -935,13 +939,15 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
     The context is optional - tools that don't need it can omit the parameter.
     """
 
-    _request_context: RequestContext[ServerSessionT, LifespanContextT] | None
+    _request_context: RequestContext[ServerSessionT, LifespanContextT, RequestT] | None
     _fastmcp: FastMCP | None
 
     def __init__(
         self,
         *,
-        request_context: RequestContext[ServerSessionT, LifespanContextT] | None = None,
+        request_context: (
+            RequestContext[ServerSessionT, LifespanContextT, RequestT] | None
+        ) = None,
         fastmcp: FastMCP | None = None,
         **kwargs: Any,
     ):
@@ -957,22 +963,24 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
         return self._fastmcp
 
     @property
-    def request_context(self) -> RequestContext[ServerSessionT, LifespanContextT]:
+    def request_context(
+        self,
+    ) -> RequestContext[ServerSessionT, LifespanContextT, RequestT]:
         """Access to the underlying request context."""
         if self._request_context is None:
             raise ValueError("Context is not available outside of a request")
         return self._request_context
 
     async def report_progress(
-        self, progress: float, total: float | None = None
+        self, progress: float, total: float | None = None, message: str | None = None
     ) -> None:
         """Report progress for the current operation.
 
         Args:
             progress: Current progress value e.g. 24
             total: Optional total value e.g. 100
+            message: Optional message e.g. Starting render...
         """
-
         progress_token = (
             self.request_context.meta.progressToken
             if self.request_context.meta
@@ -983,7 +991,10 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT]):
             return
 
         await self.request_context.session.send_progress_notification(
-            progress_token=progress_token, progress=progress, total=total
+            progress_token=progress_token,
+            progress=progress,
+            total=total,
+            message=message,
         )
 
     async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:

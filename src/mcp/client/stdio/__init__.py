@@ -108,20 +108,28 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-    command = _get_executable_command(server.command)
+    try:
+        command = _get_executable_command(server.command)
 
-    # Open process with stderr piped for capture
-    process = await _create_platform_compatible_process(
-        command=command,
-        args=server.args,
-        env=(
-            {**get_default_environment(), **server.env}
-            if server.env is not None
-            else get_default_environment()
-        ),
-        errlog=errlog,
-        cwd=server.cwd,
-    )
+        # Open process with stderr piped for capture
+        process = await _create_platform_compatible_process(
+            command=command,
+            args=server.args,
+            env=(
+                {**get_default_environment(), **server.env}
+                if server.env is not None
+                else get_default_environment()
+            ),
+            errlog=errlog,
+            cwd=server.cwd,
+        )
+    except OSError:
+        # Clean up streams if process creation fails
+        await read_stream.aclose()
+        await write_stream.aclose()
+        await read_stream_writer.aclose()
+        await write_stream_reader.aclose()
+        raise
 
     async def stdout_reader():
         assert process.stdout, "Opened process is missing stdout"
@@ -177,10 +185,18 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             yield read_stream, write_stream
         finally:
             # Clean up process to prevent any dangling orphaned processes
-            if sys.platform == "win32":
-                await terminate_windows_process(process)
-            else:
-                process.terminate()
+            try:
+                if sys.platform == "win32":
+                    await terminate_windows_process(process)
+                else:
+                    process.terminate()
+            except ProcessLookupError:
+                # Process already exited, which is fine
+                pass
+            await read_stream.aclose()
+            await write_stream.aclose()
+            await read_stream_writer.aclose()
+            await write_stream_reader.aclose()
 
 
 def _get_executable_command(command: str) -> str:

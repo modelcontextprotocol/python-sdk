@@ -31,6 +31,7 @@ def get_claude_config_path() -> Path | None:
         return path
     return None
 
+
 def get_uv_path() -> str:
     """Get the full path to the uv executable."""
     uv_path = shutil.which("uv")
@@ -41,6 +42,7 @@ def get_uv_path() -> str:
         )
         return "uv"  # Fall back to just "uv" if not found
     return uv_path
+
 
 def update_claude_config(
     file_spec: str,
