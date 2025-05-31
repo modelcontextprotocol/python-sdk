@@ -1204,13 +1204,13 @@ The MCP protocol defines three core primitives that servers can implement:
 
 MCP servers declare capabilities during initialization:
 
-| Capability  | Feature Flag                 | Description                        |
-|-------------|------------------------------|------------------------------------|
-| `prompts`   | `listChanged`                | Prompt template management         |
-| `resources` | `subscribe`<br/>`listChanged`| Resource exposure and updates      |
-| `tools`     | `listChanged`                | Tool discovery and execution       |
-| `logging`   | -                            | Server logging configuration       |
-| `completion`| -                            | Argument completion suggestions    |
+| Capability   | Feature Flag                 | Description                        |
+|--------------|------------------------------|------------------------------------|
+| `prompts`    | `listChanged`                | Prompt template management         |
+| `resources`  | `subscribe`<br/>`listChanged`| Resource exposure and updates      |
+| `tools`      | `listChanged`                | Tool discovery and execution       |
+| `logging`    | -                            | Server logging configuration       |
+| `completions`| -                            | Argument completion suggestions    |
 
 ## Documentation
 
