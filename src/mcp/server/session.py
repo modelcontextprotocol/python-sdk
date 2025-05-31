@@ -38,12 +38,12 @@ be instantiated directly by users of the MCP framework.
 """
 
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Annotated, Any, TypeVar
 
 import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl
+from pydantic.networks import AnyUrl, UrlConstraints
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
@@ -288,6 +288,8 @@ class ServerSession(
         total: float | None = None,
         message: str | None = None,
         related_request_id: str | None = None,
+        resource_uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+        | None = None,
     ) -> None:
         """Send a progress notification."""
         await self.send_notification(
@@ -299,6 +301,7 @@ class ServerSession(
                         progress=progress,
                         total=total,
                         message=message,
+                        resource_uri=resource_uri,
                     ),
                 )
             ),
