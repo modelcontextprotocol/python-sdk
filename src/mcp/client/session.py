@@ -185,9 +185,6 @@ class ClientSession(
         progress: float,
         total: float | None = None,
         message: str | None = None,
-        # TODO check whether MCP spec allows clients to create resources
-        # for server and therefore whether resource notifications
-        # would be required here too
     ) -> None:
         """Send a progress notification."""
         await self.send_notification(
