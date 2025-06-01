@@ -24,6 +24,14 @@ class InProgress:
 class ResultCache:
     """
     Note this class is a work in progress
+    Its purpose is to act as a central point for managing in progress
+    async calls, allowing multiple clients to join and receive progress
+    updates, get results and/or cancel in progress calls
+    TODO CRITICAL!! Decide how to limit Async tokens for security purposes
+    suggest use authentication protocol for identity - may need to add an 
+    authorisation layer to decide if a user is allowed to join an existing 
+    async call
+    TODO name is probably not quite right, more of a result broker?
     TODO externalise cachetools to allow for other implementations
     e.g. redis etal for production scenarios
     TODO properly support join nothing actually happens at the moment
@@ -34,6 +42,8 @@ class ResultCache:
     TODO keep_alive logic is not correct as per spec - results are cached for too long,
     probably better than too short
     TODO needs a lot more testing around edge cases/failure scenarios
+    TODO might look into more fine grained locks, one global lock is a bottleneck
+    though this could be delegated to other cache impls if external
     """
 
     _in_progress: dict[types.AsyncToken, InProgress]
