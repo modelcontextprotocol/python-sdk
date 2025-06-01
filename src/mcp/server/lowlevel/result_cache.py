@@ -34,15 +34,15 @@ class ResultCache:
     async calls, allowing multiple clients to join and receive progress
     updates, get results and/or cancel in progress calls
     TODO CRITICAL properly support join nothing actually happens at the moment
-    TODO CRITICAL intercept progress notifications from original session and 
+    TODO CRITICAL intercept progress notifications from original session and
     pass to joined sessions
     TODO MAJOR handle session closure gracefully -
     at the moment old connections will hang around and cause problems later
     TODO MAJOR needs a lot more testing around edge cases/failure scenarios
-    TODO MINOR keep_alive logic is not correct as per spec - results are cached for too long,
-    probably better than too short
-    TODO ENHANCEMENT might look into more fine grained locks, one global lock is a bottleneck
-    though this could be delegated to other cache impls if external
+    TODO MINOR keep_alive logic is not correct as per spec - results are
+    cached for too long, probably better than too short
+    TODO ENHANCEMENT might look into more fine grained locks, one global lock
+    is a bottleneck though this could be delegated to other cache impls if external
     TODO ENHANCEMENT externalise cachetools to allow for other implementations
     e.g. redis etal for production scenarios
     TODO ENHANCEMENT may need to add an authorisation layer to decide if
