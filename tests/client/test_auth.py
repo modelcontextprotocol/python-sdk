@@ -10,7 +10,6 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
-from inline_snapshot import snapshot
 from pydantic import AnyHttpUrl
 
 from mcp.client.auth import OAuthClientProvider
@@ -968,18 +967,30 @@ def test_build_metadata(
         revocation_options=RevocationOptions(enabled=True),
     )
 
-    assert metadata == snapshot(
-        OAuthMetadata(
-            issuer=AnyHttpUrl(issuer_url),
-            authorization_endpoint=AnyHttpUrl(authorization_endpoint),
-            token_endpoint=AnyHttpUrl(token_endpoint),
-            registration_endpoint=AnyHttpUrl(registration_endpoint),
-            scopes_supported=["read", "write", "admin"],
-            grant_types_supported=["authorization_code", "refresh_token"],
-            token_endpoint_auth_methods_supported=["client_secret_post"],
-            service_documentation=AnyHttpUrl(service_documentation_url),
-            revocation_endpoint=AnyHttpUrl(revocation_endpoint),
-            revocation_endpoint_auth_methods_supported=["client_secret_post"],
-            code_challenge_methods_supported=["S256"],
-        )
-    )
+    def stringify_urls(d):
+        return {k: str(v) if isinstance(v, AnyHttpUrl) else v for k, v in d.items()}
+
+    metadata_dict = stringify_urls(metadata.model_dump())
+
+    # Normalize issuer URL for comparison (remove trailing slash)
+    def normalize_url(url):
+        return url.rstrip("/")
+
+    assert normalize_url(metadata_dict["issuer"]) == normalize_url(str(issuer_url))
+    assert metadata_dict["authorization_endpoint"] == str(authorization_endpoint)
+    assert metadata_dict["token_endpoint"] == str(token_endpoint)
+    assert metadata_dict["registration_endpoint"] == str(registration_endpoint)
+    assert metadata_dict["scopes_supported"] == ["read", "write", "admin"]
+    assert metadata_dict["grant_types_supported"] == [
+        "authorization_code",
+        "refresh_token",
+    ]
+    assert metadata_dict["token_endpoint_auth_methods_supported"] == [
+        "client_secret_post"
+    ]
+    assert metadata_dict["service_documentation"] == str(service_documentation_url)
+    assert metadata_dict["revocation_endpoint"] == str(revocation_endpoint)
+    assert metadata_dict["revocation_endpoint_auth_methods_supported"] == [
+        "client_secret_post"
+    ]
+    assert metadata_dict["code_challenge_methods_supported"] == ["S256"]

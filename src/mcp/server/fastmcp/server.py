@@ -502,7 +502,7 @@ class FastMCP:
             prompt: A Prompt instance (required if fn is not provided)
             fn: A function to create a prompt from (required if prompt is not provided)
             name: Optional name for the prompt (only used if fn is provided)
-            description: Optional description of the prompt (only used if fn is provided)
+            description: Optional description of the prompt (only if fn is provided)
         """
         if prompt is None and fn is None:
             raise ValueError("Either prompt or fn must be provided")

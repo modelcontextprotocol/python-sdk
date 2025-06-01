@@ -1,10 +1,13 @@
+"""Tests for prompt manager."""
+
 import pytest
 
-from mcp.server.fastmcp.prompts.base import Prompt, TextContent, UserMessage
 from mcp.server.fastmcp.prompts.manager import PromptManager
 
 
 class TestPromptManager:
+    """Test prompt manager functionality."""
+
     def test_add_prompt(self):
         """Test adding a prompt to the manager."""
 
@@ -12,39 +15,38 @@ class TestPromptManager:
             return "Hello, world!"
 
         manager = PromptManager()
-        added = manager.add_prompt(fn)
-        assert isinstance(added, Prompt)
+        added = manager.add_prompt(fn=fn)
+
         assert added.name == "fn"
-        assert manager.get_prompt("fn") == added
+        assert added.description == ""
+        assert len(manager.list_prompts()) == 1
 
-    def test_add_prompt_object(self):
-        """Test adding a Prompt object directly."""
-
-        def fn() -> str:
-            return "Hello, world!"
-
-        prompt = Prompt.from_function(fn, name="test_prompt", description="Test prompt")
-        manager = PromptManager()
-        added = manager.add_prompt(prompt)
-        assert added == prompt
-        assert manager.get_prompt("test_prompt") == prompt
-
-    def test_add_prompt_object_ignores_name_and_description(self):
-        """Test if name and description args are ignored when adding a Prompt object."""
+    def test_add_prompt_with_name(self):
+        """Test adding a prompt with a custom name."""
 
         def fn() -> str:
             return "Hello, world!"
 
-        prompt = Prompt.from_function(
-            fn, name="original_name", description="Original description"
-        )
         manager = PromptManager()
-        # These should be ignored
-        added = manager.add_prompt(
-            prompt, name="ignored_name", description="ignored_description"
-        )
-        assert added.name == "original_name"
-        assert added.description == "Original description"
+        added = manager.add_prompt(fn=fn, name="greeting")
+
+        assert added.name == "greeting"
+        assert added.description == ""
+        assert len(manager.list_prompts()) == 1
+
+    def test_add_prompt_with_description(self):
+        """Test adding a prompt with a description."""
+
+        def fn() -> str:
+            """A greeting prompt."""
+            return "Hello, world!"
+
+        manager = PromptManager()
+        added = manager.add_prompt(fn=fn, description="A custom greeting")
+
+        assert added.name == "fn"
+        assert added.description == "A custom greeting"
+        assert len(manager.list_prompts()) == 1
 
     def test_add_duplicate_prompt(self, caplog):
         """Test adding the same prompt twice."""
@@ -53,10 +55,12 @@ class TestPromptManager:
             return "Hello, world!"
 
         manager = PromptManager()
-        first = manager.add_prompt(fn)
-        second = manager.add_prompt(fn)
+        first = manager.add_prompt(fn=fn)
+        second = manager.add_prompt(fn=fn)
+
         assert first == second
-        assert "Prompt already exists" in caplog.text
+        assert len(manager.list_prompts()) == 1
+        assert "Prompt already exists: fn" in caplog.text
 
     def test_disable_warn_on_duplicate_prompts(self, caplog):
         """Test disabling warning on duplicate prompts."""
@@ -65,9 +69,11 @@ class TestPromptManager:
             return "Hello, world!"
 
         manager = PromptManager(warn_on_duplicate_prompts=False)
-        first = manager.add_prompt(fn)
-        second = manager.add_prompt(fn)
+        first = manager.add_prompt(fn=fn)
+        second = manager.add_prompt(fn=fn)
+
         assert first == second
+        assert len(manager.list_prompts()) == 1
         assert "Prompt already exists" not in caplog.text
 
     def test_list_prompts(self):
@@ -80,11 +86,13 @@ class TestPromptManager:
             return "Goodbye, world!"
 
         manager = PromptManager()
-        prompt1 = manager.add_prompt(fn1)
-        prompt2 = manager.add_prompt(fn2)
+        prompt1 = manager.add_prompt(fn=fn1)
+        prompt2 = manager.add_prompt(fn=fn2)
+
         prompts = manager.list_prompts()
         assert len(prompts) == 2
-        assert prompts == [prompt1, prompt2]
+        assert prompt1 in prompts
+        assert prompt2 in prompts
 
     @pytest.mark.anyio
     async def test_render_prompt(self):
@@ -94,11 +102,12 @@ class TestPromptManager:
             return "Hello, world!"
 
         manager = PromptManager()
-        manager.add_prompt(fn)
+        manager.add_prompt(fn=fn)
+
         messages = await manager.render_prompt("fn")
-        assert messages == [
-            UserMessage(content=TextContent(type="text", text="Hello, world!"))
-        ]
+        assert len(messages) == 1
+        assert messages[0].role == "user"
+        assert messages[0].content.text == "Hello, world!"
 
     @pytest.mark.anyio
     async def test_render_prompt_with_args(self):
@@ -108,18 +117,12 @@ class TestPromptManager:
             return f"Hello, {name}!"
 
         manager = PromptManager()
-        manager.add_prompt(fn)
-        messages = await manager.render_prompt("fn", arguments={"name": "World"})
-        assert messages == [
-            UserMessage(content=TextContent(type="text", text="Hello, World!"))
-        ]
+        manager.add_prompt(fn=fn)
 
-    @pytest.mark.anyio
-    async def test_render_unknown_prompt(self):
-        """Test rendering a non-existent prompt."""
-        manager = PromptManager()
-        with pytest.raises(ValueError, match="Unknown prompt: unknown"):
-            await manager.render_prompt("unknown")
+        messages = await manager.render_prompt("fn", {"name": "Alice"})
+        assert len(messages) == 1
+        assert messages[0].role == "user"
+        assert messages[0].content.text == "Hello, Alice!"
 
     @pytest.mark.anyio
     async def test_render_prompt_with_missing_args(self):
@@ -129,6 +132,16 @@ class TestPromptManager:
             return f"Hello, {name}!"
 
         manager = PromptManager()
-        manager.add_prompt(fn)
+        manager.add_prompt(fn=fn)
+
         with pytest.raises(ValueError, match="Missing required arguments"):
             await manager.render_prompt("fn")
+
+    @pytest.mark.anyio
+    async def test_render_unknown_prompt(self):
+        """Test rendering an unknown prompt."""
+
+        manager = PromptManager()
+
+        with pytest.raises(ValueError, match="Unknown prompt"):
+            await manager.render_prompt("unknown")

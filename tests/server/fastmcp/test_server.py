@@ -921,3 +921,15 @@ class TestServerPrompts:
             content = message.content
             assert isinstance(content, TextContent)
             assert content.text == "Hello, Test!"
+
+    @pytest.mark.anyio
+    async def test_add_prompt_both_args_error(self):
+        """Test error when both prompt and fn are provided to add_prompt."""
+        mcp = FastMCP()
+
+        def fn() -> str:
+            return "Hello, world!"
+
+        prompt = Prompt.from_function(fn)
+        with pytest.raises(ValueError, match="Cannot provide both prompt and fn"):
+            mcp.add_prompt(prompt=prompt, fn=fn)

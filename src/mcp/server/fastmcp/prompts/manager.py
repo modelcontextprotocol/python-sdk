@@ -37,22 +37,22 @@ class PromptManager:
             prompt: A Prompt instance (required if fn is not provided)
             fn: A function to create a prompt from (required if prompt is not provided)
             name: Optional name for the prompt (only used if fn is provided)
-            description: Optional description of the prompt (only used if fn is provided)
+            description: Optional description of the prompt (only if fn is provided)
         """
         if prompt is None and fn is None:
             raise ValueError("Either prompt or fn must be provided")
         if prompt is not None and fn is not None:
             raise ValueError("Cannot provide both prompt and fn")
 
+        # Create Prompt object if function is provided
         if prompt is None:
-            # Only call from_function if we have a function to convert
             prompt = Prompt.from_function(
                 fn,  # type: ignore[arg-type]
                 name=name,
                 description=description,
             )
 
-        # Check for duplicates
+        # Now we can safely access prompt.name
         existing = self._prompts.get(prompt.name)
         if existing:
             if self.warn_on_duplicate_prompts:
