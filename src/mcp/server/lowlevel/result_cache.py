@@ -28,8 +28,8 @@ class ResultCache:
     async calls, allowing multiple clients to join and receive progress
     updates, get results and/or cancel in progress calls
     TODO CRITICAL!! Decide how to limit Async tokens for security purposes
-    suggest use authentication protocol for identity - may need to add an 
-    authorisation layer to decide if a user is allowed to join an existing 
+    suggest use authentication protocol for identity - may need to add an
+    authorisation layer to decide if a user is allowed to join an existing
     async call
     TODO name is probably not quite right, more of a result broker?
     TODO externalise cachetools to allow for other implementations
