@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from logging import getLogger
 from time import time
 from typing import Any
 from uuid import uuid4
@@ -9,12 +10,17 @@ from anyio.abc import TaskGroup
 from cachetools import TTLCache
 
 from mcp import types
+from mcp.server.auth.middleware.auth_context import auth_context_var as user_context
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.shared.context import BaseSession, RequestContext, SessionT
+
+logger = getLogger(__name__)
 
 
 @dataclass
 class InProgress:
     token: str
+    user: AuthenticatedUser | None = None
     task_group: TaskGroup | None = None
     sessions: list[BaseSession[Any, Any, Any, Any, Any]] = field(
         default_factory=lambda: []
@@ -27,10 +33,9 @@ class ResultCache:
     Its purpose is to act as a central point for managing in progress
     async calls, allowing multiple clients to join and receive progress
     updates, get results and/or cancel in progress calls
-    TODO CRITICAL!! Decide how to limit Async tokens for security purposes
-    suggest use authentication protocol for identity - may need to add an
-    authorisation layer to decide if a user is allowed to join an existing
-    async call
+    TODO IMPORTANT! may need to add an authorisation layer to decide if
+    a user is allowed to get/join/cancel an existing async call current
+    simple logic only allows same user to perform these tasks
     TODO name is probably not quite right, more of a result broker?
     TODO externalise cachetools to allow for other implementations
     e.g. redis etal for production scenarios
@@ -86,6 +91,7 @@ class ResultCache:
         async with create_task_group() as tg:
             tg.start_soon(call_tool)
             in_progress.task_group = tg
+            in_progress.user = user_context.get()
             in_progress.sessions.append(ctx.session)
             result = types.CallToolAsyncResult(
                 token=in_progress.token,
@@ -107,17 +113,27 @@ class ResultCache:
                 # to get message describing why it wasn't accepted
                 return types.CallToolAsyncResult(accepted=False)
             else:
-                in_progress.sessions.append(ctx.session)
-                return types.CallToolAsyncResult(accepted=True)
-
-        return
+                # TODO consider adding authorisation layer to make this decision
+                if in_progress.user == user_context.get():
+                    in_progress.sessions.append(ctx.session)
+                    return types.CallToolAsyncResult(accepted=True)
+                else:
+                    # TODO consider creating new token to allow client
+                    # to get message describing why it wasn't accepted
+                    return types.CallToolAsyncResult(accepted=False)
 
     async def cancel(self, notification: types.CancelToolAsyncNotification) -> None:
         async with self._lock:
             in_progress = self._in_progress.get(notification.params.token)
             if in_progress is not None and in_progress.task_group is not None:
-                in_progress.task_group.cancel_scope.cancel()
-                del self._in_progress[notification.params.token]
+                if in_progress.user == user_context.get():
+                    in_progress.task_group.cancel_scope.cancel()
+                    del self._in_progress[notification.params.token]
+                else:
+                    logger.warning(
+                        "Permission denied for cancel notification received"
+                        f"from {user_context.get()}"
+                    )
 
     async def get_result(self, req: types.GetToolAsyncResultRequest):
         async with self._lock:
@@ -130,11 +146,19 @@ class ResultCache:
                     isError=True,
                 )
             else:
-                result = self._result_cache.get(in_progress.token)
-                if result is None:
-                    return types.CallToolResult(content=[], isPending=True)
+                if in_progress.user == user_context.get():
+                    result = self._result_cache.get(in_progress.token)
+                    if result is None:
+                        return types.CallToolResult(content=[], isPending=True)
+                    else:
+                        return result
                 else:
-                    return result
+                    return types.CallToolResult(
+                        content=[
+                            types.TextContent(type="text", text="Permission denied")
+                        ],
+                        isError=True,
+                    )
 
     async def _new_in_progress(self) -> InProgress:
         async with self._lock:
