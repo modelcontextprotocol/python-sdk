@@ -491,20 +491,29 @@ class FastMCP:
 
     def add_prompt(
         self,
-        prompt_or_fn: Prompt | AnyFunction,
+        prompt: Prompt | None = None,
+        fn: AnyFunction | None = None,
         name: str | None = None,
         description: str | None = None,
     ) -> None:
         """Add a prompt to the server.
 
         Args:
-            prompt_or_fn: Either a Prompt instance or a function to create a prompt from
-            name: Optional name for the prompt (only used if prompt_or_fn is a function)
-            description: Optional description of the prompt
-                         (only used if prompt_or_fn is a function)
+            prompt: A Prompt instance (required if fn is not provided)
+            fn: A function to create a prompt from (required if prompt is not provided)
+            name: Optional name for the prompt (only used if fn is provided)
+            description: Optional description of the prompt (only used if fn is provided)
         """
+        if prompt is None and fn is None:
+            raise ValueError("Either prompt or fn must be provided")
+        if prompt is not None and fn is not None:
+            raise ValueError("Cannot provide both prompt and fn")
+
         self._prompt_manager.add_prompt(
-            prompt_or_fn, name=name, description=description
+            prompt=prompt,
+            fn=fn,
+            name=name,
+            description=description,
         )
 
     def prompt(
@@ -551,7 +560,7 @@ class FastMCP:
             )
 
         def decorator(func: AnyFunction) -> AnyFunction:
-            self.add_prompt(func, name=name, description=description)
+            self.add_prompt(fn=func, name=name, description=description)
             return func
 
         return decorator
