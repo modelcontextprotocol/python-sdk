@@ -130,6 +130,77 @@ async def test_request_cancellation():
 
 
 @pytest.mark.anyio
+async def test_request_async():
+    """Test that requests can be run asynchronously."""
+    # The tool is already registered in the fixture
+
+    ev_tool_called = anyio.Event()
+
+    # Start the request in a separate task so we can cancel it
+    def make_server() -> Server:
+        server = Server(name="TestSessionServer")
+
+        # Register the tool handler
+        @server.call_tool()
+        async def handle_call_tool(name: str, arguments: dict | None) -> list:
+            nonlocal ev_tool_called
+            if name == "async_tool":
+                ev_tool_called.set()
+                return [types.TextContent(type="text", text="test")]
+            raise ValueError(f"Unknown tool: {name}")
+
+        # Register the tool so it shows up in list_tools
+        @server.list_tools()
+        async def handle_list_tools() -> list[types.Tool]:
+            return [
+                types.Tool(
+                    name="async_tool",
+                    description="A tool that does things asynchronously",
+                    inputSchema={},
+                    preferAsync=True,
+                )
+            ]
+
+        return server
+
+    async def make_request(client_session: ClientSession):
+        return await client_session.send_request(
+            ClientRequest(
+                types.CallToolAsyncRequest(
+                    method="tools/async/call",
+                    params=types.CallToolAsyncRequestParams(
+                        name="async_tool", arguments={}
+                    ),
+                )
+            ),
+            types.CallToolAsyncResult,
+        )
+
+    async def get_result(client_session: ClientSession, async_token: types.AsyncToken):
+        return await client_session.send_request(
+            ClientRequest(
+                types.GetToolAsyncResultRequest(
+                    method="tools/async/get",
+                    params=types.GetToolAsyncResultRequestParams(token=async_token),
+                )
+            ),
+            types.CallToolResult,
+        )
+
+    async with create_connected_server_and_client_session(
+        make_server()
+    ) as client_session:
+        async_result = await make_request(client_session)
+        assert async_result is not None
+        assert async_result.token is not None
+        with anyio.fail_after(1):  # Timeout after 1 second
+            await ev_tool_called.wait()
+        result = await get_result(client_session, async_result.token)
+        assert type(result.content[0]) is types.TextContent
+        assert result.content[0].text == "test"
+
+
+@pytest.mark.anyio
 async def test_connection_closed():
     """
     Test that pending requests are cancelled when the connection is closed remotely.

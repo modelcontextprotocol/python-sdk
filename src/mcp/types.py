@@ -799,6 +799,8 @@ class Tool(BaseModel):
     """A JSON Schema object defining the expected parameters for the tool."""
     annotations: ToolAnnotations | None = None
     """Optional additional tool information."""
+    preferAsync: bool | None = None
+    """Optional flag to suggest to client async calls should be preferred"""
     model_config = ConfigDict(extra="allow")
 
 
@@ -1227,6 +1229,7 @@ class ClientRequest(
         | CallToolRequest
         | CallToolAsyncRequest
         | JoinCallToolAsyncRequest
+        | GetToolAsyncResultRequest
         | ListToolsRequest
     ]
 ):

@@ -81,6 +81,7 @@ from typing_extensions import TypeVar
 
 import mcp.types as types
 from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.server.lowlevel.result_cache import ResultCache
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.server.stdio import stdio_server as stdio_server
@@ -135,6 +136,8 @@ class Server(Generic[LifespanResultT, RequestT]):
             [Server[LifespanResultT, RequestT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        max_cache_size: int = 1000,
+        max_cache_ttl: int = 60,
     ):
         self.name = name
         self.version = version
@@ -145,6 +148,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         ] = {
             types.PingRequest: _ping_handler,
         }
+        self.result_cache = ResultCache(max_cache_size, max_cache_ttl)
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self.notification_options = NotificationOptions()
         logger.debug(f"Initializing server '{name}'")
@@ -426,7 +430,32 @@ class Server(Generic[LifespanResultT, RequestT]):
                         )
                     )
 
+            async def async_call_handler(req: types.CallToolAsyncRequest):
+                ctx = request_ctx.get()
+                result = await self.result_cache.add_call(handler, req, ctx)
+                return types.ServerResult(result)
+
+            async def async_join_handler(req: types.JoinCallToolAsyncRequest):
+                ctx = request_ctx.get()
+                result = await self.result_cache.join_call(req, ctx)
+                return types.ServerResult(result)
+
+            async def async_cancel_handler(req: types.CancelToolAsyncNotification):
+                await self.result_cache.cancel(req)
+
+            async def async_result_handler(req: types.GetToolAsyncResultRequest):
+                result = await self.result_cache.get_result(req)
+                return types.ServerResult(result)
+
             self.request_handlers[types.CallToolRequest] = handler
+            self.request_handlers[types.CallToolAsyncRequest] = async_call_handler
+            self.request_handlers[types.JoinCallToolAsyncRequest] = async_join_handler
+            self.request_handlers[types.GetToolAsyncResultRequest] = (
+                async_result_handler
+            )
+            self.notification_handlers[types.CancelToolAsyncNotification] = (
+                async_cancel_handler
+            )
             return func
 
         return decorator
