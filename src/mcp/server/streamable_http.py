@@ -397,7 +397,8 @@ class StreamableHTTPServerTransport:
                 await response(scope, receive, send)
 
                 # Process the message after sending the response
-                session_message = SessionMessage(message)
+                metadata = ServerMessageMetadata(request_context=request)
+                session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
 
                 return
@@ -412,7 +413,8 @@ class StreamableHTTPServerTransport:
 
             if self.is_json_response_enabled:
                 # Process the message
-                session_message = SessionMessage(message)
+                metadata = ServerMessageMetadata(request_context=request)
+                session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
                 try:
                     # Process messages from the request-specific stream
@@ -511,7 +513,8 @@ class StreamableHTTPServerTransport:
                     async with anyio.create_task_group() as tg:
                         tg.start_soon(response, scope, receive, send)
                         # Then send the message to be processed by the server
-                        session_message = SessionMessage(message)
+                        metadata = ServerMessageMetadata(request_context=request)
+                        session_message = SessionMessage(message, metadata=metadata)
                         await writer.send(session_message)
                 except Exception:
                     logger.exception("SSE response error")
