@@ -22,6 +22,20 @@ class InProgress:
 
 
 class ResultCache:
+    """
+    Note this class is a work in progress
+    TODO externalise cachetools to allow for other implementations
+    e.g. redis etal for production scenarios
+    TODO properly support join nothing actually happens at the moment
+    TODO intercept progress notifications from original session and pass to joined
+    sessions
+    TODO handle session closure gracefully -
+    at the moment old connections will hang around and cause problems later
+    TODO keep_alive logic is not correct as per spec - results are cached for too long,
+    probably better than too short
+    TODO needs a lot more testing around edge cases/failure scenarios
+    """
+
     _in_progress: dict[types.AsyncToken, InProgress]
 
     def __init__(self, max_size: int, max_keep_alive: int):
@@ -79,7 +93,7 @@ class ResultCache:
         async with self._lock:
             in_progress = self._in_progress.get(req.params.token)
             if in_progress is None:
-                # TODO consider creating new token to allow client 
+                # TODO consider creating new token to allow client
                 # to get message describing why it wasn't accepted
                 return types.CallToolAsyncResult(accepted=False)
             else:
