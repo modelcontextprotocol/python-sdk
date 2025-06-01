@@ -33,22 +33,22 @@ class ResultCache:
     Its purpose is to act as a central point for managing in progress
     async calls, allowing multiple clients to join and receive progress
     updates, get results and/or cancel in progress calls
-    TODO IMPORTANT! may need to add an authorisation layer to decide if
+    TODO CRITICAL properly support join nothing actually happens at the moment
+    TODO CRITICAL intercept progress notifications from original session and 
+    pass to joined sessions
+    TODO MAJOR handle session closure gracefully -
+    at the moment old connections will hang around and cause problems later
+    TODO MAJOR needs a lot more testing around edge cases/failure scenarios
+    TODO MINOR keep_alive logic is not correct as per spec - results are cached for too long,
+    probably better than too short
+    TODO ENHANCEMENT might look into more fine grained locks, one global lock is a bottleneck
+    though this could be delegated to other cache impls if external
+    TODO ENHANCEMENT externalise cachetools to allow for other implementations
+    e.g. redis etal for production scenarios
+    TODO ENHANCEMENT may need to add an authorisation layer to decide if
     a user is allowed to get/join/cancel an existing async call current
     simple logic only allows same user to perform these tasks
-    TODO name is probably not quite right, more of a result broker?
-    TODO externalise cachetools to allow for other implementations
-    e.g. redis etal for production scenarios
-    TODO properly support join nothing actually happens at the moment
-    TODO intercept progress notifications from original session and pass to joined
-    sessions
-    TODO handle session closure gracefully -
-    at the moment old connections will hang around and cause problems later
-    TODO keep_alive logic is not correct as per spec - results are cached for too long,
-    probably better than too short
-    TODO needs a lot more testing around edge cases/failure scenarios
-    TODO might look into more fine grained locks, one global lock is a bottleneck
-    though this could be delegated to other cache impls if external
+    TODO TRIVIAL name is probably not quite right, more of a result broker?
     """
 
     _in_progress: dict[types.AsyncToken, InProgress]
