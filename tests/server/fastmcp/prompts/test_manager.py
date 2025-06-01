@@ -3,6 +3,7 @@
 import pytest
 
 from mcp.server.fastmcp.prompts.manager import PromptManager
+from mcp.types import TextContent
 
 
 class TestPromptManager:
@@ -107,6 +108,7 @@ class TestPromptManager:
         messages = await manager.render_prompt("fn")
         assert len(messages) == 1
         assert messages[0].role == "user"
+        assert isinstance(messages[0].content, TextContent)
         assert messages[0].content.text == "Hello, world!"
 
     @pytest.mark.anyio
@@ -122,6 +124,7 @@ class TestPromptManager:
         messages = await manager.render_prompt("fn", {"name": "Alice"})
         assert len(messages) == 1
         assert messages[0].role == "user"
+        assert isinstance(messages[0].content, TextContent)
         assert messages[0].content.text == "Hello, Alice!"
 
     @pytest.mark.anyio
