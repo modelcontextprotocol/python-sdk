@@ -608,7 +608,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             try:
                 await handler(notify)
-            except Exception as err:
+            except Exception:
                 logger.exception("Uncaught exception in notification handler")
 
 
