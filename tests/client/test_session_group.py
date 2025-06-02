@@ -7,6 +7,7 @@ import mcp
 from mcp import types
 from mcp.client.session_group import (
     ClientSessionGroup,
+    ServerParameters,
     SseServerParameters,
     StreamableHttpParameters,
 )
@@ -279,37 +280,34 @@ class TestClientSessionGroup:
             await group.disconnect_from_server(session)
 
     @pytest.mark.parametrize(
-        "server_params_instance, client_type_name, patch_target_for_client_func",
+        "server_params_instance, patch_target_for_client_func",
         [
             (
                 StdioServerParameters(command="test_stdio_cmd"),
-                "stdio",
                 "mcp.client.session_group.mcp.stdio_client",
             ),
             (
                 SseServerParameters(url="http://test.com/sse", timeout=10),
-                "sse",
                 "mcp.client.session_group.sse_client",
             ),  # url, headers, timeout, sse_read_timeout
             (
                 StreamableHttpParameters(
                     url="http://test.com/stream", terminate_on_close=False
                 ),
-                "streamablehttp",
                 "mcp.client.session_group.streamable_http_client",
             ),  # url, headers, timeout, sse_read_timeout, terminate_on_close
         ],
     )
     async def test_establish_session_parameterized(
         self,
-        server_params_instance,
-        client_type_name,  # Just for clarity or conditional logic if needed
-        patch_target_for_client_func,
+        server_params_instance: ServerParameters,
+        patch_target_for_client_func: str,
     ):
         with mock.patch(
             "mcp.client.session_group.mcp.ClientSession"
         ) as mock_ClientSession_class:
             with mock.patch(patch_target_for_client_func) as mock_specific_client_func:
+                client_type_name = server_params_instance.__class__.__name__
                 mock_client_cm_instance = mock.AsyncMock(
                     name=f"{client_type_name}ClientCM"
                 )
@@ -317,7 +315,7 @@ class TestClientSessionGroup:
                 mock_write_stream = mock.AsyncMock(name=f"{client_type_name}Write")
 
                 # streamable_http_client's __aenter__ returns three values
-                if client_type_name == "streamablehttp":
+                if isinstance(server_params_instance, StreamableHttpParameters):
                     mock_extra_stream_val = mock.AsyncMock(name="StreamableExtra")
                     mock_client_cm_instance.__aenter__.return_value = (
                         mock_read_stream,
@@ -363,23 +361,23 @@ class TestClientSessionGroup:
 
                 # --- Assertions ---
                 # 1. Assert the correct specific client function was called
-                if client_type_name == "stdio":
+                if isinstance(server_params_instance, StdioServerParameters):
                     mock_specific_client_func.assert_called_once_with(
                         server_params_instance
                     )
-                elif client_type_name == "sse":
+                elif isinstance(server_params_instance, SseServerParameters):
                     mock_specific_client_func.assert_called_once_with(
                         url=server_params_instance.url,
                         headers=server_params_instance.headers,
                         timeout=server_params_instance.timeout,
                         sse_read_timeout=server_params_instance.sse_read_timeout,
                     )
-                elif client_type_name == "streamablehttp":
+                else:
                     mock_specific_client_func.assert_called_once_with(
                         url=server_params_instance.url,
                         headers=server_params_instance.headers,
-                        timeout=server_params_instance.timeout,
-                        sse_read_timeout=server_params_instance.sse_read_timeout,
+                        timeout=server_params_instance.timeout.total_seconds(),
+                        sse_read_timeout=server_params_instance.sse_read_timeout.total_seconds(),
                         terminate_on_close=server_params_instance.terminate_on_close,
                     )
 
