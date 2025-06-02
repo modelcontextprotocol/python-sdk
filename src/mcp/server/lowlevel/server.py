@@ -609,7 +609,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             try:
                 await handler(notify)
             except Exception as err:
-                logger.error("Uncaught exception in notification handler: %s", err)
+                logger.exception("Uncaught exception in notification handler")
 
 
 async def _ping_handler(request: types.PingRequest) -> types.ServerResult:
