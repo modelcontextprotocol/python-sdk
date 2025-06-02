@@ -147,7 +147,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self.notification_options = NotificationOptions()
-        logger.debug(f"Initializing server '{name}'")
+        logger.debug("Initializing server %r", name)
 
     def create_initialization_options(
         self,
@@ -510,7 +510,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async with anyio.create_task_group() as tg:
                 async for message in session.incoming_messages:
-                    logger.debug(f"Received message: {message}")
+                    logger.debug("Received message: %s", message)
 
                     tg.start_soon(
                         self._handle_message,
@@ -543,7 +543,9 @@ class Server(Generic[LifespanResultT, RequestT]):
                     await self._handle_notification(notify)
 
             for warning in w:
-                logger.info(f"Warning: {warning.category.__name__}: {warning.message}")
+                logger.info(
+                    "Warning: %s: %s", warning.category.__name__, warning.message
+                )
 
     async def _handle_request(
         self,
@@ -553,10 +555,9 @@ class Server(Generic[LifespanResultT, RequestT]):
         lifespan_context: LifespanResultT,
         raise_exceptions: bool,
     ):
-        logger.info(f"Processing request of type {type(req).__name__}")
-        if type(req) in self.request_handlers:
-            handler = self.request_handlers[type(req)]
-            logger.debug(f"Dispatching request of type {type(req).__name__}")
+        logger.info("Processing request of type %s", type(req).__name__)
+        if handler := self.request_handlers.get(type(req)):  # type: ignore
+            logger.debug("Dispatching request of type %s", type(req).__name__)
 
             token = None
             try:
@@ -602,16 +603,13 @@ class Server(Generic[LifespanResultT, RequestT]):
         logger.debug("Response sent")
 
     async def _handle_notification(self, notify: Any):
-        if type(notify) in self.notification_handlers:
-            assert type(notify) in self.notification_handlers
-
-            handler = self.notification_handlers[type(notify)]
-            logger.debug(f"Dispatching notification of type {type(notify).__name__}")
+        if handler := self.notification_handlers.get(type(notify)):  # type: ignore
+            logger.debug("Dispatching notification of type %s", type(notify).__name__)
 
             try:
                 await handler(notify)
-            except Exception as err:
-                logger.error(f"Uncaught exception in notification handler: {err}")
+            except Exception:
+                logger.exception("Uncaught exception in notification handler")
 
 
 async def _ping_handler(request: types.PingRequest) -> types.ServerResult:
