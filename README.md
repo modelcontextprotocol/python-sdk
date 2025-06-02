@@ -129,7 +129,7 @@ def get_greeting(name: str) -> str:
 
 You can install this server in [Claude Desktop](https://claude.ai/download) and interact with it right away by running:
 ```bash
-mcp install server.py
+uv run mcp install server.py
 ```
 
 Alternatively, you can test it with the MCP Inspector:
@@ -359,13 +359,13 @@ See [OAuthAuthorizationServerProvider](src/mcp/server/auth/provider.py) for more
 The fastest way to test and debug your server is with the MCP Inspector:
 
 ```bash
-mcp dev server.py
+uv run mcp dev server.py
 
 # Add dependencies
-mcp dev server.py --with pandas --with numpy
+uv run mcp dev server.py --with pandas --with numpy
 
 # Mount local code
-mcp dev server.py --with-editable .
+uv run mcp dev server.py --with-editable .
 ```
 
 ### Claude Desktop Integration
@@ -373,14 +373,14 @@ mcp dev server.py --with-editable .
 Once your server is ready, install it in Claude Desktop:
 
 ```bash
-mcp install server.py
+uv run mcp install server.py
 
 # Custom name
-mcp install server.py --name "My Analytics Server"
+uv run mcp install server.py --name "My Analytics Server"
 
 # Environment variables
-mcp install server.py -v API_KEY=abc123 -v DB_URL=postgres://...
-mcp install server.py -f .env
+uv run mcp install server.py -v API_KEY=abc123 -v DB_URL=postgres://...
+uv run mcp install server.py -f .env
 ```
 
 ### Direct Execution
@@ -400,10 +400,10 @@ Run it with:
 ```bash
 python server.py
 # or
-mcp run server.py
+uv run mcp run server.py
 ```
 
-Note that `mcp run` or `mcp dev` only supports server using FastMCP and not the low-level server variant.
+Note that `uv run mcp run` or `uv run mcp dev` only supports server using FastMCP and not the low-level server variant.
 
 ### Streamable HTTP Transport
 
@@ -719,7 +719,7 @@ if __name__ == "__main__":
     asyncio.run(run())
 ```
 
-Caution: The `mcp run` and `mcp dev` tool doesn't support low-level server.
+Caution: The `uv run mcp run` and `uv run mcp dev` tool doesn't support low-level server.
 
 ### Writing MCP Clients
 
