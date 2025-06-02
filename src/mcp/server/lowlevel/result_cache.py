@@ -1,18 +1,21 @@
 from collections.abc import Awaitable, Callable
+from concurrent.futures import Future
 from dataclasses import dataclass, field
 from logging import getLogger
 from time import time
+from types import TracebackType
 from typing import Any
 from uuid import uuid4
 
-from anyio import Lock, create_task_group, move_on_after
-from anyio.abc import TaskGroup
-from cachetools import TTLCache
+import anyio
+import anyio.to_thread
+from anyio.from_thread import BlockingPortal, BlockingPortalProvider
 
 from mcp import types
 from mcp.server.auth.middleware.auth_context import auth_context_var as user_context
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
-from mcp.shared.context import BaseSession, RequestContext, SessionT
+from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 
 logger = getLogger(__name__)
 
@@ -21,10 +24,8 @@ logger = getLogger(__name__)
 class InProgress:
     token: str
     user: AuthenticatedUser | None = None
-    task_group: TaskGroup | None = None
-    sessions: list[BaseSession[Any, Any, Any, Any, Any]] = field(
-        default_factory=lambda: []
-    )
+    future: Future[types.CallToolResult] | None = None
+    sessions: dict[int, ServerSession] = field(default_factory=lambda: {})
 
 
 class ResultCache:
@@ -33,16 +34,11 @@ class ResultCache:
     Its purpose is to act as a central point for managing in progress
     async calls, allowing multiple clients to join and receive progress
     updates, get results and/or cancel in progress calls
-    TODO CRITICAL properly support join nothing actually happens at the moment
-    TODO CRITICAL intercept progress notifications from original session and
-    pass to joined sessions
-    TODO MAJOR handle session closure gracefully -
-    at the moment old connections will hang around and cause problems later
+    TODO CRITICAL keep_alive logic is not correct as per spec - results currently
+    only kept for as long as longest session reintroduce TTL cache
     TODO MAJOR needs a lot more testing around edge cases/failure scenarios
-    TODO MINOR keep_alive logic is not correct as per spec - results are
-    cached for too long, probably better than too short
-    TODO ENHANCEMENT might look into more fine grained locks, one global lock
-    is a bottleneck though this could be delegated to other cache impls if external
+    TODO MAJOR decide if async.Locks are required for integrity of internal
+    data structures
     TODO ENHANCEMENT externalise cachetools to allow for other implementations
     e.g. redis etal for production scenarios
     TODO ENHANCEMENT may need to add an authorisation layer to decide if
@@ -52,21 +48,35 @@ class ResultCache:
     """
 
     _in_progress: dict[types.AsyncToken, InProgress]
+    _session_lookup: dict[int, types.AsyncToken]
+    _portal: BlockingPortal
 
     def __init__(self, max_size: int, max_keep_alive: int):
         self._max_size = max_size
         self._max_keep_alive = max_keep_alive
-        self._result_cache = TTLCache[types.AsyncToken, types.CallToolResult](
-            self._max_size, self._max_keep_alive
-        )
         self._in_progress = {}
-        self._lock = Lock()
+        self._session_lookup = {}
+        self._portal_provider = BlockingPortalProvider()
+
+    async def __aenter__(self):
+        def create_portal():
+            self._portal = self._portal_provider.__enter__()
+
+        await anyio.to_thread.run_sync(create_portal)
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
+        await anyio.to_thread.run_sync(lambda: self._portal_provider.__exit__)
 
     async def add_call(
         self,
         call: Callable[[types.CallToolRequest], Awaitable[types.ServerResult]],
         req: types.CallToolAsyncRequest,
-        ctx: RequestContext[SessionT, Any, Any],
+        ctx: RequestContext[ServerSession, Any, Any],
     ) -> types.CallToolAsyncResult:
         in_progress = await self._new_in_progress()
         timeout = min(
@@ -74,97 +84,152 @@ class ResultCache:
         )
 
         async def call_tool():
-            with move_on_after(timeout) as scope:
-                result = await call(
-                    types.CallToolRequest(
-                        method="tools/call",
-                        params=types.CallToolRequestParams(
-                            name=req.params.name, arguments=req.params.arguments
-                        ),
-                    )
+            result = await call(
+                types.CallToolRequest(
+                    method="tools/call",
+                    params=types.CallToolRequestParams(
+                        name=req.params.name,
+                        arguments=req.params.arguments,
+                        _meta=req.params.meta,
+                    ),
                 )
-            if not scope.cancel_called:
-                async with self._lock:
-                    assert type(result.root) is types.CallToolResult
-                    self._result_cache[in_progress.token] = result.root
-
-        async with create_task_group() as tg:
-            tg.start_soon(call_tool)
-            in_progress.task_group = tg
-            in_progress.user = user_context.get()
-            in_progress.sessions.append(ctx.session)
-            result = types.CallToolAsyncResult(
-                token=in_progress.token,
-                recieved=round(time()),
-                keepAlive=timeout,
-                accepted=True,
             )
-            return result
+            # async with self._lock:
+            assert type(result.root) is types.CallToolResult
+            logger.debug(f"Got result {result}")
+            return result.root
+
+        in_progress.user = user_context.get()
+        in_progress.sessions[id(ctx.session)] = ctx.session
+        self._session_lookup[id(ctx.session)] = in_progress.token
+        in_progress.future = self._portal.start_task_soon(call_tool)
+        result = types.CallToolAsyncResult(
+            token=in_progress.token,
+            recieved=round(time()),
+            keepAlive=timeout,
+            accepted=True,
+        )
+        return result
 
     async def join_call(
         self,
         req: types.JoinCallToolAsyncRequest,
-        ctx: RequestContext[SessionT, Any, Any],
+        ctx: RequestContext[ServerSession, Any, Any],
     ) -> types.CallToolAsyncResult:
-        async with self._lock:
-            in_progress = self._in_progress.get(req.params.token)
-            if in_progress is None:
-                # TODO consider creating new token to allow client
-                # to get message describing why it wasn't accepted
-                return types.CallToolAsyncResult(accepted=False)
+        # async with self._lock:
+        in_progress = self._in_progress.get(req.params.token)
+        if in_progress is None:
+            # TODO consider creating new token to allow client
+            # to get message describing why it wasn't accepted
+            logger.warning("Discarding join request for unknown async token")
+            return types.CallToolAsyncResult(accepted=False)
+        else:
+            # TODO consider adding authorisation layer to make this decision
+            if in_progress.user == user_context.get():
+                logger.debug(f"Received join from {id(ctx.session)}")
+                self._session_lookup[id(ctx.session)] = req.params.token
+                in_progress.sessions[id(ctx.session)] = ctx.session
+                return types.CallToolAsyncResult(token=req.params.token, accepted=True)
             else:
-                # TODO consider adding authorisation layer to make this decision
-                if in_progress.user == user_context.get():
-                    in_progress.sessions.append(ctx.session)
-                    return types.CallToolAsyncResult(accepted=True)
-                else:
-                    # TODO consider creating new token to allow client
-                    # to get message describing why it wasn't accepted
-                    return types.CallToolAsyncResult(accepted=False)
+                # TODO consider sending error via get result
+                return types.CallToolAsyncResult(accepted=False)
 
     async def cancel(self, notification: types.CancelToolAsyncNotification) -> None:
-        async with self._lock:
-            in_progress = self._in_progress.get(notification.params.token)
-            if in_progress is not None and in_progress.task_group is not None:
-                if in_progress.user == user_context.get():
-                    in_progress.task_group.cancel_scope.cancel()
-                    del self._in_progress[notification.params.token]
-                else:
-                    logger.warning(
-                        "Permission denied for cancel notification received"
-                        f"from {user_context.get()}"
-                    )
+        # async with self._lock:
+        in_progress = self._in_progress.get(notification.params.token)
+        if in_progress is not None:
+            if in_progress.user == user_context.get():
+                # in_progress.task_group.cancel_scope.cancel()
+                del self._in_progress[notification.params.token]
+            else:
+                logger.warning(
+                    "Permission denied for cancel notification received"
+                    f"from {user_context.get()}"
+                )
 
     async def get_result(self, req: types.GetToolAsyncResultRequest):
-        async with self._lock:
-            in_progress = self._in_progress.get(req.params.token)
-            if in_progress is None:
-                return types.CallToolResult(
-                    content=[
-                        types.TextContent(type="text", text="Unknown progress token")
-                    ],
-                    isError=True,
-                )
-            else:
-                if in_progress.user == user_context.get():
-                    result = self._result_cache.get(in_progress.token)
-                    if result is None:
-                        return types.CallToolResult(content=[], isPending=True)
-                    else:
-                        return result
-                else:
+        logger.debug("Getting result")
+        in_progress = self._in_progress.get(req.params.token)
+        logger.debug(f"Found in progress {in_progress}")
+        if in_progress is None:
+            return types.CallToolResult(
+                content=[types.TextContent(type="text", text="Unknown progress token")],
+                isError=True,
+            )
+        else:
+            if in_progress.user == user_context.get():
+                if in_progress.future is None:
                     return types.CallToolResult(
                         content=[
                             types.TextContent(type="text", text="Permission denied")
                         ],
                         isError=True,
                     )
+                else:
+                    # TODO add timeout to get async result
+                    # return isPending=True if timesout
+                    result = in_progress.future.result()
+                    logger.debug(f"Found result {result}")
+                    return result
+            else:
+                return types.CallToolResult(
+                    content=[types.TextContent(type="text", text="Permission denied")],
+                    isError=True,
+                )
+
+    async def notification_hook(
+        self, session: ServerSession, notification: types.ServerNotification
+    ):
+        if type(notification.root) is types.ProgressNotification:
+            # async with self._lock:
+            async_token = self._session_lookup.get(id(session))
+            if async_token is None:
+                # not all sessions are async so just debug
+                logger.debug("Discarding progress notification from unknown session")
+            else:
+                in_progress = self._in_progress.get(async_token)
+                if in_progress is None:
+                    # this should not happen
+                    logger.error("Discarding progress notification, not async")
+                else:
+                    for session_id, other_session in in_progress.sessions.items():
+                        logger.debug(f"Checking {session_id} == {id(session)}")
+                        if not session_id == id(session):
+                            logger.debug(f"Sending progress to {id(other_session)}")
+                            await other_session.send_progress_notification(
+                                progress_token=1,
+                                progress=notification.root.params.progress,
+                                total=notification.root.params.total,
+                                message=notification.root.params.message,
+                                resource_uri=notification.root.params.resourceUri,
+                            )
+
+    async def session_close_hook(self, session: ServerSession):
+        logger.debug(f"Closing {id(session)}")
+        dropped = self._session_lookup.pop(id(session), None)
+        if dropped is None:
+            logger.warning(f"Discarding callback from unknown session {id(session)}")
+        else:
+            in_progress = self._in_progress.get(dropped)
+            if in_progress is None:
+                logger.warning("In progress not found")
+            else:
+                found = in_progress.sessions.pop(id(session), None)
+                if found is None:
+                    logger.warning("No session found")
+                if len(in_progress.sessions) == 0:
+                    self._in_progress.pop(dropped, None)
+                    logger.debug("In progress found")
+                    if in_progress.future is None:
+                        logger.warning("In progress future is none")
+                    else:
+                        logger.debug("Cancelled in progress future")
+                        in_progress.future.cancel()
 
     async def _new_in_progress(self) -> InProgress:
-        async with self._lock:
-            while True:
-                token = str(uuid4())
-                if token not in self._in_progress:
-                    new_in_progress = InProgress(token)
-                    self._in_progress[token] = new_in_progress
-                    return new_in_progress
+        while True:
+            token = str(uuid4())
+            if token not in self._in_progress:
+                new_in_progress = InProgress(token)
+                self._in_progress[token] = new_in_progress
+                return new_in_progress

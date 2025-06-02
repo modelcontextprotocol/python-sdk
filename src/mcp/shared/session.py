@@ -1,10 +1,17 @@
 import inspect
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack
 from datetime import timedelta
 from types import TracebackType
-from typing import Annotated, Any, Generic, Protocol, TypeVar, runtime_checkable
+from typing import (
+    Annotated,
+    Any,
+    Generic,
+    Protocol,
+    TypeVar,
+    runtime_checkable,
+)
 
 import anyio
 import httpx
@@ -209,6 +216,8 @@ class BaseSession(
         receive_notification_type: type[ReceiveNotificationT],
         # If none, reading will never time out
         read_timeout_seconds: timedelta | None = None,
+        notification_hook: Callable[[Self, SendNotificationT], Awaitable[None]]
+        | None = None,
     ) -> None:
         self._read_stream = read_stream
         self._write_stream = write_stream
@@ -221,6 +230,7 @@ class BaseSession(
         self._progress_callbacks = {}
         self._resource_callbacks = {}
         self._exit_stack = AsyncExitStack()
+        self._notification_hook = notification_hook
 
     async def __aenter__(self) -> Self:
         self._task_group = anyio.create_task_group()
@@ -339,6 +349,12 @@ class BaseSession(
         Emits a notification, which is a one-way message that does not expect
         a response.
         """
+        if self._notification_hook:
+            try:
+                await self._notification_hook(self, notification)
+            except Exception:
+                logging.exception("Notification hook failed")
+
         # Some transport implementations may need to set the related_request_id
         # to attribute to the notifications to the request that triggered them.
         jsonrpc_notification = JSONRPCNotification(

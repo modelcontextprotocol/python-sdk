@@ -177,27 +177,244 @@ async def test_request_async():
         )
 
     async def get_result(client_session: ClientSession, async_token: types.AsyncToken):
-        return await client_session.send_request(
-            ClientRequest(
-                types.GetToolAsyncResultRequest(
-                    method="tools/async/get",
-                    params=types.GetToolAsyncResultRequestParams(token=async_token),
+        with anyio.fail_after(1):
+            while True:
+                print("getting results")
+                result = await client_session.send_request(
+                    ClientRequest(
+                        types.GetToolAsyncResultRequest(
+                            method="tools/async/get",
+                            params=types.GetToolAsyncResultRequestParams(
+                                token=async_token
+                            ),
+                        )
+                    ),
+                    types.CallToolResult,
                 )
-            ),
-            types.CallToolResult,
-        )
+                print(f"retrieved {result}")
+                if result.isPending:
+                    await anyio.sleep(1)
+                elif result.isError:
+                    print("wibble")
+                    raise RuntimeError(str(result))
+                else:
+                    return result
 
     async with create_connected_server_and_client_session(
         make_server()
     ) as client_session:
-        async_result = await make_request(client_session)
-        assert async_result is not None
-        assert async_result.token is not None
+        async_call = await make_request(client_session)
+        assert async_call is not None
+        assert async_call.token is not None
         with anyio.fail_after(1):  # Timeout after 1 second
             await ev_tool_called.wait()
-        result = await get_result(client_session, async_result.token)
+        result = await get_result(client_session, async_call.token)
         assert type(result.content[0]) is types.TextContent
         assert result.content[0].text == "test"
+
+
+@pytest.mark.anyio
+async def test_request_async_join():
+    """Test that requests can be run asynchronously."""
+    # The tool is already registered in the fixture
+
+    # TODO note these events are not working as expected
+    # test code below uses move_on_after rather than
+    # fail_after as events are not triggered as expected
+    # this effectively makes the test lots of sleep
+    # calls, needs further investigation
+    ev_client_1_started = anyio.Event()
+    ev_client2_joined = anyio.Event()
+    ev_client1_progressed_1 = anyio.Event()
+    ev_client1_progressed_2 = anyio.Event()
+    ev_client2_progressed_1 = anyio.Event()
+    ev_done = anyio.Event()
+
+    # Start the request in a separate task so we can cancel it
+    def make_server() -> Server:
+        server = Server(name="TestSessionServer")
+
+        # Register the tool handler
+        @server.call_tool()
+        async def handle_call_tool(name: str, arguments: dict | None) -> list:
+            nonlocal ev_client2_joined
+            if name == "async_tool":
+                try:
+                    print("sending 1/2")
+                    await server.request_context.session.send_progress_notification(
+                        progress_token=server.request_context.request_id,
+                        progress=1,
+                        total=2,
+                    )
+                    print("sent 1/2")
+                    with anyio.move_on_after(10):  # Timeout after 1 second
+                        # TODO this is not working for some unknown reason
+                        print("waiting for client 2 joined")
+                        await ev_client2_joined.wait()
+                        # await anyio.sleep(1)
+
+                    print("sending 2/2")
+                    await server.request_context.session.send_progress_notification(
+                        progress_token=server.request_context.request_id,
+                        progress=2,
+                        total=2,
+                    )
+                    print("sent 2/2")
+                    result = [types.TextContent(type="text", text="test")]
+                    print("sending result")
+                    return result
+                except Exception as e:
+                    print(f"Caught: {str(e)}")
+                    raise e
+            else:
+                raise ValueError(f"Unknown tool: {name}")
+
+        # Register the tool so it shows up in list_tools
+        @server.list_tools()
+        async def handle_list_tools() -> list[types.Tool]:
+            return [
+                types.Tool(
+                    name="async_tool",
+                    description="A tool that does things asynchronously",
+                    inputSchema={},
+                    preferAsync=True,
+                )
+            ]
+
+        return server
+
+    async def progress_callback_initial(
+        progress: float, total: float | None, message: str | None
+    ):
+        nonlocal ev_client1_progressed_1
+        nonlocal ev_client1_progressed_2
+        print(f"progress initial started: {progress}/{total}")
+        if progress == 1.0:
+            ev_client1_progressed_1.set()
+            print("progress 1 set")
+        else:
+            ev_client1_progressed_2.set()
+            print("progress 1 set")
+        print(f"progress initial done: {progress}/{total}")
+
+    async def make_request(client_session: ClientSession):
+        return await client_session.send_request(
+            ClientRequest(
+                types.CallToolAsyncRequest(
+                    method="tools/async/call",
+                    params=types.CallToolAsyncRequestParams(
+                        name="async_tool",
+                        arguments={},
+                    ),
+                )
+            ),
+            types.CallToolAsyncResult,
+            progress_callback=progress_callback_initial,
+        )
+
+    async def progress_callback_joined(
+        progress: float, total: float | None, message: str | None
+    ):
+        nonlocal ev_client2_progressed_1
+        print(f"progress joined started: {progress}/{total}")
+        ev_client2_progressed_1.set()
+        print(f"progress joined done: {progress}/{total}")
+
+    async def join_request(
+        client_session: ClientSession, async_token: types.AsyncToken
+    ):
+        return await client_session.send_request(
+            ClientRequest(
+                types.JoinCallToolAsyncRequest(
+                    method="tools/async/join",
+                    params=types.JoinCallToolRequestParams(token=async_token),
+                )
+            ),
+            types.CallToolAsyncResult,
+            progress_callback=progress_callback_joined,
+        )
+
+    async def get_result(client_session: ClientSession, async_token: types.AsyncToken):
+        while True:
+            result = await client_session.send_request(
+                ClientRequest(
+                    types.GetToolAsyncResultRequest(
+                        method="tools/async/get",
+                        params=types.GetToolAsyncResultRequestParams(token=async_token),
+                    )
+                ),
+                types.CallToolResult,
+            )
+            if result.isPending:
+                print("Result is pending, sleeping")
+                await anyio.sleep(1)
+            elif result.isError:
+                raise RuntimeError(str(result))
+            else:
+                return result
+
+    server = make_server()
+    token = None
+
+    async with anyio.create_task_group() as tg:
+
+        async def client_1_submit():
+            async with create_connected_server_and_client_session(
+                server
+            ) as client_session:
+                nonlocal token
+                nonlocal ev_client_1_started
+                nonlocal ev_client2_progressed_1
+                nonlocal ev_done
+                async_call = await make_request(client_session)
+                assert async_call is not None
+                assert async_call.token is not None
+                token = async_call.token
+                ev_client_1_started.set()
+                print("Got token")
+                with anyio.move_on_after(1):  # Timeout after 1 second
+                    print("waiting for client 2 progress")
+                    await ev_client2_progressed_1.wait()
+
+                print("Getting result")
+                result = await get_result(client_session, token)
+                assert type(result.content[0]) is types.TextContent
+                assert result.content[0].text == "test"
+                ev_done.set()
+
+        async def client_2_join():
+            async with create_connected_server_and_client_session(
+                server
+            ) as client_session:
+                nonlocal token
+                nonlocal ev_client_1_started
+                nonlocal ev_client1_progressed_1
+                nonlocal ev_client2_joined
+                nonlocal ev_done
+
+                with anyio.move_on_after(1):  # Timeout after 1 second
+                    print("waiting for token")
+                    await ev_client_1_started.wait()
+                    print("waiting for progress 1")
+                    await ev_client1_progressed_1.wait()
+
+                with anyio.move_on_after(1):  # Timeout after 1 second
+                    assert token is not None
+                    print("joining")
+                    join_async = await join_request(client_session, token)
+                    assert join_async is not None
+                    assert join_async.token is not None
+                    print("joined")
+                    ev_client2_joined.set()
+                    print("client 2 joined")
+
+                with anyio.move_on_after(1):  # Timeout after 1 second
+                    print("client 2 waiting for done")
+                    await ev_done.wait()
+                    print("client 2 done")
+
+        tg.start_soon(client_1_submit)
+        tg.start_soon(client_2_join)
 
 
 @pytest.mark.anyio

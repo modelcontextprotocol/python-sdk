@@ -37,6 +37,7 @@ The ServerSession class is typically used internally by the Server class and sho
 be instantiated directly by users of the MCP framework.
 """
 
+from collections.abc import Awaitable, Callable
 from enum import Enum
 from typing import Annotated, Any, TypeVar
 
@@ -44,6 +45,7 @@ import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic.networks import AnyUrl, UrlConstraints
+from typing_extensions import Self
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
@@ -88,9 +90,16 @@ class ServerSession(
         write_stream: MemoryObjectSendStream[SessionMessage],
         init_options: InitializationOptions,
         stateless: bool = False,
+        notification_hook: Callable[[Self, types.ServerNotification], Awaitable[None]]
+        | None = None,
+        session_close_hook: Callable[[Self], Awaitable[None]] | None = None,
     ) -> None:
         super().__init__(
-            read_stream, write_stream, types.ClientRequest, types.ClientNotification
+            read_stream,
+            write_stream,
+            types.ClientRequest,
+            types.ClientNotification,
+            notification_hook=notification_hook,
         )
         self._initialization_state = (
             InitializationState.Initialized
@@ -105,6 +114,12 @@ class ServerSession(
         self._exit_stack.push_async_callback(
             lambda: self._incoming_message_stream_reader.aclose()
         )
+
+        async def call_session_close():
+            if session_close_hook is not None:
+                await session_close_hook(self)
+
+        self._exit_stack.push_async_callback(call_session_close)
 
     @property
     def client_params(self) -> types.InitializeRequestParams | None:

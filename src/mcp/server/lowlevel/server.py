@@ -534,8 +534,11 @@ class Server(Generic[LifespanResultT, RequestT]):
                     write_stream,
                     initialization_options,
                     stateless=stateless,
+                    notification_hook=self.result_cache.notification_hook,
+                    session_close_hook=self.result_cache.session_close_hook,
                 )
             )
+            await stack.enter_async_context(self.result_cache)
 
             async with anyio.create_task_group() as tg:
                 async for message in session.incoming_messages:
