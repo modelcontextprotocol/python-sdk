@@ -23,22 +23,8 @@ class Progress(BaseModel):
 
 
 @dataclass
-class ProgressContext(
-    Generic[
-        SendRequestT,
-        SendNotificationT,
-        SendResultT,
-        ReceiveRequestT,
-        ReceiveNotificationT,
-    ]
-):
-    session: BaseSession[
-        SendRequestT,
-        SendNotificationT,
-        SendResultT,
-        ReceiveRequestT,
-        ReceiveNotificationT,
-    ]
+class ProgressContext(Generic[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT]):
+    session: BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT]
     progress_token: ProgressToken
     total: float | None
     current: float = field(default=0.0, init=False)
@@ -54,24 +40,12 @@ class ProgressContext(
 @contextmanager
 def progress(
     ctx: RequestContext[
-        BaseSession[
-            SendRequestT,
-            SendNotificationT,
-            SendResultT,
-            ReceiveRequestT,
-            ReceiveNotificationT,
-        ],
+        BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
         LifespanContextT,
     ],
     total: float | None = None,
 ) -> Generator[
-    ProgressContext[
-        SendRequestT,
-        SendNotificationT,
-        SendResultT,
-        ReceiveRequestT,
-        ReceiveNotificationT,
-    ],
+    ProgressContext[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
     None,
 ]:
     if ctx.meta is None or ctx.meta.progressToken is None:

@@ -45,9 +45,7 @@ def _get_npx_command():
         # Try both npx.cmd and npx.exe on Windows
         for cmd in ["npx.cmd", "npx.exe", "npx"]:
             try:
-                subprocess.run(
-                    [cmd, "--version"], check=True, capture_output=True, shell=True
-                )
+                subprocess.run([cmd, "--version"], check=True, capture_output=True, shell=True)
                 return cmd
             except subprocess.CalledProcessError:
                 continue
@@ -58,9 +56,7 @@ def _get_npx_command():
 def _parse_env_var(env_var: str) -> tuple[str, str]:
     """Parse environment variable string in format KEY=VALUE."""
     if "=" not in env_var:
-        logger.error(
-            f"Invalid environment variable format: {env_var}. Must be KEY=VALUE"
-        )
+        logger.error(f"Invalid environment variable format: {env_var}. Must be KEY=VALUE")
         sys.exit(1)
     key, value = env_var.split("=", 1)
     return key.strip(), value.strip()
@@ -154,14 +150,10 @@ def _import_server(file: Path, server_object: str | None = None):
             True if it's supported.
         """
         if not isinstance(server_object, FastMCP):
-            logger.error(
-                f"The server object {object_name} is of type "
-                f"{type(server_object)} (expecting {FastMCP})."
-            )
+            logger.error(f"The server object {object_name} is of type " f"{type(server_object)} (expecting {FastMCP}).")
             if isinstance(server_object, LowLevelServer):
                 logger.warning(
-                    "Note that only FastMCP server is supported. Low level "
-                    "Server class is not yet supported."
+                    "Note that only FastMCP server is supported. Low level " "Server class is not yet supported."
                 )
             return False
         return True
@@ -172,10 +164,7 @@ def _import_server(file: Path, server_object: str | None = None):
         for name in ["mcp", "server", "app"]:
             if hasattr(module, name):
                 if not _check_server_object(getattr(module, name), f"{file}:{name}"):
-                    logger.error(
-                        f"Ignoring object '{file}:{name}' as it's not a valid "
-                        "server object"
-                    )
+                    logger.error(f"Ignoring object '{file}:{name}' as it's not a valid " "server object")
                     continue
                 return getattr(module, name)
 
@@ -280,8 +269,7 @@ def dev(
         npx_cmd = _get_npx_command()
         if not npx_cmd:
             logger.error(
-                "npx not found. Please ensure Node.js and npm are properly installed "
-                "and added to your system PATH."
+                "npx not found. Please ensure Node.js and npm are properly installed " "and added to your system PATH."
             )
             sys.exit(1)
 
@@ -383,8 +371,7 @@ def install(
         typer.Option(
             "--name",
             "-n",
-            help="Custom name for the server (defaults to server's name attribute or"
-            " file name)",
+            help="Custom name for the server (defaults to server's name attribute or" " file name)",
         ),
     ] = None,
     with_editable: Annotated[
@@ -458,8 +445,7 @@ def install(
             name = server.name
         except (ImportError, ModuleNotFoundError) as e:
             logger.debug(
-                "Could not import server (likely missing dependencies), using file"
-                " name",
+                "Could not import server (likely missing dependencies), using file" " name",
                 extra={"error": str(e)},
             )
             name = file.stem
@@ -477,11 +463,7 @@ def install(
         if env_file:
             if dotenv:
                 try:
-                    env_dict |= {
-                        k: v
-                        for k, v in dotenv.dotenv_values(env_file).items()
-                        if v is not None
-                    }
+                    env_dict |= {k: v for k, v in dotenv.dotenv_values(env_file).items() if v is not None}
                 except Exception as e:
                     logger.error(f"Failed to load .env file: {e}")
                     sys.exit(1)

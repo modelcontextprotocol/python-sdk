@@ -38,16 +38,12 @@ class LoggingFnT(Protocol):
 class MessageHandlerFnT(Protocol):
     async def __call__(
         self,
-        message: RequestResponder[types.ServerRequest, types.ClientResult]
-        | types.ServerNotification
-        | Exception,
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None: ...
 
 
 async def _default_message_handler(
-    message: RequestResponder[types.ServerRequest, types.ClientResult]
-    | types.ServerNotification
-    | Exception,
+    message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
 ) -> None:
     await anyio.lowlevel.checkpoint()
 
@@ -77,9 +73,7 @@ async def _default_logging_callback(
     pass
 
 
-ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(
-    types.ClientResult | types.ErrorData
-)
+ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
 
 
 class ClientSession(
@@ -116,11 +110,7 @@ class ClientSession(
         self._message_handler = message_handler or _default_message_handler
 
     async def initialize(self) -> types.InitializeResult:
-        sampling = (
-            types.SamplingCapability()
-            if self._sampling_callback is not _default_sampling_callback
-            else None
-        )
+        sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
         roots = (
             # TODO: Should this be based on whether we
             # _will_ send notifications, or only whether
@@ -149,15 +139,10 @@ class ClientSession(
         )
 
         if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
-            raise RuntimeError(
-                "Unsupported protocol version from the server: "
-                f"{result.protocolVersion}"
-            )
+            raise RuntimeError("Unsupported protocol version from the server: " f"{result.protocolVersion}")
 
         await self.send_notification(
-            types.ClientNotification(
-                types.InitializedNotification(method="notifications/initialized")
-            )
+            types.ClientNotification(types.InitializedNotification(method="notifications/initialized"))
         )
 
         return result
@@ -207,33 +192,25 @@ class ClientSession(
             types.EmptyResult,
         )
 
-    async def list_resources(
-        self, cursor: str | None = None
-    ) -> types.ListResourcesResult:
+    async def list_resources(self, cursor: str | None = None) -> types.ListResourcesResult:
         """Send a resources/list request."""
         return await self.send_request(
             types.ClientRequest(
                 types.ListResourcesRequest(
                     method="resources/list",
-                    params=types.PaginatedRequestParams(cursor=cursor)
-                    if cursor is not None
-                    else None,
+                    params=types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None,
                 )
             ),
             types.ListResourcesResult,
         )
 
-    async def list_resource_templates(
-        self, cursor: str | None = None
-    ) -> types.ListResourceTemplatesResult:
+    async def list_resource_templates(self, cursor: str | None = None) -> types.ListResourceTemplatesResult:
         """Send a resources/templates/list request."""
         return await self.send_request(
             types.ClientRequest(
                 types.ListResourceTemplatesRequest(
                     method="resources/templates/list",
-                    params=types.PaginatedRequestParams(cursor=cursor)
-                    if cursor is not None
-                    else None,
+                    params=types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None,
                 )
             ),
             types.ListResourceTemplatesResult,
@@ -305,17 +282,13 @@ class ClientSession(
             types.ClientRequest(
                 types.ListPromptsRequest(
                     method="prompts/list",
-                    params=types.PaginatedRequestParams(cursor=cursor)
-                    if cursor is not None
-                    else None,
+                    params=types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None,
                 )
             ),
             types.ListPromptsResult,
         )
 
-    async def get_prompt(
-        self, name: str, arguments: dict[str, str] | None = None
-    ) -> types.GetPromptResult:
+    async def get_prompt(self, name: str, arguments: dict[str, str] | None = None) -> types.GetPromptResult:
         """Send a prompts/get request."""
         return await self.send_request(
             types.ClientRequest(
@@ -352,9 +325,7 @@ class ClientSession(
             types.ClientRequest(
                 types.ListToolsRequest(
                     method="tools/list",
-                    params=types.PaginatedRequestParams(cursor=cursor)
-                    if cursor is not None
-                    else None,
+                    params=types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None,
                 )
             ),
             types.ListToolsResult,
@@ -370,9 +341,7 @@ class ClientSession(
             )
         )
 
-    async def _received_request(
-        self, responder: RequestResponder[types.ServerRequest, types.ClientResult]
-    ) -> None:
+    async def _received_request(self, responder: RequestResponder[types.ServerRequest, types.ClientResult]) -> None:
         ctx = RequestContext[ClientSession, Any](
             request_id=responder.request_id,
             meta=responder.request_meta,
@@ -395,22 +364,16 @@ class ClientSession(
 
             case types.PingRequest():
                 with responder:
-                    return await responder.respond(
-                        types.ClientResult(root=types.EmptyResult())
-                    )
+                    return await responder.respond(types.ClientResult(root=types.EmptyResult()))
 
     async def _handle_incoming(
         self,
-        req: RequestResponder[types.ServerRequest, types.ClientResult]
-        | types.ServerNotification
-        | Exception,
+        req: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         """Handle incoming messages by forwarding to the message handler."""
         await self._message_handler(req)
 
-    async def _received_notification(
-        self, notification: types.ServerNotification
-    ) -> None:
+    async def _received_notification(self, notification: types.ServerNotification) -> None:
         """Handle notifications from the server."""
         # Process specific notification types
         match notification.root:

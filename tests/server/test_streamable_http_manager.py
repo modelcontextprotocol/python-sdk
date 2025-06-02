@@ -22,10 +22,7 @@ async def test_run_can_only_be_called_once():
         async with manager.run():
             pass
 
-    assert (
-        "StreamableHTTPSessionManager .run() can only be called once per instance"
-        in str(excinfo.value)
-    )
+    assert "StreamableHTTPSessionManager .run() can only be called once per instance" in str(excinfo.value)
 
 
 @pytest.mark.anyio
@@ -51,10 +48,7 @@ async def test_run_prevents_concurrent_calls():
 
     # One should succeed, one should fail
     assert len(errors) == 1
-    assert (
-        "StreamableHTTPSessionManager .run() can only be called once per instance"
-        in str(errors[0])
-    )
+    assert "StreamableHTTPSessionManager .run() can only be called once per instance" in str(errors[0])
 
 
 @pytest.mark.anyio
@@ -76,6 +70,4 @@ async def test_handle_request_without_run_raises_error():
     with pytest.raises(RuntimeError) as excinfo:
         await manager.handle_request(scope, receive, send)
 
-    assert "Task group is not initialized. Make sure to use run()." in str(
-        excinfo.value
-    )
+    assert "Task group is not initialized. Make sure to use run()." in str(excinfo.value)

@@ -64,9 +64,7 @@ class InitializationState(Enum):
 ServerSessionT = TypeVar("ServerSessionT", bound="ServerSession")
 
 ServerRequestResponder = (
-    RequestResponder[types.ClientRequest, types.ServerResult]
-    | types.ClientNotification
-    | Exception
+    RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception
 )
 
 
@@ -89,22 +87,16 @@ class ServerSession(
         init_options: InitializationOptions,
         stateless: bool = False,
     ) -> None:
-        super().__init__(
-            read_stream, write_stream, types.ClientRequest, types.ClientNotification
-        )
+        super().__init__(read_stream, write_stream, types.ClientRequest, types.ClientNotification)
         self._initialization_state = (
-            InitializationState.Initialized
-            if stateless
-            else InitializationState.NotInitialized
+            InitializationState.Initialized if stateless else InitializationState.NotInitialized
         )
 
         self._init_options = init_options
-        self._incoming_message_stream_writer, self._incoming_message_stream_reader = (
-            anyio.create_memory_object_stream[ServerRequestResponder](0)
-        )
-        self._exit_stack.push_async_callback(
-            lambda: self._incoming_message_stream_reader.aclose()
-        )
+        self._incoming_message_stream_writer, self._incoming_message_stream_reader = anyio.create_memory_object_stream[
+            ServerRequestResponder
+        ](0)
+        self._exit_stack.push_async_callback(lambda: self._incoming_message_stream_reader.aclose())
 
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
@@ -134,10 +126,7 @@ class ServerSession(
                 return False
             # Check each experimental capability
             for exp_key, exp_value in capability.experimental.items():
-                if (
-                    exp_key not in client_caps.experimental
-                    or client_caps.experimental[exp_key] != exp_value
-                ):
+                if exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value:
                     return False
 
         return True
@@ -146,9 +135,7 @@ class ServerSession(
         async with self._incoming_message_stream_writer:
             await super()._receive_loop()
 
-    async def _received_request(
-        self, responder: RequestResponder[types.ClientRequest, types.ServerResult]
-    ):
+    async def _received_request(self, responder: RequestResponder[types.ClientRequest, types.ServerResult]):
         match responder.request.root:
             case types.InitializeRequest(params=params):
                 requested_version = params.protocolVersion
@@ -172,13 +159,9 @@ class ServerSession(
                     )
             case _:
                 if self._initialization_state != InitializationState.Initialized:
-                    raise RuntimeError(
-                        "Received request before initialization was complete"
-                    )
+                    raise RuntimeError("Received request before initialization was complete")
 
-    async def _received_notification(
-        self, notification: types.ClientNotification
-    ) -> None:
+    async def _received_notification(self, notification: types.ClientNotification) -> None:
         # Need this to avoid ASYNC910
         await anyio.lowlevel.checkpoint()
         match notification.root:
@@ -186,9 +169,7 @@ class ServerSession(
                 self._initialization_state = InitializationState.Initialized
             case _:
                 if self._initialization_state != InitializationState.Initialized:
-                    raise RuntimeError(
-                        "Received notification before initialization was complete"
-                    )
+                    raise RuntimeError("Received notification before initialization was complete")
 
     async def send_log_message(
         self,

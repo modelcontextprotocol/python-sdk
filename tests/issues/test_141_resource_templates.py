@@ -61,9 +61,7 @@ async def test_resource_template_edge_cases():
         await mcp.read_resource("resource://users/123/posts")  # Missing post_id
 
     with pytest.raises(ValueError, match="Unknown resource"):
-        await mcp.read_resource(
-            "resource://users/123/posts/456/extra"
-        )  # Extra path component
+        await mcp.read_resource("resource://users/123/posts/456/extra")  # Extra path component
 
 
 @pytest.mark.anyio
@@ -110,11 +108,7 @@ async def test_resource_template_client_interaction():
 
         # Verify invalid resource URIs raise appropriate errors
         with pytest.raises(Exception):  # Specific exception type may vary
-            await session.read_resource(
-                AnyUrl("resource://users/123/posts")
-            )  # Missing post_id
+            await session.read_resource(AnyUrl("resource://users/123/posts"))  # Missing post_id
 
         with pytest.raises(Exception):  # Specific exception type may vary
-            await session.read_resource(
-                AnyUrl("resource://users/123/invalid")
-            )  # Invalid template
+            await session.read_resource(AnyUrl("resource://users/123/invalid"))  # Invalid template

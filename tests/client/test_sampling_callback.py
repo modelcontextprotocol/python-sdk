@@ -21,9 +21,7 @@ async def test_sampling_callback():
 
     callback_return = CreateMessageResult(
         role="assistant",
-        content=TextContent(
-            type="text", text="This is a response from the sampling callback"
-        ),
+        content=TextContent(type="text", text="This is a response from the sampling callback"),
         model="test-model",
         stopReason="endTurn",
     )
@@ -37,24 +35,16 @@ async def test_sampling_callback():
     @server.tool("test_sampling")
     async def test_sampling_tool(message: str):
         value = await server.get_context().session.create_message(
-            messages=[
-                SamplingMessage(
-                    role="user", content=TextContent(type="text", text=message)
-                )
-            ],
+            messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
             max_tokens=100,
         )
         assert value == callback_return
         return True
 
     # Test with sampling callback
-    async with create_session(
-        server._mcp_server, sampling_callback=sampling_callback
-    ) as client_session:
+    async with create_session(server._mcp_server, sampling_callback=sampling_callback) as client_session:
         # Make a request to trigger sampling callback
-        result = await client_session.call_tool(
-            "test_sampling", {"message": "Test message for sampling"}
-        )
+        result = await client_session.call_tool("test_sampling", {"message": "Test message for sampling"})
         assert result.isError is False
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "true"
@@ -62,12 +52,7 @@ async def test_sampling_callback():
     # Test without sampling callback
     async with create_session(server._mcp_server) as client_session:
         # Make a request to trigger sampling callback
-        result = await client_session.call_tool(
-            "test_sampling", {"message": "Test message for sampling"}
-        )
+        result = await client_session.call_tool("test_sampling", {"message": "Test message for sampling"})
         assert result.isError is True
         assert isinstance(result.content[0], TextContent)
-        assert (
-            result.content[0].text
-            == "Error executing tool test_sampling: Sampling not supported"
-        )
+        assert result.content[0].text == "Error executing tool test_sampling: Sampling not supported"

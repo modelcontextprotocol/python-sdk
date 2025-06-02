@@ -182,9 +182,7 @@ async def test_list_resource_templates_cursor_parameter(stream_spy):
 
         # Test without cursor parameter (omitted)
         _ = await client_session.list_resource_templates()
-        list_templates_requests = spies.get_client_requests(
-            method="resources/templates/list"
-        )
+        list_templates_requests = spies.get_client_requests(method="resources/templates/list")
         assert len(list_templates_requests) == 1
         assert list_templates_requests[0].params is None
 
@@ -192,9 +190,7 @@ async def test_list_resource_templates_cursor_parameter(stream_spy):
 
         # Test with cursor=None
         _ = await client_session.list_resource_templates(cursor=None)
-        list_templates_requests = spies.get_client_requests(
-            method="resources/templates/list"
-        )
+        list_templates_requests = spies.get_client_requests(method="resources/templates/list")
         assert len(list_templates_requests) == 1
         assert list_templates_requests[0].params is None
 
@@ -202,9 +198,7 @@ async def test_list_resource_templates_cursor_parameter(stream_spy):
 
         # Test with cursor as string
         _ = await client_session.list_resource_templates(cursor="some_cursor")
-        list_templates_requests = spies.get_client_requests(
-            method="resources/templates/list"
-        )
+        list_templates_requests = spies.get_client_requests(method="resources/templates/list")
         assert len(list_templates_requests) == 1
         assert list_templates_requests[0].params is not None
         assert list_templates_requests[0].params["cursor"] == "some_cursor"
@@ -213,9 +207,7 @@ async def test_list_resource_templates_cursor_parameter(stream_spy):
 
         # Test with empty string cursor
         _ = await client_session.list_resource_templates(cursor="")
-        list_templates_requests = spies.get_client_requests(
-            method="resources/templates/list"
-        )
+        list_templates_requests = spies.get_client_requests(method="resources/templates/list")
         assert len(list_templates_requests) == 1
         assert list_templates_requests[0].params is not None
         assert list_templates_requests[0].params["cursor"] == ""

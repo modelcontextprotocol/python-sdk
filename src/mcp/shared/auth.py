@@ -36,9 +36,7 @@ class OAuthClientMetadata(BaseModel):
     # token_endpoint_auth_method: this implementation only supports none &
     # client_secret_post;
     # ie: we do not support client_secret_basic
-    token_endpoint_auth_method: Literal["none", "client_secret_post"] = (
-        "client_secret_post"
-    )
+    token_endpoint_auth_method: Literal["none", "client_secret_post"] = "client_secret_post"
     # grant_types: this implementation only supports authorization_code & refresh_token
     grant_types: list[Literal["authorization_code", "refresh_token"]] = [
         "authorization_code",
@@ -75,17 +73,12 @@ class OAuthClientMetadata(BaseModel):
         if redirect_uri is not None:
             # Validate redirect_uri against client's registered redirect URIs
             if redirect_uri not in self.redirect_uris:
-                raise InvalidRedirectUriError(
-                    f"Redirect URI '{redirect_uri}' not registered for client"
-                )
+                raise InvalidRedirectUriError(f"Redirect URI '{redirect_uri}' not registered for client")
             return redirect_uri
         elif len(self.redirect_uris) == 1:
             return self.redirect_uris[0]
         else:
-            raise InvalidRedirectUriError(
-                "redirect_uri must be specified when client "
-                "has multiple registered URIs"
-            )
+            raise InvalidRedirectUriError("redirect_uri must be specified when client " "has multiple registered URIs")
 
 
 class OAuthClientInformationFull(OAuthClientMetadata):
@@ -113,25 +106,17 @@ class OAuthMetadata(BaseModel):
     scopes_supported: list[str] | None = None
     response_types_supported: list[Literal["code"]] = ["code"]
     response_modes_supported: list[Literal["query", "fragment"]] | None = None
-    grant_types_supported: (
-        list[Literal["authorization_code", "refresh_token"]] | None
-    ) = None
-    token_endpoint_auth_methods_supported: (
-        list[Literal["none", "client_secret_post"]] | None
-    ) = None
+    grant_types_supported: list[Literal["authorization_code", "refresh_token"]] | None = None
+    token_endpoint_auth_methods_supported: list[Literal["none", "client_secret_post"]] | None = None
     token_endpoint_auth_signing_alg_values_supported: None = None
     service_documentation: AnyHttpUrl | None = None
     ui_locales_supported: list[str] | None = None
     op_policy_uri: AnyHttpUrl | None = None
     op_tos_uri: AnyHttpUrl | None = None
     revocation_endpoint: AnyHttpUrl | None = None
-    revocation_endpoint_auth_methods_supported: (
-        list[Literal["client_secret_post"]] | None
-    ) = None
+    revocation_endpoint_auth_methods_supported: list[Literal["client_secret_post"]] | None = None
     revocation_endpoint_auth_signing_alg_values_supported: None = None
     introspection_endpoint: AnyHttpUrl | None = None
-    introspection_endpoint_auth_methods_supported: (
-        list[Literal["client_secret_post"]] | None
-    ) = None
+    introspection_endpoint_auth_methods_supported: list[Literal["client_secret_post"]] | None = None
     introspection_endpoint_auth_signing_alg_values_supported: None = None
     code_challenge_methods_supported: list[Literal["S256"]] | None = None
