@@ -7,6 +7,7 @@ and session management.
 """
 
 import logging
+import warnings
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -71,7 +72,7 @@ class RequestContext:
     session_message: SessionMessage
     metadata: ClientMessageMetadata | None
     read_stream_writer: StreamWriter
-    sse_read_timeout: timedelta
+    sse_read_timeout: float
 
 
 class StreamableHTTPTransport:
@@ -81,8 +82,8 @@ class StreamableHTTPTransport:
         self,
         url: str,
         headers: dict[str, Any] | None = None,
-        timeout: timedelta = timedelta(seconds=30),
-        sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
+        timeout: float | timedelta = 30,
+        sse_read_timeout: float | timedelta = 60 * 5,
         auth: httpx.Auth | None = None,
     ) -> None:
         """Initialize the StreamableHTTP transport.
@@ -96,8 +97,25 @@ class StreamableHTTPTransport:
         """
         self.url = url
         self.headers = headers or {}
+
+        if isinstance(timeout, timedelta):
+            warnings.warn(
+                "`timeout` as `timedelta` is deprecated. Use `float` instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            timeout = timeout.total_seconds()
         self.timeout = timeout
+
+        if isinstance(sse_read_timeout, timedelta):
+            warnings.warn(
+                "`sse_read_timeout` as `timedelta` is deprecated. Use `float` instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            sse_read_timeout = sse_read_timeout.total_seconds()
         self.sse_read_timeout = sse_read_timeout
+
         self.auth = auth
         self.session_id: str | None = None
         self.request_headers = {
@@ -194,9 +212,7 @@ class StreamableHTTPTransport:
                 "GET",
                 self.url,
                 headers=headers,
-                timeout=httpx.Timeout(
-                    self.timeout.seconds, read=self.sse_read_timeout.seconds
-                ),
+                timeout=httpx.Timeout(self.timeout, read=self.sse_read_timeout),
             ) as event_source:
                 event_source.response.raise_for_status()
                 logger.debug("GET SSE connection established")
@@ -225,9 +241,7 @@ class StreamableHTTPTransport:
             "GET",
             self.url,
             headers=headers,
-            timeout=httpx.Timeout(
-                self.timeout.seconds, read=ctx.sse_read_timeout.seconds
-            ),
+            timeout=httpx.Timeout(self.timeout, read=ctx.sse_read_timeout),
         ) as event_source:
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
@@ -452,6 +466,52 @@ async def streamablehttp_client(
             - write_stream: Stream for sending messages to the server
             - get_session_id_callback: Function to retrieve the current session ID
     """
+    warnings.warn(
+        "`streamablehttp_client` is deprecated. Use `streamable_http_client` instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    async with streamable_http_client(
+        url,
+        headers,
+        timeout.total_seconds(),
+        sse_read_timeout.total_seconds(),
+        terminate_on_close,
+        httpx_client_factory,
+        auth,
+    ) as (read_stream, write_stream, get_session_id):
+        yield (read_stream, write_stream, get_session_id)
+
+
+@asynccontextmanager
+async def streamable_http_client(
+    url: str,
+    headers: dict[str, Any] | None = None,
+    timeout: float = 30,
+    sse_read_timeout: float = 60 * 5,
+    terminate_on_close: bool = True,
+    httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
+    auth: httpx.Auth | None = None,
+) -> AsyncGenerator[
+    tuple[
+        MemoryObjectReceiveStream[SessionMessage | Exception],
+        MemoryObjectSendStream[SessionMessage],
+        GetSessionIdCallback,
+    ],
+    None,
+]:
+    """
+    Client transport for StreamableHTTP.
+
+    `sse_read_timeout` determines how long (in seconds) the client will wait for a new
+    event before disconnecting. All other HTTP operations are controlled by `timeout`.
+
+    Yields:
+        Tuple containing:
+            - read_stream: Stream for reading messages from the server
+            - write_stream: Stream for sending messages to the server
+            - get_session_id_callback: Function to retrieve the current session ID
+    """
     transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout, auth)
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream[
@@ -468,7 +528,7 @@ async def streamablehttp_client(
             async with httpx_client_factory(
                 headers=transport.request_headers,
                 timeout=httpx.Timeout(
-                    transport.timeout.seconds, read=transport.sse_read_timeout.seconds
+                    transport.timeout, read=transport.sse_read_timeout
                 ),
                 auth=transport.auth,
             ) as client:
@@ -489,11 +549,7 @@ async def streamablehttp_client(
                 )
 
                 try:
-                    yield (
-                        read_stream,
-                        write_stream,
-                        transport.get_session_id,
-                    )
+                    yield (read_stream, write_stream, transport.get_session_id)
                 finally:
                     if transport.session_id and terminate_on_close:
                         await transport.terminate_session(client)

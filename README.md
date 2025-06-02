@@ -30,10 +30,12 @@
     - [Prompts](#prompts)
     - [Images](#images)
     - [Context](#context)
+    - [Authentication](#authentication)
   - [Running Your Server](#running-your-server)
     - [Development Mode](#development-mode)
     - [Claude Desktop Integration](#claude-desktop-integration)
     - [Direct Execution](#direct-execution)
+    - [Streamable HTTP Transport](#streamable-http-transport)
     - [Mounting to an Existing ASGI Server](#mounting-to-an-existing-asgi-server)
   - [Examples](#examples)
     - [Echo Server](#echo-server)
@@ -41,6 +43,7 @@
   - [Advanced Usage](#advanced-usage)
     - [Low-Level Server](#low-level-server)
     - [Writing MCP Clients](#writing-mcp-clients)
+    - [OAuth Authentication for Clients](#oauth-authentication-for-clients)
     - [MCP Primitives](#mcp-primitives)
     - [Server Capabilities](#server-capabilities)
   - [Documentation](#documentation)
@@ -73,7 +76,7 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 
 ### Adding MCP to your python project
 
-We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python projects. 
+We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python projects.
 
 If you haven't created a uv-managed project yet, create one:
 
@@ -790,13 +793,13 @@ if __name__ == "__main__":
 Clients can also connect using [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http):
 
 ```python
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp import ClientSession
 
 
 async def main():
     # Connect to a streamable HTTP server
-    async with streamablehttp_client("example/mcp") as (
+    async with streamable_http_client("example/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -816,7 +819,7 @@ The SDK includes [authorization support](https://modelcontextprotocol.io/specifi
 ```python
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 
@@ -852,7 +855,7 @@ async def main():
     )
 
     # Use with streamable HTTP client
-    async with streamablehttp_client(
+    async with streamable_http_client(
         "https://api.example.com/mcp", auth=oauth_auth
     ) as (read, write, _):
         async with ClientSession(read, write) as session:

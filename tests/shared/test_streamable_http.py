@@ -23,7 +23,7 @@ from starlette.routing import Mount
 
 import mcp.types as types
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.streamable_http import (
     MCP_SESSION_ID_HEADER,
@@ -744,7 +744,7 @@ async def http_client(basic_server, basic_server_url):
 @pytest.fixture
 async def initialized_client_session(basic_server, basic_server_url):
     """Create initialized StreamableHTTP client session."""
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -758,9 +758,9 @@ async def initialized_client_session(basic_server, basic_server_url):
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_basic_connection(basic_server, basic_server_url):
+async def test_streamable_http_client_basic_connection(basic_server, basic_server_url):
     """Test basic client connection with initialization."""
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -776,7 +776,7 @@ async def test_streamablehttp_client_basic_connection(basic_server, basic_server
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_resource_read(initialized_client_session):
+async def test_streamable_http_client_resource_read(initialized_client_session):
     """Test client resource read functionality."""
     response = await initialized_client_session.read_resource(
         uri=AnyUrl("foobar://test-resource")
@@ -787,7 +787,7 @@ async def test_streamablehttp_client_resource_read(initialized_client_session):
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_tool_invocation(initialized_client_session):
+async def test_streamable_http_client_tool_invocation(initialized_client_session):
     """Test client tool invocation."""
     # First list tools
     tools = await initialized_client_session.list_tools()
@@ -802,7 +802,7 @@ async def test_streamablehttp_client_tool_invocation(initialized_client_session)
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_error_handling(initialized_client_session):
+async def test_streamable_http_client_error_handling(initialized_client_session):
     """Test error handling in client."""
     with pytest.raises(McpError) as exc_info:
         await initialized_client_session.read_resource(
@@ -813,11 +813,11 @@ async def test_streamablehttp_client_error_handling(initialized_client_session):
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_session_persistence(
+async def test_streamable_http_client_session_persistence(
     basic_server, basic_server_url
 ):
     """Test that session ID persists across requests."""
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -843,11 +843,11 @@ async def test_streamablehttp_client_session_persistence(
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_json_response(
+async def test_streamable_http_client_json_response(
     json_response_server, json_server_url
 ):
     """Test client with JSON response mode."""
-    async with streamablehttp_client(f"{json_server_url}/mcp") as (
+    async with streamable_http_client(f"{json_server_url}/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -873,7 +873,7 @@ async def test_streamablehttp_client_json_response(
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_get_stream(basic_server, basic_server_url):
+async def test_streamable_http_client_get_stream(basic_server, basic_server_url):
     """Test GET stream functionality for server-initiated messages."""
     import mcp.types as types
     from mcp.shared.session import RequestResponder
@@ -889,7 +889,7 @@ async def test_streamablehttp_client_get_stream(basic_server, basic_server_url):
         if isinstance(message, types.ServerNotification):
             notifications_received.append(message)
 
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -920,15 +920,15 @@ async def test_streamablehttp_client_get_stream(basic_server, basic_server_url):
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_session_termination(
+async def test_streamable_http_client_session_termination(
     basic_server, basic_server_url
 ):
     """Test client session termination functionality."""
 
     captured_session_id = None
 
-    # Create the streamablehttp_client with a custom httpx client to capture headers
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+    # Create the streamable_http_client with a custom httpx client to capture headers
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
         get_session_id,
@@ -948,7 +948,7 @@ async def test_streamablehttp_client_session_termination(
     if captured_session_id:
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
 
-    async with streamablehttp_client(f"{basic_server_url}/mcp", headers=headers) as (
+    async with streamable_http_client(f"{basic_server_url}/mcp", headers=headers) as (
         read_stream,
         write_stream,
         _,
@@ -963,7 +963,7 @@ async def test_streamablehttp_client_session_termination(
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_session_termination_204(
+async def test_streamable_http_client_session_termination_204(
     basic_server, basic_server_url, monkeypatch
 ):
     """Test client session termination functionality with a 204 response.
@@ -993,8 +993,8 @@ async def test_streamablehttp_client_session_termination_204(
 
     captured_session_id = None
 
-    # Create the streamablehttp_client with a custom httpx client to capture headers
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+    # Create the streamable_http_client with a custom httpx client to capture headers
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
         get_session_id,
@@ -1014,7 +1014,7 @@ async def test_streamablehttp_client_session_termination_204(
     if captured_session_id:
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
 
-    async with streamablehttp_client(f"{basic_server_url}/mcp", headers=headers) as (
+    async with streamable_http_client(f"{basic_server_url}/mcp", headers=headers) as (
         read_stream,
         write_stream,
         _,
@@ -1029,7 +1029,7 @@ async def test_streamablehttp_client_session_termination_204(
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_resumption(event_server):
+async def test_streamable_http_client_resumption(event_server):
     """Test client session to resume a long running tool."""
     _, server_url = event_server
 
@@ -1057,7 +1057,9 @@ async def test_streamablehttp_client_resumption(event_server):
         captured_resumption_token = token
 
     # First, start the client session and begin the long-running tool
-    async with streamablehttp_client(f"{server_url}/mcp", terminate_on_close=False) as (
+    async with streamable_http_client(
+        f"{server_url}/mcp", terminate_on_close=False
+    ) as (
         read_stream,
         write_stream,
         get_session_id,
@@ -1109,7 +1111,7 @@ async def test_streamablehttp_client_resumption(event_server):
     if captured_session_id:
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
 
-    async with streamablehttp_client(f"{server_url}/mcp", headers=headers) as (
+    async with streamable_http_client(f"{server_url}/mcp", headers=headers) as (
         read_stream,
         write_stream,
         _,
@@ -1192,7 +1194,7 @@ async def test_streamablehttp_server_sampling(basic_server, basic_server_url):
         )
 
     # Create client with sampling callback
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -1365,7 +1367,7 @@ async def test_streamablehttp_request_context_propagation(
         "X-Trace-Id": "trace-123",
     }
 
-    async with streamablehttp_client(
+    async with streamable_http_client(
         f"{basic_server_url}/mcp", headers=custom_headers
     ) as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream) as session:
@@ -1402,7 +1404,7 @@ async def test_streamablehttp_request_context_isolation(
             "Authorization": f"Bearer token-{i}",
         }
 
-        async with streamablehttp_client(
+        async with streamable_http_client(
             f"{basic_server_url}/mcp", headers=headers
         ) as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream) as session:

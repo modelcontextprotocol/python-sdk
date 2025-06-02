@@ -21,7 +21,7 @@ from starlette.requests import Request
 import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.resources import FunctionResource
 from mcp.shared.context import RequestContext
@@ -464,7 +464,7 @@ async def test_fastmcp_streamable_http(
 ) -> None:
     """Test that FastMCP works with StreamableHTTP transport."""
     # Connect to the server using StreamableHTTP
-    async with streamablehttp_client(http_server_url + "/mcp") as (
+    async with streamable_http_client(http_server_url + "/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -489,7 +489,7 @@ async def test_fastmcp_stateless_streamable_http(
 ) -> None:
     """Test that FastMCP works with stateless StreamableHTTP transport."""
     # Connect to the server using StreamableHTTP
-    async with streamablehttp_client(stateless_http_server_url + "/mcp") as (
+    async with streamable_http_client(stateless_http_server_url + "/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -909,7 +909,7 @@ async def test_fastmcp_all_features_streamable_http(
     collector = NotificationCollector()
 
     # Connect to the server using StreamableHTTP
-    async with streamablehttp_client(everything_http_server_url + "/mcp") as (
+    async with streamable_http_client(everything_http_server_url + "/mcp") as (
         read_stream,
         write_stream,
         _,
