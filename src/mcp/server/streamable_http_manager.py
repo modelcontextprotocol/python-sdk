@@ -180,7 +180,7 @@ class StreamableHTTPSessionManager:
                         stateless=True,
                     )
                 except Exception as e:
-                    logger.error(f"Stateless session crashed: {e}", exc_info=True)
+                    logger.warning(f"Stateless session crashed: {e}", exc_info=True)
 
         # Assert task group is not None for type checking
         assert self._task_group is not None
@@ -243,7 +243,7 @@ class StreamableHTTPSessionManager:
                                 stateless=False,  # Stateful mode
                             )
                         except Exception as e:
-                            logger.error(
+                            logger.warning(
                                 f"Session {http_transport.mcp_session_id} crashed: {e}",
                                 exc_info=True,
                             )
