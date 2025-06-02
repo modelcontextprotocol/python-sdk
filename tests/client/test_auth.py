@@ -756,7 +756,8 @@ class TestOAuthClientProvider:
             # No Authorization header should be added if no token
             assert "Authorization" not in updated_request.headers
 
-    def test_scope_priority_client_metadata_first(
+    @pytest.mark.anyio
+    async def test_scope_priority_client_metadata_first(
         self, oauth_provider, oauth_client_info
     ):
         """Test that client metadata scope takes priority."""
@@ -785,7 +786,8 @@ class TestOAuthClientProvider:
 
         assert auth_params["scope"] == "read write"
 
-    def test_scope_priority_no_client_metadata_scope(
+    @pytest.mark.anyio
+    async def test_scope_priority_no_client_metadata_scope(
         self, oauth_provider, oauth_client_info
     ):
         """Test that no scope parameter is set when client metadata has no scope."""
