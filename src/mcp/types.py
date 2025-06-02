@@ -772,6 +772,8 @@ class Tool(BaseModel):
     """A human-readable description of the tool."""
     inputSchema: dict[str, Any]
     """A JSON Schema object defining the expected parameters for the tool."""
+    outputSchema: dict[str, Any] | None = None
+    """A JSON Schema object defining the expected structure of the tool's output."""
     annotations: ToolAnnotations | None = None
     """Optional additional tool information."""
     model_config = ConfigDict(extra="allow")
