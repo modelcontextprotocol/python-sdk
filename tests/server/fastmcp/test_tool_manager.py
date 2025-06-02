@@ -49,6 +49,7 @@ class TestAddTools:
             fn_metadata=fn_metadata,
             is_async=False,
             parameters=AddArguments.model_json_schema(),
+            output_schema={"type": "integer"},
             context_kwarg=None,
             annotations=None,
         )
@@ -453,3 +454,361 @@ class TestToolAnnotations:
         assert tools[0].annotations is not None
         assert tools[0].annotations.title == "Echo Tool"
         assert tools[0].annotations.readOnlyHint is True
+
+
+class TestOutputSchema:
+    """Test the output schema generation for tools."""
+
+    def test_primitive_type_output_schemas(self):
+        """Test output schema generation for primitive return types."""
+        manager = ToolManager()
+
+        # String return type
+        def string_tool(text: str) -> str:
+            return text
+
+        tool = manager.add_tool(string_tool)
+        assert tool.output_schema == {"type": "string"}
+
+        # Integer return type
+        def int_tool(number: int) -> int:
+            return number
+
+        tool = manager.add_tool(int_tool)
+        assert tool.output_schema == {"type": "integer"}
+
+        # Float return type
+        def float_tool(number: float) -> float:
+            return number
+
+        tool = manager.add_tool(float_tool)
+        assert tool.output_schema == {"type": "number"}
+
+        # Boolean return type
+        def bool_tool(value: bool) -> bool:
+            return value
+
+        tool = manager.add_tool(bool_tool)
+        assert tool.output_schema == {"type": "boolean"}
+
+        # Dictionary return type
+        def dict_tool(data: dict) -> dict:
+            return data
+
+        tool = manager.add_tool(dict_tool)
+        assert tool.output_schema == {"type": "object"}
+
+        # List return type
+        def list_tool(items: list) -> list:
+            return items
+
+        tool = manager.add_tool(list_tool)
+        assert tool.output_schema == {"type": "array"}
+
+    def test_pydantic_model_output_schema(self):
+        """Test output schema generation for Pydantic model return types."""
+        manager = ToolManager()
+
+        class Person(BaseModel):
+            name: str
+            age: int
+            email: str | None = None
+
+        def create_person(name: str, age: int) -> Person:
+            return Person(name=name, age=age)
+
+        tool = manager.add_tool(create_person)
+        assert tool.output_schema is not None
+        assert tool.output_schema["type"] == "object"
+        assert "properties" in tool.output_schema
+        assert "name" in tool.output_schema["properties"]
+        assert "age" in tool.output_schema["properties"]
+        assert "email" in tool.output_schema["properties"]
+        assert tool.output_schema["properties"]["name"]["type"] == "string"
+        assert tool.output_schema["properties"]["age"]["type"] == "integer"
+        assert "anyOf" in tool.output_schema["properties"]["email"]
+        assert "string" in [
+            t["type"]
+            for t in tool.output_schema["properties"]["email"]["anyOf"]
+            if "type" in t
+        ]
+        assert "null" in [
+            t["type"]
+            for t in tool.output_schema["properties"]["email"]["anyOf"]
+            if "type" in t
+        ]
+
+        # Check semantic enhancements
+        assert tool.output_schema["properties"]["email"]["semantic_type"] == "email"
+        assert (
+            "semantic_type" not in tool.output_schema["properties"]["name"]
+        )  # Non-semantic field
+        assert (
+            "semantic_type" not in tool.output_schema["properties"]["age"]
+        )  # Non-semantic field
+
+        # Check that required field is removed from output schema
+        assert "required" not in tool.output_schema
+
+    def test_complex_output_schema(self):
+        """Test output schema generation for complex return types."""
+        manager = ToolManager()
+
+        class Person(BaseModel):
+            name: str
+            age: int
+
+        class ApiResponse(BaseModel):
+            status: str
+            code: int
+            data: list[Person] | Person | None = None
+
+        def complex_response(success: bool) -> ApiResponse:
+            return ApiResponse(
+                status="success" if success else "error",
+                code=200 if success else 400,
+                data=None,
+            )
+
+        tool = manager.add_tool(complex_response)
+        assert tool.output_schema is not None
+        assert tool.output_schema["type"] == "object"
+        assert "properties" in tool.output_schema
+        assert "status" in tool.output_schema["properties"]
+        assert "code" in tool.output_schema["properties"]
+        assert "data" in tool.output_schema["properties"]
+        assert "anyOf" in tool.output_schema["properties"]["data"]
+
+        # Check semantic enhancements
+        assert tool.output_schema["properties"]["status"]["semantic_type"] == "status"
+        assert (
+            "semantic_type" not in tool.output_schema["properties"]["code"]
+        )  # Non-semantic field
+        assert (
+            "semantic_type" not in tool.output_schema["properties"]["data"]
+        )  # Non-semantic field
+
+        # Check that required field is removed from output schema
+        assert "required" not in tool.output_schema
+
+    def test_generic_list_output_schema(self):
+        """Test output schema generation for generic list return types."""
+        manager = ToolManager()
+
+        def list_of_strings() -> list[str]:
+            return ["a", "b", "c"]
+
+        tool = manager.add_tool(list_of_strings)
+        assert tool.output_schema is not None
+        assert "items" in tool.output_schema
+        assert tool.output_schema["items"]["type"] == "string"
+
+    @pytest.mark.anyio
+    async def test_output_schema_in_fastmcp(self):
+        """Test that output schemas are included in FastMCP tool listing."""
+        app = FastMCP()
+
+        @app.tool()
+        def string_tool(text: str) -> str:
+            """Returns the input text"""
+            return text
+
+        @app.tool()
+        def int_tool(number: int) -> int:
+            """Returns the input number"""
+            return number
+
+        class Person(BaseModel):
+            name: str
+            age: int
+            email: str | None = None  # Add email field to test semantic enhancement
+
+        @app.tool()
+        def create_person(name: str, age: int) -> Person:
+            """Creates a person object"""
+            return Person(name=name, age=age)
+
+        tools = await app.list_tools()
+        assert len(tools) == 3
+
+        # Check string tool
+        string_tool_info = next(t for t in tools if t.name == "string_tool")
+        assert string_tool_info.outputSchema == {"type": "string"}
+
+        # Check int tool
+        int_tool_info = next(t for t in tools if t.name == "int_tool")
+        assert int_tool_info.outputSchema == {"type": "integer"}
+
+        # Check complex tool
+        person_tool_info = next(t for t in tools if t.name == "create_person")
+        assert person_tool_info.outputSchema is not None
+        assert person_tool_info.outputSchema["type"] == "object"
+        assert "properties" in person_tool_info.outputSchema
+        assert "name" in person_tool_info.outputSchema["properties"]
+        assert "age" in person_tool_info.outputSchema["properties"]
+        assert "email" in person_tool_info.outputSchema["properties"]
+
+        # Check semantic enhancements in FastMCP listing
+        properties = person_tool_info.outputSchema["properties"]
+        assert properties["email"]["semantic_type"] == "email"
+        assert "semantic_type" not in properties["name"]  # Non-semantic field
+        assert "semantic_type" not in properties["age"]  # Non-semantic field
+
+        # Check that required field is removed from output schema
+        assert "required" not in person_tool_info.outputSchema
+
+    def test_enhanced_output_schema_with_semantic_fields(self):
+        """Test that output schemas are enhanced with semantic information."""
+        manager = ToolManager()
+
+        class UserProfile(BaseModel):
+            user_id: str
+            email: str
+            profile_url: str
+            avatar_image: str
+            created_date: str
+            last_login_time: str
+            account_amount: float  # Changed to trigger currency detection
+            completion_percentage: int
+            primary_color: str
+            status: str
+            name: str  # Should not get semantic enhancement
+
+        def get_user_profile(user_id: str) -> UserProfile:
+            """Get user profile with semantic fields"""
+            return UserProfile(
+                user_id="usr_123",
+                email="user@example.com",
+                profile_url="https://example.com/user/123",
+                avatar_image="https://example.com/avatar.jpg",
+                created_date="2023-06-15",
+                last_login_time="2024-01-15T14:22:00Z",
+                account_amount=150.75,
+                completion_percentage=85,
+                primary_color="#3498db",
+                status="active",
+                name="John Doe",
+            )
+
+        tool = manager.add_tool(get_user_profile)
+        assert tool.output_schema is not None
+
+        properties = tool.output_schema["properties"]
+
+        # Check semantic enhancements
+        assert properties["user_id"]["semantic_type"] == "identifier"
+        assert properties["email"]["semantic_type"] == "email"
+        assert properties["profile_url"]["semantic_type"] == "url"
+        assert properties["avatar_image"]["semantic_type"] == "image"
+        assert properties["created_date"]["semantic_type"] == "datetime"
+        assert properties["created_date"]["datetime_type"] == "date_only"
+        assert properties["last_login_time"]["semantic_type"] == "datetime"
+        assert (
+            properties["last_login_time"]["datetime_type"] == "time_only"
+        )  # Contains "time" but not "date"
+        assert properties["account_amount"]["semantic_type"] == "currency"
+        assert properties["completion_percentage"]["semantic_type"] == "percentage"
+        assert properties["primary_color"]["semantic_type"] == "color"
+        assert properties["status"]["semantic_type"] == "status"
+
+        # Check that non-semantic fields don't get enhancement
+        assert "semantic_type" not in properties["name"]
+
+        # Check that required field is removed from output schema
+        assert "required" not in tool.output_schema
+
+    @pytest.mark.anyio
+    async def test_enhanced_schemas_in_fastmcp_listing(self):
+        """Test that enhanced schemas are included in FastMCP tool listing."""
+        app = FastMCP()
+
+        class MediaFile(BaseModel):
+            name: str  # Changed from "filename" to avoid file_path detection
+            file_path: str
+            audio_url: str
+            video_url: str
+            image_url: str
+            created_timestamp: str
+            size: int  # Changed from "file_size" to avoid file_path detection
+
+        @app.tool()
+        def get_media_file(file_id: str) -> MediaFile:
+            """Get media file information with semantic fields"""
+            return MediaFile(
+                name="example.mp3",
+                file_path="/media/audio/example.mp3",
+                audio_url="https://example.com/audio/example.mp3",
+                video_url="https://example.com/video/example.mp4",
+                image_url="https://example.com/images/thumbnail.jpg",
+                created_timestamp="2024-01-15T10:30:00Z",
+                size=1024000,
+            )
+
+        tools = await app.list_tools()
+        assert len(tools) == 1
+
+        media_tool = tools[0]
+        assert media_tool.outputSchema is not None
+
+        properties = media_tool.outputSchema["properties"]
+
+        # Verify semantic enhancements are present in the listing
+        assert properties["file_path"]["semantic_type"] == "file_path"
+        assert properties["audio_url"]["semantic_type"] == "url"
+        assert properties["video_url"]["semantic_type"] == "url"
+        assert properties["image_url"]["semantic_type"] == "url"
+        assert properties["created_timestamp"]["semantic_type"] == "datetime"
+        assert (
+            properties["created_timestamp"]["datetime_type"] == "time_only"
+        )  # Contains "time" but not "date"
+
+        # Non-semantic fields should not have enhancements
+        assert "semantic_type" not in properties["name"]
+        assert "semantic_type" not in properties["size"]
+
+    def test_enhanced_schema_with_media_formats(self):
+        """Test schema enhancement with specific media format detection."""
+        manager = ToolManager()
+
+        class MediaCollection(BaseModel):
+            audio_mp3: str
+            video_mp4: str
+            image_jpg: str
+            generic_audio: str
+            generic_video: str
+            generic_image: str
+
+        def get_media_collection() -> MediaCollection:
+            """Get media collection with format-specific fields"""
+            return MediaCollection(
+                audio_mp3="song.mp3",
+                video_mp4="movie.mp4",
+                image_jpg="photo.jpg",
+                generic_audio="sound",
+                generic_video="clip",
+                generic_image="picture",
+            )
+
+        tool = manager.add_tool(get_media_collection)
+        assert tool.output_schema is not None
+        properties = tool.output_schema["properties"]
+
+        # Check media format detection
+        assert properties["audio_mp3"]["semantic_type"] == "audio"
+        assert properties["audio_mp3"]["media_format"] == "audio_file"
+
+        assert properties["video_mp4"]["semantic_type"] == "video"
+        assert properties["video_mp4"]["media_format"] == "video_file"
+
+        assert properties["image_jpg"]["semantic_type"] == "image"
+        assert properties["image_jpg"]["media_format"] == "image_file"
+
+        # Generic media fields should have semantic_type but no media_format
+        assert properties["generic_audio"]["semantic_type"] == "audio"
+        assert "media_format" not in properties["generic_audio"]
+
+        assert properties["generic_video"]["semantic_type"] == "video"
+        assert "media_format" not in properties["generic_video"]
+
+        assert properties["generic_image"]["semantic_type"] == "image"
+        assert "media_format" not in properties["generic_image"]
