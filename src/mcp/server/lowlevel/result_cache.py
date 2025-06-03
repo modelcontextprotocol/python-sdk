@@ -250,6 +250,13 @@ class ResultCache:
 
     async def _new_in_progress(self) -> InProgress:
         while True:
+            # this nonsense is required to protect against the
+            # ridiculously unlikely scenario that two v4 uuids
+            # are generated with the same value
+            # uuidv7 would fix this but it is not yet included
+            # in python standard library
+            # see https://github.com/python/cpython/issues/89083
+            # for context
             token = str(uuid4())
             if token not in self._in_progress:
                 new_in_progress = InProgress(token)
