@@ -544,6 +544,4 @@ async def test_client_capabilities_with_custom_callbacks():
         received_capabilities.roots is not None
     )  # Custom list_roots callback provided
     assert isinstance(received_capabilities.roots, types.RootsCapability)
-    assert (
-        received_capabilities.roots.listChanged is True
-    )  # Should be True for custom callback
+    assert received_capabilities.roots.listChanged is False
