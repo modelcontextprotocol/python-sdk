@@ -432,7 +432,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def async_call_handler(req: types.CallToolAsyncRequest):
                 ctx = request_ctx.get()
-                result = await self.result_cache.add_call(handler, req, ctx)
+                result = await self.result_cache.start_call(handler, req, ctx)
                 return types.ServerResult(result)
 
             async def async_join_handler(req: types.JoinCallToolAsyncRequest):

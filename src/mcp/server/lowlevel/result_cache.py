@@ -26,7 +26,7 @@ class InProgress:
     user: AuthenticatedUser | None = None
     future: Future[types.CallToolResult] | None = None
     sessions: dict[int, ServerSession] = field(default_factory=lambda: {})
-
+    session_progress: dict[int, types.ProgressToken | None] = field(default_factory=lambda: {})
 
 class ResultCache:
     """
@@ -72,7 +72,7 @@ class ResultCache:
     ) -> bool | None:
         await anyio.to_thread.run_sync(lambda: self._portal_provider.__exit__)
 
-    async def add_call(
+    async def start_call(
         self,
         call: Callable[[types.CallToolRequest], Awaitable[types.ServerResult]],
         req: types.CallToolAsyncRequest,
@@ -101,6 +101,7 @@ class ResultCache:
 
         in_progress.user = user_context.get()
         in_progress.sessions[id(ctx.session)] = ctx.session
+        in_progress.session_progress[id(ctx.session)] = None if req.params.meta is None else req.params.meta.progressToken
         self._session_lookup[id(ctx.session)] = in_progress.token
         in_progress.future = self._portal.start_task_soon(call_tool)
         result = types.CallToolAsyncResult(
@@ -129,6 +130,7 @@ class ResultCache:
                 logger.debug(f"Received join from {id(ctx.session)}")
                 self._session_lookup[id(ctx.session)] = req.params.token
                 in_progress.sessions[id(ctx.session)] = ctx.session
+                in_progress.session_progress[id(ctx.session)] = None if req.params.meta is None else req.params.meta.progressToken
                 return types.CallToolAsyncResult(token=req.params.token, accepted=True)
             else:
                 # TODO consider sending error via get result
@@ -167,10 +169,15 @@ class ResultCache:
                     )
                 else:
                     # TODO add timeout to get async result
-                    # return isPending=True if timesout
-                    result = in_progress.future.result()
-                    logger.debug(f"Found result {result}")
-                    return result
+                    try:
+                        result = in_progress.future.result(1)
+                        logger.debug(f"Found result {result}")
+                        return result
+                    except TimeoutError:
+                        return types.CallToolResult(
+                            content=[],
+                            isPending=True,
+                        )
             else:
                 return types.CallToolResult(
                     content=[types.TextContent(type="text", text="Permission denied")],
@@ -180,6 +187,7 @@ class ResultCache:
     async def notification_hook(
         self, session: ServerSession, notification: types.ServerNotification
     ):
+        logger.debug(f"received {notification} from {id(session)}")
         if type(notification.root) is types.ProgressNotification:
             # async with self._lock:
             async_token = self._session_lookup.get(id(session))
@@ -196,8 +204,12 @@ class ResultCache:
                         logger.debug(f"Checking {session_id} == {id(session)}")
                         if not session_id == id(session):
                             logger.debug(f"Sending progress to {id(other_session)}")
+                            progress_token = in_progress.session_progress.get(id(other_session))
+                            assert progress_token is not None
                             await other_session.send_progress_notification(
-                                progress_token=1,
+                                # TODO this token is incorrect 
+                                # it needs to be collected from original request
+                                progress_token=progress_token,
                                 progress=notification.root.params.progress,
                                 total=notification.root.params.total,
                                 message=notification.root.params.message,
