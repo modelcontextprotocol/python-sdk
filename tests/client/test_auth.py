@@ -760,7 +760,6 @@ class TestOAuthClientProvider:
             # No Authorization header should be added if no token
             assert "Authorization" not in updated_request.headers
 
-
     @pytest.mark.anyio
     async def test_scope_priority_client_metadata_first(
         self, oauth_provider, oauth_client_info
