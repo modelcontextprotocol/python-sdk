@@ -247,6 +247,12 @@ class OAuthAuthorizationServerProvider(
         """
         ...
 
+    async def exchange_client_credentials(
+        self, client: OAuthClientInformationFull, scopes: list[str]
+    ) -> OAuthToken:
+        """Exchange client credentials for an access token."""
+        ...
+
     async def load_access_token(self, token: str) -> AccessTokenT | None:
         """
         Loads an access token by its token.

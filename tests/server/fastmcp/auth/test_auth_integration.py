@@ -166,6 +166,23 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider):
             refresh_token=new_refresh_token,
         )
 
+    async def exchange_client_credentials(
+        self, client: OAuthClientInformationFull, scopes: list[str]
+    ) -> OAuthToken:
+        access_token = f"access_{secrets.token_hex(32)}"
+        self.tokens[access_token] = AccessToken(
+            token=access_token,
+            client_id=client.client_id,
+            scopes=scopes,
+            expires_at=int(time.time()) + 3600,
+        )
+        return OAuthToken(
+            access_token=access_token,
+            token_type="bearer",
+            expires_in=3600,
+            scope=" ".join(scopes),
+        )
+
     async def load_access_token(self, token: str) -> AccessToken | None:
         token_info = self.tokens.get(token)
 
@@ -370,6 +387,7 @@ class TestAuthEndpoints:
         assert metadata["grant_types_supported"] == [
             "authorization_code",
             "refresh_token",
+            "client_credentials",
         ]
         assert metadata["service_documentation"] == "https://docs.example.com/"
 
@@ -1265,3 +1283,25 @@ class TestAuthorizeEndpointErrors:
         # State should be preserved
         assert "state" in query_params
         assert query_params["state"][0] == "test_state"
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "registered_client",
+        [{"grant_types": ["client_credentials"]}],
+        indirect=True,
+    )
+    async def test_client_credentials_token(
+        self, test_client: httpx.AsyncClient, registered_client
+    ):
+        response = await test_client.post(
+            "/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": registered_client["client_id"],
+                "client_secret": registered_client["client_secret"],
+                "scope": "read write",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "access_token" in data

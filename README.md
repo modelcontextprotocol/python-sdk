@@ -814,7 +814,7 @@ async def main():
 The SDK includes [authorization support](https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization) for connecting to protected MCP servers:
 
 ```python
-from mcp.client.auth import OAuthClientProvider, TokenStorage
+from mcp.client.auth import OAuthClientProvider, ClientCredentialsProvider, TokenStorage
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
@@ -850,6 +850,9 @@ async def main():
         redirect_handler=lambda url: print(f"Visit: {url}"),
         callback_handler=lambda: ("auth_code", None),
     )
+
+    # For machine-to-machine scenarios, use ClientCredentialsProvider
+    # instead of OAuthClientProvider.
 
     # Use with streamable HTTP client
     async with streamablehttp_client(

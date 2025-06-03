@@ -13,7 +13,7 @@ import pytest
 from inline_snapshot import snapshot
 from pydantic import AnyHttpUrl
 
-from mcp.client.auth import OAuthClientProvider
+from mcp.client.auth import ClientCredentialsProvider, OAuthClientProvider
 from mcp.server.auth.routes import build_metadata
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.shared.auth import (
@@ -61,6 +61,18 @@ def client_metadata():
 
 
 @pytest.fixture
+def client_credentials_metadata():
+    return OAuthClientMetadata(
+        redirect_uris=[AnyHttpUrl("http://localhost:3000/callback")],
+        client_name="CC Client",
+        grant_types=["client_credentials"],
+        response_types=["code"],
+        scope="read write",
+        token_endpoint_auth_method="client_secret_post",
+    )
+
+
+@pytest.fixture
 def oauth_metadata():
     return OAuthMetadata(
         issuer=AnyHttpUrl("https://auth.example.com"),
@@ -69,7 +81,11 @@ def oauth_metadata():
         registration_endpoint=AnyHttpUrl("https://auth.example.com/register"),
         scopes_supported=["read", "write", "admin"],
         response_types_supported=["code"],
-        grant_types_supported=["authorization_code", "refresh_token"],
+        grant_types_supported=[
+            "authorization_code",
+            "refresh_token",
+            "client_credentials",
+        ],
         code_challenge_methods_supported=["S256"],
     )
 
@@ -114,6 +130,14 @@ async def oauth_provider(client_metadata, mock_storage):
         callback_handler=mock_callback_handler,
     )
 
+
+@pytest.fixture
+async def client_credentials_provider(client_credentials_metadata, mock_storage):
+    return ClientCredentialsProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_credentials_metadata,
+        storage=mock_storage,
+    )
 
 class TestOAuthClientProvider:
     """Test OAuth client provider functionality."""
@@ -975,7 +999,11 @@ def test_build_metadata(
             token_endpoint=AnyHttpUrl(token_endpoint),
             registration_endpoint=AnyHttpUrl(registration_endpoint),
             scopes_supported=["read", "write", "admin"],
-            grant_types_supported=["authorization_code", "refresh_token"],
+            grant_types_supported=[
+                "authorization_code",
+                "refresh_token",
+                "client_credentials",
+            ],
             token_endpoint_auth_methods_supported=["client_secret_post"],
             service_documentation=AnyHttpUrl(service_documentation_url),
             revocation_endpoint=AnyHttpUrl(revocation_endpoint),
@@ -983,3 +1011,56 @@ def test_build_metadata(
             code_challenge_methods_supported=["S256"],
         )
     )
+
+
+class TestClientCredentialsProvider:
+    @pytest.mark.anyio
+    async def test_request_token_success(
+        self,
+        client_credentials_provider,
+        oauth_metadata,
+        oauth_client_info,
+        oauth_token,
+    ):
+        client_credentials_provider._metadata = oauth_metadata
+        client_credentials_provider._client_info = oauth_client_info
+
+        token_json = oauth_token.model_dump(by_alias=True, mode="json")
+        token_json.pop("refresh_token", None)
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = token_json
+            mock_client.post.return_value = mock_response
+
+            await client_credentials_provider.ensure_token()
+
+            mock_client.post.assert_called_once()
+            assert (
+                client_credentials_provider._current_tokens.access_token
+                == oauth_token.access_token
+            )
+
+    @pytest.mark.anyio
+    async def test_async_auth_flow(self, client_credentials_provider, oauth_token):
+        client_credentials_provider._current_tokens = oauth_token
+        client_credentials_provider._token_expiry_time = time.time() + 3600
+
+        request = httpx.Request("GET", "https://api.example.com/data")
+        mock_response = Mock()
+        mock_response.status_code = 200
+
+        auth_flow = client_credentials_provider.async_auth_flow(request)
+        updated_request = await auth_flow.__anext__()
+        assert (
+            updated_request.headers["Authorization"]
+            == f"Bearer {oauth_token.access_token}"
+        )
+        try:
+            await auth_flow.asend(mock_response)
+        except StopAsyncIteration:
+            pass
