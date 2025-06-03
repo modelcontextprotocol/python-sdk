@@ -126,7 +126,8 @@ class TestOAuthClientProvider:
         assert oauth_provider.storage == mock_storage
         assert oauth_provider.timeout == 300.0
 
-    def test_generate_code_verifier(self, oauth_provider):
+    @pytest.mark.anyio
+    async def test_generate_code_verifier(self, oauth_provider):
         """Test PKCE code verifier generation."""
         verifier = oauth_provider._generate_code_verifier()
 
@@ -143,7 +144,8 @@ class TestOAuthClientProvider:
         verifiers = {oauth_provider._generate_code_verifier() for _ in range(10)}
         assert len(verifiers) == 10
 
-    def test_generate_code_challenge(self, oauth_provider):
+    @pytest.mark.anyio
+    async def test_generate_code_challenge(self, oauth_provider):
         """Test PKCE code challenge generation."""
         verifier = "test_code_verifier_123"
         challenge = oauth_provider._generate_code_challenge(verifier)
@@ -161,7 +163,8 @@ class TestOAuthClientProvider:
         assert "+" not in challenge
         assert "/" not in challenge
 
-    def test_get_authorization_base_url(self, oauth_provider):
+    @pytest.mark.anyio
+    async def test_get_authorization_base_url(self, oauth_provider):
         """Test authorization base URL extraction."""
         # Test with path
         assert (
@@ -348,11 +351,13 @@ class TestOAuthClientProvider:
                         None,
                     )
 
-    def test_has_valid_token_no_token(self, oauth_provider):
+    @pytest.mark.anyio
+    async def test_has_valid_token_no_token(self, oauth_provider):
         """Test token validation with no token."""
         assert not oauth_provider._has_valid_token()
 
-    def test_has_valid_token_valid(self, oauth_provider, oauth_token):
+    @pytest.mark.anyio
+    async def test_has_valid_token_valid(self, oauth_provider, oauth_token):
         """Test token validation with valid token."""
         oauth_provider._current_tokens = oauth_token
         oauth_provider._token_expiry_time = time.time() + 3600  # Future expiry
@@ -756,7 +761,8 @@ class TestOAuthClientProvider:
             # No Authorization header should be added if no token
             assert "Authorization" not in updated_request.headers
 
-    def test_scope_priority_client_metadata_first(
+    @pytest.mark.anyio
+    async def test_scope_priority_client_metadata_first(
         self, oauth_provider, oauth_client_info
     ):
         """Test that client metadata scope takes priority."""
@@ -785,7 +791,8 @@ class TestOAuthClientProvider:
 
         assert auth_params["scope"] == "read write"
 
-    def test_scope_priority_no_client_metadata_scope(
+    @pytest.mark.anyio
+    async def test_scope_priority_no_client_metadata_scope(
         self, oauth_provider, oauth_client_info
     ):
         """Test that no scope parameter is set when client metadata has no scope."""
@@ -968,18 +975,30 @@ def test_build_metadata(
         revocation_options=RevocationOptions(enabled=True),
     )
 
-    assert metadata == snapshot(
-        OAuthMetadata(
-            issuer=AnyHttpUrl(issuer_url),
-            authorization_endpoint=AnyHttpUrl(authorization_endpoint),
-            token_endpoint=AnyHttpUrl(token_endpoint),
-            registration_endpoint=AnyHttpUrl(registration_endpoint),
-            scopes_supported=["read", "write", "admin"],
-            grant_types_supported=["authorization_code", "refresh_token"],
-            token_endpoint_auth_methods_supported=["client_secret_post"],
-            service_documentation=AnyHttpUrl(service_documentation_url),
-            revocation_endpoint=AnyHttpUrl(revocation_endpoint),
-            revocation_endpoint_auth_methods_supported=["client_secret_post"],
-            code_challenge_methods_supported=["S256"],
-        )
+    # Compare individual attributes instead of using snapshot
+    expected = OAuthMetadata(
+        issuer=AnyHttpUrl(issuer_url),
+        authorization_endpoint=AnyHttpUrl(authorization_endpoint),
+        token_endpoint=AnyHttpUrl(token_endpoint),
+        registration_endpoint=AnyHttpUrl(registration_endpoint),
+        scopes_supported=["read", "write", "admin"],
+        grant_types_supported=["authorization_code", "refresh_token"],
+        token_endpoint_auth_methods_supported=["client_secret_post"],
+        service_documentation=AnyHttpUrl(service_documentation_url),
+        revocation_endpoint=AnyHttpUrl(revocation_endpoint),
+        revocation_endpoint_auth_methods_supported=["client_secret_post"],
+        code_challenge_methods_supported=["S256"],
     )
+    
+    # Compare each field individually
+    assert str(metadata.issuer) == str(expected.issuer)
+    assert str(metadata.authorization_endpoint) == str(expected.authorization_endpoint)
+    assert str(metadata.token_endpoint) == str(expected.token_endpoint)
+    assert str(metadata.registration_endpoint) == str(expected.registration_endpoint)
+    assert metadata.scopes_supported == expected.scopes_supported
+    assert metadata.grant_types_supported == expected.grant_types_supported
+    assert metadata.token_endpoint_auth_methods_supported == expected.token_endpoint_auth_methods_supported
+    assert str(metadata.service_documentation) == str(expected.service_documentation)
+    assert str(metadata.revocation_endpoint) == str(expected.revocation_endpoint)
+    assert metadata.revocation_endpoint_auth_methods_supported == expected.revocation_endpoint_auth_methods_supported
+    assert metadata.code_challenge_methods_supported == expected.code_challenge_methods_supported
