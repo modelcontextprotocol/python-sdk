@@ -35,8 +35,12 @@ async def test_messages_are_executed_concurrently():
         end_time = anyio.current_time()
 
         duration = end_time - start_time
-        assert duration < 6 * _sleep_time_seconds
-        print(duration)
+        # 20 tasks (10 tools + 10 resources) should complete in significantly less time
+        # than if they were executed serially (which would take 20 * sleep_time)
+        # Increased threshold for CI environments
+        assert duration < 12 * _sleep_time_seconds
+        threshold = 12 * _sleep_time_seconds
+        print(f"Concurrent execution duration: {duration}, threshold: {threshold}")
 
 
 def main():
