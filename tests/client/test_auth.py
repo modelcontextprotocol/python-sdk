@@ -91,7 +91,7 @@ def oauth_client_info():
 def oauth_token():
     return OAuthToken(
         access_token="test_access_token",
-        token_type="bearer",
+        token_type="Bearer",
         expires_in=3600,
         refresh_token="test_refresh_token",
         scope="read write",
@@ -374,7 +374,7 @@ class TestOAuthClientProvider:
     @pytest.mark.anyio
     async def test_validate_token_scopes_no_scope(self, oauth_provider):
         """Test scope validation with no scope returned."""
-        token = OAuthToken(access_token="test", token_type="bearer")
+        token = OAuthToken(access_token="test", token_type="Bearer")
 
         # Should not raise exception
         await oauth_provider._validate_token_scopes(token)
@@ -385,7 +385,7 @@ class TestOAuthClientProvider:
         oauth_provider.client_metadata = client_metadata
         token = OAuthToken(
             access_token="test",
-            token_type="bearer",
+            token_type="Bearer",
             scope="read write",
         )
 
@@ -398,7 +398,7 @@ class TestOAuthClientProvider:
         oauth_provider.client_metadata = client_metadata
         token = OAuthToken(
             access_token="test",
-            token_type="bearer",
+            token_type="Bearer",
             scope="read",
         )
 
@@ -413,7 +413,7 @@ class TestOAuthClientProvider:
         oauth_provider.client_metadata = client_metadata
         token = OAuthToken(
             access_token="test",
-            token_type="bearer",
+            token_type="Bearer",
             scope="read write admin",  # Includes unauthorized "admin"
         )
 
@@ -427,7 +427,7 @@ class TestOAuthClientProvider:
         oauth_provider.client_metadata.scope = None
         token = OAuthToken(
             access_token="test",
-            token_type="bearer",
+            token_type="Bearer",
             scope="admin super",
         )
 
@@ -534,7 +534,7 @@ class TestOAuthClientProvider:
 
         new_token = OAuthToken(
             access_token="new_access_token",
-            token_type="bearer",
+            token_type="Bearer",
             expires_in=3600,
             refresh_token="new_refresh_token",
             scope="read write",
@@ -567,7 +567,7 @@ class TestOAuthClientProvider:
         """Test token refresh with no refresh token."""
         oauth_provider._current_tokens = OAuthToken(
             access_token="test",
-            token_type="bearer",
+            token_type="Bearer",
             # No refresh_token
         )
 

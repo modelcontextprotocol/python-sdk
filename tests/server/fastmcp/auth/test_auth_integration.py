@@ -96,7 +96,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider):
 
         return OAuthToken(
             access_token=access_token,
-            token_type="bearer",
+            token_type="Bearer",
             expires_in=3600,
             scope="read write",
             refresh_token=refresh_token,
@@ -160,7 +160,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider):
 
         return OAuthToken(
             access_token=new_access_token,
-            token_type="bearer",
+            token_type="Bearer",
             expires_in=3600,
             scope=" ".join(scopes) if scopes else " ".join(token_info.scopes),
             refresh_token=new_refresh_token,
