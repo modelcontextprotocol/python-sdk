@@ -546,9 +546,9 @@ MIT License - see LICENSE file for details.
 
 ## Documentation
 
-- [Integration Guide](INTEGRATION_GUIDE.md)
-- [API Reference](docs/api.md)
-- [Security Best Practices](docs/security.md)
+- [Integration Guide](https://github.com/vineethsai/python-sdk/blob/main/INTEGRATION_GUIDE.md)
+- [API Reference](https://github.com/vineethsai/python-sdk/blob/main/docs/api.md)
+- [Security Best Practices](https://github.com/vineethsai/python-sdk/blob/main/docs/security-features.md)
 
 ## Support
 
