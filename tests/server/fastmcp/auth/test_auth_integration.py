@@ -1001,8 +1001,30 @@ class TestAuthEndpoints:
         assert error_data["error"] == "invalid_client_metadata"
         assert (
             error_data["error_description"]
-            == "grant_types must be authorization_code and refresh_token"
+            == (
+                "grant_types must be authorization_code and "
+                "refresh_token or client_credentials"
+            )
         )
+
+    @pytest.mark.anyio
+    async def test_client_registration_client_credentials(
+        self, test_client: httpx.AsyncClient
+    ):
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "CC Client",
+            "grant_types": ["client_credentials"],
+        }
+
+        response = await test_client.post(
+            "/register",
+            json=client_metadata,
+        )
+
+        assert response.status_code == 201, response.content
+        client_info = response.json()
+        assert client_info["grant_types"] == ["client_credentials"]
 
 
 class TestAuthorizeEndpointErrors:
