@@ -101,6 +101,7 @@ class ClientSession(
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
+        support_roots_list_changed: bool = False,
     ) -> None:
         super().__init__(
             read_stream,
@@ -114,6 +115,7 @@ class ClientSession(
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
+        self._support_roots_list_changed = support_roots_list_changed
 
     async def initialize(self) -> types.InitializeResult:
         sampling = (
@@ -122,10 +124,7 @@ class ClientSession(
             else None
         )
         roots = (
-            # TODO: Should this be based on whether we
-            # _will_ send notifications, or only whether
-            # they're supported?
-            types.RootsCapability(listChanged=True)
+            types.RootsCapability(listChanged=self._support_roots_list_changed)
             if self._list_roots_callback is not _default_list_roots_callback
             else None
         )
