@@ -47,16 +47,25 @@ class RefreshTokenRequest(BaseModel):
     client_secret: str | None = None
 
 
+class ClientCredentialsRequest(BaseModel):
+    """Token request for the client credentials grant."""
+
+    grant_type: Literal["client_credentials"]
+    scope: str | None = Field(None, description="Optional scope parameter")
+    client_id: str
+    client_secret: str | None = None
+
+
 class TokenRequest(
     RootModel[
         Annotated[
-            AuthorizationCodeRequest | RefreshTokenRequest,
+            AuthorizationCodeRequest | RefreshTokenRequest | ClientCredentialsRequest,
             Field(discriminator="grant_type"),
         ]
     ]
 ):
     root: Annotated[
-        AuthorizationCodeRequest | RefreshTokenRequest,
+        AuthorizationCodeRequest | RefreshTokenRequest | ClientCredentialsRequest,
         Field(discriminator="grant_type"),
     ]
 
@@ -195,6 +204,26 @@ class TokenHandler:
                     # Exchange authorization code for tokens
                     tokens = await self.provider.exchange_authorization_code(
                         client_info, auth_code
+                    )
+                except TokenError as e:
+                    return self.response(
+                        TokenErrorResponse(
+                            error=e.error,
+                            error_description=e.error_description,
+                        )
+                    )
+
+            case ClientCredentialsRequest():
+                scopes = (
+                    token_request.scope.split(" ")
+                    if token_request.scope
+                    else client_info.scope.split(" ")
+                    if client_info.scope
+                    else []
+                )
+                try:
+                    tokens = await self.provider.exchange_client_credentials(
+                        client_info, scopes
                     )
                 except TokenError as e:
                     return self.response(

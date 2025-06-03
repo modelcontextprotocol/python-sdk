@@ -39,8 +39,10 @@ class OAuthClientMetadata(BaseModel):
     token_endpoint_auth_method: Literal["none", "client_secret_post"] = (
         "client_secret_post"
     )
-    # grant_types: this implementation only supports authorization_code & refresh_token
-    grant_types: list[Literal["authorization_code", "refresh_token"]] = [
+    # grant_types: support authorization_code, refresh_token, client_credentials
+    grant_types: list[
+        Literal["authorization_code", "refresh_token", "client_credentials"]
+    ] = [
         "authorization_code",
         "refresh_token",
     ]
@@ -114,7 +116,14 @@ class OAuthMetadata(BaseModel):
     response_types_supported: list[Literal["code"]] = ["code"]
     response_modes_supported: list[Literal["query", "fragment"]] | None = None
     grant_types_supported: (
-        list[Literal["authorization_code", "refresh_token"]] | None
+        list[
+            Literal[
+                "authorization_code",
+                "refresh_token",
+                "client_credentials",
+            ]
+        ]
+        | None
     ) = None
     token_endpoint_auth_methods_supported: (
         list[Literal["none", "client_secret_post"]] | None
