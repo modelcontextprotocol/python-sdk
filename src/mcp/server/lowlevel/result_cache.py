@@ -26,7 +26,10 @@ class InProgress:
     user: AuthenticatedUser | None = None
     future: Future[types.CallToolResult] | None = None
     sessions: dict[int, ServerSession] = field(default_factory=lambda: {})
-    session_progress: dict[int, types.ProgressToken | None] = field(default_factory=lambda: {})
+    session_progress: dict[int, types.ProgressToken | None] = field(
+        default_factory=lambda: {}
+    )
+
 
 class ResultCache:
     """
@@ -100,9 +103,14 @@ class ResultCache:
             return result.root
 
         in_progress.user = user_context.get()
-        in_progress.sessions[id(ctx.session)] = ctx.session
-        in_progress.session_progress[id(ctx.session)] = None if req.params.meta is None else req.params.meta.progressToken
-        self._session_lookup[id(ctx.session)] = in_progress.token
+        session_id = id(ctx.session)
+        in_progress.sessions[session_id] = ctx.session
+        if req.params.meta is not None:
+            progress_token = req.params.meta.progressToken
+        else:
+            progress_token = None
+        in_progress.session_progress[session_id] = progress_token
+        self._session_lookup[session_id] = in_progress.token
         in_progress.future = self._portal.start_task_soon(call_tool)
         result = types.CallToolAsyncResult(
             token=in_progress.token,
@@ -127,10 +135,15 @@ class ResultCache:
         else:
             # TODO consider adding authorisation layer to make this decision
             if in_progress.user == user_context.get():
-                logger.debug(f"Received join from {id(ctx.session)}")
-                self._session_lookup[id(ctx.session)] = req.params.token
-                in_progress.sessions[id(ctx.session)] = ctx.session
-                in_progress.session_progress[id(ctx.session)] = None if req.params.meta is None else req.params.meta.progressToken
+                session_id = id(ctx.session)
+                logger.debug(f"Received join from {session_id}")
+                self._session_lookup[session_id] = req.params.token
+                in_progress.sessions[session_id] = ctx.session
+                if req.params.meta is not None:
+                    progress_token = req.params.meta.progressToken
+                else:
+                    progress_token = None
+                in_progress.session_progress[session_id] = progress_token
                 return types.CallToolAsyncResult(token=req.params.token, accepted=True)
             else:
                 # TODO consider sending error via get result
@@ -196,25 +209,22 @@ class ResultCache:
                 logger.debug("Discarding progress notification from unknown session")
             else:
                 in_progress = self._in_progress.get(async_token)
-                if in_progress is None:
-                    # this should not happen
-                    logger.error("Discarding progress notification, not async")
-                else:
-                    for session_id, other_session in in_progress.sessions.items():
-                        logger.debug(f"Checking {session_id} == {id(session)}")
-                        if not session_id == id(session):
-                            logger.debug(f"Sending progress to {id(other_session)}")
-                            progress_token = in_progress.session_progress.get(id(other_session))
-                            assert progress_token is not None
-                            await other_session.send_progress_notification(
-                                # TODO this token is incorrect 
-                                # it needs to be collected from original request
-                                progress_token=progress_token,
-                                progress=notification.root.params.progress,
-                                total=notification.root.params.total,
-                                message=notification.root.params.message,
-                                resource_uri=notification.root.params.resourceUri,
-                            )
+                assert in_progress is not None
+                for other_id, other_session in in_progress.sessions.items():
+                    logger.debug(f"Checking {other_id} == {id(session)}")
+                    if not other_id == id(session):
+                        logger.debug(f"Sending progress to {other_id}")
+                        progress_token = in_progress.session_progress.get(other_id)
+                        assert progress_token is not None
+                        await other_session.send_progress_notification(
+                            # TODO this token is incorrect
+                            # it needs to be collected from original request
+                            progress_token=progress_token,
+                            progress=notification.root.params.progress,
+                            total=notification.root.params.total,
+                            message=notification.root.params.message,
+                            resource_uri=notification.root.params.resourceUri,
+                        )
 
     async def session_close_hook(self, session: ServerSession):
         logger.debug(f"Closing {id(session)}")

@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+from logging import getLogger
 
 import anyio
 import pytest
@@ -18,6 +19,8 @@ from mcp.types import (
     ClientRequest,
     EmptyResult,
 )
+
+logger = getLogger(__name__)
 
 
 @pytest.fixture
@@ -211,15 +214,14 @@ async def test_request_async():
         assert type(result.content[0]) is types.TextContent
         assert result.content[0].text == "test"
 
-from logging import getLogger
-
-logger = getLogger(__name__)
 
 @pytest.mark.anyio
-@pytest.mark.skip(reason="This test does not work, there is a subtle "
-                  "bug with event.wait, lower level test_result_cache "
-                  "tests underlying behaviour, revisit with feedback " \
-                  "from someone who cah help debug")
+@pytest.mark.skip(
+    reason="This test does not work, there is a subtle "
+    "bug with event.wait, lower level test_result_cache "
+    "tests underlying behaviour, revisit with feedback "
+    "from someone who cah help debug"
+)
 async def test_request_async_join():
     """Test that requests can be joined from external sessions."""
     # The tool is already registered in the fixture
@@ -235,7 +237,6 @@ async def test_request_async_join():
     ev_client_1_progressed_2 = anyio.Event()
     ev_client_2_progressed_1 = anyio.Event()
     ev_done = anyio.Event()
-
 
     # Start the request in a separate task so we can cancel it
     def make_server() -> Server:
@@ -328,8 +329,7 @@ async def test_request_async_join():
         logger.info(f"client2: progress done: {progress}/{total}")
 
     async def join_request(
-        client_session: ClientSession, 
-        async_token: types.AsyncToken
+        client_session: ClientSession, async_token: types.AsyncToken
     ):
         return await client_session.send_request(
             ClientRequest(
@@ -365,6 +365,7 @@ async def test_request_async_join():
     token = None
 
     async with anyio.create_task_group() as tg:
+
         async def client_1_submit():
             async with create_connected_server_and_client_session(
                 server
@@ -429,6 +430,7 @@ async def test_request_async_join():
     assert ev_client_1_progressed_1.is_set()
     assert ev_client_1_progressed_2.is_set()
     assert ev_client_2_progressed_1.is_set()
+
 
 @pytest.mark.anyio
 async def test_connection_closed():
