@@ -10,7 +10,6 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
-from inline_snapshot import snapshot
 from pydantic import AnyHttpUrl
 
 from mcp.client.auth import OAuthClientProvider
@@ -997,8 +996,17 @@ def test_build_metadata(
     assert str(metadata.registration_endpoint) == str(expected.registration_endpoint)
     assert metadata.scopes_supported == expected.scopes_supported
     assert metadata.grant_types_supported == expected.grant_types_supported
-    assert metadata.token_endpoint_auth_methods_supported == expected.token_endpoint_auth_methods_supported
+    assert (
+        metadata.token_endpoint_auth_methods_supported
+        == expected.token_endpoint_auth_methods_supported
+    )
     assert str(metadata.service_documentation) == str(expected.service_documentation)
     assert str(metadata.revocation_endpoint) == str(expected.revocation_endpoint)
-    assert metadata.revocation_endpoint_auth_methods_supported == expected.revocation_endpoint_auth_methods_supported
-    assert metadata.code_challenge_methods_supported == expected.code_challenge_methods_supported
+    assert (
+        metadata.revocation_endpoint_auth_methods_supported
+        == expected.revocation_endpoint_auth_methods_supported
+    )
+    assert (
+        metadata.code_challenge_methods_supported
+        == expected.code_challenge_methods_supported
+    )
