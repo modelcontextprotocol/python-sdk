@@ -49,7 +49,8 @@ class TokenStorage(Protocol):
 
 
 def _get_authorization_base_url(server_url: str) -> str:
-    """Return the authorization base URL for ``server_url``.
+    """
+    Return the authorization base URL for ``server_url``.
 
     Per MCP spec 2.3.2, the path component must be discarded so that
     ``https://api.example.com/v1/mcp`` becomes ``https://api.example.com``.
@@ -57,12 +58,16 @@ def _get_authorization_base_url(server_url: str) -> str:
     from urllib.parse import urlparse, urlunparse
 
     parsed = urlparse(server_url)
+    # Remove path component
     return urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
 
 
 async def _discover_oauth_metadata(server_url: str) -> OAuthMetadata | None:
-    """Discover OAuth metadata from the server's well-known endpoint."""
+    """
+    Discover OAuth metadata from the server's well-known endpoint.
+    """
 
+    # Extract base URL per MCP spec
     auth_base_url = _get_authorization_base_url(server_url)
     url = urljoin(auth_base_url, "/.well-known/oauth-authorization-server")
     headers = {"MCP-Protocol-Version": LATEST_PROTOCOL_VERSION}
@@ -73,14 +78,19 @@ async def _discover_oauth_metadata(server_url: str) -> OAuthMetadata | None:
             if response.status_code == 404:
                 return None
             response.raise_for_status()
-            return OAuthMetadata.model_validate(response.json())
+            metadata_json = response.json()
+            logger.debug(f"OAuth metadata discovered: {metadata_json}")
+            return OAuthMetadata.model_validate(metadata_json)
         except Exception:
+            # Retry without MCP header for CORS compatibility
             try:
                 response = await client.get(url)
                 if response.status_code == 404:
                     return None
                 response.raise_for_status()
-                return OAuthMetadata.model_validate(response.json())
+                metadata_json = response.json()
+                logger.debug(f"OAuth metadata discovered (no MCP header): {metadata_json}")
+                return OAuthMetadata.model_validate(metadata_json)
             except Exception:
                 logger.exception("Failed to discover OAuth metadata")
                 return None

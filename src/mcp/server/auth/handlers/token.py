@@ -48,8 +48,7 @@ class RefreshTokenRequest(BaseModel):
 
 
 class ClientCredentialsRequest(BaseModel):
-    """Token request for the client credentials grant."""
-
+    # See https://datatracker.ietf.org/doc/html/rfc6749#section-4.4
     grant_type: Literal["client_credentials"]
     scope: str | None = Field(None, description="Optional scope parameter")
     client_id: str
