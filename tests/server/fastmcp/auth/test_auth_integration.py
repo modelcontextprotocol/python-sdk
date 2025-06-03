@@ -831,7 +831,7 @@ class TestAuthEndpoints:
         assert "token_type" in token_response
         assert "refresh_token" in token_response
         assert "expires_in" in token_response
-        assert token_response["token_type"] == "bearer"
+        assert token_response["token_type"] == "Bearer"
 
         # 5. Verify the access token
         access_token = token_response["access_token"]
