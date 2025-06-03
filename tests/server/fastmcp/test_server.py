@@ -8,7 +8,12 @@ from pydantic import AnyUrl
 from starlette.routing import Mount, Route
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.fastmcp.prompts.base import EmbeddedResource, Message, UserMessage
+from mcp.server.fastmcp.prompts.base import (
+    EmbeddedResource,
+    Message,
+    Prompt,
+    UserMessage,
+)
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
 from mcp.server.fastmcp.utilities.types import Image
 from mcp.shared.exceptions import McpError
@@ -869,3 +874,62 @@ class TestServerPrompts:
         async with client_session(mcp._mcp_server) as client:
             with pytest.raises(McpError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
+
+    @pytest.mark.anyio
+    async def test_add_prompt_object(self):
+        """Test adding a Prompt object directly to FastMCP server."""
+
+        def fn() -> str:
+            return "Hello from custom prompt!"
+
+        mcp = FastMCP()
+        prompt = Prompt.from_function(
+            fn, name="custom_prompt", description="A custom prompt"
+        )
+        mcp.add_prompt(prompt)
+
+        prompts = mcp._prompt_manager.list_prompts()
+        assert len(prompts) == 1
+        assert prompts[0].name == "custom_prompt"
+        assert prompts[0].description == "A custom prompt"
+
+    @pytest.mark.anyio
+    async def test_add_prompt_object_through_protocol(self):
+        """Test that Prompt objects added directly work through MCP protocol."""
+
+        def fn(name: str) -> str:
+            return f"Hello, {name}!"
+
+        mcp = FastMCP()
+        prompt = Prompt.from_function(
+            fn, name="custom_greeting", description="Custom greeting prompt"
+        )
+        mcp.add_prompt(prompt)
+
+        async with client_session(mcp._mcp_server) as client:
+            # List prompts
+            result = await client.list_prompts()
+            assert len(result.prompts) == 1
+            assert result.prompts[0].name == "custom_greeting"
+            assert result.prompts[0].description == "Custom greeting prompt"
+
+            # Get prompt
+            prompt_result = await client.get_prompt("custom_greeting", {"name": "Test"})
+            assert len(prompt_result.messages) == 1
+            message = prompt_result.messages[0]
+            assert message.role == "user"
+            content = message.content
+            assert isinstance(content, TextContent)
+            assert content.text == "Hello, Test!"
+
+    @pytest.mark.anyio
+    async def test_add_prompt_both_args_error(self):
+        """Test error when both prompt and fn are provided to add_prompt."""
+        mcp = FastMCP()
+
+        def fn() -> str:
+            return "Hello, world!"
+
+        prompt = Prompt.from_function(fn)
+        with pytest.raises(ValueError, match="Cannot provide both prompt and fn"):
+            mcp.add_prompt(prompt=prompt, fn=fn)

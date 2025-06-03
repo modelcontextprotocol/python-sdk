@@ -35,7 +35,8 @@ from mcp.server.auth.settings import (
     AuthSettings,
 )
 from mcp.server.fastmcp.exceptions import ResourceError
-from mcp.server.fastmcp.prompts import Prompt, PromptManager
+from mcp.server.fastmcp.prompts import PromptManager
+from mcp.server.fastmcp.prompts.base import Prompt
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
@@ -140,8 +141,9 @@ class FastMCP:
         self,
         name: str | None = None,
         instructions: str | None = None,
-        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
-        | None = None,
+        auth_server_provider: (
+            OAuthAuthorizationServerProvider[Any, Any, Any] | None
+        ) = None,
         event_store: EventStore | None = None,
         *,
         tools: list[Tool] | None = None,
@@ -487,13 +489,32 @@ class FastMCP:
 
         return decorator
 
-    def add_prompt(self, prompt: Prompt) -> None:
+    def add_prompt(
+        self,
+        prompt: Prompt | None = None,
+        fn: AnyFunction | None = None,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
         """Add a prompt to the server.
 
         Args:
-            prompt: A Prompt instance to add
+            prompt: A Prompt instance (required if fn is not provided)
+            fn: A function to create a prompt from (required if prompt is not provided)
+            name: Optional name for the prompt (only used if fn is provided)
+            description: Optional description of the prompt (only if fn is provided)
         """
-        self._prompt_manager.add_prompt(prompt)
+        if prompt is None and fn is None:
+            raise ValueError("Either prompt or fn must be provided")
+        if prompt is not None and fn is not None:
+            raise ValueError("Cannot provide both prompt and fn")
+
+        self._prompt_manager.add_prompt(
+            prompt=prompt,
+            fn=fn,
+            name=name,
+            description=description,
+        )
 
     def prompt(
         self, name: str | None = None, description: str | None = None
@@ -539,8 +560,7 @@ class FastMCP:
             )
 
         def decorator(func: AnyFunction) -> AnyFunction:
-            prompt = Prompt.from_function(func, name=name, description=description)
-            self.add_prompt(prompt)
+            self.add_prompt(fn=func, name=name, description=description)
             return func
 
         return decorator
