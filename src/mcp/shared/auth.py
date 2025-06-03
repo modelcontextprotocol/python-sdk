@@ -14,7 +14,7 @@ class OAuthToken(BaseModel):
     scope: str | None = None
     refresh_token: str | None = None
 
-    @field_validator('token_type', mode='before')
+    @field_validator("token_type", mode="before")
     @classmethod
     def normalize_token_type(cls, v: str | None) -> str | None:
         if isinstance(v, str):
