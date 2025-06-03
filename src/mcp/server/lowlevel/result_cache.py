@@ -1,8 +1,8 @@
+import time
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from logging import getLogger
-from time import time
 from types import TracebackType
 from typing import Any
 from uuid import uuid4
@@ -23,12 +23,21 @@ logger = getLogger(__name__)
 @dataclass
 class InProgress:
     token: str
+    timer: Callable[[], float]
     user: AuthenticatedUser | None = None
     future: Future[types.CallToolResult] | None = None
     sessions: dict[int, ServerSession] = field(default_factory=lambda: {})
     session_progress: dict[int, types.ProgressToken | None] = field(
         default_factory=lambda: {}
     )
+    keep_alive: int | None = None
+    keep_alive_start: int | None = None
+
+    def is_expired(self):
+        if self.keep_alive_start is None or self.keep_alive is None:
+            return False
+        else:
+            return int(self.timer()) > self.keep_alive_start + self.keep_alive
 
 
 class ResultCache:
@@ -54,11 +63,17 @@ class ResultCache:
     _session_lookup: dict[int, types.AsyncToken]
     _portal: BlockingPortal
 
-    def __init__(self, max_size: int, max_keep_alive: int):
+    def __init__(
+        self,
+        max_size: int,
+        max_keep_alive: int,
+        timer: Callable[[], float] = time.monotonic,
+    ):
         self._max_size = max_size
         self._max_keep_alive = max_keep_alive
         self._in_progress = {}
         self._session_lookup = {}
+        self._timer = timer
         self._portal_provider = BlockingPortalProvider()
 
     async def __aenter__(self):
@@ -105,6 +120,7 @@ class ResultCache:
         in_progress.user = user_context.get()
         session_id = id(ctx.session)
         in_progress.sessions[session_id] = ctx.session
+        in_progress.keep_alive = timeout
         if req.params.meta is not None:
             progress_token = req.params.meta.progressToken
         else:
@@ -114,7 +130,7 @@ class ResultCache:
         in_progress.future = self._portal.start_task_soon(call_tool)
         result = types.CallToolAsyncResult(
             token=in_progress.token,
-            recieved=round(time()),
+            recieved=round(self._timer()),
             keepAlive=timeout,
             accepted=True,
         )
@@ -176,6 +192,15 @@ class ResultCache:
             if in_progress.user == user_context.get():
                 assert in_progress.future is not None
                 # TODO add timeout to get async result
+                if in_progress.is_expired():
+                    self._portal.start_task_soon(self._expire)
+                    return types.CallToolResult(
+                        content=[
+                            types.TextContent(type="text", text="Unknown async token")
+                        ],
+                        isError=True,
+                    )
+
                 try:
                     result = in_progress.future.result(1)
                     logger.debug(f"Found result {result}")
@@ -235,7 +260,12 @@ class ResultCache:
             if found is None:
                 logger.warning("No session found")
             if len(in_progress.sessions) == 0:
-                self._in_progress.pop(dropped, None)
+                in_progress.keep_alive_start = int(self._timer())
+
+    async def _expire(self):
+        for in_progress in self._in_progress.values():
+            if in_progress.is_expired():
+                self._in_progress.pop(in_progress.token, None)
                 assert in_progress.future is not None
                 logger.debug("Cancelled in progress future")
                 in_progress.future.cancel()
@@ -251,6 +281,6 @@ class ResultCache:
             # for context
             token = str(uuid4())
             if token not in self._in_progress:
-                new_in_progress = InProgress(token)
+                new_in_progress = InProgress(token, self._timer)
                 self._in_progress[token] = new_in_progress
                 return new_in_progress
