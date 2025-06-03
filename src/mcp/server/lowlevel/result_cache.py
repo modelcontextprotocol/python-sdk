@@ -164,33 +164,27 @@ class ResultCache:
 
     async def get_result(self, req: types.GetToolAsyncResultRequest):
         logger.debug("Getting result")
-        in_progress = self._in_progress.get(req.params.token)
-        logger.debug(f"Found in progress {in_progress}")
+        async_token = req.params.token
+        in_progress = self._in_progress.get(async_token)
         if in_progress is None:
             return types.CallToolResult(
-                content=[types.TextContent(type="text", text="Unknown progress token")],
+                content=[types.TextContent(type="text", text="Unknown async token")],
                 isError=True,
             )
         else:
+            logger.debug(f"Found in progress {in_progress}")
             if in_progress.user == user_context.get():
-                if in_progress.future is None:
+                assert in_progress.future is not None
+                # TODO add timeout to get async result
+                try:
+                    result = in_progress.future.result(1)
+                    logger.debug(f"Found result {result}")
+                    return result
+                except TimeoutError:
                     return types.CallToolResult(
-                        content=[
-                            types.TextContent(type="text", text="Permission denied")
-                        ],
-                        isError=True,
+                        content=[],
+                        isPending=True,
                     )
-                else:
-                    # TODO add timeout to get async result
-                    try:
-                        result = in_progress.future.result(1)
-                        logger.debug(f"Found result {result}")
-                        return result
-                    except TimeoutError:
-                        return types.CallToolResult(
-                            content=[],
-                            isPending=True,
-                        )
             else:
                 return types.CallToolResult(
                     content=[types.TextContent(type="text", text="Permission denied")],
@@ -200,19 +194,20 @@ class ResultCache:
     async def notification_hook(
         self, session: ServerSession, notification: types.ServerNotification
     ):
-        logger.debug(f"received {notification} from {id(session)}")
+        session_id = id(session)
+        logger.debug(f"received {notification} from {session_id}")
         if type(notification.root) is types.ProgressNotification:
             # async with self._lock:
-            async_token = self._session_lookup.get(id(session))
+            async_token = self._session_lookup.get(session_id)
             if async_token is None:
                 # not all sessions are async so just debug
                 logger.debug("Discarding progress notification from unknown session")
             else:
                 in_progress = self._in_progress.get(async_token)
-                assert in_progress is not None
+                assert in_progress is not None, "lost in progress for {async_token}"
                 for other_id, other_session in in_progress.sessions.items():
-                    logger.debug(f"Checking {other_id} == {id(session)}")
-                    if not other_id == id(session):
+                    logger.debug(f"Checking {other_id} == {session_id}")
+                    if not other_id == session_id:
                         logger.debug(f"Sending progress to {other_id}")
                         progress_token = in_progress.session_progress.get(other_id)
                         assert progress_token is not None
@@ -227,26 +222,23 @@ class ResultCache:
                         )
 
     async def session_close_hook(self, session: ServerSession):
-        logger.debug(f"Closing {id(session)}")
-        dropped = self._session_lookup.pop(id(session), None)
-        if dropped is None:
-            logger.warning(f"Discarding callback from unknown session {id(session)}")
+        session_id = id(session)
+        logger.debug(f"Closing {session_id}")
+        dropped = self._session_lookup.pop(session_id, None)
+        assert dropped is not None, f"Discarded callback, unknown session {session_id}"
+
+        in_progress = self._in_progress.get(dropped)
+        if in_progress is None:
+            logger.warning("In progress not found")
         else:
-            in_progress = self._in_progress.get(dropped)
-            if in_progress is None:
-                logger.warning("In progress not found")
-            else:
-                found = in_progress.sessions.pop(id(session), None)
-                if found is None:
-                    logger.warning("No session found")
-                if len(in_progress.sessions) == 0:
-                    self._in_progress.pop(dropped, None)
-                    logger.debug("In progress found")
-                    if in_progress.future is None:
-                        logger.warning("In progress future is none")
-                    else:
-                        logger.debug("Cancelled in progress future")
-                        in_progress.future.cancel()
+            found = in_progress.sessions.pop(session_id, None)
+            if found is None:
+                logger.warning("No session found")
+            if len(in_progress.sessions) == 0:
+                self._in_progress.pop(dropped, None)
+                assert in_progress.future is not None
+                logger.debug("Cancelled in progress future")
+                in_progress.future.cancel()
 
     async def _new_in_progress(self) -> InProgress:
         while True:
