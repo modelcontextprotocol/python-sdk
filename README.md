@@ -30,10 +30,12 @@
     - [Prompts](#prompts)
     - [Images](#images)
     - [Context](#context)
+    - [Authentication](#authentication)
   - [Running Your Server](#running-your-server)
     - [Development Mode](#development-mode)
     - [Claude Desktop Integration](#claude-desktop-integration)
     - [Direct Execution](#direct-execution)
+    - [Streamable HTTP Transport](#streamable-http-transport)
     - [Mounting to an Existing ASGI Server](#mounting-to-an-existing-asgi-server)
   - [Examples](#examples)
     - [Echo Server](#echo-server)
@@ -244,6 +246,19 @@ async def fetch_weather(city: str) -> str:
     async with httpx.AsyncClient() as client:
         response = await client.get(f"https://api.weather.com/{city}")
         return response.text
+
+
+tool = mcp._tool_manager.get_tool("fetch_weather")
+
+
+async def disable_tool():
+    # Disable the tool temporarily
+    await tool.disable(mcp.get_context())
+
+
+async def enable_tool():
+    # Re-enable the tool when needed
+    await tool.enable(mcp.get_context())
 ```
 
 ### Prompts
