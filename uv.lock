@@ -105,15 +105,6 @@ wheels = [
 ]
 
 [[package]]
-name = "cachetools"
-version = "6.0.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c0/b0/f539a1ddff36644c28a61490056e5bae43bd7386d9f9c69beae2d7e7d6d1/cachetools-6.0.0.tar.gz", hash = "sha256:f225782b84438f828328fc2ad74346522f27e5b1440f4e9fd18b20ebfd1aa2cf", size = 30160, upload-time = "2025-05-23T20:01:13.076Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/6a/c3/8bb087c903c95a570015ce84e0c23ae1d79f528c349cbc141b5c4e250293/cachetools-6.0.0-py3-none-any.whl", hash = "sha256:82e73ba88f7b30228b5507dce1a1f878498fc669d972aef2dde4f3a3c24f103e", size = 10964, upload-time = "2025-05-23T20:01:11.323Z" },
-]
-
-[[package]]
 name = "cairocffi"
 version = "1.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -539,7 +530,6 @@ name = "mcp"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
-    { name = "cachetools" },
     { name = "httpx" },
     { name = "httpx-sse" },
     { name = "pydantic" },
@@ -584,7 +574,6 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
-    { name = "cachetools", specifier = "==6" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "httpx-sse", specifier = ">=0.4" },
     { name = "pydantic", specifier = ">=2.7.2,<3.0.0" },
