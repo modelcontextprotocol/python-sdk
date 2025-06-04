@@ -74,7 +74,7 @@ class RegistrationHandler:
                     ),
                     status_code=400,
                 )
-        grant_types_set = set(client_metadata.grant_types)
+        grant_types_set: set[str] = set(client_metadata.grant_types)
         valid_sets = [
             {"authorization_code", "refresh_token"},
             {"client_credentials"},
