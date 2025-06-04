@@ -452,7 +452,7 @@ class StreamableHTTPServerTransport:
                                 ):
                                     break
                     except Exception as e:
-                        logger.exception(f"Error in SSE writer: {e}")
+                        logger.warning(f"Error in SSE writer: {e}", exc_info=True)
                     finally:
                         logger.debug("Closing SSE writer")
                         await self._clean_up_memory_streams(request_id)
@@ -482,13 +482,13 @@ class StreamableHTTPServerTransport:
                         session_message = SessionMessage(message, metadata=metadata)
                         await writer.send(session_message)
                 except Exception:
-                    logger.exception("SSE response error")
+                    logger.warning("SSE response error", exc_info=True)
                     await sse_stream_writer.aclose()
                     await sse_stream_reader.aclose()
                     await self._clean_up_memory_streams(request_id)
 
         except Exception as err:
-            logger.exception("Error handling POST request")
+            logger.warning("Error handling POST request", exc_info=True)
             response = self._create_error_response(
                 f"Error handling POST request: {err}",
                 HTTPStatus.INTERNAL_SERVER_ERROR,
@@ -570,7 +570,7 @@ class StreamableHTTPServerTransport:
                         event_data = self._create_event_data(event_message)
                         await sse_stream_writer.send(event_data)
             except Exception as e:
-                logger.exception(f"Error in standalone SSE writer: {e}")
+                logger.warning(f"Error in standalone SSE writer: {e}", exc_info=True)
             finally:
                 logger.debug("Closing standalone SSE writer")
                 await self._clean_up_memory_streams(GET_STREAM_KEY)
@@ -586,7 +586,7 @@ class StreamableHTTPServerTransport:
             # This will send headers immediately and establish the SSE connection
             await response(request.scope, request.receive, send)
         except Exception as e:
-            logger.exception(f"Error in standalone SSE response: {e}")
+            logger.warning(f"Error in standalone SSE response: {e}", exc_info=True)
             await sse_stream_writer.aclose()
             await sse_stream_reader.aclose()
             await self._clean_up_memory_streams(GET_STREAM_KEY)
