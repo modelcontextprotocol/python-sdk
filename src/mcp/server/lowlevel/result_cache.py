@@ -46,6 +46,8 @@ class ResultCache:
     Its purpose is to act as a central point for managing in progress
     async calls, allowing multiple clients to join and receive progress
     updates, get results and/or cancel in progress calls
+    TODO CRITICAL not obvious user context will be passed to background thread
+    add tests to assert behaviour with authenticated calls
     TODO MAJOR needs a lot more testing around edge cases/failure scenarios
     TODO MAJOR decide if async.Locks are required for integrity of internal
     data structures
