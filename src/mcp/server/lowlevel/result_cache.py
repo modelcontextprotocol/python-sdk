@@ -46,8 +46,6 @@ class ResultCache:
     Its purpose is to act as a central point for managing in progress
     async calls, allowing multiple clients to join and receive progress
     updates, get results and/or cancel in progress calls
-    TODO CRITICAL keep_alive logic is not correct as per spec - results currently
-    only kept for as long as longest session reintroduce TTL cache
     TODO MAJOR needs a lot more testing around edge cases/failure scenarios
     TODO MAJOR decide if async.Locks are required for integrity of internal
     data structures
@@ -130,7 +128,6 @@ class ResultCache:
         in_progress.future = self._portal.start_task_soon(call_tool)
         result = types.CallToolAsyncResult(
             token=in_progress.token,
-            recieved=round(self._timer()),
             keepAlive=timeout,
             accepted=True,
         )
@@ -248,19 +245,20 @@ class ResultCache:
 
     async def session_close_hook(self, session: ServerSession):
         session_id = id(session)
-        logger.debug(f"Closing {session_id}")
+        logger.debug(f"Received session close for {session_id}")
         dropped = self._session_lookup.pop(session_id, None)
-        assert dropped is not None, f"Discarded callback, unknown session {session_id}"
+        if dropped is None:
+            # lots of sessions will have no async tasks debug and return
+            logger.debug(f"Discarded callback, unknown session {session_id}")
+            return
 
         in_progress = self._in_progress.get(dropped)
-        if in_progress is None:
-            logger.warning("In progress not found")
-        else:
-            found = in_progress.sessions.pop(session_id, None)
-            if found is None:
-                logger.warning("No session found")
-            if len(in_progress.sessions) == 0:
-                in_progress.keep_alive_start = int(self._timer())
+        assert in_progress is not None, "In progress not found"
+        found = in_progress.sessions.pop(session_id, None)
+        if found is None:
+            logger.warning("No session found")
+        if len(in_progress.sessions) == 0:
+            in_progress.keep_alive_start = int(self._timer())
 
     async def _expire(self):
         for in_progress in self._in_progress.values():
