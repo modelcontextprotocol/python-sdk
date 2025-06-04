@@ -27,7 +27,7 @@ Example usage:
 
     # Create and run Starlette app
     starlette_app = Starlette(routes=routes)
-    uvicorn.run(starlette_app, host="0.0.0.0", port=port)
+    uvicorn.run(starlette_app, host="127.0.0.1", port=port)
 ```
 
 Note: The handle_sse function must return a Response to avoid a "TypeError: 'NoneType'
@@ -52,7 +52,7 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 import mcp.types as types
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +203,9 @@ class SseServerTransport:
             await writer.send(err)
             return
 
-        session_message = SessionMessage(message)
+        # Pass the ASGI scope for framework-agnostic access to request data
+        metadata = ServerMessageMetadata(request_context=request)
+        session_message = SessionMessage(message, metadata=metadata)
         logger.debug(f"Sending session message to writer: {session_message}")
         response = Response("Accepted", status_code=202)
         await response(scope, receive, send)

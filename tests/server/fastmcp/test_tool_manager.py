@@ -6,9 +6,10 @@ from pydantic import BaseModel
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.server.fastmcp.tools import ToolManager
+from mcp.server.fastmcp.tools import Tool, ToolManager
+from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.server.session import ServerSessionT
-from mcp.shared.context import LifespanContextT
+from mcp.shared.context import LifespanContextT, RequestT
 from mcp.types import ToolAnnotations
 
 
@@ -30,6 +31,35 @@ class TestAddTools:
         assert tool.is_async is False
         assert tool.parameters["properties"]["a"]["type"] == "integer"
         assert tool.parameters["properties"]["b"]["type"] == "integer"
+
+    def test_init_with_tools(self, caplog):
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        class AddArguments(ArgModelBase):
+            a: int
+            b: int
+
+        fn_metadata = FuncMetadata(arg_model=AddArguments)
+
+        original_tool = Tool(
+            name="add",
+            description="Add two numbers.",
+            fn=add,
+            fn_metadata=fn_metadata,
+            is_async=False,
+            parameters=AddArguments.model_json_schema(),
+            context_kwarg=None,
+            annotations=None,
+        )
+        manager = ToolManager(tools=[original_tool])
+        saved_tool = manager.get_tool("add")
+        assert saved_tool == original_tool
+
+        # warn on duplicate tools
+        with caplog.at_level(logging.WARNING):
+            manager = ToolManager(True, tools=[original_tool, original_tool])
+            assert "Tool already exists: add" in caplog.text
 
     @pytest.mark.anyio
     async def test_async_function(self):
@@ -71,6 +101,39 @@ class TestAddTools:
         assert "name" in tool.parameters["$defs"]["UserInput"]["properties"]
         assert "age" in tool.parameters["$defs"]["UserInput"]["properties"]
         assert "flag" in tool.parameters["properties"]
+
+    def test_add_callable_object(self):
+        """Test registering a callable object."""
+
+        class MyTool:
+            def __init__(self):
+                self.__name__ = "MyTool"
+
+            def __call__(self, x: int) -> int:
+                return x * 2
+
+        manager = ToolManager()
+        tool = manager.add_tool(MyTool())
+        assert tool.name == "MyTool"
+        assert tool.is_async is False
+        assert tool.parameters["properties"]["x"]["type"] == "integer"
+
+    @pytest.mark.anyio
+    async def test_add_async_callable_object(self):
+        """Test registering an async callable object."""
+
+        class MyAsyncTool:
+            def __init__(self):
+                self.__name__ = "MyAsyncTool"
+
+            async def __call__(self, x: int) -> int:
+                return x * 2
+
+        manager = ToolManager()
+        tool = manager.add_tool(MyAsyncTool())
+        assert tool.name == "MyAsyncTool"
+        assert tool.is_async is True
+        assert tool.parameters["properties"]["x"]["type"] == "integer"
 
     def test_add_invalid_tool(self):
         manager = ToolManager()
@@ -136,6 +199,34 @@ class TestCallTools:
         manager = ToolManager()
         manager.add_tool(double)
         result = await manager.call_tool("double", {"n": 5})
+        assert result == 10
+
+    @pytest.mark.anyio
+    async def test_call_object_tool(self):
+        class MyTool:
+            def __init__(self):
+                self.__name__ = "MyTool"
+
+            def __call__(self, x: int) -> int:
+                return x * 2
+
+        manager = ToolManager()
+        tool = manager.add_tool(MyTool())
+        result = await tool.run({"x": 5})
+        assert result == 10
+
+    @pytest.mark.anyio
+    async def test_call_async_object_tool(self):
+        class MyAsyncTool:
+            def __init__(self):
+                self.__name__ = "MyAsyncTool"
+
+            async def __call__(self, x: int) -> int:
+                return x * 2
+
+        manager = ToolManager()
+        tool = manager.add_tool(MyAsyncTool())
+        result = await tool.run({"x": 5})
         assert result == 10
 
     @pytest.mark.anyio
@@ -256,7 +347,7 @@ class TestContextHandling:
         assert tool.context_kwarg is None
 
         def tool_with_parametrized_context(
-            x: int, ctx: Context[ServerSessionT, LifespanContextT]
+            x: int, ctx: Context[ServerSessionT, LifespanContextT, RequestT]
         ) -> str:
             return str(x)
 

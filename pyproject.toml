@@ -52,40 +52,48 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+rich = ["rich>=13.9.4"]
+cli = ["typer>=0.12.4", "python-dotenv>=1.0.0"]
+ws = ["websockets>=15.0.1"]
+
+[project.scripts]
+mcp = "mcp.cli:app [cli]"
+
+[tool.uv]
+resolution = "lowest-direct"
+default-groups = ["dev", "docs"]
+required-version = ">=0.7.2"
+
+[dependency-groups]
 dev = [
-    "black>=23.0.0",
-    "isort>=5.12.0",
-    "mypy>=1.0.0",
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-cov>=4.0.0",
-    "pytest-examples>=0.0.5",  # For example testing
-    "ruff>=0.1.0",
-    "typer>=0.9.0",  # For CLI functionality
-]
-cli = [
-    "typer>=0.9.0",
-]
-server = [
-    "fastapi>=0.100.0",
-    "uvicorn[standard]>=0.20.0",
-    "starlette>=0.27.0",
-    "sse-starlette>=2.0.0",
-    "pydantic-settings>=2.0.0",
-]
-client = [
-    "httpx-sse>=0.4.0",
+    "pyright>=1.1.391",
+    "pytest>=8.3.4",
+    "ruff>=0.8.5",
+    "trio>=0.26.2",
+    "pytest-flakefinder>=1.1.0",
+    "pytest-xdist>=3.6.1",
+    "pytest-examples>=0.0.14",
+    "pytest-pretty>=1.2.0",
+    "inline-snapshot>=0.23.0",
 ]
 docs = [
-    "mkdocs>=1.5.0",
-    "mkdocs-material[imaging]>=9.0.0",
-    "mkdocs-glightbox>=0.3.4",
-    "mkdocstrings[python]>=0.20.0",
-    "pycairo>=1.20.0",
-    "cairosvg>=2.5.0",
-    "black>=23.0.0",
-    "ruff>=0.1.0",
+    "mkdocs>=1.6.1",
+    "mkdocs-glightbox>=0.4.0",
+    "mkdocs-material[imaging]>=9.5.45",
+    "mkdocstrings-python>=1.12.2",
 ]
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
 
 [project.urls]
 Homepage = "https://github.com/modelcontextprotocol/python-sdk"
@@ -181,38 +189,17 @@ ignore = [
 "tests/**/*" = ["B011"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-asyncio_mode = "auto"
-addopts = [
-    "--tb=short",
-    "-v",
-]
-markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "integration: marks tests as integration tests",
-    "oauth: marks tests that require OAuth setup",
-    "etdi: marks tests specific to ETDI functionality",
-]
-
-[tool.coverage.run]
-source = ["src"]
-omit = [
-    "*/tests/*",
-    "*/test_*",
-    "*/__pycache__/*",
-    "*/.*",
-]
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "if self.debug:",
-    "if settings.DEBUG",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if 0:",
-    "if __name__ == .__main__.:",
-    "class .*\\bProtocol\\):",
-    "@(abc\\.)?abstractmethod",
+log_cli = true
+xfail_strict = true
+addopts = """
+    --color=yes
+    --capture=fd
+    --numprocesses auto
+"""
+filterwarnings = [
+    "error",
+    # This should be fixed on Uvicorn's side.
+    "ignore::DeprecationWarning:websockets",
+    "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
+    "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel"
 ]
