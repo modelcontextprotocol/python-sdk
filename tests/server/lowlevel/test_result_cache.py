@@ -127,7 +127,7 @@ async def test_async_join_call_progress():
 
 @pytest.mark.anyio
 async def test_async_cancel_in_progress():
-    """Tests basic async call"""
+    """Tests cancelling an in progress async call"""
 
     async def slow_call(call: types.CallToolRequest) -> types.ServerResult:
         with anyio.move_on_after(10) as scope:
