@@ -89,7 +89,9 @@ async def _discover_oauth_metadata(server_url: str) -> OAuthMetadata | None:
                     return None
                 response.raise_for_status()
                 metadata_json = response.json()
-                logger.debug(f"OAuth metadata discovered (no MCP header): {metadata_json}")
+                logger.debug(
+                    f"OAuth metadata discovered (no MCP header): {metadata_json}"
+                )
                 return OAuthMetadata.model_validate(metadata_json)
             except Exception:
                 logger.exception("Failed to discover OAuth metadata")

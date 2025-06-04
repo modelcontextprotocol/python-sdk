@@ -139,6 +139,7 @@ async def client_credentials_provider(client_credentials_metadata, mock_storage)
         storage=mock_storage,
     )
 
+
 class TestOAuthClientProvider:
     """Test OAuth client provider functionality."""
 
