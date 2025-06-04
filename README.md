@@ -851,6 +851,9 @@ async def main():
         callback_handler=lambda: ("auth_code", None),
     )
 
+    # For machine-to-machine scenarios, use ClientCredentialsProvider
+    # instead of OAuthClientProvider.
+
     # Use with streamable HTTP client
     async with streamablehttp_client(
         "https://api.example.com/mcp", auth=oauth_auth

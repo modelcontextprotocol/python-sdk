@@ -161,8 +161,14 @@ class StreamableHTTPTransport:
                 session_message = SessionMessage(message)
                 await read_stream_writer.send(session_message)
 
-                # Call resumption token callback if we have an ID
-                if sse.id and resumption_callback:
+                # Call resumption token callback if we have an ID. Only update
+                # the resumption token on notifications to avoid overwriting it
+                # with the token from the final response.
+                if (
+                    sse.id
+                    and resumption_callback
+                    and not isinstance(message.root, JSONRPCResponse | JSONRPCError)
+                ):
                     await resumption_callback(sse.id)
 
                 # If this is a response or error return True indicating completion
