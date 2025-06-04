@@ -227,9 +227,7 @@ class TestOAuthClientProvider:
             mock_response.json.return_value = metadata_response
             mock_client.get.return_value = mock_response
 
-            result = await _discover_oauth_metadata(
-                "https://api.example.com/v1/mcp"
-            )
+            result = await _discover_oauth_metadata("https://api.example.com/v1/mcp")
 
             assert result is not None
             assert (
@@ -256,9 +254,7 @@ class TestOAuthClientProvider:
             mock_response.status_code = 404
             mock_client.get.return_value = mock_response
 
-            result = await _discover_oauth_metadata(
-                "https://api.example.com/v1/mcp"
-            )
+            result = await _discover_oauth_metadata("https://api.example.com/v1/mcp")
 
             assert result is None
 
@@ -283,9 +279,7 @@ class TestOAuthClientProvider:
                 mock_response_success,  # Second call succeeds
             ]
 
-            result = await _discover_oauth_metadata(
-                "https://api.example.com/v1/mcp"
-            )
+            result = await _discover_oauth_metadata("https://api.example.com/v1/mcp")
 
             assert result is not None
             assert mock_client.get.call_count == 2
