@@ -80,6 +80,10 @@ from pydantic import AnyUrl
 from typing_extensions import TypeVar
 
 import mcp.types as types
+from mcp.server.lowlevel.async_request_manager import (
+    AsyncRequestManager,
+    SimpleInMemoryAsyncRequestManager,
+)
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
@@ -135,6 +139,9 @@ class Server(Generic[LifespanResultT, RequestT]):
             [Server[LifespanResultT, RequestT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        async_request_manager: AsyncRequestManager = SimpleInMemoryAsyncRequestManager(
+            max_size=1000, max_keep_alive=60
+        ),
     ):
         self.name = name
         self.version = version
@@ -145,6 +152,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         ] = {
             types.PingRequest: _ping_handler,
         }
+        self.async_request_manager = async_request_manager
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self.notification_options = NotificationOptions()
         logger.debug("Initializing server %r", name)
@@ -426,7 +434,32 @@ class Server(Generic[LifespanResultT, RequestT]):
                         )
                     )
 
+            async def async_call_handler(req: types.CallToolAsyncRequest):
+                ctx = request_ctx.get()
+                result = await self.async_request_manager.start_call(handler, req, ctx)
+                return types.ServerResult(result)
+
+            async def async_join_handler(req: types.JoinCallToolAsyncRequest):
+                ctx = request_ctx.get()
+                result = await self.async_request_manager.join_call(req, ctx)
+                return types.ServerResult(result)
+
+            async def async_cancel_handler(req: types.CancelToolAsyncNotification):
+                await self.async_request_manager.cancel(req)
+
+            async def async_result_handler(req: types.GetToolAsyncResultRequest):
+                result = await self.async_request_manager.get_result(req)
+                return types.ServerResult(result)
+
             self.request_handlers[types.CallToolRequest] = handler
+            self.request_handlers[types.CallToolAsyncRequest] = async_call_handler
+            self.request_handlers[types.JoinCallToolAsyncRequest] = async_join_handler
+            self.request_handlers[types.GetToolAsyncResultRequest] = (
+                async_result_handler
+            )
+            self.notification_handlers[types.CancelToolAsyncNotification] = (
+                async_cancel_handler
+            )
             return func
 
         return decorator
@@ -505,8 +538,11 @@ class Server(Generic[LifespanResultT, RequestT]):
                     write_stream,
                     initialization_options,
                     stateless=stateless,
+                    notification_hook=self.async_request_manager.notification_hook,
+                    session_close_hook=self.async_request_manager.session_close_hook,
                 )
             )
+            await stack.enter_async_context(self.async_request_manager)
 
             async with anyio.create_task_group() as tg:
                 async for message in session.incoming_messages:
