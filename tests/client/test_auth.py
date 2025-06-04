@@ -156,7 +156,7 @@ class TestOAuthClientProvider:
         assert oauth_provider.timeout == 300.0
 
     @pytest.mark.anyio
-    def test_generate_code_verifier(self, oauth_provider):
+    async def test_generate_code_verifier(self, oauth_provider):
         """Test PKCE code verifier generation."""
         verifier = oauth_provider._generate_code_verifier()
 
@@ -174,7 +174,7 @@ class TestOAuthClientProvider:
         assert len(verifiers) == 10
 
     @pytest.mark.anyio
-    def test_generate_code_challenge(self, oauth_provider):
+    async def test_generate_code_challenge(self, oauth_provider):
         """Test PKCE code challenge generation."""
         verifier = "test_code_verifier_123"
         challenge = oauth_provider._generate_code_challenge(verifier)
@@ -193,7 +193,7 @@ class TestOAuthClientProvider:
         assert "/" not in challenge
 
     @pytest.mark.anyio
-    def test_get_authorization_base_url(self, oauth_provider):
+    async def test_get_authorization_base_url(self, oauth_provider):
         """Test authorization base URL extraction."""
         # Test with path
         assert (
@@ -369,12 +369,12 @@ class TestOAuthClientProvider:
                     )
 
     @pytest.mark.anyio
-    def test_has_valid_token_no_token(self, oauth_provider):
+    async def test_has_valid_token_no_token(self, oauth_provider):
         """Test token validation with no token."""
         assert not oauth_provider._has_valid_token()
 
     @pytest.mark.anyio
-    def test_has_valid_token_valid(self, oauth_provider, oauth_token):
+    async def test_has_valid_token_valid(self, oauth_provider, oauth_token):
         """Test token validation with valid token."""
         oauth_provider._current_tokens = oauth_token
         oauth_provider._token_expiry_time = time.time() + 3600  # Future expiry
@@ -779,7 +779,7 @@ class TestOAuthClientProvider:
             assert "Authorization" not in updated_request.headers
 
     @pytest.mark.anyio
-    def test_scope_priority_client_metadata_first(
+    async def test_scope_priority_client_metadata_first(
         self, oauth_provider, oauth_client_info
     ):
         """Test that client metadata scope takes priority."""
@@ -809,7 +809,7 @@ class TestOAuthClientProvider:
         assert auth_params["scope"] == "read write"
 
     @pytest.mark.anyio
-    def test_scope_priority_no_client_metadata_scope(
+    async def test_scope_priority_no_client_metadata_scope(
         self, oauth_provider, oauth_client_info
     ):
         """Test that no scope parameter is set when client metadata has no scope."""
