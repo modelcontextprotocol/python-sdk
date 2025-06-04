@@ -1,6 +1,7 @@
 from contextlib import AsyncExitStack
 from unittest.mock import AsyncMock, Mock
 
+import anyio
 import pytest
 
 from mcp import types
@@ -122,6 +123,84 @@ async def test_async_join_call_progress():
             message=None,
             resource_uri=None,
         )
+
+
+@pytest.mark.anyio
+async def test_async_cancel_in_progress():
+    """Tests basic async call"""
+
+    async def slow_call(call: types.CallToolRequest) -> types.ServerResult:
+        with anyio.move_on_after(10) as scope:
+            await anyio.sleep(10)
+
+        if scope.cancel_called:
+            return types.ServerResult(
+                types.CallToolResult(
+                    content=[
+                        types.TextContent(type="text", text="should be discarded")
+                    ],
+                    isError=True,
+                )
+            )
+        else:
+            return types.ServerResult(
+                types.CallToolResult(
+                    content=[types.TextContent(type="text", text="test")]
+                )
+            )
+
+    async_call = types.CallToolAsyncRequest(
+        method="tools/async/call", params=types.CallToolAsyncRequestParams(name="test")
+    )
+
+    mock_session_1 = AsyncMock()
+    mock_context_1 = Mock()
+    mock_context_1.session = mock_session_1
+
+    result_cache = ResultCache(max_size=1, max_keep_alive=1)
+    async with AsyncExitStack() as stack:
+        await stack.enter_async_context(result_cache)
+        async_call_ref = await result_cache.start_call(
+            slow_call, async_call, mock_context_1
+        )
+        assert async_call_ref.token is not None
+
+        await result_cache.cancel(
+            notification=types.CancelToolAsyncNotification(
+                method="tools/async/cancel",
+                params=types.CancelToolAsyncNotificationParams(
+                    token=async_call_ref.token
+                ),
+            ),
+        )
+
+        assert async_call_ref.token is not None
+        await result_cache.notification_hook(
+            session=mock_session_1,
+            notification=types.ServerNotification(
+                types.ProgressNotification(
+                    method="notifications/progress",
+                    params=types.ProgressNotificationParams(
+                        progressToken="test", progress=1
+                    ),
+                )
+            ),
+        )
+
+        result = await result_cache.get_result(
+            types.GetToolAsyncResultRequest(
+                method="tools/async/get",
+                params=types.GetToolAsyncResultRequestParams(
+                    token=async_call_ref.token
+                ),
+            )
+        )
+
+        assert result.isError
+        assert not result.isPending
+        assert len(result.content) == 1
+        assert type(result.content[0]) is types.TextContent
+        assert result.content[0].text == "cancelled"
 
 
 @pytest.mark.anyio

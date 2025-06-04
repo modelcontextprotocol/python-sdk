@@ -1,6 +1,6 @@
 import time
 from collections.abc import Awaitable, Callable
-from concurrent.futures import Future
+from concurrent.futures import CancelledError, Future
 from dataclasses import dataclass, field
 from logging import getLogger
 from types import TracebackType
@@ -168,7 +168,8 @@ class ResultCache:
         if in_progress is not None:
             if in_progress.user == user_context.get():
                 # in_progress.task_group.cancel_scope.cancel()
-                del self._in_progress[notification.params.token]
+                assert in_progress.future is not None, "In progress future not found"
+                in_progress.future.cancel()
             else:
                 logger.warning(
                     "Permission denied for cancel notification received"
@@ -202,6 +203,11 @@ class ResultCache:
                     result = in_progress.future.result(1)
                     logger.debug(f"Found result {result}")
                     return result
+                except CancelledError:
+                    return types.CallToolResult(
+                        content=[types.TextContent(type="text", text="cancelled")],
+                        isError=True,
+                    )
                 except TimeoutError:
                     return types.CallToolResult(
                         content=[],
