@@ -120,27 +120,19 @@ class OAuthMetadata(BaseModel):
     token_endpoint: AnyHttpUrl
     registration_endpoint: AnyHttpUrl | None = None
     scopes_supported: list[str] | None = None
-    response_types_supported: list[Literal["code"] | str] = ["code"]
+    response_types_supported: list[str] = ["code"]
     response_modes_supported: list[Literal["query", "fragment"]] | None = None
-    grant_types_supported: (
-        list[Literal["authorization_code", "refresh_token"] | str] | None
-    ) = None
-    token_endpoint_auth_methods_supported: (
-        list[Literal["none", "client_secret_post"] | str] | None
-    ) = None
+    grant_types_supported: list[str] | None = None
+    token_endpoint_auth_methods_supported: list[str] | None = None
     token_endpoint_auth_signing_alg_values_supported: None = None
     service_documentation: AnyHttpUrl | None = None
     ui_locales_supported: list[str] | None = None
     op_policy_uri: AnyHttpUrl | None = None
     op_tos_uri: AnyHttpUrl | None = None
     revocation_endpoint: AnyHttpUrl | None = None
-    revocation_endpoint_auth_methods_supported: (
-        list[Literal["client_secret_post"] | str] | None
-    ) = None
+    revocation_endpoint_auth_methods_supported: list[str] | None = None
     revocation_endpoint_auth_signing_alg_values_supported: None = None
     introspection_endpoint: AnyHttpUrl | None = None
-    introspection_endpoint_auth_methods_supported: (
-        list[Literal["client_secret_post"] | str] | None
-    ) = None
+    introspection_endpoint_auth_methods_supported: list[str] | None = None
     introspection_endpoint_auth_signing_alg_values_supported: None = None
-    code_challenge_methods_supported: list[Literal["S256"] | str] | None = None
+    code_challenge_methods_supported: list[str] | None = None
