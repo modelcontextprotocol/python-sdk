@@ -1,10 +1,13 @@
 from contextlib import AsyncExitStack
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, PropertyMock
 
 import anyio
 import pytest
 
 from mcp import types
+from mcp.server.auth.middleware.auth_context import (
+    auth_context_var as user_context,
+)
 from mcp.server.lowlevel.result_cache import ResultCache
 
 
@@ -376,3 +379,60 @@ async def test_async_call_keep_alive_expired():
         assert len(result.content) == 1
         assert type(result.content[0]) is types.TextContent
         assert result.content[0].text == "Unknown async token"
+
+
+@pytest.mark.anyio
+async def test_async_call_pass_auth():
+    """Tests async calls pass auth context to background thread"""
+
+    mock_user = Mock()
+    type(mock_user).username = PropertyMock(return_value="mock_user")
+
+    mock_session = AsyncMock()
+    mock_context = Mock()
+    mock_context.session = mock_session
+    result_cache = ResultCache(max_size=1, max_keep_alive=1)
+
+    async def test_call(call: types.CallToolRequest) -> types.ServerResult:
+        user = user_context.get()
+        if user is None:
+            return types.ServerResult(
+                types.CallToolResult(
+                    content=[types.TextContent(type="text", text="unauthorised")],
+                    isError=True,
+                )
+            )
+        else:
+            return types.ServerResult(
+                types.CallToolResult(
+                    content=[types.TextContent(type="text", text=str(user.username))]
+                )
+            )
+
+    async_call = types.CallToolAsyncRequest(
+        method="tools/async/call", params=types.CallToolAsyncRequestParams(name="test")
+    )
+
+    async with AsyncExitStack() as stack:
+        await stack.enter_async_context(result_cache)
+
+        user_context.set(mock_user)
+        async_call_ref = await result_cache.start_call(
+            test_call, async_call, mock_context
+        )
+        assert async_call_ref.token is not None
+
+        result = await result_cache.get_result(
+            types.GetToolAsyncResultRequest(
+                method="tools/async/get",
+                params=types.GetToolAsyncResultRequestParams(
+                    token=async_call_ref.token
+                ),
+            )
+        )
+
+        assert not result.isError
+        assert not result.isPending
+        assert len(result.content) == 1
+        assert type(result.content[0]) is types.TextContent
+        assert result.content[0].text == "mock_user"
