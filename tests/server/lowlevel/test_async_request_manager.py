@@ -8,7 +8,7 @@ from mcp import types
 from mcp.server.auth.middleware.auth_context import (
     auth_context_var as user_context,
 )
-from mcp.server.lowlevel.result_cache import ResultCache
+from mcp.server.lowlevel.async_request_manager import SimpleInMemoryAsyncRequestManager
 
 
 @pytest.mark.anyio
@@ -27,7 +27,7 @@ async def test_async_call():
     mock_session = AsyncMock()
     mock_context = Mock()
     mock_context.session = mock_session
-    result_cache = ResultCache(max_size=1, max_keep_alive=1)
+    result_cache = SimpleInMemoryAsyncRequestManager(max_size=1, max_keep_alive=1)
     async with AsyncExitStack() as stack:
         await stack.enter_async_context(result_cache)
         async_call_ref = await result_cache.start_call(
@@ -73,7 +73,7 @@ async def test_async_join_call_progress():
 
     mock_context_2.session = mock_session_2
 
-    result_cache = ResultCache(max_size=1, max_keep_alive=1)
+    result_cache = SimpleInMemoryAsyncRequestManager(max_size=1, max_keep_alive=1)
     async with AsyncExitStack() as stack:
         await stack.enter_async_context(result_cache)
         async_call_ref = await result_cache.start_call(
@@ -160,7 +160,7 @@ async def test_async_cancel_in_progress():
     mock_context_1 = Mock()
     mock_context_1.session = mock_session_1
 
-    result_cache = ResultCache(max_size=1, max_keep_alive=1)
+    result_cache = SimpleInMemoryAsyncRequestManager(max_size=1, max_keep_alive=1)
     async with AsyncExitStack() as stack:
         await stack.enter_async_context(result_cache)
         async_call_ref = await result_cache.start_call(
@@ -228,7 +228,7 @@ async def test_async_call_keep_alive():
 
     mock_context_2.session = mock_session_2
 
-    result_cache = ResultCache(max_size=1, max_keep_alive=10)
+    result_cache = SimpleInMemoryAsyncRequestManager(max_size=1, max_keep_alive=10)
     async with AsyncExitStack() as stack:
         await stack.enter_async_context(result_cache)
         async_call_ref = await result_cache.start_call(
@@ -307,7 +307,9 @@ async def test_async_call_keep_alive_expired():
     def test_timer():
         return time
 
-    result_cache = ResultCache(max_size=1, max_keep_alive=1, timer=test_timer)
+    result_cache = SimpleInMemoryAsyncRequestManager(
+        max_size=1, max_keep_alive=1, timer=test_timer
+    )
     async with AsyncExitStack() as stack:
         await stack.enter_async_context(result_cache)
         async_call_ref = await result_cache.start_call(
@@ -391,7 +393,7 @@ async def test_async_call_pass_auth():
     mock_session = AsyncMock()
     mock_context = Mock()
     mock_context.session = mock_session
-    result_cache = ResultCache(max_size=1, max_keep_alive=1)
+    result_cache = SimpleInMemoryAsyncRequestManager(max_size=1, max_keep_alive=1)
 
     async def test_call(call: types.CallToolRequest) -> types.ServerResult:
         user = user_context.get()

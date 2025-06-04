@@ -20,6 +20,36 @@ from mcp.shared.context import RequestContext
 logger = getLogger(__name__)
 
 
+class AsyncRequestManager:
+    async def __aenter__(self): ...
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None: ...
+    async def start_call(
+        self,
+        call: Callable[[types.CallToolRequest], Awaitable[types.ServerResult]],
+        req: types.CallToolAsyncRequest,
+        ctx: RequestContext[ServerSession, Any, Any],
+    ) -> types.CallToolAsyncResult: ...
+    async def join_call(
+        self,
+        req: types.JoinCallToolAsyncRequest,
+        ctx: RequestContext[ServerSession, Any, Any],
+    ) -> types.CallToolAsyncResult: ...
+    async def cancel(self, notification: types.CancelToolAsyncNotification) -> None: ...
+    async def get_result(
+        self, req: types.GetToolAsyncResultRequest
+    ) -> types.CallToolResult: ...
+
+    async def notification_hook(
+        self, session: ServerSession, notification: types.ServerNotification
+    ) -> None: ...
+    async def session_close_hook(self, session: ServerSession): ...
+
+
 @dataclass
 class InProgress:
     token: str
@@ -40,23 +70,18 @@ class InProgress:
             return int(self.timer()) > self.keep_alive_start + self.keep_alive
 
 
-class ResultCache:
+class SimpleInMemoryAsyncRequestManager(AsyncRequestManager):
     """
     Note this class is a work in progress
     Its purpose is to act as a central point for managing in progress
     async calls, allowing multiple clients to join and receive progress
     updates, get results and/or cancel in progress calls
-    TODO CRITICAL not obvious user context will be passed to background thread
-    add tests to assert behaviour with authenticated calls
     TODO MAJOR needs a lot more testing around edge cases/failure scenarios
     TODO MAJOR decide if async.Locks are required for integrity of internal
     data structures
-    TODO ENHANCEMENT externalise cachetools to allow for other implementations
-    e.g. redis etal for production scenarios
     TODO ENHANCEMENT may need to add an authorisation layer to decide if
     a user is allowed to get/join/cancel an existing async call current
     simple logic only allows same user to perform these tasks
-    TODO TRIVIAL name is probably not quite right, more of a result broker?
     """
 
     _in_progress: dict[types.AsyncToken, InProgress]
@@ -178,7 +203,9 @@ class ResultCache:
                     f"from {user_context.get()}"
                 )
 
-    async def get_result(self, req: types.GetToolAsyncResultRequest):
+    async def get_result(
+        self, req: types.GetToolAsyncResultRequest
+    ) -> types.CallToolResult:
         logger.debug("Getting result")
         async_token = req.params.token
         in_progress = self._in_progress.get(async_token)
