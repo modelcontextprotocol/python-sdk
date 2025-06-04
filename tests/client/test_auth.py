@@ -10,7 +10,6 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
-from inline_snapshot import snapshot
 from pydantic import AnyHttpUrl
 
 from mcp.client.auth import (
