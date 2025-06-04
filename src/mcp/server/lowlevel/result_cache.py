@@ -207,6 +207,7 @@ class ResultCache:
                     return types.CallToolResult(
                         content=[types.TextContent(type="text", text="cancelled")],
                         isError=True,
+                        # TODO add isCancelled state to protocol?
                     )
                 except TimeoutError:
                     return types.CallToolResult(
