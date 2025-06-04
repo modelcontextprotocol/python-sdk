@@ -893,7 +893,6 @@ class CallToolAsyncResult(Result):
     """The servers response to an async tool call"""
 
     token: AsyncToken | None = None
-    recieved: int | None = None
     keepAlive: int | None = None
     accepted: bool
 
