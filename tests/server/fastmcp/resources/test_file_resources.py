@@ -100,11 +100,12 @@ class TestFileResource:
         with pytest.raises(ValueError, match="Error reading file"):
             await resource.read()
 
-    @pytest.mark.skipif(
-        os.name == "nt", reason="File permissions behave differently on Windows"
-    )
-    @pytest.mark.anyio
-    async def test_permission_error(self, temp_file: Path):
+@pytest.mark.skipif(
+    os.name == "nt" or getattr(os, "geteuid", lambda: 0)() == 0,
+    reason="File permissions behave differently on Windows or when running as root",
+)
+@pytest.mark.anyio
+async def test_permission_error(self, temp_file: Path):
         """Test reading a file without permissions."""
         temp_file.chmod(0o000)  # Remove all permissions
         try:

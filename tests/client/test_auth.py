@@ -13,7 +13,12 @@ import pytest
 from inline_snapshot import snapshot
 from pydantic import AnyHttpUrl
 
-from mcp.client.auth import ClientCredentialsProvider, OAuthClientProvider
+from mcp.client.auth import (
+    ClientCredentialsProvider,
+    OAuthClientProvider,
+    _discover_oauth_metadata,
+    _get_authorization_base_url,
+)
 from mcp.server.auth.routes import build_metadata
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.shared.auth import (
@@ -190,21 +195,19 @@ class TestOAuthClientProvider:
         """Test authorization base URL extraction."""
         # Test with path
         assert (
-            oauth_provider._get_authorization_base_url("https://api.example.com/v1/mcp")
+            _get_authorization_base_url("https://api.example.com/v1/mcp")
             == "https://api.example.com"
         )
 
         # Test with no path
         assert (
-            oauth_provider._get_authorization_base_url("https://api.example.com")
+            _get_authorization_base_url("https://api.example.com")
             == "https://api.example.com"
         )
 
         # Test with port
         assert (
-            oauth_provider._get_authorization_base_url(
-                "https://api.example.com:8080/path/to/mcp"
-            )
+            _get_authorization_base_url("https://api.example.com:8080/path/to/mcp")
             == "https://api.example.com:8080"
         )
 
@@ -224,7 +227,7 @@ class TestOAuthClientProvider:
             mock_response.json.return_value = metadata_response
             mock_client.get.return_value = mock_response
 
-            result = await oauth_provider._discover_oauth_metadata(
+            result = await _discover_oauth_metadata(
                 "https://api.example.com/v1/mcp"
             )
 
@@ -253,7 +256,7 @@ class TestOAuthClientProvider:
             mock_response.status_code = 404
             mock_client.get.return_value = mock_response
 
-            result = await oauth_provider._discover_oauth_metadata(
+            result = await _discover_oauth_metadata(
                 "https://api.example.com/v1/mcp"
             )
 
@@ -280,7 +283,7 @@ class TestOAuthClientProvider:
                 mock_response_success,  # Second call succeeds
             ]
 
-            result = await oauth_provider._discover_oauth_metadata(
+            result = await _discover_oauth_metadata(
                 "https://api.example.com/v1/mcp"
             )
 
@@ -334,9 +337,7 @@ class TestOAuthClientProvider:
             mock_client.post.return_value = mock_response
 
             # Mock metadata discovery to return None (fallback)
-            with patch.object(
-                oauth_provider, "_discover_oauth_metadata", return_value=None
-            ):
+            with patch("mcp.client.auth._discover_oauth_metadata", return_value=None):
                 result = await oauth_provider._register_oauth_client(
                     "https://api.example.com/v1/mcp",
                     oauth_provider.client_metadata,
@@ -363,9 +364,7 @@ class TestOAuthClientProvider:
             mock_client.post.return_value = mock_response
 
             # Mock metadata discovery to return None (fallback)
-            with patch.object(
-                oauth_provider, "_discover_oauth_metadata", return_value=None
-            ):
+            with patch("mcp.client.auth._discover_oauth_metadata", return_value=None):
                 with pytest.raises(httpx.HTTPStatusError):
                     await oauth_provider._register_oauth_client(
                         "https://api.example.com/v1/mcp",
@@ -993,25 +992,25 @@ def test_build_metadata(
         revocation_options=RevocationOptions(enabled=True),
     )
 
-    assert metadata == snapshot(
-        OAuthMetadata(
-            issuer=AnyHttpUrl(issuer_url),
-            authorization_endpoint=AnyHttpUrl(authorization_endpoint),
-            token_endpoint=AnyHttpUrl(token_endpoint),
-            registration_endpoint=AnyHttpUrl(registration_endpoint),
-            scopes_supported=["read", "write", "admin"],
-            grant_types_supported=[
-                "authorization_code",
-                "refresh_token",
-                "client_credentials",
-            ],
-            token_endpoint_auth_methods_supported=["client_secret_post"],
-            service_documentation=AnyHttpUrl(service_documentation_url),
-            revocation_endpoint=AnyHttpUrl(revocation_endpoint),
-            revocation_endpoint_auth_methods_supported=["client_secret_post"],
-            code_challenge_methods_supported=["S256"],
-        )
+    expected = OAuthMetadata(
+        issuer=AnyHttpUrl(issuer_url),
+        authorization_endpoint=AnyHttpUrl(authorization_endpoint),
+        token_endpoint=AnyHttpUrl(token_endpoint),
+        registration_endpoint=AnyHttpUrl(registration_endpoint),
+        scopes_supported=["read", "write", "admin"],
+        grant_types_supported=[
+            "authorization_code",
+            "refresh_token",
+            "client_credentials",
+        ],
+        token_endpoint_auth_methods_supported=["client_secret_post"],
+        service_documentation=AnyHttpUrl(service_documentation_url),
+        revocation_endpoint=AnyHttpUrl(revocation_endpoint),
+        revocation_endpoint_auth_methods_supported=["client_secret_post"],
+        code_challenge_methods_supported=["S256"],
     )
+
+    assert metadata == expected
 
 
 class TestClientCredentialsProvider:
