@@ -24,6 +24,10 @@ class Tool(BaseModel):
     name: str = Field(description="Name of the tool")
     description: str = Field(description="Description of what the tool does")
     parameters: dict[str, Any] = Field(description="JSON schema for tool parameters")
+    output: dict[str, Any] | None = Field(
+        description="JSON schema for tool output",
+        default=None,
+    )
     fn_metadata: FuncMetadata = Field(
         description="Metadata about the function including a pydantic model for tool"
         " arguments"
@@ -44,6 +48,7 @@ class Tool(BaseModel):
         description: str | None = None,
         context_kwarg: str | None = None,
         annotations: ToolAnnotations | None = None,
+        output_schema: dict[str, Any] | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
         from mcp.server.fastmcp.server import Context
@@ -68,14 +73,17 @@ class Tool(BaseModel):
         func_arg_metadata = func_metadata(
             fn,
             skip_names=[context_kwarg] if context_kwarg is not None else [],
+            output_schema=output_schema,
         )
         parameters = func_arg_metadata.arg_model.model_json_schema()
+        output = func_arg_metadata.output_schema
 
         return cls(
             fn=fn,
             name=func_name,
             description=func_doc,
             parameters=parameters,
+            output=output,
             fn_metadata=func_arg_metadata,
             is_async=is_async,
             context_kwarg=context_kwarg,
