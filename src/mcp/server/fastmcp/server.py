@@ -381,6 +381,7 @@ class FastMCP:
         etdi_allowed_callees: list[str] | None = None,
         etdi_blocked_callees: list[str] | None = None,
         etdi_require_request_signing: bool = False,
+        etdi_enable_rug_pull_prevention: bool = True,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
 
@@ -399,6 +400,7 @@ class FastMCP:
             etdi_allowed_callees: List of tool IDs this tool is allowed to call
             etdi_blocked_callees: List of tool IDs this tool is blocked from calling
             etdi_require_request_signing: Require cryptographic request signing (STRICT security level only)
+            etdi_enable_rug_pull_prevention: Enable rug pull attack detection and prevention (default: True)
 
         Example:
             @server.tool()
@@ -417,6 +419,10 @@ class FastMCP:
             @server.tool(etdi=True, etdi_require_request_signing=True, etdi_permissions=['banking:write'])
             def ultra_secure_tool(amount: float) -> str:
                 return f"Ultra-secure transaction: ${amount}"
+
+            @server.tool(etdi=True, etdi_enable_rug_pull_prevention=False, etdi_permissions=['legacy:read'])
+            def legacy_tool(data: str) -> str:
+                return f"Legacy processing (no rug pull protection): {data}"
 
             @server.tool()
             async def async_tool(x: int, context: Context) -> str:
@@ -469,13 +475,16 @@ class FastMCP:
                     provider={"id": "fastmcp", "name": "FastMCP Server"},
                     schema={"type": "object"},  # Will be filled by tool manager
                     permissions=permissions,
-                    call_stack_constraints=call_stack_constraints
+                    call_stack_constraints=call_stack_constraints,
+                    require_request_signing=etdi_require_request_signing,
+                    enable_rug_pull_prevention=etdi_enable_rug_pull_prevention
                 )
                 
                 # Store ETDI metadata on the function for later use
                 fn._etdi_tool_definition = etdi_tool
                 fn._etdi_enabled = True
                 fn._etdi_require_request_signing = etdi_require_request_signing
+                fn._etdi_enable_rug_pull_prevention = etdi_enable_rug_pull_prevention
                 
                 # AUTOMATICALLY wrap the function with security enforcement
                 fn = self._wrap_with_etdi_security(fn, etdi_tool, etdi_require_request_signing)

@@ -148,6 +148,7 @@ class ETDIToolDefinition:
     call_stack_constraints: Optional[CallStackConstraints] = None
     verification_status: VerificationStatus = VerificationStatus.UNVERIFIED
     require_request_signing: bool = False
+    enable_rug_pull_prevention: bool = True
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -161,7 +162,8 @@ class ETDIToolDefinition:
             "security": self.security.to_dict() if self.security else None,
             "call_stack_constraints": self.call_stack_constraints.to_dict() if self.call_stack_constraints else None,
             "verification_status": self.verification_status.value,
-            "require_request_signing": self.require_request_signing
+            "require_request_signing": self.require_request_signing,
+            "enable_rug_pull_prevention": self.enable_rug_pull_prevention
         }
     
     @classmethod
@@ -181,7 +183,8 @@ class ETDIToolDefinition:
             security=SecurityInfo.from_dict(security_data) if security_data else None,
             call_stack_constraints=CallStackConstraints.from_dict(constraints_data) if constraints_data else None,
             verification_status=VerificationStatus(data.get("verification_status", "unverified")),
-            require_request_signing=data.get("require_request_signing", False)
+            require_request_signing=data.get("require_request_signing", False),
+            enable_rug_pull_prevention=data.get("enable_rug_pull_prevention", True)
         )
     
     def get_permission_scopes(self) -> List[str]:
