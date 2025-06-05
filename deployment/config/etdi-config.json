@@ -1,0 +1,34 @@
+{
+  "security_level": "enhanced",
+  "oauth_config": {
+    "provider": "auth0",
+    "client_id": "${ETDI_CLIENT_ID}",
+    "client_secret": "${ETDI_CLIENT_SECRET}",
+    "domain": "${ETDI_DOMAIN}",
+    "audience": "${ETDI_AUDIENCE}",
+    "scopes": ["read:tools", "execute:tools", "manage:tools"]
+  },
+  "allow_non_etdi_tools": true,
+  "show_unverified_tools": false,
+  "verification_cache_ttl": 300,
+  "storage_config": {
+    "path": "/app/data/approvals",
+    "encryption_enabled": true
+  },
+  "server_config": {
+    "host": "0.0.0.0",
+    "port": 8000,
+    "name": "ETDI Secure Server",
+    "version": "1.0.0"
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "file": "/app/logs/etdi.log"
+  },
+  "monitoring": {
+    "enabled": true,
+    "metrics_endpoint": "/metrics",
+    "health_endpoint": "/health"
+  }
+}

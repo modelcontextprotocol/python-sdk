@@ -1,36 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "mcp"
-dynamic = ["version"]
-description = "Model Context Protocol SDK"
+version = "1.0.0"
+description = "Model Context Protocol Python SDK with ETDI security enhancements"
 readme = "README.md"
-requires-python = ">=3.10"
-authors = [{ name = "Anthropic, PBC." }]
-maintainers = [
-    { name = "David Soria Parra", email = "davidsp@anthropic.com" },
-    { name = "Justin Spahr-Summers", email = "justin@anthropic.com" },
+license = "MIT"
+requires-python = ">=3.9"
+authors = [
+    { name = "Anthropic", email = "support@anthropic.com" },
 ]
-keywords = ["git", "mcp", "llm", "automation"]
-license = { text = "MIT" }
+keywords = [
+    "ai",
+    "llm",
+    "mcp",
+    "model-context-protocol",
+    "etdi",
+    "oauth",
+    "security",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Security",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
 ]
 dependencies = [
-    "anyio>=4.5",
-    "httpx>=0.27",
-    "httpx-sse>=0.4",
-    "pydantic>=2.7.2,<3.0.0",
-    "starlette>=0.27",
-    "python-multipart>=0.0.9",
-    "sse-starlette>=1.6.1",
-    "pydantic-settings>=2.5.2",
-    "uvicorn>=0.23.1; sys_platform != 'emscripten'",
+    "anyio>=3.0.0",
+    "httpx>=0.24.0",
+    "pydantic>=2.0.0",
+    "typing-extensions>=4.0.0",
+    # ETDI OAuth dependencies
+    "PyJWT[crypto]>=2.8.0",
+    "cryptography>=41.0.0",
+    "python-jose[cryptography]>=3.3.0",
+    "python-multipart>=0.0.6",
+    # MCP transport dependencies
+    "httpx-sse>=0.4.0",
+    "pydantic-settings>=2.0.0",
+    # CLI dependencies
+    "click>=8.0.0",
 ]
 
 [project.optional-dependencies]
@@ -38,8 +56,6 @@ rich = ["rich>=13.9.4"]
 cli = ["typer>=0.12.4", "python-dotenv>=1.0.0"]
 ws = ["websockets>=15.0.1"]
 
-[project.scripts]
-mcp = "mcp.cli:app [cli]"
 
 [tool.uv]
 resolution = "lowest-direct"
@@ -65,9 +81,6 @@ docs = [
     "mkdocstrings-python>=1.12.2",
 ]
 
-[build-system]
-requires = ["hatchling", "uv-dynamic-versioning"]
-build-backend = "hatchling.build"
 
 [tool.hatch.version]
 source = "uv-dynamic-versioning"
@@ -78,36 +91,97 @@ style = "pep440"
 bump = true
 
 [project.urls]
-Homepage = "https://modelcontextprotocol.io"
+Homepage = "https://github.com/modelcontextprotocol/python-sdk"
+Documentation = "https://modelcontextprotocol.io/python"
 Repository = "https://github.com/modelcontextprotocol/python-sdk"
 Issues = "https://github.com/modelcontextprotocol/python-sdk/issues"
+
+[project.scripts]
+mcp = "mcp.cli.cli:main"
+etdi = "mcp.etdi.cli.etdi_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcp"]
 
-[tool.pyright]
-include = ["src/mcp", "tests", "examples/servers"]
-venvPath = "."
-venv = ".venv"
-strict = ["src/mcp/**/*.py"]
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/docs",
+    "/examples",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+]
 
-[tool.ruff.lint]
-select = ["C4", "E", "F", "I", "PERF", "UP"]
-ignore = ["PERF203"]
+[tool.black]
+line-length = 88
+target-version = ["py39"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["mcp", "etdi"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "jwt.*",
+    "cryptography.*",
+    "jose.*",
+]
+ignore_missing_imports = true
 
 [tool.ruff]
+target-version = "py39"
 line-length = 88
-target-version = "py310"
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
 
-[tool.ruff.lint.per-file-ignores]
+[tool.ruff.per-file-ignores]
 "__init__.py" = ["F401"]
-"tests/server/fastmcp/test_func_metadata.py" = ["E501"]
-
-[tool.uv.workspace]
-members = ["examples/servers/*"]
-
-[tool.uv.sources]
-mcp = { workspace = true }
+"tests/**/*" = ["B011"]
 
 [tool.pytest.ini_options]
 log_cli = true
@@ -115,7 +189,6 @@ xfail_strict = true
 addopts = """
     --color=yes
     --capture=fd
-    --numprocesses auto
 """
 filterwarnings = [
     "error",
