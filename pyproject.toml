@@ -56,8 +56,6 @@ rich = ["rich>=13.9.4"]
 cli = ["typer>=0.12.4", "python-dotenv>=1.0.0"]
 ws = ["websockets>=15.0.1"]
 
-[project.scripts]
-mcp = "mcp.cli:app [cli]"
 
 [tool.uv]
 resolution = "lowest-direct"
@@ -83,9 +81,6 @@ docs = [
     "mkdocstrings-python>=1.12.2",
 ]
 
-[build-system]
-requires = ["hatchling", "uv-dynamic-versioning"]
-build-backend = "hatchling.build"
 
 [tool.hatch.version]
 source = "uv-dynamic-versioning"
@@ -103,7 +98,7 @@ Issues = "https://github.com/modelcontextprotocol/python-sdk/issues"
 
 [project.scripts]
 mcp = "mcp.cli.cli:main"
-etdi = "mcp.etdi.cli:main"
+etdi = "mcp.etdi.cli.etdi_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcp"]
@@ -194,7 +189,6 @@ xfail_strict = true
 addopts = """
     --color=yes
     --capture=fd
-    --numprocesses auto
 """
 filterwarnings = [
     "error",

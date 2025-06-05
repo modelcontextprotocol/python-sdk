@@ -8,6 +8,7 @@ from .auth0 import Auth0Provider
 from .okta import OktaProvider
 from .azure import AzureADProvider
 from .custom import CustomOAuthProvider, GenericOAuthProvider
+from .enhanced_provider import EnhancedAuth0Provider, EnhancedOktaProvider, EnhancedAzureProvider
 from ..types import OAuthConfig
 
 __all__ = [
@@ -18,5 +19,8 @@ __all__ = [
     "AzureADProvider",
     "CustomOAuthProvider",
     "GenericOAuthProvider",
+    "EnhancedAuth0Provider",
+    "EnhancedOktaProvider",
+    "EnhancedAzureProvider",
     "OAuthConfig",
 ]

@@ -1,5 +1,5 @@
 """
-ETDI tool verification engine for client-side security checks
+ETDI tool verification engine for client-side security checks with Rug Pull prevention
 """
 
 import asyncio
@@ -10,36 +10,48 @@ import hashlib
 import json
 
 from ..types import (
-    ETDIToolDefinition, 
-    VerificationResult, 
-    InvocationCheck, 
+    ETDIToolDefinition,
+    VerificationResult,
+    InvocationCheck,
     ChangeDetectionResult,
     VerificationStatus,
     Permission
 )
 from ..exceptions import ETDIError, TokenValidationError, ProviderError
 from ..oauth import OAuthManager
+from ..rug_pull_prevention import RugPullDetector, ImplementationIntegrity
+from ..oauth.enhanced_provider import create_enhanced_provider
 
 logger = logging.getLogger(__name__)
 
 
 class ETDIVerifier:
     """
-    Tool verification engine that validates OAuth tokens and detects changes
+    Tool verification engine that validates OAuth tokens and detects changes with Rug Pull prevention
     """
     
-    def __init__(self, oauth_manager: OAuthManager, cache_ttl: int = 300):
+    def __init__(self, oauth_manager: OAuthManager, cache_ttl: int = 300, enable_rug_pull_detection: bool = True):
         """
         Initialize the verifier
         
         Args:
             oauth_manager: OAuth manager for token validation
             cache_ttl: Cache TTL in seconds (default: 5 minutes)
+            enable_rug_pull_detection: Enable advanced rug pull detection
         """
         self.oauth_manager = oauth_manager
         self.cache_ttl = cache_ttl
+        self.enable_rug_pull_detection = enable_rug_pull_detection
         self._verification_cache: Dict[str, Dict[str, Any]] = {}
         self._cache_lock = asyncio.Lock()
+        
+        # Initialize rug pull detector if enabled
+        if self.enable_rug_pull_detection:
+            self.rug_pull_detector = RugPullDetector(strict_mode=True)
+            self._integrity_store: Dict[str, ImplementationIntegrity] = {}
+        else:
+            self.rug_pull_detector = None
+            self._integrity_store = {}
     
     async def verify_tool(self, tool: ETDIToolDefinition) -> VerificationResult:
         """
@@ -109,6 +121,98 @@ class ETDIVerifier:
                 valid=False,
                 provider=oauth_info.provider if tool.security and tool.security.oauth else "unknown",
                 error=f"Verification error: {str(e)}"
+            )
+    
+    async def verify_tool_with_rug_pull_detection(
+        self,
+        tool: ETDIToolDefinition,
+        api_contract: Optional[str] = None,
+        implementation_hash: Optional[str] = None
+    ) -> VerificationResult:
+        """
+        Verify a tool with comprehensive rug pull detection
+        
+        This implements the paper's enhanced verification that includes
+        integrity verification and rug pull detection.
+        
+        Args:
+            tool: Tool definition to verify
+            api_contract: Optional API contract content for integrity checking
+            implementation_hash: Optional implementation hash
+            
+        Returns:
+            VerificationResult with enhanced verification details
+        """
+        if not self.enable_rug_pull_detection or not self.rug_pull_detector:
+            # Fall back to standard verification
+            return await self.verify_tool(tool)
+        
+        try:
+            # First perform standard OAuth verification
+            standard_result = await self.verify_tool(tool)
+            
+            if not standard_result.valid:
+                return standard_result
+            
+            # Check if we have stored integrity information
+            stored_integrity = self._integrity_store.get(tool.id)
+            
+            if not stored_integrity:
+                # First time seeing this tool - create integrity record
+                stored_integrity = self.rug_pull_detector.create_implementation_integrity(
+                    tool,
+                    api_contract_content=api_contract,
+                    implementation_hash=implementation_hash
+                )
+                self._integrity_store[tool.id] = stored_integrity
+                
+                # Return successful verification for first-time tools
+                return VerificationResult(
+                    valid=True,
+                    provider=standard_result.provider,
+                    details={
+                        **standard_result.details,
+                        "rug_pull_check": "first_time_tool",
+                        "integrity_created": True,
+                        "definition_hash": stored_integrity.definition_hash
+                    }
+                )
+            
+            # Perform rug pull detection
+            rug_pull_result = self.rug_pull_detector.detect_rug_pull(
+                tool, stored_integrity, api_contract
+            )
+            
+            if rug_pull_result.is_rug_pull:
+                return VerificationResult(
+                    valid=False,
+                    provider=standard_result.provider,
+                    error=f"Rug pull attack detected (confidence: {rug_pull_result.confidence_score:.2f})",
+                    details={
+                        "rug_pull_detection": rug_pull_result.to_dict(),
+                        "integrity_violations": rug_pull_result.integrity_violations,
+                        "detected_changes": rug_pull_result.detected_changes
+                    }
+                )
+            
+            # All checks passed
+            return VerificationResult(
+                valid=True,
+                provider=standard_result.provider,
+                details={
+                    **(standard_result.details or {}),
+                    "rug_pull_check": "passed",
+                    "confidence_score": rug_pull_result.confidence_score,
+                    "definition_hash": stored_integrity.definition_hash
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Error during enhanced verification for tool {tool.id}: {e}")
+            return VerificationResult(
+                valid=False,
+                provider=tool.security.oauth.provider if tool.security and tool.security.oauth else "unknown",
+                error=f"Enhanced verification error: {str(e)}"
             )
     
     async def check_tool_before_invocation(
