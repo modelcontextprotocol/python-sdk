@@ -72,11 +72,12 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
+from typing_extensions import TypeVar
 
 import mcp.types as types
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -85,15 +86,16 @@ from mcp.server.session import ServerSession
 from mcp.server.stdio import stdio_server as stdio_server
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 
 logger = logging.getLogger(__name__)
 
 LifespanResultT = TypeVar("LifespanResultT")
+RequestT = TypeVar("RequestT", default=Any)
 
 # This will be properly typed in each Server instance's context
-request_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any]] = (
+request_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any, Any]] = (
     contextvars.ContextVar("request_ctx")
 )
 
@@ -111,7 +113,7 @@ class NotificationOptions:
 
 
 @asynccontextmanager
-async def lifespan(server: Server[LifespanResultT]) -> AsyncIterator[object]:
+async def lifespan(server: Server[LifespanResultT, RequestT]) -> AsyncIterator[object]:
     """Default lifespan context manager that does nothing.
 
     Args:
@@ -123,14 +125,15 @@ async def lifespan(server: Server[LifespanResultT]) -> AsyncIterator[object]:
     yield {}
 
 
-class Server(Generic[LifespanResultT]):
+class Server(Generic[LifespanResultT, RequestT]):
     def __init__(
         self,
         name: str,
         version: str | None = None,
         instructions: str | None = None,
         lifespan: Callable[
-            [Server[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]
+            [Server[LifespanResultT, RequestT]],
+            AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
     ):
         self.name = name
@@ -144,7 +147,7 @@ class Server(Generic[LifespanResultT]):
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self.notification_options = NotificationOptions()
-        logger.debug(f"Initializing server '{name}'")
+        logger.debug("Initializing server %r", name)
 
     def create_initialization_options(
         self,
@@ -215,7 +218,9 @@ class Server(Generic[LifespanResultT]):
         )
 
     @property
-    def request_context(self) -> RequestContext[ServerSession, LifespanResultT]:
+    def request_context(
+        self,
+    ) -> RequestContext[ServerSession, LifespanResultT, RequestT]:
         """If called outside of a request context, this will raise a LookupError."""
         return request_ctx.get()
 
@@ -505,7 +510,7 @@ class Server(Generic[LifespanResultT]):
 
             async with anyio.create_task_group() as tg:
                 async for message in session.incoming_messages:
-                    logger.debug(f"Received message: {message}")
+                    logger.debug("Received message: %s", message)
 
                     tg.start_soon(
                         self._handle_message,
@@ -538,7 +543,9 @@ class Server(Generic[LifespanResultT]):
                     await self._handle_notification(notify)
 
             for warning in w:
-                logger.info(f"Warning: {warning.category.__name__}: {warning.message}")
+                logger.info(
+                    "Warning: %s: %s", warning.category.__name__, warning.message
+                )
 
     async def _handle_request(
         self,
@@ -548,13 +555,19 @@ class Server(Generic[LifespanResultT]):
         lifespan_context: LifespanResultT,
         raise_exceptions: bool,
     ):
-        logger.info(f"Processing request of type {type(req).__name__}")
-        if type(req) in self.request_handlers:
-            handler = self.request_handlers[type(req)]
-            logger.debug(f"Dispatching request of type {type(req).__name__}")
+        logger.info("Processing request of type %s", type(req).__name__)
+        if handler := self.request_handlers.get(type(req)):  # type: ignore
+            logger.debug("Dispatching request of type %s", type(req).__name__)
 
             token = None
             try:
+                # Extract request context from message metadata
+                request_data = None
+                if message.message_metadata is not None and isinstance(
+                    message.message_metadata, ServerMessageMetadata
+                ):
+                    request_data = message.message_metadata.request_context
+
                 # Set our global state that can be retrieved via
                 # app.get_request_context()
                 token = request_ctx.set(
@@ -563,6 +576,7 @@ class Server(Generic[LifespanResultT]):
                         message.request_meta,
                         session,
                         lifespan_context,
+                        request=request_data,
                     )
                 )
                 response = await handler(req)
@@ -589,16 +603,13 @@ class Server(Generic[LifespanResultT]):
         logger.debug("Response sent")
 
     async def _handle_notification(self, notify: Any):
-        if type(notify) in self.notification_handlers:
-            assert type(notify) in self.notification_handlers
-
-            handler = self.notification_handlers[type(notify)]
-            logger.debug(f"Dispatching notification of type {type(notify).__name__}")
+        if handler := self.notification_handlers.get(type(notify)):  # type: ignore
+            logger.debug("Dispatching notification of type %s", type(notify).__name__)
 
             try:
                 await handler(notify)
-            except Exception as err:
-                logger.error(f"Uncaught exception in notification handler: {err}")
+            except Exception:
+                logger.exception("Uncaught exception in notification handler")
 
 
 async def _ping_handler(request: types.PingRequest) -> types.ServerResult:

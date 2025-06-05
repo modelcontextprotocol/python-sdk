@@ -5,14 +5,18 @@ These tests validate the proper functioning of FastMCP in various configurations
 including with and without authentication.
 """
 
+import json
 import multiprocessing
 import socket
 import time
 from collections.abc import Generator
+from typing import Any
 
 import pytest
 import uvicorn
 from pydantic import AnyUrl
+from starlette.applications import Starlette
+from starlette.requests import Request
 
 import mcp.types as types
 from mcp.client.session import ClientSession
@@ -78,8 +82,6 @@ def stateless_http_server_url(stateless_http_server_port: int) -> str:
 # Create a function to make the FastMCP server app
 def make_fastmcp_app():
     """Create a FastMCP server without auth settings."""
-    from starlette.applications import Starlette
-
     mcp = FastMCP(name="NoAuthServer")
 
     # Add a simple tool
@@ -88,7 +90,7 @@ def make_fastmcp_app():
         return f"Echo: {message}"
 
     # Create the SSE app
-    app: Starlette = mcp.sse_app()
+    app = mcp.sse_app()
 
     return mcp, app
 
@@ -193,22 +195,46 @@ def make_everything_fastmcp() -> FastMCP:
         # Since FastMCP doesn't support system messages in the same way
         return f"Context: {context}. Query: {user_query}"
 
+    # Tool that echoes request headers from context
+    @mcp.tool(description="Echo request headers from context")
+    def echo_headers(ctx: Context[Any, Any, Request]) -> str:
+        """Returns the request headers as JSON."""
+        headers_info = {}
+        if ctx.request_context.request:
+            # Now the type system knows request is a Starlette Request object
+            headers_info = dict(ctx.request_context.request.headers)
+        return json.dumps(headers_info)
+
+    # Tool that returns full request context
+    @mcp.tool(description="Echo request context with custom data")
+    def echo_context(custom_request_id: str, ctx: Context[Any, Any, Request]) -> str:
+        """Returns request context including headers and custom data."""
+        context_data = {
+            "custom_request_id": custom_request_id,
+            "headers": {},
+            "method": None,
+            "path": None,
+        }
+        if ctx.request_context.request:
+            request = ctx.request_context.request
+            context_data["headers"] = dict(request.headers)
+            context_data["method"] = request.method
+            context_data["path"] = request.url.path
+        return json.dumps(context_data)
+
     return mcp
 
 
 def make_everything_fastmcp_app():
     """Create a comprehensive FastMCP server with SSE transport."""
-    from starlette.applications import Starlette
-
     mcp = make_everything_fastmcp()
     # Create the SSE app
-    app: Starlette = mcp.sse_app()
+    app = mcp.sse_app()
     return mcp, app
 
 
 def make_fastmcp_streamable_http_app():
     """Create a FastMCP server with StreamableHTTP transport."""
-    from starlette.applications import Starlette
 
     mcp = FastMCP(name="NoAuthServer")
 
@@ -225,8 +251,6 @@ def make_fastmcp_streamable_http_app():
 
 def make_everything_fastmcp_streamable_http_app():
     """Create a comprehensive FastMCP server with StreamableHTTP transport."""
-    from starlette.applications import Starlette
-
     # Create a new instance with different name for HTTP transport
     mcp = make_everything_fastmcp()
     # We can't change the name after creation, so we'll use the same name
@@ -237,7 +261,6 @@ def make_everything_fastmcp_streamable_http_app():
 
 def make_fastmcp_stateless_http_app():
     """Create a FastMCP server with stateless StreamableHTTP transport."""
-    from starlette.applications import Starlette
 
     mcp = FastMCP(name="StatelessServer", stateless_http=True)
 
@@ -801,6 +824,30 @@ async def call_all_mcp_features(
     )
     assert isinstance(complex_result, GetPromptResult)
     assert len(complex_result.messages) >= 1
+
+    # Test request context propagation (only works when headers are available)
+
+    headers_result = await session.call_tool("echo_headers", {})
+    assert len(headers_result.content) == 1
+    assert isinstance(headers_result.content[0], TextContent)
+
+    # If we got headers, verify they exist
+    headers_data = json.loads(headers_result.content[0].text)
+    # The headers depend on the transport and test setup
+    print(f"Received headers: {headers_data}")
+
+    # Test 6: Call tool that returns full context
+    context_result = await session.call_tool(
+        "echo_context", {"custom_request_id": "test-123"}
+    )
+    assert len(context_result.content) == 1
+    assert isinstance(context_result.content[0], TextContent)
+
+    context_data = json.loads(context_result.content[0].text)
+    assert context_data["custom_request_id"] == "test-123"
+    # The method should be POST for most transports
+    if context_data["method"]:
+        assert context_data["method"] == "POST"
 
 
 async def sampling_callback(

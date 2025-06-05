@@ -19,7 +19,7 @@ from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
-from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
     ErrorData,
@@ -430,6 +430,7 @@ async def streamablehttp_client(
     timeout: timedelta = timedelta(seconds=30),
     sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
     terminate_on_close: bool = True,
+    httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
 ) -> AsyncGenerator[
     tuple[
@@ -462,9 +463,9 @@ async def streamablehttp_client(
 
     async with anyio.create_task_group() as tg:
         try:
-            logger.info(f"Connecting to StreamableHTTP endpoint: {url}")
+            logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 
-            async with create_mcp_http_client(
+            async with httpx_client_factory(
                 headers=transport.request_headers,
                 timeout=httpx.Timeout(
                     transport.timeout.seconds, read=transport.sse_read_timeout.seconds
