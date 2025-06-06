@@ -1425,3 +1425,118 @@ async def test_streamablehttp_request_context_isolation(
         assert ctx["headers"].get("x-request-id") == f"request-{i}"
         assert ctx["headers"].get("x-custom-value") == f"value-{i}"
         assert ctx["headers"].get("authorization") == f"Bearer token-{i}"
+
+
+@pytest.mark.anyio
+async def test_client_includes_protocol_version_header_after_init(
+    context_aware_server, basic_server_url
+):
+    """Test that client includes MCP-Protocol-Version header after initialization."""
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            # Initialize and get the negotiated version
+            init_result = await session.initialize()
+            negotiated_version = init_result.protocolVersion
+
+            # Call a tool that echoes headers to verify the header is present
+            tool_result = await session.call_tool("echo_headers", {})
+
+            assert len(tool_result.content) == 1
+            assert isinstance(tool_result.content[0], TextContent)
+            headers_data = json.loads(tool_result.content[0].text)
+
+            # Verify protocol version header is present
+            assert "mcp-protocol-version" in headers_data
+            assert headers_data["mcp-protocol-version"] == negotiated_version
+
+
+def test_server_validates_protocol_version_header(basic_server, basic_server_url):
+    """Test that server returns 400 Bad Request version header is missing or invalid."""
+    # First initialize a session to get a valid session ID
+    init_response = requests.post(
+        f"{basic_server_url}/mcp",
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert init_response.status_code == 200
+    session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
+
+    # Test request without MCP-Protocol-Version header (should fail)
+    response = requests.post(
+        f"{basic_server_url}/mcp",
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            MCP_SESSION_ID_HEADER: session_id,
+        },
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-1"},
+    )
+    assert response.status_code == 400
+    assert (
+        "MCP-Protocol-Version" in response.text
+        or "protocol version" in response.text.lower()
+    )
+
+    # Test request with invalid protocol version (should fail)
+    response = requests.post(
+        f"{basic_server_url}/mcp",
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            MCP_SESSION_ID_HEADER: session_id,
+            "MCP-Protocol-Version": "invalid-version",
+        },
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-2"},
+    )
+    assert response.status_code == 400
+    assert (
+        "MCP-Protocol-Version" in response.text
+        or "protocol version" in response.text.lower()
+    )
+
+    # Test request with unsupported protocol version (should fail)
+    response = requests.post(
+        f"{basic_server_url}/mcp",
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            MCP_SESSION_ID_HEADER: session_id,
+            "MCP-Protocol-Version": "1999-01-01",  # Very old unsupported version
+        },
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-3"},
+    )
+    assert response.status_code == 400
+    assert (
+        "MCP-Protocol-Version" in response.text
+        or "protocol version" in response.text.lower()
+    )
+
+    # Test request with valid protocol version (should succeed)
+    init_data = None
+    assert init_response.headers.get("Content-Type") == "text/event-stream"
+    for line in init_response.text.splitlines():
+        if line.startswith("data: "):
+            init_data = json.loads(line[6:])
+            break
+
+    assert init_data is not None
+    negotiated_version = init_data["result"]["protocolVersion"]
+
+    response = requests.post(
+        f"{basic_server_url}/mcp",
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            MCP_SESSION_ID_HEADER: session_id,
+            "MCP-Protocol-Version": negotiated_version,
+        },
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-4"},
+    )
+    assert response.status_code == 200
