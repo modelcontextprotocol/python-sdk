@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import AnyHttpUrl, BaseModel, Field
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field
 
 
 class OAuthToken(BaseModel):
@@ -32,7 +32,7 @@ class OAuthClientMetadata(BaseModel):
     for the full specification.
     """
 
-    redirect_uris: list[AnyHttpUrl] = Field(..., min_length=1)
+    redirect_uris: list[AnyUrl] = Field(..., min_length=1)
     # token_endpoint_auth_method: this implementation only supports none &
     # client_secret_post;
     # ie: we do not support client_secret_basic
@@ -71,7 +71,7 @@ class OAuthClientMetadata(BaseModel):
                 raise InvalidScopeError(f"Client was not registered with scope {scope}")
         return requested_scopes
 
-    def validate_redirect_uri(self, redirect_uri: AnyHttpUrl | None) -> AnyHttpUrl:
+    def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
         if redirect_uri is not None:
             # Validate redirect_uri against client's registered redirect URIs
             if redirect_uri not in self.redirect_uris:

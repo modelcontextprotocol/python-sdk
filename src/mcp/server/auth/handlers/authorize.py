@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, RootModel, ValidationError
+from pydantic import AnyUrl, BaseModel, Field, RootModel, ValidationError
 from starlette.datastructures import FormData, QueryParams
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 class AuthorizationRequest(BaseModel):
     # See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1
     client_id: str = Field(..., description="The client ID")
-    redirect_uri: AnyHttpUrl | None = Field(
+    redirect_uri: AnyUrl | None = Field(
         None, description="URL to redirect to after authorization"
     )
 
@@ -68,8 +68,8 @@ def best_effort_extract_string(
     return None
 
 
-class AnyHttpUrlModel(RootModel[AnyHttpUrl]):
-    root: AnyHttpUrl
+class AnyUrlModel(RootModel[AnyUrl]):
+    root: AnyUrl
 
 
 @dataclass
@@ -116,7 +116,7 @@ class AuthorizationHandler:
                     if params is not None and "redirect_uri" not in params:
                         raw_redirect_uri = None
                     else:
-                        raw_redirect_uri = AnyHttpUrlModel.model_validate(
+                        raw_redirect_uri = AnyUrlModel.model_validate(
                             best_effort_extract_string("redirect_uri", params)
                         ).root
                     redirect_uri = client.validate_redirect_uri(raw_redirect_uri)
