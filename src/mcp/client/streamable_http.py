@@ -40,6 +40,7 @@ StreamReader = MemoryObjectReceiveStream[SessionMessage]
 GetSessionIdCallback = Callable[[], str | None]
 
 MCP_SESSION_ID = "mcp-session-id"
+MCP_PROTOCOL_VERSION = "MCP-Protocol-Version"
 LAST_EVENT_ID = "last-event-id"
 CONTENT_TYPE = "content-type"
 ACCEPT = "Accept"
@@ -100,6 +101,7 @@ class StreamableHTTPTransport:
         self.sse_read_timeout = sse_read_timeout
         self.auth = auth
         self.session_id: str | None = None
+        self.protocol_version: str | None = None
         self.request_headers = {
             ACCEPT: f"{JSON}, {SSE}",
             CONTENT_TYPE: JSON,
@@ -109,10 +111,12 @@ class StreamableHTTPTransport:
     def _update_headers_with_session(
         self, base_headers: dict[str, str]
     ) -> dict[str, str]:
-        """Update headers with session ID if available."""
+        """Update headers with session ID and protocol version if available."""
         headers = base_headers.copy()
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
+        if self.protocol_version:
+            headers[MCP_PROTOCOL_VERSION] = self.protocol_version
         return headers
 
     def _is_initialization_request(self, message: JSONRPCMessage) -> bool:
@@ -139,18 +143,35 @@ class StreamableHTTPTransport:
             self.session_id = new_session_id
             logger.info(f"Received session ID: {self.session_id}")
 
+    def _maybe_extract_protocol_version_from_message(
+        self,
+        message: JSONRPCMessage,
+    ) -> None:
+        """Extract protocol version from initialization response message."""
+        if isinstance(message.root, JSONRPCResponse) and message.root.result:
+            # Check if result has protocolVersion field
+            result = message.root.result
+            if "protocolVersion" in result:
+                self.protocol_version = result["protocolVersion"]
+                logger.info(f"Negotiated protocol version: {self.protocol_version}")
+
     async def _handle_sse_event(
         self,
         sse: ServerSentEvent,
         read_stream_writer: StreamWriter,
         original_request_id: RequestId | None = None,
         resumption_callback: Callable[[str], Awaitable[None]] | None = None,
+        is_initialization: bool = False,
     ) -> bool:
         """Handle an SSE event, returning True if the response is complete."""
         if sse.event == "message":
             try:
                 message = JSONRPCMessage.model_validate_json(sse.data)
                 logger.debug(f"SSE message: {message}")
+
+                # Extract protocol version from initialization response
+                if is_initialization:
+                    self._maybe_extract_protocol_version_from_message(message)
 
                 # If this is a response and we have original_request_id, replace it
                 if original_request_id is not None and isinstance(
@@ -274,9 +295,11 @@ class StreamableHTTPTransport:
             content_type = response.headers.get(CONTENT_TYPE, "").lower()
 
             if content_type.startswith(JSON):
-                await self._handle_json_response(response, ctx.read_stream_writer)
+                await self._handle_json_response(
+                    response, ctx.read_stream_writer, is_initialization
+                )
             elif content_type.startswith(SSE):
-                await self._handle_sse_response(response, ctx)
+                await self._handle_sse_response(response, ctx, is_initialization)
             else:
                 await self._handle_unexpected_content_type(
                     content_type,
@@ -287,11 +310,17 @@ class StreamableHTTPTransport:
         self,
         response: httpx.Response,
         read_stream_writer: StreamWriter,
+        is_initialization: bool = False,
     ) -> None:
         """Handle JSON response from the server."""
         try:
             content = await response.aread()
             message = JSONRPCMessage.model_validate_json(content)
+
+            # Extract protocol version from initialization response
+            if is_initialization:
+                self._maybe_extract_protocol_version_from_message(message)
+
             session_message = SessionMessage(message)
             await read_stream_writer.send(session_message)
         except Exception as exc:
@@ -299,7 +328,10 @@ class StreamableHTTPTransport:
             await read_stream_writer.send(exc)
 
     async def _handle_sse_response(
-        self, response: httpx.Response, ctx: RequestContext
+        self,
+        response: httpx.Response,
+        ctx: RequestContext,
+        is_initialization: bool = False,
     ) -> None:
         """Handle SSE response from the server."""
         try:
@@ -313,6 +345,7 @@ class StreamableHTTPTransport:
                         if ctx.metadata
                         else None
                     ),
+                    is_initialization=is_initialization,
                 )
                 # If the SSE event indicates completion, like returning respose/error
                 # break the loop
