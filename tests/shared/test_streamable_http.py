@@ -65,6 +65,17 @@ INIT_REQUEST = {
 }
 
 
+# Helper functions
+def extract_protocol_version_from_sse(response: requests.Response) -> str:
+    """Extract the negotiated protocol version from an SSE initialization response."""
+    assert response.headers.get("Content-Type") == "text/event-stream"
+    for line in response.text.splitlines():
+        if line.startswith("data: "):
+            init_data = json.loads(line[6:])
+            return init_data["result"]["protocolVersion"]
+    raise ValueError("Could not extract protocol version from SSE response")
+
+
 # Simple in-memory event store for testing
 class SimpleEventStore(EventStore):
     """Simple in-memory event store for testing."""
@@ -562,14 +573,7 @@ def test_session_termination(basic_server, basic_server_url):
     assert response.status_code == 200
 
     # Extract negotiated protocol version from SSE response
-    init_data = None
-    assert response.headers.get("Content-Type") == "text/event-stream"
-    for line in response.text.splitlines():
-        if line.startswith("data: "):
-            init_data = json.loads(line[6:])
-            break
-    assert init_data is not None
-    negotiated_version = init_data["result"]["protocolVersion"]
+    negotiated_version = extract_protocol_version_from_sse(response)
 
     # Now terminate the session
     session_id = response.headers.get(MCP_SESSION_ID_HEADER)
@@ -610,14 +614,7 @@ def test_response(basic_server, basic_server_url):
     assert response.status_code == 200
 
     # Extract negotiated protocol version from SSE response
-    init_data = None
-    assert response.headers.get("Content-Type") == "text/event-stream"
-    for line in response.text.splitlines():
-        if line.startswith("data: "):
-            init_data = json.loads(line[6:])
-            break
-    assert init_data is not None
-    negotiated_version = init_data["result"]["protocolVersion"]
+    negotiated_version = extract_protocol_version_from_sse(response)
 
     # Now get the session ID
     session_id = response.headers.get(MCP_SESSION_ID_HEADER)
@@ -1506,15 +1503,7 @@ def test_server_validates_protocol_version_header(basic_server, basic_server_url
     )
 
     # Test request with valid protocol version (should succeed)
-    init_data = None
-    assert init_response.headers.get("Content-Type") == "text/event-stream"
-    for line in init_response.text.splitlines():
-        if line.startswith("data: "):
-            init_data = json.loads(line[6:])
-            break
-
-    assert init_data is not None
-    negotiated_version = init_data["result"]["protocolVersion"]
+    negotiated_version = extract_protocol_version_from_sse(init_response)
 
     response = requests.post(
         f"{basic_server_url}/mcp",
