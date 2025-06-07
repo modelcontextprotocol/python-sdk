@@ -34,7 +34,7 @@ LATEST_PROTOCOL_VERSION = "2025-03-26"
 ProgressToken = str | int
 Cursor = str
 Role = Literal["user", "assistant"]
-RequestId = str | int
+RequestId = Annotated[int | str, Field(union_mode="left_to_right")]
 AnyFunction: TypeAlias = Callable[..., Any]
 
 
@@ -353,7 +353,7 @@ class ProgressNotificationParams(NotificationParams):
     """Total number of items to process (or total progress required), if known."""
     message: str | None = None
     """
-    Message related to progress. This should provide relevant human readable 
+    Message related to progress. This should provide relevant human readable
     progress information.
     """
     model_config = ConfigDict(extra="allow")

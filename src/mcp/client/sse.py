@@ -98,24 +98,6 @@ async def sse_client(
                                             message = types.JSONRPCMessage.model_validate_json(  # noqa: E501
                                                 sse.data
                                             )
-                                            
-                                            # Normalize ID to int 
-                                            # if it's a numeric string.
-                                            if isinstance(  # noqa: E501
-                                                    message.root, 
-                                                    types.JSONRPCResponse
-                                                ):
-                                                msg_id = message.root.id
-                                                if (isinstance(msg_id, str) and 
-                                                    msg_id.isdigit()):
-                                                    message.root.id = int(msg_id)
-                                                elif not isinstance(msg_id, int):
-                                                    logger.warning(
-                                                        "Ignored message with "
-                                                        f"invalid ID: {msg_id!r}"
-                                                    )
-                                                    continue
-                                            
                                             logger.debug(
                                                 f"Received server message: {message}"
                                             )
