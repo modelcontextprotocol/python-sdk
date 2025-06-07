@@ -67,25 +67,36 @@ class RequireAuthMiddleware:
     auth info in the request state.
     """
 
-    def __init__(self, app: Any, required_scopes: list[str]):
+    def __init__(
+        self,
+        app: Any,
+        required_scopes: list[str] | None = None,
+        resource_metadata_url: str | None = None,
+    ):
         """
         Initialize the middleware.
 
         Args:
             app: ASGI application
-            provider: Authentication provider to validate tokens
             required_scopes: Optional list of scopes that the token must have
+            resource_metadata_url: Optional resource metadata URL
         """
         self.app = app
         self.required_scopes = required_scopes
+        self.resource_metadata_url = resource_metadata_url
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         auth_user = scope.get("user")
         if not isinstance(auth_user, AuthenticatedUser):
-            raise HTTPException(status_code=401, detail="Unauthorized")
+            headers = (
+                {"WWW-Authenticate": f'Bearer resource="{self.resource_metadata_url}"'}
+                if self.resource_metadata_url
+                else None
+            )
+            raise HTTPException(status_code=401, detail="Unauthorized", headers=headers)
         auth_credentials = scope.get("auth")
 
-        for required_scope in self.required_scopes:
+        for required_scope in self.required_scopes or []:
             # auth_credentials should always be provided; this is just paranoia
             if (
                 auth_credentials is None
