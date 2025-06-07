@@ -105,9 +105,7 @@ class StreamableHTTPTransport:
             **self.headers,
         }
 
-    def _update_headers_with_session(
-        self, base_headers: dict[str, str]
-    ) -> dict[str, str]:
+    def _prepare_request_headers(self, base_headers: dict[str, str]) -> dict[str, str]:
         """Update headers with session ID and protocol version if available."""
         headers = base_headers.copy()
         if self.session_id:
@@ -197,7 +195,7 @@ class StreamableHTTPTransport:
             if not self.session_id:
                 return
 
-            headers = self._update_headers_with_session(self.request_headers)
+            headers = self._prepare_request_headers(self.request_headers)
 
             async with aconnect_sse(
                 client,
@@ -217,7 +215,7 @@ class StreamableHTTPTransport:
 
     async def _handle_resumption_request(self, ctx: RequestContext) -> None:
         """Handle a resumption request using GET with SSE."""
-        headers = self._update_headers_with_session(ctx.headers)
+        headers = self._prepare_request_headers(ctx.headers)
         if ctx.metadata and ctx.metadata.resumption_token:
             headers[LAST_EVENT_ID] = ctx.metadata.resumption_token
         else:
@@ -250,7 +248,7 @@ class StreamableHTTPTransport:
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
-        headers = self._update_headers_with_session(ctx.headers)
+        headers = self._prepare_request_headers(ctx.headers)
         message = ctx.session_message.message
         is_initialization = self._is_initialization_request(message)
 
@@ -426,7 +424,7 @@ class StreamableHTTPTransport:
             return
 
         try:
-            headers = self._update_headers_with_session(self.request_headers)
+            headers = self._prepare_request_headers(self.request_headers)
             response = await client.delete(self.url, headers=headers)
 
             if response.status_code == 405:
