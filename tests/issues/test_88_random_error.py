@@ -12,6 +12,7 @@ from mcp.client.session import ClientSession
 from mcp.server.lowlevel import Server
 from mcp.shared.exceptions import McpError
 from mcp.types import (
+    AudioContent,
     EmbeddedResource,
     ImageContent,
     TextContent,
@@ -37,7 +38,7 @@ async def test_notification_validation_error(tmp_path: Path):
     @server.call_tool()
     async def slow_tool(
         name: str, arg
-    ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+    ) -> Sequence[TextContent | ImageContent | AudioContent | EmbeddedResource]:
         nonlocal request_count
         request_count += 1
 
