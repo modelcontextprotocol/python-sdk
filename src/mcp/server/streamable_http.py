@@ -859,20 +859,19 @@ class StreamableHTTPServerTransport:
                             if response_id in self._request_streams:
                                 target_request_id = response_id
 
-                        else:
-                            # Extract related_request_id from meta if it exists
-                            if (
-                                session_message.metadata is not None
-                                and isinstance(
-                                    session_message.metadata,
-                                    ServerMessageMetadata,
-                                )
-                                and session_message.metadata.related_request_id
-                                is not None
-                            ):
-                                target_request_id = str(
-                                    session_message.metadata.related_request_id
-                                )
+                        # Extract related_request_id from meta if it exists
+                        elif (
+                            session_message.metadata is not None
+                            and isinstance(
+                                session_message.metadata,
+                                ServerMessageMetadata,
+                            )
+                            and session_message.metadata.related_request_id
+                            is not None
+                        ):
+                            target_request_id = str(
+                                session_message.metadata.related_request_id
+                            )
 
                         request_stream_id = (
                             target_request_id
