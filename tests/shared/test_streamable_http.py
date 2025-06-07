@@ -26,6 +26,7 @@ from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.server import Server
 from mcp.server.streamable_http import (
+    MCP_PROTOCOL_VERSION_HEADER,
     MCP_SESSION_ID_HEADER,
     SESSION_ID_PATTERN,
     EventCallback,
@@ -560,11 +561,24 @@ def test_session_termination(basic_server, basic_server_url):
     )
     assert response.status_code == 200
 
+    # Extract negotiated protocol version from SSE response
+    init_data = None
+    assert response.headers.get("Content-Type") == "text/event-stream"
+    for line in response.text.splitlines():
+        if line.startswith("data: "):
+            init_data = json.loads(line[6:])
+            break
+    assert init_data is not None
+    negotiated_version = init_data["result"]["protocolVersion"]
+
     # Now terminate the session
     session_id = response.headers.get(MCP_SESSION_ID_HEADER)
     response = requests.delete(
         f"{basic_server_url}/mcp",
-        headers={MCP_SESSION_ID_HEADER: session_id},
+        headers={
+            MCP_SESSION_ID_HEADER: session_id,
+            MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
+        },
     )
     assert response.status_code == 200
 
@@ -595,16 +609,27 @@ def test_response(basic_server, basic_server_url):
     )
     assert response.status_code == 200
 
-    # Now terminate the session
+    # Extract negotiated protocol version from SSE response
+    init_data = None
+    assert response.headers.get("Content-Type") == "text/event-stream"
+    for line in response.text.splitlines():
+        if line.startswith("data: "):
+            init_data = json.loads(line[6:])
+            break
+    assert init_data is not None
+    negotiated_version = init_data["result"]["protocolVersion"]
+
+    # Now get the session ID
     session_id = response.headers.get(MCP_SESSION_ID_HEADER)
 
-    # Try to use the terminated session
+    # Try to use the session with proper headers
     tools_response = requests.post(
         mcp_url,
         headers={
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
             MCP_SESSION_ID_HEADER: session_id,  # Use the session ID we got earlier
+            MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
         },
         json={"jsonrpc": "2.0", "method": "tools/list", "id": "tools-1"},
         stream=True,
@@ -646,12 +671,23 @@ def test_get_sse_stream(basic_server, basic_server_url):
     session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
     assert session_id is not None
 
+    # Extract negotiated protocol version from SSE response
+    init_data = None
+    assert init_response.headers.get("Content-Type") == "text/event-stream"
+    for line in init_response.text.splitlines():
+        if line.startswith("data: "):
+            init_data = json.loads(line[6:])
+            break
+    assert init_data is not None
+    negotiated_version = init_data["result"]["protocolVersion"]
+
     # Now attempt to establish an SSE stream via GET
     get_response = requests.get(
         mcp_url,
         headers={
             "Accept": "text/event-stream",
             MCP_SESSION_ID_HEADER: session_id,
+            MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
         },
         stream=True,
     )
@@ -666,6 +702,7 @@ def test_get_sse_stream(basic_server, basic_server_url):
         headers={
             "Accept": "text/event-stream",
             MCP_SESSION_ID_HEADER: session_id,
+            MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
         },
         stream=True,
     )
@@ -694,11 +731,22 @@ def test_get_validation(basic_server, basic_server_url):
     session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
     assert session_id is not None
 
+    # Extract negotiated protocol version from SSE response
+    init_data = None
+    assert init_response.headers.get("Content-Type") == "text/event-stream"
+    for line in init_response.text.splitlines():
+        if line.startswith("data: "):
+            init_data = json.loads(line[6:])
+            break
+    assert init_data is not None
+    negotiated_version = init_data["result"]["protocolVersion"]
+
     # Test without Accept header
     response = requests.get(
         mcp_url,
         headers={
             MCP_SESSION_ID_HEADER: session_id,
+            MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
         },
         stream=True,
     )
@@ -711,6 +759,7 @@ def test_get_validation(basic_server, basic_server_url):
         headers={
             "Accept": "application/json",
             MCP_SESSION_ID_HEADER: session_id,
+            MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
         },
     )
     assert response.status_code == 406
@@ -1004,6 +1053,7 @@ async def test_streamablehttp_client_resumption(event_server):
     captured_resumption_token = None
     captured_notifications = []
     tool_started = False
+    captured_protocol_version = None
 
     async def message_handler(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
@@ -1032,6 +1082,8 @@ async def test_streamablehttp_client_resumption(event_server):
             assert isinstance(result, InitializeResult)
             captured_session_id = get_session_id()
             assert captured_session_id is not None
+            # Capture the negotiated protocol version
+            captured_protocol_version = result.protocolVersion
 
             # Start a long-running tool in a task
             async with anyio.create_task_group() as tg:
@@ -1064,10 +1116,12 @@ async def test_streamablehttp_client_resumption(event_server):
     captured_notifications_pre = captured_notifications.copy()
     captured_notifications = []
 
-    # Now resume the session with the same mcp-session-id
+    # Now resume the session with the same mcp-session-id and protocol version
     headers = {}
     if captured_session_id:
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
+    if captured_protocol_version:
+        headers[MCP_PROTOCOL_VERSION_HEADER] = captured_protocol_version
 
     async with streamablehttp_client(f"{server_url}/mcp", headers=headers) as (
         read_stream,
@@ -1413,7 +1467,7 @@ def test_server_validates_protocol_version_header(basic_server, basic_server_url
     )
     assert response.status_code == 400
     assert (
-        "MCP-Protocol-Version" in response.text
+        MCP_PROTOCOL_VERSION_HEADER in response.text
         or "protocol version" in response.text.lower()
     )
 
@@ -1424,13 +1478,13 @@ def test_server_validates_protocol_version_header(basic_server, basic_server_url
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
             MCP_SESSION_ID_HEADER: session_id,
-            "MCP-Protocol-Version": "invalid-version",
+            MCP_PROTOCOL_VERSION_HEADER: "invalid-version",
         },
         json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-2"},
     )
     assert response.status_code == 400
     assert (
-        "MCP-Protocol-Version" in response.text
+        MCP_PROTOCOL_VERSION_HEADER in response.text
         or "protocol version" in response.text.lower()
     )
 
@@ -1441,13 +1495,13 @@ def test_server_validates_protocol_version_header(basic_server, basic_server_url
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
             MCP_SESSION_ID_HEADER: session_id,
-            "MCP-Protocol-Version": "1999-01-01",  # Very old unsupported version
+            MCP_PROTOCOL_VERSION_HEADER: "1999-01-01",  # Very old unsupported version
         },
         json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-3"},
     )
     assert response.status_code == 400
     assert (
-        "MCP-Protocol-Version" in response.text
+        MCP_PROTOCOL_VERSION_HEADER in response.text
         or "protocol version" in response.text.lower()
     )
 
@@ -1468,7 +1522,7 @@ def test_server_validates_protocol_version_header(basic_server, basic_server_url
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
             MCP_SESSION_ID_HEADER: session_id,
-            "MCP-Protocol-Version": negotiated_version,
+            MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
         },
         json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-4"},
     )
