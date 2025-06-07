@@ -1,4 +1,5 @@
 import os
+import signal
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -190,6 +191,13 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                     await terminate_windows_process(process)
                 else:
                     process.terminate()
+
+                    try:
+                        with anyio.fail_after(5):
+                            await process.wait()
+                    except TimeoutError:
+                        pgid = os.getpgid(process.pid)
+                        os.killpg(pgid, signal.SIGKILL)
             except ProcessLookupError:
                 # Process already exited, which is fine
                 pass
@@ -230,7 +238,7 @@ async def _create_platform_compatible_process(
         process = await create_windows_process(command, args, env, errlog, cwd)
     else:
         process = await anyio.open_process(
-            [command, *args], env=env, stderr=errlog, cwd=cwd
+            [command, *args], env=env, stderr=errlog, cwd=cwd, start_new_session=True
         )
 
     return process
