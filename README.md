@@ -129,7 +129,7 @@ def get_greeting(name: str) -> str:
 
 You can install this server in [Claude Desktop](https://claude.ai/download) and interact with it right away by running:
 ```bash
-mcp install server.py
+uv run mcp install server.py
 ```
 
 Alternatively, you can test it with the MCP Inspector:
