@@ -75,10 +75,36 @@ class SseServerTransport:
     def __init__(self, endpoint: str) -> None:
         """
         Creates a new SSE server transport, which will direct the client to POST
-        messages to the relative or absolute URL given.
+        messages to the relative path given.
+
+        Args:
+            endpoint: A relative path where messages should be posted (e.g., "/messages/")
+
+        Note:
+            We use relative paths instead of full URLs for several reasons:
+            1. Security: Prevents cross-origin requests by ensuring clients only connect
+               to the same origin they established the SSE connection with
+            2. Flexibility: The server can be mounted at any path without needing to
+               know its full URL
+            3. Portability: The same endpoint configuration works across different
+               environments (development, staging, production)
+
+        Raises:
+            ValueError: If the endpoint is a full URL instead of a relative path
         """
 
         super().__init__()
+        
+        # Validate that endpoint is a relative path and not a full URL
+        if "://" in endpoint or endpoint.startswith("//"):
+            raise ValueError(
+                "Endpoint must be a relative path (e.g., '/messages/'), not a full URL."
+            )
+        
+        # Ensure endpoint starts with a forward slash
+        if not endpoint.startswith("/"):
+            endpoint = "/" + endpoint
+            
         self._endpoint = endpoint
         self._read_stream_writers = {}
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
