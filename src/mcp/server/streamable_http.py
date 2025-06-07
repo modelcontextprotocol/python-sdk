@@ -355,9 +355,7 @@ class StreamableHTTPServerTransport:
                         )
                         await response(scope, receive, send)
                         return
-            elif not await self._validate_session(request, send):
-                return
-            elif not await self._validate_protocol_version(request, send):
+            elif not await self._validate_request_headers(request, send):
                 return
 
             # For notifications and responses only, return 202 Accepted
@@ -516,9 +514,7 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
             return
 
-        if not await self._validate_session(request, send):
-            return
-        if not await self._validate_protocol_version(request, send):
+        if not await self._validate_request_headers(request, send):
             return
 
         # Handle resumability: check for Last-Event-ID header
@@ -599,9 +595,7 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
             return
 
-        if not await self._validate_session(request, send):
-            return
-        if not await self._validate_protocol_version(request, send):
+        if not await self._validate_request_headers(request, send):
             return
 
         await self._terminate_session()
@@ -660,6 +654,13 @@ class StreamableHTTPServerTransport:
             headers=headers,
         )
         await response(request.scope, request.receive, send)
+
+    async def _validate_request_headers(self, request: Request, send: Send) -> bool:
+        if not await self._validate_session(request, send):
+            return False
+        if not await self._validate_protocol_version(request, send):
+            return False
+        return True
 
     async def _validate_session(self, request: Request, send: Send) -> bool:
         """Validate the session ID in the request."""
