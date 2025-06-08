@@ -2,6 +2,7 @@ import contextlib
 from unittest import mock
 
 import pytest
+from pydantic import AnyUrl
 
 import mcp
 from mcp import types
@@ -395,3 +396,73 @@ class TestClientSessionGroup:
                 # 3. Assert returned values
                 assert returned_server_info is mock_initialize_result.serverInfo
                 assert returned_session is mock_entered_session
+
+    @pytest.mark.anyio
+    async def test_read_resource_not_found(self):
+        """Test reading a non-existent resource from a session group."""
+        # --- Mock Dependencies ---
+        mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+        test_resource = types.Resource(
+            name="test_resource",
+            uri=AnyUrl("test://resource/1"),
+            description="Test resource"
+        )
+        
+        # Mock all list methods
+        mock_session.list_resources.return_value = types.ListResourcesResult(resources=[test_resource])
+        mock_session.list_prompts.return_value = types.ListPromptsResult(prompts=[])
+        mock_session.list_tools.return_value = types.ListToolsResult(tools=[])
+        
+        # --- Test Setup ---
+        group = ClientSessionGroup()
+        group._session_exit_stacks[mock_session] = mock.AsyncMock(spec=contextlib.AsyncExitStack)
+        await group.connect_with_session(
+            types.Implementation(name="test_server", version="1.0.0"),
+            mock_session
+        )
+        
+        # --- Test Execution & Assertions ---
+        with pytest.raises(ValueError, match="Resource not found: test://nonexistent"):
+            await group.read_resource(AnyUrl("test://nonexistent"))
+
+    @pytest.mark.anyio
+    async def test_read_resource_success(self):
+        """Test successfully reading a resource from a session group."""
+        # --- Mock Dependencies ---
+        mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+        test_resource = types.Resource(
+            name="test_resource",
+            uri=AnyUrl("test://resource/1"),
+            description="Test resource"
+        )
+        
+        # Mock all list methods
+        mock_session.list_resources.return_value = types.ListResourcesResult(resources=[test_resource])
+        mock_session.list_prompts.return_value = types.ListPromptsResult(prompts=[])
+        mock_session.list_tools.return_value = types.ListToolsResult(tools=[])
+        
+        # Mock the session's read_resource method
+        mock_read_result = mock.AsyncMock(spec=types.ReadResourceResult)
+        mock_read_result.content = [types.TextContent(type="text", text="Resource content")]
+        mock_session.read_resource.return_value = mock_read_result
+        
+        # --- Test Setup ---
+        group = ClientSessionGroup()
+        group._session_exit_stacks[mock_session] = mock.AsyncMock(spec=contextlib.AsyncExitStack)
+        await group.connect_with_session(
+            types.Implementation(name="test_server", version="1.0.0"),
+            mock_session
+        )
+        
+        # Verify resource was added
+        assert "test_resource" in group._resources
+        assert group._resources["test_resource"] == test_resource
+        assert "test_resource" in group._resource_to_session
+        assert group._resource_to_session["test_resource"] == mock_session
+        
+        # --- Test Execution ---
+        result = await group.read_resource(AnyUrl("test://resource/1"))
+        
+        # --- Assertions ---
+        assert result.content == [types.TextContent(type="text", text="Resource content")]
+        mock_session.read_resource.assert_called_once_with(AnyUrl("test://resource/1"))
