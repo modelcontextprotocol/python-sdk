@@ -16,7 +16,7 @@ from types import TracebackType
 from typing import Any, TypeAlias
 
 import anyio
-from pydantic import BaseModel, AnyUrl
+from pydantic import AnyUrl, BaseModel
 from typing_extensions import Self
 
 import mcp
@@ -303,7 +303,7 @@ class ClientSessionGroup:
         resources_temp: dict[str, types.Resource] = {}
         tools_temp: dict[str, types.Tool] = {}
         tool_to_session_temp: dict[str, mcp.ClientSession] = {}
-        resource_to_session_temp: dict[str, mcp.ClientSession] = {} 
+        resource_to_session_temp: dict[str, mcp.ClientSession] = {}
 
         try:
             prompts = (await session.list_prompts()).prompts
