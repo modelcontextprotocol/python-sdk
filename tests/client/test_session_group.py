@@ -448,7 +448,7 @@ class TestClientSessionGroup:
 
         # Mock the session's read_resource method
         mock_read_result = mock.AsyncMock(spec=types.ReadResourceResult)
-        mock_read_result.content = [
+        mock_read_result.contents = [
             types.TextContent(type="text", text="Resource content")
         ]
         mock_session.read_resource.return_value = mock_read_result
@@ -472,7 +472,7 @@ class TestClientSessionGroup:
         result = await group.read_resource(AnyUrl("test://resource/1"))
 
         # --- Assertions ---
-        assert result.content == [
+        assert result.contents == [
             types.TextContent(type="text", text="Resource content")
         ]
         mock_session.read_resource.assert_called_once_with(AnyUrl("test://resource/1"))
