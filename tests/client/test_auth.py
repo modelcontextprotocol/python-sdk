@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 from inline_snapshot import snapshot
-from pydantic import AnyHttpUrl
+from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider
 from mcp.server.auth.routes import build_metadata
@@ -52,7 +52,7 @@ def mock_storage():
 @pytest.fixture
 def client_metadata():
     return OAuthClientMetadata(
-        redirect_uris=[AnyHttpUrl("http://localhost:3000/callback")],
+        redirect_uris=[AnyUrl("http://localhost:3000/callback")],
         client_name="Test Client",
         grant_types=["authorization_code", "refresh_token"],
         response_types=["code"],
@@ -79,7 +79,7 @@ def oauth_client_info():
     return OAuthClientInformationFull(
         client_id="test_client_id",
         client_secret="test_client_secret",
-        redirect_uris=[AnyHttpUrl("http://localhost:3000/callback")],
+        redirect_uris=[AnyUrl("http://localhost:3000/callback")],
         client_name="Test Client",
         grant_types=["authorization_code", "refresh_token"],
         response_types=["code"],
