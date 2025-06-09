@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import urljoin
 
 from pydantic import AnyHttpUrl
 from starlette.middleware.cors import CORSMiddleware
@@ -16,7 +17,7 @@ from mcp.server.auth.handlers.token import TokenHandler
 from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
-from mcp.shared.auth import OAuthMetadata
+from mcp.shared.auth import OAuthMetadata, OAuthProtectedResourceMetadata
 
 
 def validate_issuer_url(url: AnyHttpUrl):
@@ -67,9 +68,11 @@ def cors_middleware(
 def create_auth_routes(
     provider: OAuthAuthorizationServerProvider[Any, Any, Any],
     issuer_url: AnyHttpUrl,
+    resource_server_url: AnyHttpUrl,
     service_documentation_url: AnyHttpUrl | None = None,
     client_registration_options: ClientRegistrationOptions | None = None,
     revocation_options: RevocationOptions | None = None,
+    resource_name: str | None = None,
 ) -> list[Route]:
     validate_issuer_url(issuer_url)
 
@@ -85,11 +88,27 @@ def create_auth_routes(
     )
     client_authenticator = ClientAuthenticator(provider)
 
+    protected_resource_metadata = OAuthProtectedResourceMetadata(
+        resource=resource_server_url,
+        authorization_servers=[metadata.issuer],
+        scopes_supported=metadata.scopes_supported,
+        resource_name=resource_name,
+        resource_documentation=service_documentation_url,
+    )
+
     # Create routes
     # Allow CORS requests for endpoints meant to be hit by the OAuth client
     # (with the client secret). This is intended to support things like MCP Inspector,
     # where the client runs in a web browser.
     routes = [
+        Route(
+            "/.well-known/oauth-protected-resource",
+            endpoint=cors_middleware(
+                MetadataHandler(protected_resource_metadata).handle,
+                ["GET", "OPTIONS"],
+            ),
+            methods=["GET", "OPTIONS"],
+        ),
         Route(
             "/.well-known/oauth-authorization-server",
             endpoint=cors_middleware(
@@ -189,3 +208,7 @@ def build_metadata(
         metadata.revocation_endpoint_auth_methods_supported = ["client_secret_post"]
 
     return metadata
+
+
+def get_oauth_protected_resource_metadata_url(server_url: AnyHttpUrl) -> AnyHttpUrl:
+    return AnyHttpUrl(urljoin(str(server_url), "/.well-known/oauth-protected-resource"))

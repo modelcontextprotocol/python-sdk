@@ -12,7 +12,7 @@ import string
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Protocol
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlparse, urlunparse
 
 import anyio
 import httpx
@@ -21,6 +21,7 @@ from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
     OAuthMetadata,
+    OAuthProtectedResourceMetadata,
     OAuthToken,
 )
 from mcp.types import LATEST_PROTOCOL_VERSION
@@ -116,19 +117,59 @@ class OAuthClientProvider(httpx.Auth):
 
         Per MCP spec 2.3.2: https://api.example.com/v1/mcp -> https://api.example.com
         """
-        from urllib.parse import urlparse, urlunparse
-
         parsed = urlparse(server_url)
-        # Remove path component
         return urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
+
+    async def _discover_protected_resource_metadata(
+        self, resource_server_url: str
+    ) -> OAuthProtectedResourceMetadata | None:
+        """
+        Looks up RFC 9728 OAuth 2.0 Protected Resource Metadata.
+
+        If the server returns a 404 for the well-known endpoint, returns None.
+        """
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                urljoin(resource_server_url, "/.well-known/oauth-protected-resource")
+            )
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            metadata_json = response.json()
+            logger.debug(
+                f"OAuth protected resource metadata discovered: {metadata_json}"
+            )
+            return OAuthProtectedResourceMetadata.model_validate(metadata_json)
 
     async def _discover_oauth_metadata(self, server_url: str) -> OAuthMetadata | None:
         """
         Discover OAuth metadata from server's well-known endpoint.
+
+        First tries to discover protected resource metadata and use its authorization
+        server URL if available, otherwise falls back to the server's own well-known.
         """
-        # Extract base URL per MCP spec
-        auth_base_url = self._get_authorization_base_url(server_url)
-        url = urljoin(auth_base_url, "/.well-known/oauth-authorization-server")
+        auth_server_url = self._get_authorization_base_url(server_url)
+
+        try:
+            protected_resource_metadata = (
+                await self._discover_protected_resource_metadata(server_url)
+            )
+
+            if (
+                protected_resource_metadata
+                and protected_resource_metadata.authorization_servers
+                and len(protected_resource_metadata.authorization_servers) > 0
+            ):
+                auth_server_url = str(
+                    protected_resource_metadata.authorization_servers[0]
+                )
+        except Exception as e:
+            logger.warning(
+                "Could not load OAuth Protected Resource metadata, "
+                f"falling back to /.well-known/oauth-authorization-server: {e}"
+            )
+
+        url = urljoin(auth_server_url, "/.well-known/oauth-authorization-server")
         headers = {"MCP-Protocol-Version": LATEST_PROTOCOL_VERSION}
 
         async with httpx.AsyncClient() as client:

@@ -4,12 +4,12 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from mcp.server.auth.json_response import PydanticJSONResponse
-from mcp.shared.auth import OAuthMetadata
+from mcp.shared.auth import OAuthMetadata, OAuthProtectedResourceMetadata
 
 
 @dataclass
 class MetadataHandler:
-    metadata: OAuthMetadata
+    metadata: OAuthMetadata | OAuthProtectedResourceMetadata
 
     async def handle(self, request: Request) -> Response:
         return PydanticJSONResponse(
