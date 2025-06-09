@@ -1506,7 +1506,7 @@ async def test_client_includes_protocol_version_header_after_init(
 
 
 def test_server_validates_protocol_version_header(basic_server, basic_server_url):
-    """Test that server returns 400 Bad Request version header is missing or invalid."""
+    """Test that server returns 400 Bad Request version if header missing or invalid."""
     # First initialize a session to get a valid session ID
     init_response = requests.post(
         f"{basic_server_url}/mcp",
@@ -1518,22 +1518,6 @@ def test_server_validates_protocol_version_header(basic_server, basic_server_url
     )
     assert init_response.status_code == 200
     session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
-
-    # Test request without MCP-Protocol-Version header (should fail)
-    response = requests.post(
-        f"{basic_server_url}/mcp",
-        headers={
-            "Accept": "application/json, text/event-stream",
-            "Content-Type": "application/json",
-            MCP_SESSION_ID_HEADER: session_id,
-        },
-        json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-1"},
-    )
-    assert response.status_code == 400
-    assert (
-        MCP_PROTOCOL_VERSION_HEADER in response.text
-        or "protocol version" in response.text.lower()
-    )
 
     # Test request with invalid protocol version (should fail)
     response = requests.post(
@@ -1583,3 +1567,34 @@ def test_server_validates_protocol_version_header(basic_server, basic_server_url
         json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-4"},
     )
     assert response.status_code == 200
+
+
+def test_server_backwards_compatibility_no_protocol_version(
+    basic_server, basic_server_url
+):
+    """Test server accepts requests without protocol version header."""
+    # First initialize a session to get a valid session ID
+    init_response = requests.post(
+        f"{basic_server_url}/mcp",
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert init_response.status_code == 200
+    session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
+
+    # Test request without MCP-Protocol-Version header (backwards compatibility)
+    response = requests.post(
+        f"{basic_server_url}/mcp",
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            MCP_SESSION_ID_HEADER: session_id,
+        },
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-backwards-compat"},
+        stream=True,
+    )
+    assert response.status_code == 200  # Should succeed for backwards compatibility
+    assert response.headers.get("Content-Type") == "text/event-stream"

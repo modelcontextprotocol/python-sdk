@@ -746,14 +746,9 @@ class StreamableHTTPServerTransport:
         # Get the protocol version from the request headers
         protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
 
-        # If no protocol version provided, return error
+        # If no protocol version provided, assume version 2025-03-26
         if not protocol_version:
-            response = self._create_error_response(
-                "Bad Request: Missing MCP-Protocol-Version header",
-                HTTPStatus.BAD_REQUEST,
-            )
-            await response(request.scope, request.receive, send)
-            return False
+            protocol_version = "2025-03-26"
 
         # Check if the protocol version is supported
         if protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
