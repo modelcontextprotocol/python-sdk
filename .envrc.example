@@ -1,0 +1,3 @@
+source .venv/bin/activate
+export UV_INDEX=https://pypi.org/simple
+unset PYTEST_DISABLE_PLUGIN_AUTOLOAD
