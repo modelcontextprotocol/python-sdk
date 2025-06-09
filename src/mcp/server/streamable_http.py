@@ -46,7 +46,7 @@ MAXIMUM_MESSAGE_SIZE = 4 * 1024 * 1024  # 4MB
 
 # Header names
 MCP_SESSION_ID_HEADER = "mcp-session-id"
-MCP_PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
+MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version"
 LAST_EVENT_ID_HEADER = "last-event-id"
 
 # Content types

@@ -40,7 +40,7 @@ StreamReader = MemoryObjectReceiveStream[SessionMessage]
 GetSessionIdCallback = Callable[[], str | None]
 
 MCP_SESSION_ID = "mcp-session-id"
-MCP_PROTOCOL_VERSION = "MCP-Protocol-Version"
+MCP_PROTOCOL_VERSION = "mcp-protocol-version"
 LAST_EVENT_ID = "last-event-id"
 CONTENT_TYPE = "content-type"
 ACCEPT = "Accept"
