@@ -52,6 +52,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
 from mcp.types import (
     AnyFunction,
+    AudioContent,
     EmbeddedResource,
     GetPromptResult,
     ImageContent,
@@ -275,7 +276,7 @@ class FastMCP:
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any]
-    ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+    ) -> Sequence[TextContent | ImageContent | AudioContent | EmbeddedResource]:
         """Call a tool by name with arguments."""
         context = self.get_context()
         result = await self._tool_manager.call_tool(name, arguments, context=context)
@@ -875,12 +876,12 @@ class FastMCP:
 
 def _convert_to_content(
     result: Any,
-) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+) -> Sequence[TextContent | ImageContent | AudioContent | EmbeddedResource]:
     """Convert a result to a sequence of content objects."""
     if result is None:
         return []
 
-    if isinstance(result, TextContent | ImageContent | EmbeddedResource):
+    if isinstance(result, TextContent | ImageContent | AudioContent | EmbeddedResource):
         return [result]
 
     if isinstance(result, Image):
