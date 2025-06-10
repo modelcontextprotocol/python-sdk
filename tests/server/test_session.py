@@ -200,3 +200,105 @@ async def test_server_session_initialize_with_older_protocol_version():
 
     assert received_initialized
     assert received_protocol_version == "2024-11-05"
+
+
+@pytest.mark.anyio
+async def test_server_session_requires_initialization():
+    """Test that ServerSession requires initialization before accepting requests."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        SessionMessage
+    ](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        SessionMessage | Exception
+    ](1)
+
+    try:
+        init_options = InitializationOptions(
+            server_name="TestServer",
+            server_version="1.0",
+            capabilities=ServerCapabilities(),
+        )
+
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            init_options,
+            stateless=False,
+        ) as server_session:
+            request = types.ClientRequest(
+                root=types.CallToolRequest(
+                    method="tools/call",
+                    params=types.CallToolRequestParams(name="test_tool", arguments={}),
+                )
+            )
+
+            responder = RequestResponder(
+                request_id="test-id",
+                request_meta=None,  # Using None instead of {} to fix type error
+                request=request,
+                session=server_session,
+                on_complete=lambda _: None,
+            )
+
+            with pytest.raises(RuntimeError) as excinfo:
+                await server_session._received_request(responder)
+
+            assert "initialization" in str(excinfo.value).lower()
+            assert "before initialization was complete" in str(excinfo.value)
+    finally:
+        # Clean up the streams to prevent ResourceWarning
+        await server_to_client_send.aclose()
+        await server_to_client_receive.aclose()
+        await client_to_server_send.aclose()
+        await client_to_server_receive.aclose()
+
+
+@pytest.mark.anyio
+async def test_server_session_stateless_mode():
+    """Test that ServerSession in stateless mode doesn't require initialization."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        SessionMessage
+    ](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        SessionMessage | Exception
+    ](1)
+
+    try:
+        init_options = InitializationOptions(
+            server_name="TestServer",
+            server_version="1.0",
+            capabilities=ServerCapabilities(),
+        )
+
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            init_options,
+            stateless=True,
+        ) as server_session:
+            request = types.ClientRequest(
+                root=types.CallToolRequest(
+                    method="tools/call",
+                    params=types.CallToolRequestParams(name="test_tool", arguments={}),
+                )
+            )
+
+            responder = RequestResponder(
+                request_id="test-id",
+                request_meta=None,  # Using None instead of {} to fix type error
+                request=request,
+                session=server_session,
+                on_complete=lambda _: None,
+            )
+
+            try:
+                await server_session._received_request(responder)
+            except RuntimeError as e:
+                if "initialization" in str(e).lower():
+                    pytest.fail(f"Unexpected initialization error in stateless mode: {e}")
+    finally:
+        # Clean up the streams to prevent ResourceWarning
+        await server_to_client_send.aclose()
+        await server_to_client_receive.aclose()
+        await client_to_server_send.aclose()
+        await client_to_server_receive.aclose()

@@ -87,6 +87,9 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     debug: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
+    # STDIO settings
+    stateless_stdio: bool = False
+
     # HTTP settings
     host: str = "127.0.0.1"
     port: int = 8000
@@ -597,6 +600,7 @@ class FastMCP:
                 read_stream,
                 write_stream,
                 self._mcp_server.create_initialization_options(),
+                stateless=self.settings.stateless_stdio
             )
 
     async def run_sse_async(self, mount_path: str | None = None) -> None:
