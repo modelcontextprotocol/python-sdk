@@ -369,7 +369,8 @@ class BaseSession(
                             request=validated_request,
                             session=self,
                             on_complete=lambda r: self._in_flight.pop(
-                                r.request_id, None),
+                                r.request_id, None
+                            ),
                             message_metadata=message.metadata,
                         )
                         self._in_flight[responder.request_id] = responder
@@ -394,7 +395,8 @@ class BaseSession(
                             ),
                         )
                         session_message = SessionMessage(
-                            message=JSONRPCMessage(error_response))
+                            message=JSONRPCMessage(error_response)
+                        )
                         await self._write_stream.send(session_message)
 
                 elif isinstance(message.message.root, JSONRPCNotification):
