@@ -2,6 +2,7 @@
 Tests for OAuth client authentication implementation.
 """
 
+import asyncio
 import base64
 import hashlib
 import time
@@ -15,6 +16,7 @@ from pydantic import AnyHttpUrl
 from mcp.client.auth import (
     ClientCredentialsProvider,
     OAuthClientProvider,
+    TokenExchangeProvider,
     _discover_oauth_metadata,
     _get_authorization_base_url,
 )
@@ -141,6 +143,16 @@ async def client_credentials_provider(client_credentials_metadata, mock_storage)
         server_url="https://api.example.com/v1/mcp",
         client_metadata=client_credentials_metadata,
         storage=mock_storage,
+    )
+
+
+@pytest.fixture
+async def token_exchange_provider(client_credentials_metadata, mock_storage):
+    return TokenExchangeProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_credentials_metadata,
+        storage=mock_storage,
+        subject_token_supplier=lambda: asyncio.sleep(0, result="user_token"),
     )
 
 
@@ -1064,3 +1076,36 @@ class TestClientCredentialsProvider:
             await auth_flow.asend(mock_response)
         except StopAsyncIteration:
             pass
+
+
+class TestTokenExchangeProvider:
+    @pytest.mark.anyio
+    async def test_request_token_success(
+        self,
+        token_exchange_provider,
+        oauth_metadata,
+        oauth_client_info,
+        oauth_token,
+    ):
+        token_exchange_provider._metadata = oauth_metadata
+        token_exchange_provider._client_info = oauth_client_info
+
+        token_json = oauth_token.model_dump(by_alias=True, mode="json")
+        token_json.pop("refresh_token", None)
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = token_json
+            mock_client.post.return_value = mock_response
+
+            await token_exchange_provider.ensure_token()
+
+            mock_client.post.assert_called_once()
+            assert (
+                token_exchange_provider._current_tokens.access_token
+                == oauth_token.access_token
+            )

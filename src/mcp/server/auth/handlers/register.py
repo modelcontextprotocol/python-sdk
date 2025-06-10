@@ -78,6 +78,7 @@ class RegistrationHandler:
         valid_sets = [
             {"authorization_code", "refresh_token"},
             {"client_credentials"},
+            {"urn:ietf:params:oauth:grant-type:token-exchange"},
         ]
 
         if grant_types_set not in valid_sets:
@@ -86,7 +87,7 @@ class RegistrationHandler:
                     error="invalid_client_metadata",
                     error_description=(
                         "grant_types must be authorization_code and refresh_token "
-                        "or client_credentials"
+                        "or client_credentials or token exchange"
                     ),
                 ),
                 status_code=400,

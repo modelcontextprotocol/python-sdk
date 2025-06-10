@@ -55,16 +55,39 @@ class ClientCredentialsRequest(BaseModel):
     client_secret: str | None = None
 
 
+class TokenExchangeRequest(BaseModel):
+    """RFC 8693 token exchange request."""
+
+    grant_type: Literal["urn:ietf:params:oauth:grant-type:token-exchange"]
+    subject_token: str = Field(..., description="Token to exchange")
+    subject_token_type: str = Field(..., description="Type of the subject token")
+    actor_token: str | None = Field(None, description="Optional actor token")
+    actor_token_type: str | None = Field(
+        None, description="Type of the actor token if provided"
+    )
+    resource: str | None = None
+    audience: str | None = None
+    scope: str | None = None
+    client_id: str
+    client_secret: str | None = None
+
+
 class TokenRequest(
     RootModel[
         Annotated[
-            AuthorizationCodeRequest | RefreshTokenRequest | ClientCredentialsRequest,
+            AuthorizationCodeRequest
+            | RefreshTokenRequest
+            | ClientCredentialsRequest
+            | TokenExchangeRequest,
             Field(discriminator="grant_type"),
         ]
     ]
 ):
     root: Annotated[
-        AuthorizationCodeRequest | RefreshTokenRequest | ClientCredentialsRequest,
+        AuthorizationCodeRequest
+        | RefreshTokenRequest
+        | ClientCredentialsRequest
+        | TokenExchangeRequest,
         Field(discriminator="grant_type"),
     ]
 
@@ -223,6 +246,27 @@ class TokenHandler:
                 try:
                     tokens = await self.provider.exchange_client_credentials(
                         client_info, scopes
+                    )
+                except TokenError as e:
+                    return self.response(
+                        TokenErrorResponse(
+                            error=e.error,
+                            error_description=e.error_description,
+                        )
+                    )
+
+            case TokenExchangeRequest():
+                scopes = token_request.scope.split(" ") if token_request.scope else []
+                try:
+                    tokens = await self.provider.exchange_token(
+                        client_info,
+                        token_request.subject_token,
+                        token_request.subject_token_type,
+                        token_request.actor_token,
+                        token_request.actor_token_type,
+                        scopes,
+                        token_request.audience,
+                        token_request.resource,
                     )
                 except TokenError as e:
                     return self.response(

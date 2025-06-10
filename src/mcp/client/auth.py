@@ -678,3 +678,90 @@ class ClientCredentialsProvider(httpx.Auth):
 
         if response.status_code == 401:
             self._current_tokens = None
+
+
+class TokenExchangeProvider(ClientCredentialsProvider):
+    """OAuth2 token exchange based on RFC 8693."""
+
+    def __init__(
+        self,
+        server_url: str,
+        client_metadata: OAuthClientMetadata,
+        storage: TokenStorage,
+        subject_token_supplier: Callable[[], Awaitable[str]],
+        subject_token_type: str = "urn:ietf:params:oauth:token-type:access_token",
+        actor_token_supplier: Callable[[], Awaitable[str]] | None = None,
+        actor_token_type: str | None = None,
+        audience: str | None = None,
+        resource: str | None = None,
+        timeout: float = 300.0,
+    ):
+        super().__init__(server_url, client_metadata, storage, timeout)
+        self.subject_token_supplier = subject_token_supplier
+        self.subject_token_type = subject_token_type
+        self.actor_token_supplier = actor_token_supplier
+        self.actor_token_type = actor_token_type
+        self.audience = audience
+        self.resource = resource
+
+    async def _request_token(self) -> None:
+        if not self._metadata:
+            self._metadata = await _discover_oauth_metadata(self.server_url)
+
+        client_info = await self._get_or_register_client()
+
+        if self._metadata and self._metadata.token_endpoint:
+            token_url = str(self._metadata.token_endpoint)
+        else:
+            auth_base_url = _get_authorization_base_url(self.server_url)
+            token_url = urljoin(auth_base_url, "/token")
+
+        subject_token = await self.subject_token_supplier()
+        actor_token = (
+            await self.actor_token_supplier() if self.actor_token_supplier else None
+        )
+
+        token_data = {
+            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+            "client_id": client_info.client_id,
+            "subject_token": subject_token,
+            "subject_token_type": self.subject_token_type,
+        }
+
+        if client_info.client_secret:
+            token_data["client_secret"] = client_info.client_secret
+
+        if actor_token:
+            token_data["actor_token"] = actor_token
+        if self.actor_token_type:
+            token_data["actor_token_type"] = self.actor_token_type
+        if self.audience:
+            token_data["audience"] = self.audience
+        if self.resource:
+            token_data["resource"] = self.resource
+        if self.client_metadata.scope:
+            token_data["scope"] = self.client_metadata.scope
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                token_url,
+                data=token_data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=30.0,
+            )
+
+        if response.status_code != 200:
+            raise Exception(
+                f"Token request failed: {response.status_code} {response.text}"
+            )
+
+        token_response = OAuthToken.model_validate(response.json())
+        await self._validate_token_scopes(token_response)
+
+        if token_response.expires_in:
+            self._token_expiry_time = time.time() + token_response.expires_in
+        else:
+            self._token_expiry_time = None
+
+        await self.storage.set_tokens(token_response)
+        self._current_tokens = token_response
