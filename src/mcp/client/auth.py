@@ -689,7 +689,7 @@ class TokenExchangeProvider(ClientCredentialsProvider):
         client_metadata: OAuthClientMetadata,
         storage: TokenStorage,
         subject_token_supplier: Callable[[], Awaitable[str]],
-        subject_token_type: str = "urn:ietf:params:oauth:token-type:access_token",
+        subject_token_type: str = "access_token",
         actor_token_supplier: Callable[[], Awaitable[str]] | None = None,
         actor_token_type: str | None = None,
         audience: str | None = None,
@@ -722,7 +722,7 @@ class TokenExchangeProvider(ClientCredentialsProvider):
         )
 
         token_data = {
-            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+            "grant_type": "token-exchange",
             "client_id": client_info.client_id,
             "subject_token": subject_token,
             "subject_token_type": self.subject_token_type,

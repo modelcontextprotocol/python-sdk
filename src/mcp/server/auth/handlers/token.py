@@ -58,7 +58,7 @@ class ClientCredentialsRequest(BaseModel):
 class TokenExchangeRequest(BaseModel):
     """RFC 8693 token exchange request."""
 
-    grant_type: Literal["urn:ietf:params:oauth:grant-type:token-exchange"]
+    grant_type: Literal["token-exchange"]
     subject_token: str = Field(..., description="Token to exchange")
     subject_token_type: str = Field(..., description="Type of the subject token")
     actor_token: str | None = Field(None, description="Optional actor token")

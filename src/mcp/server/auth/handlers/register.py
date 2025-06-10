@@ -78,7 +78,7 @@ class RegistrationHandler:
         valid_sets = [
             {"authorization_code", "refresh_token"},
             {"client_credentials"},
-            {"urn:ietf:params:oauth:grant-type:token-exchange"},
+            {"token-exchange"},
         ]
 
         if grant_types_set not in valid_sets:

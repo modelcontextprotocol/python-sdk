@@ -1362,14 +1362,14 @@ class TestAuthorizeEndpointErrors:
         assert response.status_code == 200
         metadata = response.json()
         assert (
-            "urn:ietf:params:oauth:grant-type:token-exchange"
+            "token-exchange"
             in metadata["grant_types_supported"]
         )
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(
         "registered_client",
-        [{"grant_types": ["urn:ietf:params:oauth:grant-type:token-exchange"]}],
+        [{"grant_types": ["token-exchange"]}],
         indirect=True,
     )
     async def test_token_exchange_success(
@@ -1378,11 +1378,11 @@ class TestAuthorizeEndpointErrors:
         response = await test_client.post(
             "/token",
             data={
-                "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                "grant_type": "token-exchange",
                 "client_id": registered_client["client_id"],
                 "client_secret": registered_client["client_secret"],
                 "subject_token": "good_token",
-                "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
+                "subject_token_type": "access_token",
             },
         )
         assert response.status_code == 200
@@ -1392,7 +1392,7 @@ class TestAuthorizeEndpointErrors:
     @pytest.mark.anyio
     @pytest.mark.parametrize(
         "registered_client",
-        [{"grant_types": ["urn:ietf:params:oauth:grant-type:token-exchange"]}],
+        [{"grant_types": ["token-exchange"]}],
         indirect=True,
     )
     async def test_token_exchange_invalid_subject(
@@ -1401,11 +1401,11 @@ class TestAuthorizeEndpointErrors:
         response = await test_client.post(
             "/token",
             data={
-                "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                "grant_type": "token-exchange",
                 "client_id": registered_client["client_id"],
                 "client_secret": registered_client["client_secret"],
                 "subject_token": "bad_token",
-                "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
+                "subject_token_type": "access_token",
             },
         )
         assert response.status_code == 400

@@ -46,7 +46,7 @@ class OAuthClientMetadata(BaseModel):
             "authorization_code",
             "refresh_token",
             "client_credentials",
-            "urn:ietf:params:oauth:grant-type:token-exchange",
+            "token-exchange",
         ]
     ] = [
         "authorization_code",
@@ -127,7 +127,7 @@ class OAuthMetadata(BaseModel):
                 "authorization_code",
                 "refresh_token",
                 "client_credentials",
-                "urn:ietf:params:oauth:grant-type:token-exchange",
+                "token-exchange",
             ]
         ]
         | None
