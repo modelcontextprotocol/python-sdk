@@ -1415,7 +1415,7 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
 async def test_client_includes_protocol_version_header_after_init(
     context_aware_server, basic_server_url
 ):
-    """Test that client includes MCP-Protocol-Version header after initialization."""
+    """Test that client includes mcp-protocol-version header after initialization."""
     async with streamablehttp_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
@@ -1435,7 +1435,7 @@ async def test_client_includes_protocol_version_header_after_init(
 
             # Verify protocol version header is present
             assert "mcp-protocol-version" in headers_data
-            assert headers_data["mcp-protocol-version"] == negotiated_version
+            assert headers_data[MCP_PROTOCOL_VERSION_HEADER] == negotiated_version
 
 
 def test_server_validates_protocol_version_header(basic_server, basic_server_url):
@@ -1518,7 +1518,7 @@ def test_server_backwards_compatibility_no_protocol_version(
     assert init_response.status_code == 200
     session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
 
-    # Test request without MCP-Protocol-Version header (backwards compatibility)
+    # Test request without mcp-protocol-version header (backwards compatibility)
     response = requests.post(
         f"{basic_server_url}/mcp",
         headers={
