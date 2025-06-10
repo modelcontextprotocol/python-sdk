@@ -858,8 +858,9 @@ async def main():
     # For machine-to-machine scenarios, use ClientCredentialsProvider
     # instead of OAuthClientProvider.
 
-    # If you already have a user token from another provider,
-    # you can exchange it for an MCP token using TokenExchangeProvider.
+    # If you already have a user token from another provider, you can
+    # exchange it for an MCP token using the token-exchange grant
+    # implemented by TokenExchangeProvider.
     token_exchange_auth = TokenExchangeProvider(
         server_url="https://api.example.com",
         client_metadata=OAuthClientMetadata(
