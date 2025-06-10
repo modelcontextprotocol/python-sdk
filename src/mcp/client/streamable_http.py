@@ -201,7 +201,8 @@ class StreamableHTTPTransport:
                 self.url,
                 headers=headers,
                 timeout=httpx.Timeout(
-                    self.timeout.seconds, read=self.sse_read_timeout.seconds
+                    self.timeout.total_seconds(),
+                    read=self.sse_read_timeout.total_seconds(),
                 ),
             ) as event_source:
                 event_source.response.raise_for_status()
@@ -232,7 +233,7 @@ class StreamableHTTPTransport:
             self.url,
             headers=headers,
             timeout=httpx.Timeout(
-                self.timeout.seconds, read=ctx.sse_read_timeout.seconds
+                self.timeout.total_seconds(), read=ctx.sse_read_timeout.total_seconds()
             ),
         ) as event_source:
             event_source.response.raise_for_status()
@@ -474,7 +475,8 @@ async def streamablehttp_client(
             async with httpx_client_factory(
                 headers=transport.request_headers,
                 timeout=httpx.Timeout(
-                    transport.timeout.seconds, read=transport.sse_read_timeout.seconds
+                    transport.timeout.total_seconds(),
+                    read=transport.sse_read_timeout.total_seconds(),
                 ),
                 auth=transport.auth,
             ) as client:

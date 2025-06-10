@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
-from pydantic import AnyHttpUrl, BaseModel, Field, RootModel, ValidationError
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, RootModel, ValidationError
 from starlette.requests import Request
 
 from mcp.server.auth.errors import (
@@ -27,7 +27,7 @@ class AuthorizationCodeRequest(BaseModel):
     # See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
     grant_type: Literal["authorization_code"]
     code: str = Field(..., description="The authorization code")
-    redirect_uri: AnyHttpUrl | None = Field(
+    redirect_uri: AnyUrl | None = Field(
         None, description="Must be the same as redirect URI provided in /authorize"
     )
     client_id: str

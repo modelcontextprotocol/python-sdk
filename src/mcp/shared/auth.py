@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import AnyHttpUrl, BaseModel, Field
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_validator
 
 
 class OAuthToken(BaseModel):
@@ -9,11 +9,20 @@ class OAuthToken(BaseModel):
     """
 
     access_token: str
-    token_type: Literal["bearer"] = "bearer"
+    token_type: Literal["Bearer"] = "Bearer"
     expires_in: int | None = None
     scope: str | None = None
     refresh_token: str | None = None
     issued_token_type: str | None = None
+
+    @field_validator("token_type", mode="before")
+    @classmethod
+    def normalize_token_type(cls, v: str | None) -> str | None:
+        if isinstance(v, str):
+            # Bearer is title-cased in the spec, so we normalize it
+            # https://datatracker.ietf.org/doc/html/rfc6750#section-4
+            return v.title()
+        return v
 
 
 class InvalidScopeError(Exception):
@@ -33,7 +42,7 @@ class OAuthClientMetadata(BaseModel):
     for the full specification.
     """
 
-    redirect_uris: list[AnyHttpUrl] = Field(..., min_length=1)
+    redirect_uris: list[AnyUrl] = Field(..., min_length=1)
     # token_endpoint_auth_method: this implementation only supports none &
     # client_secret_post;
     # ie: we do not support client_secret_basic
@@ -79,7 +88,7 @@ class OAuthClientMetadata(BaseModel):
                 raise InvalidScopeError(f"Client was not registered with scope {scope}")
         return requested_scopes
 
-    def validate_redirect_uri(self, redirect_uri: AnyHttpUrl | None) -> AnyHttpUrl:
+    def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
         if redirect_uri is not None:
             # Validate redirect_uri against client's registered redirect URIs
             if redirect_uri not in self.redirect_uris:
@@ -119,7 +128,7 @@ class OAuthMetadata(BaseModel):
     token_endpoint: AnyHttpUrl
     registration_endpoint: AnyHttpUrl | None = None
     scopes_supported: list[str] | None = None
-    response_types_supported: list[Literal["code"]] = ["code"]
+    response_types_supported: list[str] = ["code"]
     response_modes_supported: list[Literal["query", "fragment"]] | None = None
     grant_types_supported: (
         list[
@@ -141,13 +150,9 @@ class OAuthMetadata(BaseModel):
     op_policy_uri: AnyHttpUrl | None = None
     op_tos_uri: AnyHttpUrl | None = None
     revocation_endpoint: AnyHttpUrl | None = None
-    revocation_endpoint_auth_methods_supported: (
-        list[Literal["client_secret_post"]] | None
-    ) = None
+    revocation_endpoint_auth_methods_supported: list[str] | None = None
     revocation_endpoint_auth_signing_alg_values_supported: None = None
     introspection_endpoint: AnyHttpUrl | None = None
-    introspection_endpoint_auth_methods_supported: (
-        list[Literal["client_secret_post"]] | None
-    ) = None
+    introspection_endpoint_auth_methods_supported: list[str] | None = None
     introspection_endpoint_auth_signing_alg_values_supported: None = None
-    code_challenge_methods_supported: list[Literal["S256"]] | None = None
+    code_challenge_methods_supported: list[str] | None = None
