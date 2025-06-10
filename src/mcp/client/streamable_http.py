@@ -169,7 +169,7 @@ class StreamableHTTPTransport:
                     and resumption_callback
                     and not isinstance(message.root, JSONRPCResponse | JSONRPCError)
                 ):
-                    await resumption_callback(sse.id)
+                    await resumption_callback(sse.id.strip())
 
                 # If this is a response or error return True indicating completion
                 # Otherwise, return False to continue listening
@@ -218,7 +218,7 @@ class StreamableHTTPTransport:
         """Handle a resumption request using GET with SSE."""
         headers = self._update_headers_with_session(ctx.headers)
         if ctx.metadata and ctx.metadata.resumption_token:
-            headers[LAST_EVENT_ID] = ctx.metadata.resumption_token
+            headers[LAST_EVENT_ID] = ctx.metadata.resumption_token.strip()
         else:
             raise ResumptionError("Resumption request requires a resumption token")
 
