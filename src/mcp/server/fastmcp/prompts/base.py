@@ -7,9 +7,9 @@ from typing import Any, Literal
 import pydantic_core
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
-from mcp.types import EmbeddedResource, ImageContent, TextContent
+from mcp.types import AudioContent, EmbeddedResource, ImageContent, TextContent
 
-CONTENT_TYPES = TextContent | ImageContent | EmbeddedResource
+CONTENT_TYPES = TextContent | ImageContent | AudioContent | EmbeddedResource
 
 
 class Message(BaseModel):

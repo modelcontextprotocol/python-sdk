@@ -1,17 +1,19 @@
 import anyio
 import click
-import httpx
 import mcp.types as types
 from mcp.server.lowlevel import Server
+from mcp.shared._httpx_utils import create_mcp_http_client
 
 
 async def fetch_website(
     url: str,
-) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+) -> list[
+    types.TextContent | types.ImageContent | types.AudioContent | types.EmbeddedResource
+]:
     headers = {
         "User-Agent": "MCP Test Server (github.com/modelcontextprotocol/python-sdk)"
     }
-    async with httpx.AsyncClient(follow_redirects=True, headers=headers) as client:
+    async with create_mcp_http_client(headers=headers) as client:
         response = await client.get(url)
         response.raise_for_status()
         return [types.TextContent(type="text", text=response.text)]
@@ -31,7 +33,12 @@ def main(port: int, transport: str) -> int:
     @app.call_tool()
     async def fetch_tool(
         name: str, arguments: dict
-    ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+    ) -> list[
+        types.TextContent
+        | types.ImageContent
+        | types.AudioContent
+        | types.EmbeddedResource
+    ]:
         if name != "fetch":
             raise ValueError(f"Unknown tool: {name}")
         if "url" not in arguments:
@@ -84,7 +91,7 @@ def main(port: int, transport: str) -> int:
 
         import uvicorn
 
-        uvicorn.run(starlette_app, host="0.0.0.0", port=port)
+        uvicorn.run(starlette_app, host="127.0.0.1", port=port)
     else:
         from mcp.server.stdio import stdio_server
 

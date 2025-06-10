@@ -245,7 +245,7 @@ class LLMClient:
         }
         payload = {
             "messages": messages,
-            "model": "llama-3.2-90b-vision-preview",
+            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
             "temperature": 0.7,
             "max_tokens": 4096,
             "top_p": 1,
@@ -284,12 +284,9 @@ class ChatSession:
 
     async def cleanup_servers(self) -> None:
         """Clean up all servers properly."""
-        cleanup_tasks = [
-            asyncio.create_task(server.cleanup()) for server in self.servers
-        ]
-        if cleanup_tasks:
+        for server in reversed(self.servers):
             try:
-                await asyncio.gather(*cleanup_tasks, return_exceptions=True)
+                await server.cleanup()
             except Exception as e:
                 logging.warning(f"Warning during final cleanup: {e}")
 
