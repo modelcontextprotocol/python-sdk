@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
-from pydantic import AnyHttpUrl
+from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import (
     ClientCredentialsProvider,
@@ -91,6 +91,7 @@ def oauth_metadata():
             "authorization_code",
             "refresh_token",
             "client_credentials",
+            "token-exchange",
         ],
         code_challenge_methods_supported=["S256"],
     )
@@ -1014,6 +1015,7 @@ def test_build_metadata(
             "authorization_code",
             "refresh_token",
             "client_credentials",
+            "token-exchange",
         ],
         token_endpoint_auth_methods_supported=["client_secret_post"],
         service_documentation=AnyHttpUrl(service_documentation_url),
