@@ -600,7 +600,7 @@ class FastMCP:
                 read_stream,
                 write_stream,
                 self._mcp_server.create_initialization_options(),
-                stateless=self.settings.stateless_stdio
+                stateless=self.settings.stateless_stdio,
             )
 
     async def run_sse_async(self, mount_path: str | None = None) -> None:

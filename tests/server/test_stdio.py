@@ -79,7 +79,7 @@ async def test_stateless_stdio():
     """Test that stateless stdio mode allows tool calls without initialization."""
     with tempfile.TemporaryDirectory() as temp_dir:
         server_path = Path(temp_dir) / "server.py"
-        
+
         with open(server_path, "w") as f:
             f.write("""
 from mcp.server.fastmcp import FastMCP

@@ -295,7 +295,8 @@ async def test_server_session_stateless_mode():
                 await server_session._received_request(responder)
             except RuntimeError as e:
                 if "initialization" in str(e).lower():
-                    pytest.fail(f"Unexpected initialization error in stateless mode: {e}")
+                    msg = f"Unexpected initialization error in stateless mode: {e}"
+                    pytest.fail(msg)
     finally:
         # Clean up the streams to prevent ResourceWarning
         await server_to_client_send.aclose()
