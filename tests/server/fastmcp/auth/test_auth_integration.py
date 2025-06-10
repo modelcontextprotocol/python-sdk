@@ -20,6 +20,7 @@ from mcp.server.auth.provider import (
     AuthorizationParams,
     OAuthAuthorizationServerProvider,
     RefreshToken,
+    TokenError,
     construct_redirect_uri,
 )
 from mcp.server.auth.routes import (
@@ -181,6 +182,34 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider):
             token_type="bearer",
             expires_in=3600,
             scope=" ".join(scopes),
+        )
+
+    async def exchange_token(
+        self,
+        client: OAuthClientInformationFull,
+        subject_token: str,
+        subject_token_type: str,
+        actor_token: str | None,
+        actor_token_type: str | None,
+        scope: list[str] | None,
+        audience: str | None,
+        resource: str | None,
+    ) -> OAuthToken:
+        if subject_token == "bad_token":
+            raise TokenError("invalid_grant", "invalid subject token")
+
+        access_token = f"exchanged_{secrets.token_hex(32)}"
+        self.tokens[access_token] = AccessToken(
+            token=access_token,
+            client_id=client.client_id,
+            scopes=scope or ["read"],
+            expires_at=int(time.time()) + 3600,
+        )
+        return OAuthToken(
+            access_token=access_token,
+            token_type="bearer",
+            expires_in=3600,
+            scope=" ".join(scope or ["read"]),
         )
 
     async def load_access_token(self, token: str) -> AccessToken | None:
@@ -1324,3 +1353,61 @@ class TestAuthorizeEndpointErrors:
         assert response.status_code == 200
         data = response.json()
         assert "access_token" in data
+
+    @pytest.mark.anyio
+    async def test_metadata_includes_token_exchange(
+        self, test_client: httpx.AsyncClient
+    ):
+        response = await test_client.get("/.well-known/oauth-authorization-server")
+        assert response.status_code == 200
+        metadata = response.json()
+        assert (
+            "urn:ietf:params:oauth:grant-type:token-exchange"
+            in metadata["grant_types_supported"]
+        )
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "registered_client",
+        [{"grant_types": ["urn:ietf:params:oauth:grant-type:token-exchange"]}],
+        indirect=True,
+    )
+    async def test_token_exchange_success(
+        self, test_client: httpx.AsyncClient, registered_client
+    ):
+        response = await test_client.post(
+            "/token",
+            data={
+                "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                "client_id": registered_client["client_id"],
+                "client_secret": registered_client["client_secret"],
+                "subject_token": "good_token",
+                "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "access_token" in data
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "registered_client",
+        [{"grant_types": ["urn:ietf:params:oauth:grant-type:token-exchange"]}],
+        indirect=True,
+    )
+    async def test_token_exchange_invalid_subject(
+        self, test_client: httpx.AsyncClient, registered_client
+    ):
+        response = await test_client.post(
+            "/token",
+            data={
+                "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                "client_id": registered_client["client_id"],
+                "client_secret": registered_client["client_secret"],
+                "subject_token": "bad_token",
+                "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
+            },
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data["error"] == "invalid_grant"

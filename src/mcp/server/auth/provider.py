@@ -80,6 +80,7 @@ TokenErrorCode = Literal[
     "unauthorized_client",
     "unsupported_grant_type",
     "invalid_scope",
+    "invalid_target",
 ]
 
 
@@ -251,6 +252,20 @@ class OAuthAuthorizationServerProvider(
         self, client: OAuthClientInformationFull, scopes: list[str]
     ) -> OAuthToken:
         """Exchange client credentials for an access token."""
+        ...
+
+    async def exchange_token(
+        self,
+        client: OAuthClientInformationFull,
+        subject_token: str,
+        subject_token_type: str,
+        actor_token: str | None,
+        actor_token_type: str | None,
+        scope: list[str] | None,
+        audience: str | None,
+        resource: str | None,
+    ) -> OAuthToken:
+        """Exchange an external token for an MCP access token."""
         ...
 
     async def load_access_token(self, token: str) -> AccessTokenT | None:

@@ -13,6 +13,7 @@ class OAuthToken(BaseModel):
     expires_in: int | None = None
     scope: str | None = None
     refresh_token: str | None = None
+    issued_token_type: str | None = None
 
 
 class InvalidScopeError(Exception):
@@ -41,7 +42,12 @@ class OAuthClientMetadata(BaseModel):
     )
     # grant_types: support authorization_code, refresh_token, client_credentials
     grant_types: list[
-        Literal["authorization_code", "refresh_token", "client_credentials"]
+        Literal[
+            "authorization_code",
+            "refresh_token",
+            "client_credentials",
+            "urn:ietf:params:oauth:grant-type:token-exchange",
+        ]
     ] = [
         "authorization_code",
         "refresh_token",
@@ -121,6 +127,7 @@ class OAuthMetadata(BaseModel):
                 "authorization_code",
                 "refresh_token",
                 "client_credentials",
+                "urn:ietf:params:oauth:grant-type:token-exchange",
             ]
         ]
         | None
