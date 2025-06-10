@@ -417,6 +417,7 @@ class TestAuthEndpoints:
             "authorization_code",
             "refresh_token",
             "client_credentials",
+            "token-exchange",
         ]
         assert metadata["service_documentation"] == "https://docs.example.com/"
 
@@ -1030,7 +1031,7 @@ class TestAuthEndpoints:
         assert error_data["error"] == "invalid_client_metadata"
         assert error_data["error_description"] == (
             "grant_types must be authorization_code and "
-            "refresh_token or client_credentials"
+            "refresh_token or client_credentials or token exchange"
         )
 
     @pytest.mark.anyio
@@ -1361,10 +1362,7 @@ class TestAuthorizeEndpointErrors:
         response = await test_client.get("/.well-known/oauth-authorization-server")
         assert response.status_code == 200
         metadata = response.json()
-        assert (
-            "token-exchange"
-            in metadata["grant_types_supported"]
-        )
+        assert "token-exchange" in metadata["grant_types_supported"]
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(
