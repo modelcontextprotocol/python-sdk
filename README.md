@@ -73,7 +73,7 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 
 ### Adding MCP to your python project
 
-We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python projects. 
+We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python projects.
 
 If you haven't created a uv-managed project yet, create one:
 
@@ -89,6 +89,7 @@ If you haven't created a uv-managed project yet, create one:
    ```
 
 Alternatively, for projects using pip for dependencies:
+
 ```bash
 pip install "mcp[cli]"
 ```
@@ -128,11 +129,13 @@ def get_greeting(name: str) -> str:
 ```
 
 You can install this server in [Claude Desktop](https://claude.ai/download) and interact with it right away by running:
+
 ```bash
 mcp install server.py
 ```
 
 Alternatively, you can test it with the MCP Inspector:
+
 ```bash
 mcp dev server.py
 ```
@@ -245,6 +248,144 @@ async def fetch_weather(city: str) -> str:
         response = await client.get(f"https://api.weather.com/{city}")
         return response.text
 ```
+
+#### Output Schemas
+
+Tools automatically generate JSON Schema definitions for their return types, helping LLMs understand the structure of the data they'll receive. FastMCP also enhances these schemas with semantic metadata that enables intelligent UI rendering and data formatting.
+
+##### Basic Schema Generation
+
+```python
+from pydantic import BaseModel
+from mcp.server.fastmcp import FastMCP
+
+# Create server
+mcp = FastMCP("Output Schema Demo")
+
+
+# Tools with primitive return types
+@mcp.tool()
+def get_temperature(city: str) -> float:
+    """Get the current temperature for a city"""
+    # In a real implementation, this would fetch actual weather data
+    return 72.5
+
+
+# Tools with dictionary return types
+@mcp.tool()
+def get_user(user_id: int) -> dict:
+    """Get user information by ID"""
+    return {"id": user_id, "name": "John Doe", "email": "john@example.com"}
+
+
+# Using Pydantic models for structured output
+class WeatherData(BaseModel):
+    temperature: float
+    humidity: float
+    conditions: str
+
+
+@mcp.tool()
+def get_weather_data(city: str) -> WeatherData:
+    """Get structured weather data for a city"""
+    # In a real implementation, this would fetch actual weather data
+    return WeatherData(
+        temperature=72.5,
+        humidity=65.0,
+        conditions="Partly cloudy",
+    )
+
+
+# Complex nested models
+class Location(BaseModel):
+    city: str
+    country: str
+    coordinates: tuple[float, float]
+
+
+class WeatherForecast(BaseModel):
+    current: WeatherData
+    location: Location
+    forecast: list[WeatherData]
+
+
+@mcp.tool()
+def get_weather_forecast(city: str) -> WeatherForecast:
+    """Get detailed weather forecast for a city"""
+    # In a real implementation, this would fetch actual weather data
+    return WeatherForecast(
+        current=WeatherData(
+            temperature=72.5,
+            humidity=65.0,
+            conditions="Partly cloudy",
+        ),
+        location=Location(city=city, country="USA", coordinates=(37.7749, -122.4194)),
+        forecast=[
+            WeatherData(temperature=75.0, humidity=62.0, conditions="Sunny"),
+            WeatherData(temperature=68.0, humidity=80.0, conditions="Rainy"),
+        ],
+    )
+```
+
+##### Semantic Metadata Enhancement
+
+FastMCP automatically enhances output schemas with semantic metadata by analyzing field names and types. This helps client applications provide intelligent UI rendering and formatting:
+
+```python
+from pydantic import BaseModel
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("Enhanced Schema Demo")
+
+
+class UserProfile(BaseModel):
+    email: str  # Automatically detected as semantic_type: "email"
+    profile_url: str  # Automatically detected as semantic_type: "url"
+    avatar_image: str  # Automatically detected as semantic_type: "image_url"
+    created_date: str  # Automatically detected as semantic_type: "datetime"
+    account_balance: float  # Automatically detected as semantic_type: "currency"
+    completion_percentage: (
+        float  # Automatically detected as semantic_type: "percentage"
+    )
+    primary_color: str  # Automatically detected as semantic_type: "color"
+
+
+@mcp.tool()
+def get_user_profile(user_id: str) -> UserProfile:
+    """Get user profile with semantic field types"""
+    return UserProfile(
+        email="user@example.com",
+        profile_url="https://example.com/users/12345",
+        avatar_image="https://example.com/avatars/user.jpg",
+        created_date="2023-06-15T10:30:00Z",
+        account_balance=150.75,
+        completion_percentage=85.5,
+        primary_color="#3498db",
+    )
+```
+
+**Supported Semantic Types:**
+
+- `email` - Email addresses
+- `url`, `link` - Web URLs and links
+- `image_url`, `audio_url`, `video_url` - Media URLs
+- `datetime` - Date and time fields (with subtypes like `date`, `time`, `timestamp`)
+- `currency`, `money` - Monetary values
+- `percentage` - Percentage values
+- `color` - Color codes and values
+- `phone` - Phone numbers
+- `status` - Status indicators
+- `media_format` - File format detection for audio/video/image files
+
+**Benefits for Client Applications:**
+
+- Email fields can display mail icons and validation
+- URLs become clickable links with preview capabilities
+- Date fields get appropriate date pickers and formatting
+- Currency fields show proper monetary formatting
+- Media URLs can display thumbnails or players
+- Status fields can show colored indicators
+- Percentage fields can render as progress bars
 
 ### Prompts
 
@@ -397,6 +538,7 @@ if __name__ == "__main__":
 ```
 
 Run it with:
+
 ```bash
 python server.py
 # or
@@ -474,10 +616,12 @@ app.mount("/math", math.mcp.streamable_http_app())
 ```
 
 For low level server with Streamable HTTP implementations, see:
+
 - Stateful server: [`examples/servers/simple-streamablehttp/`](examples/servers/simple-streamablehttp/)
 - Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](examples/servers/simple-streamablehttp-stateless/)
 
 The streamable HTTP transport supports:
+
 - Stateful and stateless operation modes
 - Resumability with event stores
 - JSON or SSE response formats
@@ -650,6 +794,7 @@ async def query_db(name: str, arguments: dict) -> list:
 ```
 
 The lifespan API provides:
+
 - A way to initialize resources when the server starts and clean them up when it stops
 - Access to initialized resources through the request context in handlers
 - Type-safe context passing between lifespan and request handlers
@@ -861,7 +1006,6 @@ async def main():
 ```
 
 For a complete working example, see [`examples/clients/simple-auth-client/`](examples/clients/simple-auth-client/).
-
 
 ### MCP Primitives
 
