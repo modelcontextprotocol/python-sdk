@@ -12,6 +12,9 @@ from pydantic import BaseModel, Field
 
 import mcp.types as types
 from mcp.shared.message import SessionMessage
+import logging
+
+logger = logging.getLogger(__name__)
 
 from .win32 import (
     create_windows_process,
@@ -149,6 +152,9 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                         try:
                             message = types.JSONRPCMessage.model_validate_json(line)
                         except Exception as exc:
+                            logger.error(
+                                f"Failed to parse JSONRPC message from server: {line}, exception: {exc}",
+                            )
                             await read_stream_writer.send(exc)
                             continue
 
