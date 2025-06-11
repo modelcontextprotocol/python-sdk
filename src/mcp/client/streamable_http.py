@@ -106,9 +106,7 @@ class StreamableHTTPTransport:
             **self.headers,
         }
 
-    def _update_headers_with_session(
-        self, base_headers: dict[str, str]
-    ) -> dict[str, str]:
+    def _update_headers_with_session(self, base_headers: dict[str, str]) -> dict[str, str]:
         """Update headers with session ID if available."""
         headers = base_headers.copy()
         if self.session_id:
@@ -117,17 +115,11 @@ class StreamableHTTPTransport:
 
     def _is_initialization_request(self, message: JSONRPCMessage) -> bool:
         """Check if the message is an initialization request."""
-        return (
-            isinstance(message.root, JSONRPCRequest)
-            and message.root.method == "initialize"
-        )
+        return isinstance(message.root, JSONRPCRequest) and message.root.method == "initialize"
 
     def _is_initialized_notification(self, message: JSONRPCMessage) -> bool:
         """Check if the message is an initialized notification."""
-        return (
-            isinstance(message.root, JSONRPCNotification)
-            and message.root.method == "notifications/initialized"
-        )
+        return isinstance(message.root, JSONRPCNotification) and message.root.method == "notifications/initialized"
 
     def _maybe_extract_session_id_from_response(
         self,
@@ -153,9 +145,7 @@ class StreamableHTTPTransport:
                 logger.debug(f"SSE message: {message}")
 
                 # If this is a response and we have original_request_id, replace it
-                if original_request_id is not None and isinstance(
-                    message.root, JSONRPCResponse | JSONRPCError
-                ):
+                if original_request_id is not None and isinstance(message.root, JSONRPCResponse | JSONRPCError):
                     message.root.id = original_request_id
 
                 session_message = SessionMessage(message)
@@ -195,7 +185,8 @@ class StreamableHTTPTransport:
                 self.url,
                 headers=headers,
                 timeout=httpx.Timeout(
-                    self.timeout.seconds, read=self.sse_read_timeout.seconds
+                    self.timeout.total_seconds(),
+                    read=self.sse_read_timeout.total_seconds(),
                 ),
             ) as event_source:
                 event_source.response.raise_for_status()
@@ -226,7 +217,8 @@ class StreamableHTTPTransport:
             self.url,
             headers=headers,
             timeout=httpx.Timeout(
-                self.timeout.seconds, read=ctx.sse_read_timeout.seconds
+                self.timeout.total_seconds(),
+                read=ctx.sse_read_timeout.total_seconds(),
             ),
         ) as event_source:
             event_source.response.raise_for_status()
@@ -297,9 +289,7 @@ class StreamableHTTPTransport:
             logger.error(f"Error parsing JSON response: {exc}")
             await read_stream_writer.send(exc)
 
-    async def _handle_sse_response(
-        self, response: httpx.Response, ctx: RequestContext
-    ) -> None:
+    async def _handle_sse_response(self, response: httpx.Response, ctx: RequestContext) -> None:
         """Handle SSE response from the server."""
         try:
             event_source = EventSource(response)
@@ -307,11 +297,7 @@ class StreamableHTTPTransport:
                 is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
-                    resumption_callback=(
-                        ctx.metadata.on_resumption_token_update
-                        if ctx.metadata
-                        else None
-                    ),
+                    resumption_callback=(ctx.metadata.on_resumption_token_update if ctx.metadata else None),
                 )
                 # If the SSE event indicates completion, like returning respose/error
                 # break the loop
@@ -454,12 +440,8 @@ async def streamablehttp_client(
     """
     transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout, auth)
 
-    read_stream_writer, read_stream = anyio.create_memory_object_stream[
-        SessionMessage | Exception
-    ](0)
-    write_stream, write_stream_reader = anyio.create_memory_object_stream[
-        SessionMessage
-    ](0)
+    read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+    write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
     async with anyio.create_task_group() as tg:
         try:
@@ -468,15 +450,14 @@ async def streamablehttp_client(
             async with httpx_client_factory(
                 headers=transport.request_headers,
                 timeout=httpx.Timeout(
-                    transport.timeout.seconds, read=transport.sse_read_timeout.seconds
+                    transport.timeout.total_seconds(),
+                    read=transport.sse_read_timeout.total_seconds(),
                 ),
                 auth=transport.auth,
             ) as client:
                 # Define callbacks that need access to tg
                 def start_get_stream() -> None:
-                    tg.start_soon(
-                        transport.handle_get_stream, client, read_stream_writer
-                    )
+                    tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
 
                 tg.start_soon(
                     transport.post_writer,

@@ -7,9 +7,9 @@ from typing import Any, Literal
 import pydantic_core
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
-from mcp.types import EmbeddedResource, ImageContent, TextContent
+from mcp.types import AudioContent, EmbeddedResource, ImageContent, TextContent
 
-CONTENT_TYPES = TextContent | ImageContent | EmbeddedResource
+CONTENT_TYPES = TextContent | ImageContent | AudioContent | EmbeddedResource
 
 
 class Message(BaseModel):
@@ -42,13 +42,9 @@ class AssistantMessage(Message):
         super().__init__(content=content, **kwargs)
 
 
-message_validator = TypeAdapter[UserMessage | AssistantMessage](
-    UserMessage | AssistantMessage
-)
+message_validator = TypeAdapter[UserMessage | AssistantMessage](UserMessage | AssistantMessage)
 
-SyncPromptResult = (
-    str | Message | dict[str, Any] | Sequence[str | Message | dict[str, Any]]
-)
+SyncPromptResult = str | Message | dict[str, Any] | Sequence[str | Message | dict[str, Any]]
 PromptResult = SyncPromptResult | Awaitable[SyncPromptResult]
 
 
@@ -56,24 +52,16 @@ class PromptArgument(BaseModel):
     """An argument that can be passed to a prompt."""
 
     name: str = Field(description="Name of the argument")
-    description: str | None = Field(
-        None, description="Description of what the argument does"
-    )
-    required: bool = Field(
-        default=False, description="Whether the argument is required"
-    )
+    description: str | None = Field(None, description="Description of what the argument does")
+    required: bool = Field(default=False, description="Whether the argument is required")
 
 
 class Prompt(BaseModel):
     """A prompt template that can be rendered with parameters."""
 
     name: str = Field(description="Name of the prompt")
-    description: str | None = Field(
-        None, description="Description of what the prompt does"
-    )
-    arguments: list[PromptArgument] | None = Field(
-        None, description="Arguments that can be passed to the prompt"
-    )
+    description: str | None = Field(None, description="Description of what the prompt does")
+    arguments: list[PromptArgument] | None = Field(None, description="Arguments that can be passed to the prompt")
     fn: Callable[..., PromptResult | Awaitable[PromptResult]] = Field(exclude=True)
 
     @classmethod
@@ -154,14 +142,10 @@ class Prompt(BaseModel):
                         content = TextContent(type="text", text=msg)
                         messages.append(UserMessage(content=content))
                     else:
-                        content = pydantic_core.to_json(
-                            msg, fallback=str, indent=2
-                        ).decode()
+                        content = pydantic_core.to_json(msg, fallback=str, indent=2).decode()
                         messages.append(Message(role="user", content=content))
                 except Exception:
-                    raise ValueError(
-                        f"Could not convert prompt result to message: {msg}"
-                    )
+                    raise ValueError(f"Could not convert prompt result to message: {msg}")
 
             return messages
         except Exception as e:
