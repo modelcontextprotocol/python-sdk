@@ -11,11 +11,7 @@ from anyio.abc import TaskStatus
 from mcp.client.session import ClientSession
 from mcp.server.lowlevel import Server
 from mcp.shared.exceptions import McpError
-from mcp.types import (
-    EmbeddedResource,
-    ImageContent,
-    TextContent,
-)
+from mcp.types import AudioContent, EmbeddedResource, ImageContent, TextContent
 
 
 @pytest.mark.anyio
@@ -35,7 +31,7 @@ async def test_notification_validation_error(tmp_path: Path):
     slow_request_complete = anyio.Event()
 
     @server.call_tool()
-    async def slow_tool(name: str, arg) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+    async def slow_tool(name: str, arg) -> Sequence[TextContent | ImageContent | AudioContent | EmbeddedResource]:
         nonlocal request_count
         request_count += 1
 

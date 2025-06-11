@@ -384,7 +384,9 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(
             func: Callable[
                 ...,
-                Awaitable[Iterable[types.TextContent | types.ImageContent | types.EmbeddedResource]],
+                Awaitable[
+                    Iterable[types.TextContent | types.ImageContent | types.AudioContent | types.EmbeddedResource]
+                ],
             ],
         ):
             logger.debug("Registering handler for CallToolRequest")
@@ -510,9 +512,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     await self._handle_notification(notify)
 
             for warning in w:
-                logger.info(
-                    "Warning: %s: %s", warning.category.__name__, warning.message
-                )
+                logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
 
     async def _handle_request(
         self,

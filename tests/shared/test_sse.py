@@ -8,12 +8,14 @@ import anyio
 import httpx
 import pytest
 import uvicorn
+from inline_snapshot import snapshot
 from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
 
+import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.server import Server
@@ -452,3 +454,17 @@ async def test_request_context_isolation(context_server: None, server_url: str) 
         assert ctx["request_id"] == f"request-{i}"
         assert ctx["headers"].get("x-request-id") == f"request-{i}"
         assert ctx["headers"].get("x-custom-value") == f"value-{i}"
+
+
+def test_sse_message_id_coercion():
+    """Test that string message IDs that look like integers are parsed as integers.
+
+    See <https://github.com/modelcontextprotocol/python-sdk/pull/851> for more details.
+    """
+    json_message = '{"jsonrpc": "2.0", "id": "123", "method": "ping", "params": null}'
+    msg = types.JSONRPCMessage.model_validate_json(json_message)
+    assert msg == snapshot(
+        types.JSONRPCMessage(
+            root=types.JSONRPCRequest(method="ping", jsonrpc="2.0", id=123)
+        )
+    )

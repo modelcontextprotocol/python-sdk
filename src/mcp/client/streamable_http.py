@@ -184,7 +184,10 @@ class StreamableHTTPTransport:
                 "GET",
                 self.url,
                 headers=headers,
-                timeout=httpx.Timeout(self.timeout.seconds, read=self.sse_read_timeout.seconds),
+                timeout=httpx.Timeout(
+                    self.timeout.total_seconds(),
+                    read=self.sse_read_timeout.total_seconds(),
+                ),
             ) as event_source:
                 event_source.response.raise_for_status()
                 logger.debug("GET SSE connection established")
@@ -213,7 +216,10 @@ class StreamableHTTPTransport:
             "GET",
             self.url,
             headers=headers,
-            timeout=httpx.Timeout(self.timeout.seconds, read=ctx.sse_read_timeout.seconds),
+            timeout=httpx.Timeout(
+                self.timeout.total_seconds(),
+                read=ctx.sse_read_timeout.total_seconds(),
+            ),
         ) as event_source:
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
@@ -443,7 +449,10 @@ async def streamablehttp_client(
 
             async with httpx_client_factory(
                 headers=transport.request_headers,
-                timeout=httpx.Timeout(transport.timeout.seconds, read=transport.sse_read_timeout.seconds),
+                timeout=httpx.Timeout(
+                    transport.timeout.total_seconds(),
+                    read=transport.sse_read_timeout.total_seconds(),
+                ),
                 auth=transport.auth,
             ) as client:
                 # Define callbacks that need access to tg

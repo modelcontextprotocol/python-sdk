@@ -207,7 +207,7 @@ class SimpleGitHubOAuthProvider(OAuthAuthorizationServerProvider):
 
         return OAuthToken(
             access_token=mcp_token,
-            token_type="bearer",
+            token_type="Bearer",
             expires_in=3600,
             scope=" ".join(authorization_code.scopes),
         )
