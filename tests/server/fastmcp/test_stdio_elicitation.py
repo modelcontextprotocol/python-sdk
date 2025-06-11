@@ -3,6 +3,7 @@ Test the elicitation feature using stdio transport.
 """
 
 import pytest
+from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
@@ -18,25 +19,27 @@ async def test_stdio_elicitation():
 
     @mcp.tool(description="A tool that uses elicitation")
     async def ask_user(prompt: str, ctx: Context) -> str:
-        schema = {
-            "type": "object",
-            "properties": {
-                "answer": {"type": "string"},
-            },
-            "required": ["answer"],
-        }
+        class AnswerSchema(BaseModel):
+            answer: str = Field(description="The user's answer to the question")
 
-        response = await ctx.elicit(
-            message=f"Tool wants to ask: {prompt}",
-            requestedSchema=schema,
-        )
-        return f"User answered: {response['answer']}"
+        try:
+            result = await ctx.elicit(
+                message=f"Tool wants to ask: {prompt}",
+                schema=AnswerSchema,
+            )
+            return f"User answered: {result.answer}"
+        except Exception as e:
+            # Handle cancellation or decline
+            if "declined" in str(e):
+                return "User declined to answer"
+            else:
+                return "User cancelled"
 
     # Create a custom handler for elicitation requests
     async def elicitation_callback(context, params):
         # Verify the elicitation parameters
         if params.message == "Tool wants to ask: What is your name?":
-            return ElicitResult(content={"answer": "Test User"})
+            return ElicitResult(action="accept", content={"answer": "Test User"})
         else:
             raise ValueError(f"Unexpected elicitation message: {params.message}")
 
@@ -49,9 +52,7 @@ async def test_stdio_elicitation():
         assert result.serverInfo.name == "StdioElicitationServer"
 
         # Call the tool that uses elicitation
-        tool_result = await client_session.call_tool(
-            "ask_user", {"prompt": "What is your name?"}
-        )
+        tool_result = await client_session.call_tool("ask_user", {"prompt": "What is your name?"})
 
         # Verify the result
         assert len(tool_result.content) == 1

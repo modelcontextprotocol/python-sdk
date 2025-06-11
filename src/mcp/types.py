@@ -1194,16 +1194,16 @@ class ClientNotification(
     pass
 
 
+# Type for elicitation schema - a JSON Schema dict
+ElicitRequestedSchema: TypeAlias = dict[str, Any]
+"""Schema for elicitation requests."""
+
+
 class ElicitRequestParams(RequestParams):
     """Parameters for elicitation requests."""
 
     message: str
-    """The message to present to the user."""
-
-    requestedSchema: dict[str, Any]
-    """
-    A JSON Schema object defining the expected structure of the response.
-    """
+    requestedSchema: ElicitRequestedSchema
     model_config = ConfigDict(extra="allow")
 
 
@@ -1215,10 +1215,21 @@ class ElicitRequest(Request[ElicitRequestParams, Literal["elicitation/create"]])
 
 
 class ElicitResult(Result):
-    """The client's response to an elicitation/create request from the server."""
+    """The client's response to an elicitation request."""
 
-    content: dict[str, Any]
-    """The response from the client, matching the structure of requestedSchema."""
+    action: Literal["accept", "decline", "cancel"]
+    """
+    The user action in response to the elicitation.
+    - "accept": User submitted the form/confirmed the action
+    - "decline": User explicitly declined the action
+    - "cancel": User dismissed without making an explicit choice
+    """
+
+    content: dict[str, str | int | float | bool | None] | None = None
+    """
+    The submitted form data, only present when action is "accept".
+    Contains values matching the requested schema.
+    """
 
 
 class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult]):

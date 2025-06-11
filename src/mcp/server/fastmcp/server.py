@@ -10,11 +10,11 @@ from contextlib import (
     asynccontextmanager,
 )
 from itertools import chain
-from typing import Any, Generic, Literal
+from typing import Any, Generic, Literal, TypeVar
 
 import anyio
 import pydantic_core
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
@@ -64,6 +64,8 @@ from mcp.types import ResourceTemplate as MCPResourceTemplate
 from mcp.types import Tool as MCPTool
 
 logger = get_logger(__name__)
+
+ElicitedModelT = TypeVar("ElicitedModelT", bound=BaseModel)
 
 
 class Settings(BaseSettings, Generic[LifespanResultT]):
@@ -975,35 +977,48 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     async def elicit(
         self,
         message: str,
-        requestedSchema: dict[str, Any],
-    ) -> dict[str, Any]:
+        schema: type[ElicitedModelT],
+    ) -> ElicitedModelT:
         """Elicit information from the client/user.
 
         This method can be used to interactively ask for additional information from the
-        client within a tool's execution.
-        The client might display the message to the user and collect a response
-        according to the provided schema. Or in case a client is an agent, it might
-        decide how to handle the elicitation -- either by asking the user or
-        automatically generating a response.
+        client within a tool's execution. The client might display the message to the
+        user and collect a response according to the provided schema. Or in case a
+        client
+        is an agent, it might decide how to handle the elicitation -- either by asking
+        the user or automatically generating a response.
 
         Args:
-            message: The message to present to the user
-            requestedSchema: JSON Schema defining the expected response structure
+            schema: A Pydantic model class defining the expected response structure
+            message: Optional message to present to the user. If not provided, will use
+                    a default message based on the schema
 
         Returns:
-            The user's response as a dict matching the request schema structure
+            An instance of the schema type with the user's response
 
         Raises:
-            ValueError: If elicitation is not supported by the client or fails
+            Exception: If the user declines or cancels the elicitation
+            ValidationError: If the response doesn't match the schema
         """
+
+        json_schema = schema.model_json_schema()
 
         result = await self.request_context.session.elicit(
             message=message,
-            requestedSchema=requestedSchema,
+            requestedSchema=json_schema,
             related_request_id=self.request_id,
         )
 
-        return result.content
+        if result.action == "accept" and result.content:
+            # Validate and parse the content using the schema
+            try:
+                return schema.model_validate(result.content)
+            except ValidationError as e:
+                raise ValueError(f"Invalid response: {e}")
+        elif result.action == "decline":
+            raise Exception("User declined to provide information")
+        else:
+            raise Exception("User cancelled the request")
 
     async def log(
         self,

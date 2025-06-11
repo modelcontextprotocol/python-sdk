@@ -258,14 +258,14 @@ class ServerSession(
     async def elicit(
         self,
         message: str,
-        requestedSchema: dict[str, Any],
+        requestedSchema: types.ElicitRequestedSchema,
         related_request_id: types.RequestId | None = None,
     ) -> types.ElicitResult:
         """Send an elicitation/create request.
 
         Args:
             message: The message to present to the user
-            requestedSchema: JSON Schema defining the expected response structure
+            requestedSchema: Schema defining the expected response structure
 
         Returns:
             The client's response
