@@ -1159,3 +1159,59 @@ class ServerResult(
     ]
 ):
     pass
+
+
+class ServerInfoAsset(BaseModel):
+    name: str
+    description: str | None
+
+
+class ServerInfoAssets(BaseModel):
+    tools: list[ServerInfoAsset]
+    prompts: list[ServerInfoAsset]
+    resources: list[ServerInfoAsset]
+    resource_templates: list[ServerInfoAsset]
+
+
+class ServerInfo(BaseModel):
+    name: str
+    host: str
+    port: int
+    instructions: str | None
+    tools: list[Tool]
+    prompts: list[Prompt]
+    resources: list[Resource]
+    resource_templates: list[ResourceTemplate]
+
+    @property
+    def assets(self) -> ServerInfoAssets:
+        return ServerInfoAssets(
+            tools=[
+                ServerInfoAsset(
+                    name=tool.name,
+                    description=tool.description
+                )
+                for tool in self.tools
+            ],
+            prompts=[
+                ServerInfoAsset(
+                    name=prompt.name,
+                    description=prompt.description
+                )
+                for prompt in self.prompts
+            ],
+            resources=[
+                ServerInfoAsset(
+                    name=resource.name,
+                    description=resource.description
+                )
+                for resource in self.resources
+            ],
+            resource_templates=[
+                ServerInfoAsset(
+                    name=resource_template.name,
+                    description=resource_template.description
+                )
+                for resource_template in self.resource_templates
+            ],
+        )

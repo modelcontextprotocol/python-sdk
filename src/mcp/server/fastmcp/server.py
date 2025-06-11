@@ -56,6 +56,8 @@ from mcp.types import (
     EmbeddedResource,
     GetPromptResult,
     ImageContent,
+    ServerInfo,
+    ServerInfoAsset,
     TextContent,
     ToolAnnotations,
 )
@@ -107,6 +109,8 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 
     # prompt settings
     warn_on_duplicate_prompts: bool = True
+
+    show_server_info: bool = False
 
     dependencies: list[str] = Field(
         default_factory=list,
@@ -214,6 +218,15 @@ class FastMCP:
         if transport not in TRANSPORTS.__args__:  # type: ignore
             raise ValueError(f"Unknown transport: {transport}")
 
+        anyio.run(self._run, transport, mount_path)
+    
+    async def _run(
+        self, 
+        transport: Literal["stdio", "sse", "streamable-http"],
+        mount_path: str | None = None,
+    ) -> None:
+        if self.settings.show_server_info:
+            await self._log_server_info()
         match transport:
             case "stdio":
                 anyio.run(self.run_stdio_async)
@@ -221,6 +234,41 @@ class FastMCP:
                 anyio.run(lambda: self.run_sse_async(mount_path))
             case "streamable-http":
                 anyio.run(self.run_streamable_http_async)
+
+    async def _log_server_info(self):
+        server_info = await self.get_server_info()
+        logger.info(f"Server name: {server_info.name}")
+        logger.info(f"Server: {server_info.host}:{server_info.port}")
+        logger.info(f"Instructions: {server_info.instructions}")
+        for asset_type, asset_list in server_info.assets.model_dump().items():
+            asset_list: list[ServerInfoAsset]
+            if not asset_list:
+                continue
+            logger.info(f"{asset_type}:")
+            for asset in asset_list:
+                logger.info(f"  - {asset.name} - {asset.description}")
+        logger.info("Server running...")
+
+    async def get_server_info(self) -> ServerInfo:
+        """
+        Asynchronously retrieves and returns server information.
+
+        This method gathers details about the server, including its name, host, port,
+        instructions, and various assets such as tools, resources,
+        prompts, and resource templates.
+
+        Returns: ServerInfo
+        """
+        return ServerInfo(
+            name=self.name,
+            host=self.settings.host,
+            port=self.settings.port,
+            instructions=self.instructions,
+            tools=await self.list_tools() or [],
+            resources=await self.list_resources() or [],
+            prompts=await self.list_prompts() or [],
+            resource_templates=await self.list_resource_templates() or [],
+        )
 
     def _setup_handlers(self) -> None:
         """Set up core MCP protocol handlers."""
