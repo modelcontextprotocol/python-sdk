@@ -82,9 +82,7 @@ async def create_windows_process(
         return process
     except Exception:
         # Don't raise, let's try to create the process without creation flags
-        process = await anyio.open_process(
-            [command, *args], env=env, stderr=errlog, cwd=cwd
-        )
+        process = await anyio.open_process([command, *args], env=env, stderr=errlog, cwd=cwd)
         return process
 
 

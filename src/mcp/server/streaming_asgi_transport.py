@@ -93,12 +93,8 @@ class StreamingASGITransport(AsyncBaseTransport):
         initial_response_ready = anyio.Event()
 
         # Synchronization for streaming response
-        asgi_send_channel, asgi_receive_channel = anyio.create_memory_object_stream[
-            dict[str, Any]
-        ](100)
-        content_send_channel, content_receive_channel = (
-            anyio.create_memory_object_stream[bytes](100)
-        )
+        asgi_send_channel, asgi_receive_channel = anyio.create_memory_object_stream[dict[str, Any]](100)
+        content_send_channel, content_receive_channel = anyio.create_memory_object_stream[bytes](100)
 
         # ASGI callables.
         async def receive() -> dict[str, Any]:
@@ -124,21 +120,15 @@ class StreamingASGITransport(AsyncBaseTransport):
         async def run_app() -> None:
             try:
                 # Cast the receive and send functions to the ASGI types
-                await self.app(
-                    cast(Scope, scope), cast(Receive, receive), cast(Send, send)
-                )
+                await self.app(cast(Scope, scope), cast(Receive, receive), cast(Send, send))
             except Exception:
                 if self.raise_app_exceptions:
                     raise
 
                 if not response_started:
-                    await asgi_send_channel.send(
-                        {"type": "http.response.start", "status": 500, "headers": []}
-                    )
+                    await asgi_send_channel.send({"type": "http.response.start", "status": 500, "headers": []})
 
-                await asgi_send_channel.send(
-                    {"type": "http.response.body", "body": b"", "more_body": False}
-                )
+                await asgi_send_channel.send({"type": "http.response.body", "body": b"", "more_body": False})
             finally:
                 await asgi_send_channel.aclose()
 

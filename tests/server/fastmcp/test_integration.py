@@ -97,9 +97,7 @@ def make_fastmcp_app():
             answer: str = Field(description="The user's answer to the question")
 
         try:
-            result = await ctx.elicit(
-                message=f"Tool wants to ask: {prompt}", schema=AnswerSchema
-            )
+            result = await ctx.elicit(message=f"Tool wants to ask: {prompt}", schema=AnswerSchema)
             return f"User answered: {result.answer}"
         except Exception as e:
             # Handle cancellation or decline
@@ -146,11 +144,7 @@ def make_everything_fastmcp() -> FastMCP:
 
         # Request sampling from the client
         result = await ctx.session.create_message(
-            messages=[
-                SamplingMessage(
-                    role="user", content=TextContent(type="text", text=prompt)
-                )
-            ],
+            messages=[SamplingMessage(role="user", content=TextContent(type="text", text=prompt))],
             max_tokens=100,
             temperature=0.7,
         )
@@ -249,9 +243,7 @@ def make_everything_fastmcp() -> FastMCP:
         """Book a table - uses elicitation if requested date is unavailable."""
 
         class AlternativeDateSchema(BaseModel):
-            checkAlternative: bool = Field(
-                description="Would you like to try another date?"
-            )
+            checkAlternative: bool = Field(description="Would you like to try another date?")
             alternativeDate: str = Field(
                 default="2024-12-26",
                 description="What date would you prefer? (YYYY-MM-DD)",
@@ -337,11 +329,7 @@ def make_fastmcp_stateless_http_app():
 def run_server(server_port: int) -> None:
     """Run the server."""
     _, app = make_fastmcp_app()
-    server = uvicorn.Server(
-        config=uvicorn.Config(
-            app=app, host="127.0.0.1", port=server_port, log_level="error"
-        )
-    )
+    server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"Starting server on port {server_port}")
     server.run()
 
@@ -349,11 +337,7 @@ def run_server(server_port: int) -> None:
 def run_everything_legacy_sse_http_server(server_port: int) -> None:
     """Run the comprehensive server with all features."""
     _, app = make_everything_fastmcp_app()
-    server = uvicorn.Server(
-        config=uvicorn.Config(
-            app=app, host="127.0.0.1", port=server_port, log_level="error"
-        )
-    )
+    server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"Starting comprehensive server on port {server_port}")
     server.run()
 
@@ -361,11 +345,7 @@ def run_everything_legacy_sse_http_server(server_port: int) -> None:
 def run_streamable_http_server(server_port: int) -> None:
     """Run the StreamableHTTP server."""
     _, app = make_fastmcp_streamable_http_app()
-    server = uvicorn.Server(
-        config=uvicorn.Config(
-            app=app, host="127.0.0.1", port=server_port, log_level="error"
-        )
-    )
+    server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"Starting StreamableHTTP server on port {server_port}")
     server.run()
 
@@ -373,11 +353,7 @@ def run_streamable_http_server(server_port: int) -> None:
 def run_everything_server(server_port: int) -> None:
     """Run the comprehensive StreamableHTTP server with all features."""
     _, app = make_everything_fastmcp_streamable_http_app()
-    server = uvicorn.Server(
-        config=uvicorn.Config(
-            app=app, host="127.0.0.1", port=server_port, log_level="error"
-        )
-    )
+    server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"Starting comprehensive StreamableHTTP server on port {server_port}")
     server.run()
 
@@ -385,11 +361,7 @@ def run_everything_server(server_port: int) -> None:
 def run_stateless_http_server(server_port: int) -> None:
     """Run the stateless StreamableHTTP server."""
     _, app = make_fastmcp_stateless_http_app()
-    server = uvicorn.Server(
-        config=uvicorn.Config(
-            app=app, host="127.0.0.1", port=server_port, log_level="error"
-        )
-    )
+    server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"Starting stateless StreamableHTTP server on port {server_port}")
     server.run()
 
@@ -428,9 +400,7 @@ def server(server_port: int) -> Generator[None, None, None]:
 @pytest.fixture()
 def streamable_http_server(http_server_port: int) -> Generator[None, None, None]:
     """Start the StreamableHTTP server in a separate process."""
-    proc = multiprocessing.Process(
-        target=run_streamable_http_server, args=(http_server_port,), daemon=True
-    )
+    proc = multiprocessing.Process(target=run_streamable_http_server, args=(http_server_port,), daemon=True)
     print("Starting StreamableHTTP server process")
     proc.start()
 
@@ -447,9 +417,7 @@ def streamable_http_server(http_server_port: int) -> Generator[None, None, None]
             time.sleep(0.1)
             attempt += 1
     else:
-        raise RuntimeError(
-            f"StreamableHTTP server failed to start after {max_attempts} attempts"
-        )
+        raise RuntimeError(f"StreamableHTTP server failed to start after {max_attempts} attempts")
 
     yield
 
@@ -486,9 +454,7 @@ def stateless_http_server(
             time.sleep(0.1)
             attempt += 1
     else:
-        raise RuntimeError(
-            f"Stateless server failed to start after {max_attempts} attempts"
-        )
+        raise RuntimeError(f"Stateless server failed to start after {max_attempts} attempts")
 
     yield
 
@@ -518,9 +484,7 @@ async def test_fastmcp_without_auth(server: None, server_url: str) -> None:
 
 
 @pytest.mark.anyio
-async def test_fastmcp_streamable_http(
-    streamable_http_server: None, http_server_url: str
-) -> None:
+async def test_fastmcp_streamable_http(streamable_http_server: None, http_server_url: str) -> None:
     """Test that FastMCP works with StreamableHTTP transport."""
     # Connect to the server using StreamableHTTP
     async with streamablehttp_client(http_server_url + "/mcp") as (
@@ -543,9 +507,7 @@ async def test_fastmcp_streamable_http(
 
 
 @pytest.mark.anyio
-async def test_fastmcp_stateless_streamable_http(
-    stateless_http_server: None, stateless_http_server_url: str
-) -> None:
+async def test_fastmcp_stateless_streamable_http(stateless_http_server: None, stateless_http_server_url: str) -> None:
     """Test that FastMCP works with stateless StreamableHTTP transport."""
     # Connect to the server using StreamableHTTP
     async with streamablehttp_client(stateless_http_server_url + "/mcp") as (
@@ -621,9 +583,7 @@ def everything_server(everything_server_port: int) -> Generator[None, None, None
             time.sleep(0.1)
             attempt += 1
     else:
-        raise RuntimeError(
-            f"Comprehensive server failed to start after {max_attempts} attempts"
-        )
+        raise RuntimeError(f"Comprehensive server failed to start after {max_attempts} attempts")
 
     yield
 
@@ -660,10 +620,7 @@ def everything_streamable_http_server(
             time.sleep(0.1)
             attempt += 1
     else:
-        raise RuntimeError(
-            f"Comprehensive StreamableHTTP server failed to start after "
-            f"{max_attempts} attempts"
-        )
+        raise RuntimeError(f"Comprehensive StreamableHTTP server failed to start after " f"{max_attempts} attempts")
 
     yield
 
@@ -723,9 +680,7 @@ async def create_test_elicitation_callback(context, params):
         return ElicitResult(action="decline")
 
 
-async def call_all_mcp_features(
-    session: ClientSession, collector: NotificationCollector
-) -> None:
+async def call_all_mcp_features(session: ClientSession, collector: NotificationCollector) -> None:
     """
     Test all MCP features using the provided session.
 
@@ -755,9 +710,7 @@ async def call_all_mcp_features(
     # Test progress callback functionality
     progress_updates = []
 
-    async def progress_callback(
-        progress: float, total: float | None, message: str | None
-    ) -> None:
+    async def progress_callback(progress: float, total: float | None, message: str | None) -> None:
         """Collect progress updates for testing (async version)."""
         progress_updates.append((progress, total, message))
         print(f"Progress: {progress}/{total} - {message}")
@@ -801,19 +754,12 @@ async def call_all_mcp_features(
 
     # Verify we received log messages from the sampling tool
     assert len(collector.log_messages) > 0
-    assert any(
-        "Requesting sampling for prompt" in msg.data for msg in collector.log_messages
-    )
-    assert any(
-        "Received sampling result from model" in msg.data
-        for msg in collector.log_messages
-    )
+    assert any("Requesting sampling for prompt" in msg.data for msg in collector.log_messages)
+    assert any("Received sampling result from model" in msg.data for msg in collector.log_messages)
 
     # 4. Test notification tool
     notification_message = "test_notifications"
-    notification_result = await session.call_tool(
-        "notification_tool", {"message": notification_message}
-    )
+    notification_result = await session.call_tool("notification_tool", {"message": notification_message})
     assert len(notification_result.content) == 1
     assert isinstance(notification_result.content[0], TextContent)
     assert "Sent notifications and logs" in notification_result.content[0].text
@@ -863,36 +809,24 @@ async def call_all_mcp_features(
 
     # 2. Dynamic resource
     resource_category = "test"
-    dynamic_content = await session.read_resource(
-        AnyUrl(f"resource://dynamic/{resource_category}")
-    )
+    dynamic_content = await session.read_resource(AnyUrl(f"resource://dynamic/{resource_category}"))
     assert isinstance(dynamic_content, ReadResourceResult)
     assert len(dynamic_content.contents) == 1
     assert isinstance(dynamic_content.contents[0], TextResourceContents)
-    assert (
-        f"Dynamic resource content for category: {resource_category}"
-        in dynamic_content.contents[0].text
-    )
+    assert f"Dynamic resource content for category: {resource_category}" in dynamic_content.contents[0].text
 
     # 3. Template resource
     resource_id = "456"
-    template_content = await session.read_resource(
-        AnyUrl(f"resource://template/{resource_id}/data")
-    )
+    template_content = await session.read_resource(AnyUrl(f"resource://template/{resource_id}/data"))
     assert isinstance(template_content, ReadResourceResult)
     assert len(template_content.contents) == 1
     assert isinstance(template_content.contents[0], TextResourceContents)
-    assert (
-        f"Template resource data for ID: {resource_id}"
-        in template_content.contents[0].text
-    )
+    assert f"Template resource data for ID: {resource_id}" in template_content.contents[0].text
 
     # Test prompts
     # 1. Simple prompt
     prompts = await session.list_prompts()
-    simple_prompt = next(
-        (p for p in prompts.prompts if p.name == "simple_prompt"), None
-    )
+    simple_prompt = next((p for p in prompts.prompts if p.name == "simple_prompt"), None)
     assert simple_prompt is not None
 
     prompt_topic = "AI"
@@ -902,16 +836,12 @@ async def call_all_mcp_features(
     # The actual message structure depends on the prompt implementation
 
     # 2. Complex prompt
-    complex_prompt = next(
-        (p for p in prompts.prompts if p.name == "complex_prompt"), None
-    )
+    complex_prompt = next((p for p in prompts.prompts if p.name == "complex_prompt"), None)
     assert complex_prompt is not None
 
     query = "What is AI?"
     context = "technical"
-    complex_result = await session.get_prompt(
-        "complex_prompt", {"user_query": query, "context": context}
-    )
+    complex_result = await session.get_prompt("complex_prompt", {"user_query": query, "context": context})
     assert isinstance(complex_result, GetPromptResult)
     assert len(complex_result.messages) >= 1
 
@@ -927,9 +857,7 @@ async def call_all_mcp_features(
     print(f"Received headers: {headers_data}")
 
     # Test 6: Call tool that returns full context
-    context_result = await session.call_tool(
-        "echo_context", {"custom_request_id": "test-123"}
-    )
+    context_result = await session.call_tool("echo_context", {"custom_request_id": "test-123"})
     assert len(context_result.content) == 1
     assert isinstance(context_result.content[0], TextContent)
 
@@ -961,9 +889,7 @@ async def sampling_callback(
 
 
 @pytest.mark.anyio
-async def test_fastmcp_all_features_sse(
-    everything_server: None, everything_server_url: str
-) -> None:
+async def test_fastmcp_all_features_sse(everything_server: None, everything_server_url: str) -> None:
     """Test all MCP features work correctly with SSE transport."""
 
     # Create notification collector

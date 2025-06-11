@@ -76,9 +76,7 @@ async def stdio_server(
         try:
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
-                    json = session_message.message.model_dump_json(
-                        by_alias=True, exclude_none=True
-                    )
+                    json = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
                     await stdout.write(json + "\n")
                     await stdout.flush()
         except anyio.ClosedResourceError:

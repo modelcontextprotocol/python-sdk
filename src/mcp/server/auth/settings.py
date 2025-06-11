@@ -15,8 +15,7 @@ class RevocationOptions(BaseModel):
 class AuthSettings(BaseModel):
     issuer_url: AnyHttpUrl = Field(
         ...,
-        description="URL advertised as OAuth issuer; this should be the URL the server "
-        "is reachable at",
+        description="URL advertised as OAuth issuer; this should be the URL the server " "is reachable at",
     )
     service_documentation_url: AnyHttpUrl | None = None
     client_registration_options: ClientRegistrationOptions | None = None

@@ -22,12 +22,8 @@ from mcp.shared.session import (
 async def test_bidirectional_progress_notifications():
     """Test that both client and server can send progress notifications."""
     # Create memory streams for client/server
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](5)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](5)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](5)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](5)
 
     # Run a server session so we can send progress updates in tool
     async def run_server():
@@ -134,9 +130,7 @@ async def test_bidirectional_progress_notifications():
 
     # Client message handler to store progress notifications
     async def handle_client_message(
-        message: RequestResponder[types.ServerRequest, types.ClientResult]
-        | types.ServerNotification
-        | Exception,
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
             raise message
@@ -172,9 +166,7 @@ async def test_bidirectional_progress_notifications():
         await client_session.list_tools()
 
         # Call test_tool with progress token
-        await client_session.call_tool(
-            "test_tool", {"_meta": {"progressToken": client_progress_token}}
-        )
+        await client_session.call_tool("test_tool", {"_meta": {"progressToken": client_progress_token}})
 
         # Send progress notifications from client to server
         await client_session.send_progress_notification(
@@ -221,12 +213,8 @@ async def test_bidirectional_progress_notifications():
 async def test_progress_context_manager():
     """Test client using progress context manager for sending progress notifications."""
     # Create memory streams for client/server
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](5)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](5)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](5)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](5)
 
     # Track progress updates
     server_progress_updates = []
@@ -270,9 +258,7 @@ async def test_progress_context_manager():
 
     # Client message handler
     async def handle_client_message(
-        message: RequestResponder[types.ServerRequest, types.ClientResult]
-        | types.ServerNotification
-        | Exception,
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
             raise message
