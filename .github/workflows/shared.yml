@@ -4,7 +4,7 @@ on:
   workflow_call:
 
 jobs:
-  lint:
+  pre-commit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,7 +15,7 @@ jobs:
           version: 0.7.2
 
       - name: Install dependencies
-        run: uv sync --frozen --python 3.10
+        run: uv sync --frozen --all-extras --python 3.10
 
       - uses: pre-commit/action@v3.0.0
         with:
@@ -40,7 +40,7 @@ jobs:
           version: 0.7.2
 
       - name: Install the project
-        run: uv sync --frozen --all-extras --dev --python ${{ matrix.python-version }}
+        run: uv sync --frozen --all-extras --python ${{ matrix.python-version }}
 
       - name: Run pytest
         run: uv run --no-sync pytest
