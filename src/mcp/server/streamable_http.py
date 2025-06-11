@@ -256,14 +256,14 @@ class StreamableHTTPServerTransport:
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Application entry point that handles all HTTP requests"""
         request = Request(scope, receive)
-        
+
         # Validate request headers for DNS rebinding protection
         is_post = request.method == "POST"
         error_response = await self._security.validate_request(request, is_post=is_post)
         if error_response:
             await error_response(scope, receive, send)
             return
-            
+
         if self._terminated:
             # If the session has been terminated, return 404 Not Found
             response = self._create_error_response(

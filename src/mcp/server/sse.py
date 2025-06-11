@@ -77,13 +77,11 @@ class SseServerTransport:
     _read_stream_writers: dict[UUID, MemoryObjectSendStream[SessionMessage | Exception]]
     _security: TransportSecurityMiddleware
 
-    def __init__(
-        self, endpoint: str, security_settings: TransportSecuritySettings | None = None
-    ) -> None:
+    def __init__(self, endpoint: str, security_settings: TransportSecuritySettings | None = None) -> None:
         """
         Creates a new SSE server transport, which will direct the client to POST
         messages to the relative or absolute URL given.
-        
+
         Args:
             endpoint: The relative or absolute URL for POST messages.
             security_settings: Optional security settings for DNS rebinding protection.
@@ -178,7 +176,7 @@ class SseServerTransport:
     async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:
         logger.debug("Handling POST message")
         request = Request(scope, receive)
-        
+
         # Validate request headers for DNS rebinding protection
         error_response = await self._security.validate_request(request, is_post=True)
         if error_response:

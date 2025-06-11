@@ -84,8 +84,7 @@ def stateless_http_server_url(stateless_http_server_port: int) -> str:
 def make_fastmcp_app():
     """Create a FastMCP server without auth settings."""
     transport_security = TransportSecuritySettings(
-        allowed_hosts=["127.0.0.1:*", "localhost:*"],
-        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
     )
     mcp = FastMCP(name="NoAuthServer", transport_security=transport_security)
 
@@ -101,10 +100,9 @@ def make_fastmcp_app():
 
 
 def make_everything_fastmcp() -> FastMCP:
-    """Create a FastMCP server with all features enabled for testing."""    
+    """Create a FastMCP server with all features enabled for testing."""
     transport_security = TransportSecuritySettings(
-        allowed_hosts=["127.0.0.1:*", "localhost:*"],
-        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
     )
     mcp = FastMCP(name="EverythingServer", transport_security=transport_security)
 
@@ -237,10 +235,9 @@ def make_everything_fastmcp_app():
 
 
 def make_fastmcp_streamable_http_app():
-    """Create a FastMCP server with StreamableHTTP transport."""    
+    """Create a FastMCP server with StreamableHTTP transport."""
     transport_security = TransportSecuritySettings(
-        allowed_hosts=["127.0.0.1:*", "localhost:*"],
-        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
     )
     mcp = FastMCP(name="NoAuthServer", transport_security=transport_security)
 
@@ -266,16 +263,11 @@ def make_everything_fastmcp_streamable_http_app():
 
 
 def make_fastmcp_stateless_http_app():
-    """Create a FastMCP server with stateless StreamableHTTP transport."""    
+    """Create a FastMCP server with stateless StreamableHTTP transport."""
     transport_security = TransportSecuritySettings(
-        allowed_hosts=["127.0.0.1:*", "localhost:*"],
-        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
     )
-    mcp = FastMCP(
-        name="StatelessServer",
-        stateless_http=True,
-        transport_security=transport_security
-    )
+    mcp = FastMCP(name="StatelessServer", stateless_http=True, transport_security=transport_security)
 
     # Add a simple tool
     @mcp.tool(description="A simple echo tool")

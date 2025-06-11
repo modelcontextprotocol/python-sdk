@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class TransportSecuritySettings(BaseModel):
     """Settings for MCP transport security features.
-    
+
     These settings help protect against DNS rebinding attacks by validating
     incoming request headers.
     """
@@ -40,9 +40,7 @@ class TransportSecurityMiddleware:
     def __init__(self, settings: TransportSecuritySettings | None = None):
         # If not specified, disable DNS rebinding protection by default
         # for backwards compatibility
-        self.settings = settings or TransportSecuritySettings(
-            enable_dns_rebinding_protection=False
-        )
+        self.settings = settings or TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
     def _validate_host(self, host: str | None) -> bool:
         """Validate the Host header against allowed values."""
@@ -101,9 +99,7 @@ class TransportSecurityMiddleware:
 
         return True
 
-    async def validate_request(
-        self, request: Request, is_post: bool = False
-    ) -> Response | None:
+    async def validate_request(self, request: Request, is_post: bool = False) -> Response | None:
         """Validate request headers for DNS rebinding protection.
 
         Returns None if validation passes, or an error Response if validation fails.

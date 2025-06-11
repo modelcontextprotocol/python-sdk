@@ -119,7 +119,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     )
 
     auth: AuthSettings | None = None
-    
+
     # Transport security settings (DNS rebinding protection)
     transport_security: TransportSecuritySettings | None = None
 

@@ -217,8 +217,7 @@ def create_app(is_json_response_enabled=False, event_store: EventStore | None = 
 
     # Create the session manager
     security_settings = TransportSecuritySettings(
-        allowed_hosts=["127.0.0.1:*", "localhost:*"],
-        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
     )
     session_manager = StreamableHTTPSessionManager(
         app=server,

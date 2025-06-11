@@ -83,8 +83,7 @@ def make_server_app() -> Starlette:
     """Create test Starlette app with SSE transport"""
     # Configure security with allowed hosts/origins for testing
     security_settings = TransportSecuritySettings(
-        allowed_hosts=["127.0.0.1:*", "localhost:*"],
-        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
     )
     sse = SseServerTransport("/messages/", security_settings=security_settings)
     server = ServerTest()
@@ -347,8 +346,7 @@ def run_context_server(server_port: int) -> None:
     """Run a server that captures request context"""
     # Configure security with allowed hosts/origins for testing
     security_settings = TransportSecuritySettings(
-        allowed_hosts=["127.0.0.1:*", "localhost:*"],
-        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
     )
     sse = SseServerTransport("/messages/", security_settings=security_settings)
     context_server = RequestContextServer()
