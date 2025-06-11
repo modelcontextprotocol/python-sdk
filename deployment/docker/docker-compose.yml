@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  etdi-server:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - ETDI_OAUTH_PROVIDER=auth0
+      - ETDI_CLIENT_ID=${ETDI_CLIENT_ID}
+      - ETDI_CLIENT_SECRET=${ETDI_CLIENT_SECRET}
+      - ETDI_DOMAIN=${ETDI_DOMAIN}
+      - ETDI_AUDIENCE=${ETDI_AUDIENCE}
+      - ETDI_SECURITY_LEVEL=enhanced
+    volumes:
+      - ./config:/app/config
+      - etdi-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  etdi-inspector:
+    build: .
+    command: ["python", "-m", "mcp.etdi.inspector.web"]
+    ports:
+      - "8001:8001"
+    environment:
+      - ETDI_INSPECTOR_MODE=true
+    volumes:
+      - ./config:/app/config
+    restart: unless-stopped
+    depends_on:
+      - etdi-server
+
+volumes:
+  etdi-data:

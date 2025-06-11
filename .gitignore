@@ -168,3 +168,9 @@ cython_debug/
 .vscode/
 .windsurfrules
 **/CLAUDE.local.md
+
+# ETDI key storage (contains private keys - never commit)
+~/.etdi/
+.etdi/
+*.etdi/
+**/.etdi/

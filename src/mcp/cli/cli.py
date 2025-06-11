@@ -14,8 +14,33 @@ from mcp.server import Server as LowLevelServer
 try:
     import typer
 except ImportError:
-    print("Error: typer is required. Install with 'pip install mcp[cli]'")
-    sys.exit(1)
+    # Only exit if this module is being run directly, not imported
+    if __name__ == "__main__":
+        print("Error: typer is required. Install with 'pip install mcp[cli]'")
+        sys.exit(1)
+    else:
+        # Create a dummy typer for import compatibility
+        class DummyContext:
+            pass
+            
+        class DummyTyper:
+            Context = DummyContext
+            
+            def __init__(self):
+                pass
+            def command(self, *args, **kwargs):
+                def decorator(func):
+                    return func
+                return decorator
+            def __call__(self, *args, **kwargs):
+                return self
+            def Typer(self, *args, **kwargs):
+                return self
+            def Argument(self, *args, **kwargs):
+                return None
+            def Option(self, *args, **kwargs):
+                return None
+        typer = DummyTyper()
 
 try:
     from mcp.cli import claude
@@ -23,6 +48,13 @@ try:
 except ImportError:
     print("Error: mcp.server.fastmcp is not installed or not in PYTHONPATH")
     sys.exit(1)
+
+# Try to import ETDI CLI
+try:
+    from mcp.etdi.cli.etdi_cli import cli as etdi_cli
+    ETDI_AVAILABLE = True
+except ImportError:
+    ETDI_AVAILABLE = False
 
 try:
     import dotenv
@@ -505,3 +537,27 @@ def install(
     else:
         logger.error(f"Failed to install {name} in Claude app")
         sys.exit(1)
+
+
+# Add ETDI CLI as a subcommand if available
+if ETDI_AVAILABLE:
+    @app.command()
+    def etdi(
+        ctx: typer.Context,
+    ) -> None:
+        """ETDI - Enhanced Tool Definition Interface commands"""
+        # Convert typer context to click context and invoke ETDI CLI
+        import click
+        
+        # Create a click context from typer context
+        click_ctx = click.Context(etdi_cli)
+        click_ctx.params = {}
+        
+        # Get remaining args from typer context
+        remaining_args = ctx.params.get('args', [])
+        if not remaining_args:
+            # Show ETDI help if no args
+            etdi_cli.main(['--help'], standalone_mode=False)
+        else:
+            # Pass through to ETDI CLI
+            etdi_cli.main(remaining_args, standalone_mode=False)
