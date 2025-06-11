@@ -8,7 +8,7 @@ from pydantic import AnyUrl
 from starlette.routing import Mount, Route
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.fastmcp.prompts.base import EmbeddedResource, Message, UserMessage
+from mcp.server.fastmcp.prompts.base import Message, UserMessage
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
 from mcp.server.fastmcp.utilities.types import Image
 from mcp.shared.exceptions import McpError
@@ -18,6 +18,8 @@ from mcp.shared.memory import (
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
+    Content,
+    EmbeddedResource,
     ImageContent,
     TextContent,
     TextResourceContents,
@@ -192,7 +194,7 @@ def image_tool_fn(path: str) -> Image:
     return Image(path)
 
 
-def mixed_content_tool_fn() -> list[TextContent | ImageContent | AudioContent]:
+def mixed_content_tool_fn() -> list[Content]:
     return [
         TextContent(type="text", text="Hello"),
         ImageContent(type="image", data="abc", mimeType="image/png"),

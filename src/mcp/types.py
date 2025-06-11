@@ -667,11 +667,14 @@ class EmbeddedResource(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+Content = TextContent | ImageContent | AudioContent | EmbeddedResource
+
+
 class PromptMessage(BaseModel):
     """Describes a message returned as part of a prompt."""
 
     role: Role
-    content: TextContent | ImageContent | AudioContent | EmbeddedResource
+    content: Content
     model_config = ConfigDict(extra="allow")
 
 
@@ -787,7 +790,7 @@ class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
 class CallToolResult(Result):
     """The server's response to a tool call."""
 
-    content: list[TextContent | ImageContent | AudioContent | EmbeddedResource]
+    content: list[Content]
     isError: bool = False
 
 
