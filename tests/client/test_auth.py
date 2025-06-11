@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
+from inline_snapshot import snapshot
 from pydantic import AnyHttpUrl
 
 from mcp.client.auth import OAuthClientProvider
@@ -967,7 +968,8 @@ def test_build_metadata(
         revocation_options=RevocationOptions(enabled=True),
     )
 
-    assert metadata == OAuthMetadata(
+    assert metadata == snapshot(
+        OAuthMetadata(
             issuer=AnyHttpUrl(issuer_url),
             authorization_endpoint=AnyHttpUrl(authorization_endpoint),
             token_endpoint=AnyHttpUrl(token_endpoint),
@@ -980,3 +982,4 @@ def test_build_metadata(
             revocation_endpoint_auth_methods_supported=["client_secret_post"],
             code_challenge_methods_supported=["S256"],
         )
+    )
