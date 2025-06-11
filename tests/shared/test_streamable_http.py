@@ -1412,9 +1412,7 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
 
 
 @pytest.mark.anyio
-async def test_client_includes_protocol_version_header_after_init(
-    context_aware_server, basic_server_url
-):
+async def test_client_includes_protocol_version_header_after_init(context_aware_server, basic_server_url):
     """Test that client includes mcp-protocol-version header after initialization."""
     async with streamablehttp_client(f"{basic_server_url}/mcp") as (
         read_stream,
@@ -1439,7 +1437,7 @@ async def test_client_includes_protocol_version_header_after_init(
 
 
 def test_server_validates_protocol_version_header(basic_server, basic_server_url):
-    """Test that server returns 400 Bad Request version if header missing or invalid."""
+    """Test that server returns 400 Bad Request version if header unsupported or invalid."""
     # First initialize a session to get a valid session ID
     init_response = requests.post(
         f"{basic_server_url}/mcp",
@@ -1464,10 +1462,7 @@ def test_server_validates_protocol_version_header(basic_server, basic_server_url
         json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-2"},
     )
     assert response.status_code == 400
-    assert (
-        MCP_PROTOCOL_VERSION_HEADER in response.text
-        or "protocol version" in response.text.lower()
-    )
+    assert MCP_PROTOCOL_VERSION_HEADER in response.text or "protocol version" in response.text.lower()
 
     # Test request with unsupported protocol version (should fail)
     response = requests.post(
@@ -1481,10 +1476,7 @@ def test_server_validates_protocol_version_header(basic_server, basic_server_url
         json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-3"},
     )
     assert response.status_code == 400
-    assert (
-        MCP_PROTOCOL_VERSION_HEADER in response.text
-        or "protocol version" in response.text.lower()
-    )
+    assert MCP_PROTOCOL_VERSION_HEADER in response.text or "protocol version" in response.text.lower()
 
     # Test request with valid protocol version (should succeed)
     negotiated_version = extract_protocol_version_from_sse(init_response)
@@ -1502,9 +1494,7 @@ def test_server_validates_protocol_version_header(basic_server, basic_server_url
     assert response.status_code == 200
 
 
-def test_server_backwards_compatibility_no_protocol_version(
-    basic_server, basic_server_url
-):
+def test_server_backwards_compatibility_no_protocol_version(basic_server, basic_server_url):
     """Test server accepts requests without protocol version header."""
     # First initialize a session to get a valid session ID
     init_response = requests.post(

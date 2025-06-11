@@ -23,6 +23,7 @@ for reference.
 """
 
 LATEST_PROTOCOL_VERSION = "2025-03-26"
+DEFAULT_PROTOCOL_VERSION = "2025-03-26"
 
 ProgressToken = str | int
 Cursor = str

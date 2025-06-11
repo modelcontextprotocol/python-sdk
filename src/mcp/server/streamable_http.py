@@ -27,6 +27,7 @@ from starlette.types import Receive, Scope, Send
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
+    DEFAULT_PROTOCOL_VERSION,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
@@ -295,7 +296,7 @@ class StreamableHTTPServerTransport:
             has_json, has_sse = self._check_accept_headers(request)
             if not (has_json and has_sse):
                 response = self._create_error_response(
-                    ("Not Acceptable: Client must accept both application/json and " "text/event-stream"),
+                    ("Not Acceptable: Client must accept both application/json and text/event-stream"),
                     HTTPStatus.NOT_ACCEPTABLE,
                 )
                 await response(scope, receive, send)
@@ -696,9 +697,9 @@ class StreamableHTTPServerTransport:
         # Get the protocol version from the request headers
         protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
 
-        # If no protocol version provided, assume version 2025-03-26
-        if not protocol_version:
-            protocol_version = "2025-03-26"
+        # If no protocol version provided, assume default version
+        if protocol_version is None:
+            protocol_version = DEFAULT_PROTOCOL_VERSION
 
         # Check if the protocol version is supported
         if protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
@@ -711,9 +712,7 @@ class StreamableHTTPServerTransport:
 
         return True
 
-    async def _replay_events(
-        self, last_event_id: str, request: Request, send: Send
-    ) -> None:
+    async def _replay_events(self, last_event_id: str, request: Request, send: Send) -> None:
         """
         Replays events that would have been sent after the specified event ID.
         Only used when resumability is enabled.

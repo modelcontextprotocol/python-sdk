@@ -143,6 +143,8 @@ class StreamableHTTPTransport:
             if "protocolVersion" in result:
                 self.protocol_version = result["protocolVersion"]
                 logger.info(f"Negotiated protocol version: {self.protocol_version}")
+            else:
+                logger.warning(f"Initialization response does not contain protocolVersion: {result}")
 
     async def _handle_sse_event(
         self,
@@ -277,9 +279,7 @@ class StreamableHTTPTransport:
             content_type = response.headers.get(CONTENT_TYPE, "").lower()
 
             if content_type.startswith(JSON):
-                await self._handle_json_response(
-                    response, ctx.read_stream_writer, is_initialization
-                )
+                await self._handle_json_response(response, ctx.read_stream_writer, is_initialization)
             elif content_type.startswith(SSE):
                 await self._handle_sse_response(response, ctx, is_initialization)
             else:
@@ -322,11 +322,7 @@ class StreamableHTTPTransport:
                 is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
-                    resumption_callback=(
-                        ctx.metadata.on_resumption_token_update
-                        if ctx.metadata
-                        else None
-                    ),
+                    resumption_callback=(ctx.metadata.on_resumption_token_update if ctx.metadata else None),
                     is_initialization=is_initialization,
                 )
                 # If the SSE event indicates completion, like returning respose/error
