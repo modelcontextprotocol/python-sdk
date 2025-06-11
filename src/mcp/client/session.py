@@ -143,8 +143,11 @@ class ClientSession(
             if self._sampling_callback is not _default_sampling_callback
             else None
         )
-        # TODO: change this to a more specific type
-        elicitation = types.ElicitationCapability()
+        elicitation = (
+            types.ElicitationCapability()
+            if self._elicitation_callback is not _default_elicitation_callback
+            else None
+        )
         roots = (
             # TODO: Should this be based on whether we
             # _will_ send notifications, or only whether
