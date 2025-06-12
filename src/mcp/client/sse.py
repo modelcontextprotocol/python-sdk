@@ -61,7 +61,6 @@ async def sse_client(
                     client,
                     "GET",
                     url,
-                    timeout=httpx.Timeout(timeout, read=sse_read_timeout),
                 ) as event_source:
                     event_source.response.raise_for_status()
                     logger.debug("SSE connection established")
