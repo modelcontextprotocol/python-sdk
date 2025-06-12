@@ -389,13 +389,13 @@ mcp = FastMCP("Booking System")
 async def book_table(date: str, party_size: int, ctx: Context) -> str:
     """Book a table with confirmation"""
 
+    # Schema must only contain primitive types (str, int, float, bool)
     class ConfirmBooking(BaseModel):
         confirm: bool = Field(description="Confirm booking?")
         notes: str = Field(default="", description="Special requests")
 
     result = await ctx.elicit(
-        message=f"Confirm booking for {party_size} on {date}?",
-        schema=ConfirmBooking
+        message=f"Confirm booking for {party_size} on {date}?", schema=ConfirmBooking
     )
 
     if result.action == "accept" and result.data:
