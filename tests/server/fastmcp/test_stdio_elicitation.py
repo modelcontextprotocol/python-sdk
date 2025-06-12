@@ -52,9 +52,7 @@ async def test_stdio_elicitation():
         assert result.serverInfo.name == "StdioElicitationServer"
 
         # Call the tool that uses elicitation
-        tool_result = await client_session.call_tool(
-            "ask_user", {"prompt": "What is your name?"}
-        )
+        tool_result = await client_session.call_tool("ask_user", {"prompt": "What is your name?"})
 
         # Verify the result
         assert len(tool_result.content) == 1

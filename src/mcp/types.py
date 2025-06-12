@@ -1168,15 +1168,11 @@ class ElicitResult(Result):
     """
 
 
-class ClientResult(
-    RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult]
-):
+class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult]):
     pass
 
 
-class ServerRequest(
-    RootModel[PingRequest | CreateMessageRequest | ListRootsRequest | ElicitRequest]
-):
+class ServerRequest(RootModel[PingRequest | CreateMessageRequest | ListRootsRequest | ElicitRequest]):
     pass
 
 
