@@ -65,7 +65,20 @@ from mcp.types import Tool as MCPTool
 
 logger = get_logger(__name__)
 
-ElicitedModelT = TypeVar("ElicitedModelT", bound=BaseModel)
+ElicitSchemaModelT = TypeVar("ElicitSchemaModelT", bound=BaseModel)
+
+
+class ElicitationResult(BaseModel, Generic[ElicitSchemaModelT]):
+    """Result of an elicitation request."""
+    
+    action: Literal["accept", "decline", "cancel"]
+    """The user's action in response to the elicitation."""
+    
+    data: ElicitSchemaModelT | None = None
+    """The validated data if action is 'accept', None otherwise."""
+    
+    validation_error: str | None = None
+    """Validation error message if data failed to validate."""
 
 
 class Settings(BaseSettings, Generic[LifespanResultT]):
@@ -977,28 +990,28 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     async def elicit(
         self,
         message: str,
-        schema: type[ElicitedModelT],
-    ) -> ElicitedModelT:
+        schema: type[ElicitSchemaModelT],
+    ) -> ElicitationResult[ElicitSchemaModelT]:
         """Elicit information from the client/user.
 
         This method can be used to interactively ask for additional information from the
         client within a tool's execution. The client might display the message to the
         user and collect a response according to the provided schema. Or in case a
-        client
-        is an agent, it might decide how to handle the elicitation -- either by asking
+        client is an agent, it might decide how to handle the elicitation -- either by asking
         the user or automatically generating a response.
 
         Args:
-            schema: A Pydantic model class defining the expected response structure
+            schema: A Pydantic model class defining the expected response structure, according to the specification,
+                    only primive types are allowed.
             message: Optional message to present to the user. If not provided, will use
                     a default message based on the schema
 
         Returns:
-            An instance of the schema type with the user's response
+            An ElicitationResult containing the action taken and the data if accepted
 
-        Raises:
-            Exception: If the user declines or cancels the elicitation
-            ValidationError: If the response doesn't match the schema
+        Note:
+            Check the result.action to determine if the user accepted, declined, or cancelled.
+            The result.data will only be populated if action is "accept" and validation succeeded.
         """
 
         json_schema = schema.model_json_schema()
@@ -1012,13 +1025,12 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         if result.action == "accept" and result.content:
             # Validate and parse the content using the schema
             try:
-                return schema.model_validate(result.content)
+                validated_data = schema.model_validate(result.content)
+                return ElicitationResult(action="accept", data=validated_data)
             except ValidationError as e:
-                raise ValueError(f"Invalid response: {e}")
-        elif result.action == "decline":
-            raise Exception("User declined to provide information")
+                return ElicitationResult(action="accept", validation_error=str(e))
         else:
-            raise Exception("User cancelled the request")
+            return ElicitationResult(action=result.action)
 
     async def log(
         self,

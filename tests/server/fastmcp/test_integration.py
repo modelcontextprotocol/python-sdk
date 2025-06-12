@@ -105,12 +105,13 @@ def make_fastmcp_app():
         class AnswerSchema(BaseModel):
             answer: str = Field(description="The user's answer to the question")
 
-        try:
-            result = await ctx.elicit(message=f"Tool wants to ask: {prompt}", schema=AnswerSchema)
-            return f"User answered: {result.answer}"
-        except Exception as e:
+        result = await ctx.elicit(message=f"Tool wants to ask: {prompt}", schema=AnswerSchema)
+        
+        if result.action == "accept" and result.data:
+            return f"User answered: {result.data.answer}"
+        else:
             # Handle cancellation or decline
-            return f"User cancelled or declined: {str(e)}"
+            return f"User cancelled or declined: {result.action}"
 
     # Create the SSE app
     app = mcp.sse_app()
@@ -295,23 +296,25 @@ def make_everything_fastmcp() -> FastMCP:
         # For testing: assume dates starting with "2024-12-25" are unavailable
         if date.startswith("2024-12-25"):
             # Use elicitation to ask about alternatives
-            try:
-                result = await ctx.elicit(
-                    message=(
-                        f"No tables available for {party_size} people on {date} "
-                        f"at {time}. Would you like to check another date?"
-                    ),
-                    schema=AlternativeDateSchema,
-                )
+            result = await ctx.elicit(
+                message=(
+                    f"No tables available for {party_size} people on {date} "
+                    f"at {time}. Would you like to check another date?"
+                ),
+                schema=AlternativeDateSchema,
+            )
 
-                if result.checkAlternative:
-                    alt_date = result.alternativeDate
+            if result.action == "accept" and result.data:
+                if result.data.checkAlternative:
+                    alt_date = result.data.alternativeDate
                     return f"✅ Booked table for {party_size} on {alt_date} at {time}"
                 else:
                     return "❌ No booking made"
-            except Exception:
-                # User declined or cancelled
+            elif result.action in ("decline", "cancel"):
                 return "❌ Booking cancelled"
+            else:
+                # Validation error
+                return f"❌ Invalid input: {result.validation_error}"
         else:
             # Available - book directly
             return f"✅ Booked table for {party_size} on {date} at {time}"
