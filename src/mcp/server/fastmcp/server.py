@@ -893,6 +893,10 @@ def _convert_to_content(
     return [TextContent(type="text", text=result)]
 
 
+# Primitive types allowed in elicitation schemas
+_ELICITATION_PRIMITIVE_TYPES = (str, int, float, bool)
+
+
 def _validate_elicitation_schema(schema: type[BaseModel]) -> None:
     """Validate that a Pydantic model only contains primitive field types."""
     for field_name, field_info in schema.model_fields.items():
@@ -904,28 +908,24 @@ def _validate_elicitation_schema(schema: type[BaseModel]) -> None:
             )
 
 
-# Primitive types allowed in elicitation schemas
-_ELICITATION_PRIMITIVE_TYPES = (str, int, float, bool)
-
-
 def _is_primitive_field(field_info: FieldInfo) -> bool:
     """Check if a field is a primitive type allowed in elicitation schemas."""
     annotation = field_info.annotation
 
     # Handle None type
-    if annotation is type(None):
+    if annotation is types.NoneType:
         return True
 
     # Handle basic primitive types
     if annotation in _ELICITATION_PRIMITIVE_TYPES:
         return True
 
-    # Handle Union types (including Optional and Python 3.10+ union syntax)
+    # Handle Union types
     origin = get_origin(annotation)
-    if origin is Union or (hasattr(types, 'UnionType') and isinstance(annotation, types.UnionType)):
+    if origin is Union or origin is types.UnionType:
         args = get_args(annotation)
         # All args must be primitive types or None
-        return all(arg is type(None) or arg in _ELICITATION_PRIMITIVE_TYPES for arg in args)
+        return all(arg is types.NoneType or arg in _ELICITATION_PRIMITIVE_TYPES for arg in args)
 
     return False
 
