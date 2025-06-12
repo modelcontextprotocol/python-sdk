@@ -128,16 +128,12 @@ class TestRegistrationErrorHandling:
 
 class TestAuthorizeErrorHandling:
     @pytest.mark.anyio
-    async def test_authorize_error_handling(
-        self, client, oauth_provider, registered_client, pkce_challenge
-    ):
+    async def test_authorize_error_handling(self, client, oauth_provider, registered_client, pkce_challenge):
         # Mock the authorize method to raise an authorize error
         with unittest.mock.patch.object(
             oauth_provider,
             "authorize",
-            side_effect=AuthorizeError(
-                error="access_denied", error_description="The user denied the request"
-            ),
+            side_effect=AuthorizeError(error="access_denied", error_description="The user denied the request"),
         ):
             # Register the client
             client_id = registered_client["client_id"]
@@ -169,9 +165,7 @@ class TestAuthorizeErrorHandling:
 
 class TestTokenErrorHandling:
     @pytest.mark.anyio
-    async def test_token_error_handling_auth_code(
-        self, client, oauth_provider, registered_client, pkce_challenge
-    ):
+    async def test_token_error_handling_auth_code(self, client, oauth_provider, registered_client, pkce_challenge):
         # Register the client and get an auth code
         client_id = registered_client["client_id"]
         client_secret = registered_client["client_secret"]
@@ -224,9 +218,7 @@ class TestTokenErrorHandling:
             assert data["error_description"] == "The authorization code is invalid"
 
     @pytest.mark.anyio
-    async def test_token_error_handling_refresh_token(
-        self, client, oauth_provider, registered_client, pkce_challenge
-    ):
+    async def test_token_error_handling_refresh_token(self, client, oauth_provider, registered_client, pkce_challenge):
         # Register the client and get tokens
         client_id = registered_client["client_id"]
         client_secret = registered_client["client_secret"]

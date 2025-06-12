@@ -1,12 +1,5 @@
 from collections.abc import Callable
-from typing import (
-    Annotated,
-    Any,
-    Generic,
-    Literal,
-    TypeAlias,
-    TypeVar,
-)
+from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
 from pydantic.networks import AnyUrl, UrlConstraints
@@ -34,7 +27,7 @@ LATEST_PROTOCOL_VERSION = "2025-03-26"
 ProgressToken = str | int
 Cursor = str
 Role = Literal["user", "assistant"]
-RequestId = str | int
+RequestId = Annotated[int | str, Field(union_mode="left_to_right")]
 AnyFunction: TypeAlias = Callable[..., Any]
 
 
@@ -73,9 +66,7 @@ class NotificationParams(BaseModel):
 
 
 RequestParamsT = TypeVar("RequestParamsT", bound=RequestParams | dict[str, Any] | None)
-NotificationParamsT = TypeVar(
-    "NotificationParamsT", bound=NotificationParams | dict[str, Any] | None
-)
+NotificationParamsT = TypeVar("NotificationParamsT", bound=NotificationParams | dict[str, Any] | None)
 MethodT = TypeVar("MethodT", bound=str)
 
 
@@ -87,9 +78,7 @@ class Request(BaseModel, Generic[RequestParamsT, MethodT]):
     model_config = ConfigDict(extra="allow")
 
 
-class PaginatedRequest(
-    Request[PaginatedRequestParams | None, MethodT], Generic[MethodT]
-):
+class PaginatedRequest(Request[PaginatedRequestParams | None, MethodT], Generic[MethodT]):
     """Base class for paginated requests,
     matching the schema's PaginatedRequest interface."""
 
@@ -191,9 +180,7 @@ class JSONRPCError(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class JSONRPCMessage(
-    RootModel[JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCError]
-):
+class JSONRPCMessage(RootModel[JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCError]):
     pass
 
 
@@ -314,9 +301,7 @@ class InitializeResult(Result):
     """Instructions describing how to use the server and its features."""
 
 
-class InitializedNotification(
-    Notification[NotificationParams | None, Literal["notifications/initialized"]]
-):
+class InitializedNotification(Notification[NotificationParams | None, Literal["notifications/initialized"]]):
     """
     This notification is sent from the client to the server after initialization has
     finished.
@@ -350,18 +335,16 @@ class ProgressNotificationParams(NotificationParams):
     total is unknown.
     """
     total: float | None = None
+    """Total number of items to process (or total progress required), if known."""
+    message: str | None = None
     """
-    Message related to progress. This should provide relevant human readable 
+    Message related to progress. This should provide relevant human readable
     progress information.
     """
-    message: str | None = None
-    """Total number of items to process (or total progress required), if known."""
     model_config = ConfigDict(extra="allow")
 
 
-class ProgressNotification(
-    Notification[ProgressNotificationParams, Literal["notifications/progress"]]
-):
+class ProgressNotification(Notification[ProgressNotificationParams, Literal["notifications/progress"]]):
     """
     An out-of-band notification used to inform the receiver of a progress update for a
     long-running request.
@@ -432,9 +415,7 @@ class ListResourcesResult(PaginatedResult):
     resources: list[Resource]
 
 
-class ListResourceTemplatesRequest(
-    PaginatedRequest[Literal["resources/templates/list"]]
-):
+class ListResourceTemplatesRequest(PaginatedRequest[Literal["resources/templates/list"]]):
     """Sent from the client to request a list of resource templates the server has."""
 
     method: Literal["resources/templates/list"]
@@ -457,9 +438,7 @@ class ReadResourceRequestParams(RequestParams):
     model_config = ConfigDict(extra="allow")
 
 
-class ReadResourceRequest(
-    Request[ReadResourceRequestParams, Literal["resources/read"]]
-):
+class ReadResourceRequest(Request[ReadResourceRequestParams, Literal["resources/read"]]):
     """Sent from the client to the server, to read a specific resource URI."""
 
     method: Literal["resources/read"]
@@ -500,9 +479,7 @@ class ReadResourceResult(Result):
 
 
 class ResourceListChangedNotification(
-    Notification[
-        NotificationParams | None, Literal["notifications/resources/list_changed"]
-    ]
+    Notification[NotificationParams | None, Literal["notifications/resources/list_changed"]]
 ):
     """
     An optional notification from the server to the client, informing it that the list
@@ -542,9 +519,7 @@ class UnsubscribeRequestParams(RequestParams):
     model_config = ConfigDict(extra="allow")
 
 
-class UnsubscribeRequest(
-    Request[UnsubscribeRequestParams, Literal["resources/unsubscribe"]]
-):
+class UnsubscribeRequest(Request[UnsubscribeRequestParams, Literal["resources/unsubscribe"]]):
     """
     Sent from the client to request cancellation of resources/updated notifications from
     the server.
@@ -566,9 +541,7 @@ class ResourceUpdatedNotificationParams(NotificationParams):
 
 
 class ResourceUpdatedNotification(
-    Notification[
-        ResourceUpdatedNotificationParams, Literal["notifications/resources/updated"]
-    ]
+    Notification[ResourceUpdatedNotificationParams, Literal["notifications/resources/updated"]]
 ):
     """
     A notification from the server to the client, informing it that a resource has
@@ -657,11 +630,26 @@ class ImageContent(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class AudioContent(BaseModel):
+    """Audio content for a message."""
+
+    type: Literal["audio"]
+    data: str
+    """The base64-encoded audio data."""
+    mimeType: str
+    """
+    The MIME type of the audio. Different providers may support different
+    audio types.
+    """
+    annotations: Annotations | None = None
+    model_config = ConfigDict(extra="allow")
+
+
 class SamplingMessage(BaseModel):
     """Describes a message issued to or received from an LLM API."""
 
     role: Role
-    content: TextContent | ImageContent
+    content: TextContent | ImageContent | AudioContent
     model_config = ConfigDict(extra="allow")
 
 
@@ -679,11 +667,14 @@ class EmbeddedResource(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+Content = TextContent | ImageContent | AudioContent | EmbeddedResource
+
+
 class PromptMessage(BaseModel):
     """Describes a message returned as part of a prompt."""
 
     role: Role
-    content: TextContent | ImageContent | EmbeddedResource
+    content: Content
     model_config = ConfigDict(extra="allow")
 
 
@@ -696,9 +687,7 @@ class GetPromptResult(Result):
 
 
 class PromptListChangedNotification(
-    Notification[
-        NotificationParams | None, Literal["notifications/prompts/list_changed"]
-    ]
+    Notification[NotificationParams | None, Literal["notifications/prompts/list_changed"]]
 ):
     """
     An optional notification from the server to the client, informing it that the list
@@ -801,13 +790,11 @@ class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
 class CallToolResult(Result):
     """The server's response to a tool call."""
 
-    content: list[TextContent | ImageContent | EmbeddedResource]
+    content: list[Content]
     isError: bool = False
 
 
-class ToolListChangedNotification(
-    Notification[NotificationParams | None, Literal["notifications/tools/list_changed"]]
-):
+class ToolListChangedNotification(Notification[NotificationParams | None, Literal["notifications/tools/list_changed"]]):
     """
     An optional notification from the server to the client, informing it that the list
     of tools it offers has changed.
@@ -817,9 +804,7 @@ class ToolListChangedNotification(
     params: NotificationParams | None = None
 
 
-LoggingLevel = Literal[
-    "debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"
-]
+LoggingLevel = Literal["debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"]
 
 
 class SetLevelRequestParams(RequestParams):
@@ -852,9 +837,7 @@ class LoggingMessageNotificationParams(NotificationParams):
     model_config = ConfigDict(extra="allow")
 
 
-class LoggingMessageNotification(
-    Notification[LoggingMessageNotificationParams, Literal["notifications/message"]]
-):
+class LoggingMessageNotification(Notification[LoggingMessageNotificationParams, Literal["notifications/message"]]):
     """Notification of a log message passed from server to client."""
 
     method: Literal["notifications/message"]
@@ -949,9 +932,7 @@ class CreateMessageRequestParams(RequestParams):
     model_config = ConfigDict(extra="allow")
 
 
-class CreateMessageRequest(
-    Request[CreateMessageRequestParams, Literal["sampling/createMessage"]]
-):
+class CreateMessageRequest(Request[CreateMessageRequestParams, Literal["sampling/createMessage"]]):
     """A request from the server to sample an LLM via the client."""
 
     method: Literal["sampling/createMessage"]
@@ -965,7 +946,7 @@ class CreateMessageResult(Result):
     """The client's response to a sampling/create_message request from the server."""
 
     role: Role
-    content: TextContent | ImageContent
+    content: TextContent | ImageContent | AudioContent
     model: str
     """The name of the model that generated the message."""
     stopReason: StopReason | None = None
@@ -1108,9 +1089,7 @@ class CancelledNotificationParams(NotificationParams):
     model_config = ConfigDict(extra="allow")
 
 
-class CancelledNotification(
-    Notification[CancelledNotificationParams, Literal["notifications/cancelled"]]
-):
+class CancelledNotification(Notification[CancelledNotificationParams, Literal["notifications/cancelled"]]):
     """
     This notification can be sent by either side to indicate that it is canceling a
     previously-issued request.
@@ -1141,12 +1120,7 @@ class ClientRequest(
 
 
 class ClientNotification(
-    RootModel[
-        CancelledNotification
-        | ProgressNotification
-        | InitializedNotification
-        | RootsListChangedNotification
-    ]
+    RootModel[CancelledNotification | ProgressNotification | InitializedNotification | RootsListChangedNotification]
 ):
     pass
 

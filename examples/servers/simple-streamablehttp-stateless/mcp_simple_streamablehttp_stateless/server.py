@@ -41,9 +41,7 @@ def main(
     app = Server("mcp-streamable-http-stateless-demo")
 
     @app.call_tool()
-    async def call_tool(
-        name: str, arguments: dict
-    ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+    async def call_tool(name: str, arguments: dict) -> list[types.Content]:
         ctx = app.request_context
         interval = arguments.get("interval", 1.0)
         count = arguments.get("count", 5)

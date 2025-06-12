@@ -10,15 +10,8 @@ from mcp.server.auth.errors import (
     stringify_pydantic_error,
 )
 from mcp.server.auth.json_response import PydanticJSONResponse
-from mcp.server.auth.middleware.client_auth import (
-    AuthenticationError,
-    ClientAuthenticator,
-)
-from mcp.server.auth.provider import (
-    AccessToken,
-    OAuthAuthorizationServerProvider,
-    RefreshToken,
-)
+from mcp.server.auth.middleware.client_auth import AuthenticationError, ClientAuthenticator
+from mcp.server.auth.provider import AccessToken, OAuthAuthorizationServerProvider, RefreshToken
 
 
 class RevocationRequest(BaseModel):

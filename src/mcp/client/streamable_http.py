@@ -11,7 +11,6 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
 
 import anyio
 import httpx
@@ -52,13 +51,9 @@ SSE = "text/event-stream"
 class StreamableHTTPError(Exception):
     """Base exception for StreamableHTTP transport errors."""
 
-    pass
-
 
 class ResumptionError(StreamableHTTPError):
     """Raised when resumption request is invalid."""
-
-    pass
 
 
 @dataclass
@@ -71,7 +66,7 @@ class RequestContext:
     session_message: SessionMessage
     metadata: ClientMessageMetadata | None
     read_stream_writer: StreamWriter
-    sse_read_timeout: timedelta
+    sse_read_timeout: float
 
 
 class StreamableHTTPTransport:
@@ -80,9 +75,9 @@ class StreamableHTTPTransport:
     def __init__(
         self,
         url: str,
-        headers: dict[str, Any] | None = None,
-        timeout: timedelta = timedelta(seconds=30),
-        sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
+        headers: dict[str, str] | None = None,
+        timeout: float | timedelta = 30,
+        sse_read_timeout: float | timedelta = 60 * 5,
         auth: httpx.Auth | None = None,
     ) -> None:
         """Initialize the StreamableHTTP transport.
@@ -96,19 +91,19 @@ class StreamableHTTPTransport:
         """
         self.url = url
         self.headers = headers or {}
-        self.timeout = timeout
-        self.sse_read_timeout = sse_read_timeout
+        self.timeout = timeout.total_seconds() if isinstance(timeout, timedelta) else timeout
+        self.sse_read_timeout = (
+            sse_read_timeout.total_seconds() if isinstance(sse_read_timeout, timedelta) else sse_read_timeout
+        )
         self.auth = auth
-        self.session_id: str | None = None
+        self.session_id = None
         self.request_headers = {
             ACCEPT: f"{JSON}, {SSE}",
             CONTENT_TYPE: JSON,
             **self.headers,
         }
 
-    def _update_headers_with_session(
-        self, base_headers: dict[str, str]
-    ) -> dict[str, str]:
+    def _update_headers_with_session(self, base_headers: dict[str, str]) -> dict[str, str]:
         """Update headers with session ID if available."""
         headers = base_headers.copy()
         if self.session_id:
@@ -117,17 +112,11 @@ class StreamableHTTPTransport:
 
     def _is_initialization_request(self, message: JSONRPCMessage) -> bool:
         """Check if the message is an initialization request."""
-        return (
-            isinstance(message.root, JSONRPCRequest)
-            and message.root.method == "initialize"
-        )
+        return isinstance(message.root, JSONRPCRequest) and message.root.method == "initialize"
 
     def _is_initialized_notification(self, message: JSONRPCMessage) -> bool:
         """Check if the message is an initialized notification."""
-        return (
-            isinstance(message.root, JSONRPCNotification)
-            and message.root.method == "notifications/initialized"
-        )
+        return isinstance(message.root, JSONRPCNotification) and message.root.method == "notifications/initialized"
 
     def _maybe_extract_session_id_from_response(
         self,
@@ -153,9 +142,7 @@ class StreamableHTTPTransport:
                 logger.debug(f"SSE message: {message}")
 
                 # If this is a response and we have original_request_id, replace it
-                if original_request_id is not None and isinstance(
-                    message.root, JSONRPCResponse | JSONRPCError
-                ):
+                if original_request_id is not None and isinstance(message.root, JSONRPCResponse | JSONRPCError):
                     message.root.id = original_request_id
 
                 session_message = SessionMessage(message)
@@ -170,7 +157,7 @@ class StreamableHTTPTransport:
                 return isinstance(message.root, JSONRPCResponse | JSONRPCError)
 
             except Exception as exc:
-                logger.error(f"Error parsing SSE message: {exc}")
+                logger.exception("Error parsing SSE message")
                 await read_stream_writer.send(exc)
                 return False
         else:
@@ -194,9 +181,7 @@ class StreamableHTTPTransport:
                 "GET",
                 self.url,
                 headers=headers,
-                timeout=httpx.Timeout(
-                    self.timeout.seconds, read=self.sse_read_timeout.seconds
-                ),
+                timeout=httpx.Timeout(self.timeout, read=self.sse_read_timeout),
             ) as event_source:
                 event_source.response.raise_for_status()
                 logger.debug("GET SSE connection established")
@@ -225,9 +210,7 @@ class StreamableHTTPTransport:
             "GET",
             self.url,
             headers=headers,
-            timeout=httpx.Timeout(
-                self.timeout.seconds, read=ctx.sse_read_timeout.seconds
-            ),
+            timeout=httpx.Timeout(self.timeout, read=self.sse_read_timeout),
         ) as event_source:
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
@@ -297,9 +280,7 @@ class StreamableHTTPTransport:
             logger.error(f"Error parsing JSON response: {exc}")
             await read_stream_writer.send(exc)
 
-    async def _handle_sse_response(
-        self, response: httpx.Response, ctx: RequestContext
-    ) -> None:
+    async def _handle_sse_response(self, response: httpx.Response, ctx: RequestContext) -> None:
         """Handle SSE response from the server."""
         try:
             event_source = EventSource(response)
@@ -307,11 +288,7 @@ class StreamableHTTPTransport:
                 is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
-                    resumption_callback=(
-                        ctx.metadata.on_resumption_token_update
-                        if ctx.metadata
-                        else None
-                    ),
+                    resumption_callback=(ctx.metadata.on_resumption_token_update if ctx.metadata else None),
                 )
                 # If the SSE event indicates completion, like returning respose/error
                 # break the loop
@@ -426,9 +403,9 @@ class StreamableHTTPTransport:
 @asynccontextmanager
 async def streamablehttp_client(
     url: str,
-    headers: dict[str, Any] | None = None,
-    timeout: timedelta = timedelta(seconds=30),
-    sse_read_timeout: timedelta = timedelta(seconds=60 * 5),
+    headers: dict[str, str] | None = None,
+    timeout: float | timedelta = 30,
+    sse_read_timeout: float | timedelta = 60 * 5,
     terminate_on_close: bool = True,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
@@ -454,12 +431,8 @@ async def streamablehttp_client(
     """
     transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout, auth)
 
-    read_stream_writer, read_stream = anyio.create_memory_object_stream[
-        SessionMessage | Exception
-    ](0)
-    write_stream, write_stream_reader = anyio.create_memory_object_stream[
-        SessionMessage
-    ](0)
+    read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+    write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
     async with anyio.create_task_group() as tg:
         try:
@@ -467,16 +440,12 @@ async def streamablehttp_client(
 
             async with httpx_client_factory(
                 headers=transport.request_headers,
-                timeout=httpx.Timeout(
-                    transport.timeout.seconds, read=transport.sse_read_timeout.seconds
-                ),
+                timeout=httpx.Timeout(transport.timeout, read=transport.sse_read_timeout),
                 auth=transport.auth,
             ) as client:
                 # Define callbacks that need access to tg
                 def start_get_stream() -> None:
-                    tg.start_soon(
-                        transport.handle_get_stream, client, read_stream_writer
-                    )
+                    tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
 
                 tg.start_soon(
                     transport.post_writer,
