@@ -106,7 +106,7 @@ def make_fastmcp_app():
             answer: str = Field(description="The user's answer to the question")
 
         result = await ctx.elicit(message=f"Tool wants to ask: {prompt}", schema=AnswerSchema)
-        
+
         if result.action == "accept" and result.data:
             return f"User answered: {result.data.answer}"
         else:
