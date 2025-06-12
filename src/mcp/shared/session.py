@@ -7,6 +7,7 @@ from typing import Any, Generic, Protocol, TypeVar
 
 import anyio
 import httpx
+from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import BaseModel
 from typing_extensions import Self
@@ -177,6 +178,8 @@ class BaseSession(
     _request_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
     _progress_callbacks: dict[RequestId, ProgressFnT]
+    _exit_stack: AsyncExitStack
+    _task_group: TaskGroup
 
     def __init__(
         self,
@@ -196,12 +199,19 @@ class BaseSession(
         self._session_read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
         self._progress_callbacks = {}
-        self._exit_stack = AsyncExitStack()
 
     async def __aenter__(self) -> Self:
-        self._task_group = anyio.create_task_group()
-        await self._task_group.__aenter__()
-        self._task_group.start_soon(self._receive_loop)
+        async with AsyncExitStack() as exit_stack:
+            self._task_group = await exit_stack.enter_async_context(
+                anyio.create_task_group()
+            )
+            self._task_group.start_soon(self._receive_loop)
+            # Using BaseSession as a context manager should not block on exit (this
+            # would be very surprising behavior), so make sure to cancel the tasks
+            # in the task group.
+            exit_stack.callback(self._task_group.cancel_scope.cancel)
+            self._exit_stack = exit_stack.pop_all()
+
         return self
 
     async def __aexit__(
@@ -210,12 +220,7 @@ class BaseSession(
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> bool | None:
-        await self._exit_stack.aclose()
-        # Using BaseSession as a context manager should not block on exit (this
-        # would be very surprising behavior), so make sure to cancel the tasks
-        # in the task group.
-        self._task_group.cancel_scope.cancel()
-        return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        return await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
 
     async def send_request(
         self,

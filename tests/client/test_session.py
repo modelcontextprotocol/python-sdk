@@ -334,15 +334,15 @@ async def test_client_session_version_negotiation_failure():
             )
 
     async with (
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
         ClientSession(
             server_to_client_receive,
             client_to_server_send,
         ) as session,
         anyio.create_task_group() as tg,
-        client_to_server_send,
-        client_to_server_receive,
-        server_to_client_send,
-        server_to_client_receive,
     ):
         tg.start_soon(mock_server)
 

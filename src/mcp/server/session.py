@@ -44,6 +44,7 @@ import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
+from typing_extensions import Self
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
@@ -93,10 +94,16 @@ class ServerSession(
         )
 
         self._init_options = init_options
-        self._incoming_message_stream_writer, self._incoming_message_stream_reader = anyio.create_memory_object_stream[
-            ServerRequestResponder
-        ](0)
-        self._exit_stack.push_async_callback(lambda: self._incoming_message_stream_reader.aclose())
+
+    async def __aenter__(self) -> Self:
+        await super().__aenter__()
+        self._incoming_message_stream_writer, self._incoming_message_stream_reader = (
+            anyio.create_memory_object_stream[ServerRequestResponder](0)
+        )
+        self._exit_stack.push_async_callback(
+            self._incoming_message_stream_reader.aclose
+        )
+        return self
 
     @property
     def client_params(self) -> types.InitializeRequestParams | None:

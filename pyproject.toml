@@ -30,6 +30,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "sse-starlette>=1.6.1",
     "pydantic-settings>=2.5.2",
+    "typing_extensions>=4.12",
     "uvicorn>=0.23.1; sys_platform != 'emscripten'",
 ]
 
@@ -48,10 +49,10 @@ required-version = ">=0.7.2"
 
 [dependency-groups]
 dev = [
+    "anyio[trio]",
     "pyright>=1.1.391",
     "pytest>=8.3.4",
     "ruff>=0.8.5",
-    "trio>=0.26.2",
     "pytest-flakefinder>=1.1.0",
     "pytest-xdist>=3.6.1",
     "pytest-examples>=0.0.14",
@@ -122,5 +123,8 @@ filterwarnings = [
     # This should be fixed on Uvicorn's side.
     "ignore::DeprecationWarning:websockets",
     "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
-    "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel"
+    "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel",
+    # This is to avoid test failures on Trio due to httpx's failure to explicitly close
+    # async generators
+    "ignore::pytest.PytestUnraisableExceptionWarning"
 ]

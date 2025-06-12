@@ -27,6 +27,8 @@ from mcp.types import (
 
 SERVER_NAME = "test_server_for_WS"
 
+pytestmark = pytest.mark.parametrize("anyio_backend", ["asyncio"])
+
 
 @pytest.fixture
 def server_port() -> int:

@@ -87,16 +87,17 @@ class SimpleEventStore(EventStore):
         """Replay events after the specified ID."""
         # Find the index of the last event ID
         start_index = None
-        for i, (_, event_id, _) in enumerate(self._events):
+        stream_id = None
+        for i, (stream_id_, event_id, _) in enumerate(self._events):
             if event_id == last_event_id:
                 start_index = i + 1
+                stream_id = stream_id_
                 break
 
         if start_index is None:
             # If event ID not found, start from beginning
             start_index = 0
 
-        stream_id = None
         # Replay events
         for _, event_id, message in self._events[start_index:]:
             await send_callback(EventMessage(message, event_id))
@@ -1003,7 +1004,8 @@ async def test_streamablehttp_client_resumption(event_server):
     captured_session_id = None
     captured_resumption_token = None
     captured_notifications = []
-    tool_started = False
+    tool_started_event = anyio.Event()
+    session_resumption_token_received_event = anyio.Event()
 
     async def message_handler(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
@@ -1013,12 +1015,12 @@ async def test_streamablehttp_client_resumption(event_server):
             # Look for our special notification that indicates the tool is running
             if isinstance(message.root, types.LoggingMessageNotification):
                 if message.root.params.data == "Tool started":
-                    nonlocal tool_started
-                    tool_started = True
+                    tool_started_event.set()
 
     async def on_resumption_token_update(token: str) -> None:
         nonlocal captured_resumption_token
         captured_resumption_token = token
+        session_resumption_token_received_event.set()
 
     # First, start the client session and begin the long-running tool
     async with streamablehttp_client(f"{server_url}/mcp", terminate_on_close=False) as (
@@ -1055,8 +1057,8 @@ async def test_streamablehttp_client_resumption(event_server):
 
                 # Wait for the tool to start and at least one notification
                 # and then kill the task group
-                while not tool_started or not captured_resumption_token:
-                    await anyio.sleep(0.1)
+                await tool_started_event.wait()
+                await session_resumption_token_received_event.wait()
                 tg.cancel_scope.cancel()
 
     # Store pre notifications and clear the captured notifications
