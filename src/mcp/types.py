@@ -953,13 +953,17 @@ class CreateMessageResult(Result):
     """The reason why sampling stopped, if known."""
 
 
-class ResourceReference(BaseModel):
+class ResourceTemplateReference(BaseModel):
     """A reference to a resource or resource template definition."""
 
     type: Literal["ref/resource"]
     uri: str
     """The URI or URI template of the resource."""
     model_config = ConfigDict(extra="allow")
+
+
+# Deprecated: Use ResourceTemplateReference instead
+ResourceReference = ResourceTemplateReference
 
 
 class PromptReference(BaseModel):
@@ -984,7 +988,7 @@ class CompletionArgument(BaseModel):
 class CompleteRequestParams(RequestParams):
     """Parameters for completion requests."""
 
-    ref: ResourceReference | PromptReference
+    ref: ResourceTemplateReference | PromptReference
     argument: CompletionArgument
     model_config = ConfigDict(extra="allow")
 
