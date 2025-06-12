@@ -82,9 +82,7 @@ class SimpleGitHubOAuthProvider(OAuthAuthorizationServerProvider):
         """Register a new OAuth client."""
         self.clients[client_info.client_id] = client_info
 
-    async def authorize(
-        self, client: OAuthClientInformationFull, params: AuthorizationParams
-    ) -> str:
+    async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
         """Generate an authorization URL for GitHub OAuth flow."""
         state = params.state or secrets.token_hex(16)
 
@@ -92,9 +90,7 @@ class SimpleGitHubOAuthProvider(OAuthAuthorizationServerProvider):
         self.state_mapping[state] = {
             "redirect_uri": str(params.redirect_uri),
             "code_challenge": params.code_challenge,
-            "redirect_uri_provided_explicitly": str(
-                params.redirect_uri_provided_explicitly
-            ),
+            "redirect_uri_provided_explicitly": str(params.redirect_uri_provided_explicitly),
             "client_id": client.client_id,
         }
 
@@ -117,9 +113,7 @@ class SimpleGitHubOAuthProvider(OAuthAuthorizationServerProvider):
 
         redirect_uri = state_data["redirect_uri"]
         code_challenge = state_data["code_challenge"]
-        redirect_uri_provided_explicitly = (
-            state_data["redirect_uri_provided_explicitly"] == "True"
-        )
+        redirect_uri_provided_explicitly = state_data["redirect_uri_provided_explicitly"] == "True"
         client_id = state_data["client_id"]
 
         # Exchange code for token with GitHub
@@ -200,8 +194,7 @@ class SimpleGitHubOAuthProvider(OAuthAuthorizationServerProvider):
                 for token, data in self.tokens.items()
                 # see https://github.blog/engineering/platform-security/behind-githubs-new-authentication-token-formats/
                 # which you get depends on your GH app setup.
-                if (token.startswith("ghu_") or token.startswith("gho_"))
-                and data.client_id == client.client_id
+                if (token.startswith("ghu_") or token.startswith("gho_")) and data.client_id == client.client_id
             ),
             None,
         )
@@ -214,7 +207,7 @@ class SimpleGitHubOAuthProvider(OAuthAuthorizationServerProvider):
 
         return OAuthToken(
             access_token=mcp_token,
-            token_type="bearer",
+            token_type="Bearer",
             expires_in=3600,
             scope=" ".join(authorization_code.scopes),
         )
@@ -232,9 +225,7 @@ class SimpleGitHubOAuthProvider(OAuthAuthorizationServerProvider):
 
         return access_token
 
-    async def load_refresh_token(
-        self, client: OAuthClientInformationFull, refresh_token: str
-    ) -> RefreshToken | None:
+    async def load_refresh_token(self, client: OAuthClientInformationFull, refresh_token: str) -> RefreshToken | None:
         """Load a refresh token - not supported."""
         return None
 
@@ -247,9 +238,7 @@ class SimpleGitHubOAuthProvider(OAuthAuthorizationServerProvider):
         """Exchange refresh token"""
         raise NotImplementedError("Not supported")
 
-    async def revoke_token(
-        self, token: str, token_type_hint: str | None = None
-    ) -> None:
+    async def revoke_token(self, token: str, token_type_hint: str | None = None) -> None:
         """Revoke a token."""
         if token in self.tokens:
             del self.tokens[token]
@@ -335,9 +324,7 @@ def create_simple_mcp_server(settings: ServerSettings) -> FastMCP:
             )
 
             if response.status_code != 200:
-                raise ValueError(
-                    f"GitHub API error: {response.status_code} - {response.text}"
-                )
+                raise ValueError(f"GitHub API error: {response.status_code} - {response.text}")
 
             return response.json()
 
@@ -361,9 +348,7 @@ def main(port: int, host: str, transport: Literal["sse", "streamable-http"]) -> 
         # No hardcoded credentials - all from environment variables
         settings = ServerSettings(host=host, port=port)
     except ValueError as e:
-        logger.error(
-            "Failed to load settings. Make sure environment variables are set:"
-        )
+        logger.error("Failed to load settings. Make sure environment variables are set:")
         logger.error("  MCP_GITHUB_GITHUB_CLIENT_ID=<your-client-id>")
         logger.error("  MCP_GITHUB_GITHUB_CLIENT_SECRET=<your-client-secret>")
         logger.error(f"Error: {e}")

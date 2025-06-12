@@ -8,12 +8,14 @@ import anyio
 import httpx
 import pytest
 import uvicorn
+from inline_snapshot import snapshot
 from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
 
+import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.server import Server
@@ -58,11 +60,7 @@ class ServerTest(Server):
                 await anyio.sleep(2.0)
                 return f"Slow response from {uri.host}"
 
-            raise McpError(
-                error=ErrorData(
-                    code=404, message="OOPS! no resource with that URI was found"
-                )
-            )
+            raise McpError(error=ErrorData(code=404, message="OOPS! no resource with that URI was found"))
 
         @self.list_tools()
         async def handle_list_tools() -> list[Tool]:
@@ -86,12 +84,8 @@ def make_server_app() -> Starlette:
     server = ServerTest()
 
     async def handle_sse(request: Request) -> Response:
-        async with sse.connect_sse(
-            request.scope, request.receive, request._send
-        ) as streams:
-            await server.run(
-                streams[0], streams[1], server.create_initialization_options()
-            )
+        async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
+            await server.run(streams[0], streams[1], server.create_initialization_options())
         return Response()
 
     app = Starlette(
@@ -106,11 +100,7 @@ def make_server_app() -> Starlette:
 
 def run_server(server_port: int) -> None:
     app = make_server_app()
-    server = uvicorn.Server(
-        config=uvicorn.Config(
-            app=app, host="127.0.0.1", port=server_port, log_level="error"
-        )
-    )
+    server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"starting server on {server_port}")
     server.run()
 
@@ -122,9 +112,7 @@ def run_server(server_port: int) -> None:
 
 @pytest.fixture()
 def server(server_port: int) -> Generator[None, None, None]:
-    proc = multiprocessing.Process(
-        target=run_server, kwargs={"server_port": server_port}, daemon=True
-    )
+    proc = multiprocessing.Process(target=run_server, kwargs={"server_port": server_port}, daemon=True)
     print("starting process")
     proc.start()
 
@@ -169,10 +157,7 @@ async def test_raw_sse_connection(http_client: httpx.AsyncClient) -> None:
         async def connection_test() -> None:
             async with http_client.stream("GET", "/sse") as response:
                 assert response.status_code == 200
-                assert (
-                    response.headers["content-type"]
-                    == "text/event-stream; charset=utf-8"
-                )
+                assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
 
                 line_number = 0
                 async for line in response.aiter_lines():
@@ -204,9 +189,7 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
 
 
 @pytest.fixture
-async def initialized_sse_client_session(
-    server, server_url: str
-) -> AsyncGenerator[ClientSession, None]:
+async def initialized_sse_client_session(server, server_url: str) -> AsyncGenerator[ClientSession, None]:
     async with sse_client(server_url + "/sse", sse_read_timeout=0.5) as streams:
         async with ClientSession(*streams) as session:
             await session.initialize()
@@ -234,9 +217,7 @@ async def test_sse_client_exception_handling(
 
 
 @pytest.mark.anyio
-@pytest.mark.skip(
-    "this test highlights a possible bug in SSE read timeout exception handling"
-)
+@pytest.mark.skip("this test highlights a possible bug in SSE read timeout exception handling")
 async def test_sse_client_timeout(
     initialized_sse_client_session: ClientSession,
 ) -> None:
@@ -258,11 +239,7 @@ async def test_sse_client_timeout(
 def run_mounted_server(server_port: int) -> None:
     app = make_server_app()
     main_app = Starlette(routes=[Mount("/mounted_app", app=app)])
-    server = uvicorn.Server(
-        config=uvicorn.Config(
-            app=main_app, host="127.0.0.1", port=server_port, log_level="error"
-        )
-    )
+    server = uvicorn.Server(config=uvicorn.Config(app=main_app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"starting server on {server_port}")
     server.run()
 
@@ -274,9 +251,7 @@ def run_mounted_server(server_port: int) -> None:
 
 @pytest.fixture()
 def mounted_server(server_port: int) -> Generator[None, None, None]:
-    proc = multiprocessing.Process(
-        target=run_mounted_server, kwargs={"server_port": server_port}, daemon=True
-    )
+    proc = multiprocessing.Process(target=run_mounted_server, kwargs={"server_port": server_port}, daemon=True)
     print("starting process")
     proc.start()
 
@@ -306,9 +281,7 @@ def mounted_server(server_port: int) -> Generator[None, None, None]:
 
 
 @pytest.mark.anyio
-async def test_sse_client_basic_connection_mounted_app(
-    mounted_server: None, server_url: str
-) -> None:
+async def test_sse_client_basic_connection_mounted_app(mounted_server: None, server_url: str) -> None:
     async with sse_client(server_url + "/mounted_app/sse") as streams:
         async with ClientSession(*streams) as session:
             # Test initialization
@@ -370,12 +343,8 @@ def run_context_server(server_port: int) -> None:
     context_server = RequestContextServer()
 
     async def handle_sse(request: Request) -> Response:
-        async with sse.connect_sse(
-            request.scope, request.receive, request._send
-        ) as streams:
-            await context_server.run(
-                streams[0], streams[1], context_server.create_initialization_options()
-            )
+        async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
+            await context_server.run(streams[0], streams[1], context_server.create_initialization_options())
         return Response()
 
     app = Starlette(
@@ -385,11 +354,7 @@ def run_context_server(server_port: int) -> None:
         ]
     )
 
-    server = uvicorn.Server(
-        config=uvicorn.Config(
-            app=app, host="127.0.0.1", port=server_port, log_level="error"
-        )
-    )
+    server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"starting context server on {server_port}")
     server.run()
 
@@ -397,9 +362,7 @@ def run_context_server(server_port: int) -> None:
 @pytest.fixture()
 def context_server(server_port: int) -> Generator[None, None, None]:
     """Fixture that provides a server with request context capture"""
-    proc = multiprocessing.Process(
-        target=run_context_server, kwargs={"server_port": server_port}, daemon=True
-    )
+    proc = multiprocessing.Process(target=run_context_server, kwargs={"server_port": server_port}, daemon=True)
     print("starting context server process")
     proc.start()
 
@@ -416,9 +379,7 @@ def context_server(server_port: int) -> Generator[None, None, None]:
             time.sleep(0.1)
             attempt += 1
     else:
-        raise RuntimeError(
-            f"Context server failed to start after {max_attempts} attempts"
-        )
+        raise RuntimeError(f"Context server failed to start after {max_attempts} attempts")
 
     yield
 
@@ -430,9 +391,7 @@ def context_server(server_port: int) -> Generator[None, None, None]:
 
 
 @pytest.mark.anyio
-async def test_request_context_propagation(
-    context_server: None, server_url: str
-) -> None:
+async def test_request_context_propagation(context_server: None, server_url: str) -> None:
     """Test that request context is properly propagated through SSE transport."""
     # Test with custom headers
     custom_headers = {
@@ -456,11 +415,7 @@ async def test_request_context_propagation(
             # Parse the JSON response
 
             assert len(tool_result.content) == 1
-            headers_data = json.loads(
-                tool_result.content[0].text
-                if tool_result.content[0].type == "text"
-                else "{}"
-            )
+            headers_data = json.loads(tool_result.content[0].text if tool_result.content[0].type == "text" else "{}")
 
             # Verify headers were propagated
             assert headers_data.get("authorization") == "Bearer test-token"
@@ -485,15 +440,11 @@ async def test_request_context_isolation(context_server: None, server_url: str) 
                 await session.initialize()
 
                 # Call the tool that echoes context
-                tool_result = await session.call_tool(
-                    "echo_context", {"request_id": f"request-{i}"}
-                )
+                tool_result = await session.call_tool("echo_context", {"request_id": f"request-{i}"})
 
                 assert len(tool_result.content) == 1
                 context_data = json.loads(
-                    tool_result.content[0].text
-                    if tool_result.content[0].type == "text"
-                    else "{}"
+                    tool_result.content[0].text if tool_result.content[0].type == "text" else "{}"
                 )
                 contexts.append(context_data)
 
@@ -503,3 +454,13 @@ async def test_request_context_isolation(context_server: None, server_url: str) 
         assert ctx["request_id"] == f"request-{i}"
         assert ctx["headers"].get("x-request-id") == f"request-{i}"
         assert ctx["headers"].get("x-custom-value") == f"value-{i}"
+
+
+def test_sse_message_id_coercion():
+    """Test that string message IDs that look like integers are parsed as integers.
+
+    See <https://github.com/modelcontextprotocol/python-sdk/pull/851> for more details.
+    """
+    json_message = '{"jsonrpc": "2.0", "id": "123", "method": "ping", "params": null}'
+    msg = types.JSONRPCMessage.model_validate_json(json_message)
+    assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", jsonrpc="2.0", id=123)))
