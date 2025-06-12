@@ -22,6 +22,7 @@ from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
     ErrorData,
+    InitializeResult,
     JSONRPCError,
     JSONRPCMessage,
     JSONRPCNotification,
@@ -138,13 +139,14 @@ class StreamableHTTPTransport:
     ) -> None:
         """Extract protocol version from initialization response message."""
         if isinstance(message.root, JSONRPCResponse) and message.root.result:
-            # Check if result has protocolVersion field
-            result = message.root.result
-            if "protocolVersion" in result:
-                self.protocol_version = result["protocolVersion"]
+            try:
+                # Parse the result as InitializeResult for type safety
+                init_result = InitializeResult.model_validate(message.root.result)
+                self.protocol_version = str(init_result.protocolVersion)
                 logger.info(f"Negotiated protocol version: {self.protocol_version}")
-            else:
-                logger.warning(f"Initialization response does not contain protocolVersion: {result}")
+            except Exception as exc:
+                logger.warning(f"Failed to parse initialization response as InitializeResult: {exc}")
+                logger.warning(f"Raw result: {message.root.result}")
 
     async def _handle_sse_event(
         self,

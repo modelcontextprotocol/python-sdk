@@ -27,7 +27,7 @@ from starlette.types import Receive, Scope, Send
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
-    DEFAULT_PROTOCOL_VERSION,
+    DEFAULT_NEGOTIATED_VERSION,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
@@ -699,12 +699,14 @@ class StreamableHTTPServerTransport:
 
         # If no protocol version provided, assume default version
         if protocol_version is None:
-            protocol_version = DEFAULT_PROTOCOL_VERSION
+            protocol_version = DEFAULT_NEGOTIATED_VERSION
 
         # Check if the protocol version is supported
         if protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
+            supported_versions = ", ".join(SUPPORTED_PROTOCOL_VERSIONS)
             response = self._create_error_response(
-                f"Bad Request: Unsupported protocol version: {protocol_version}",
+                f"Bad Request: Unsupported protocol version: {protocol_version}. "
+                + f"Supported versions: {supported_versions}",
                 HTTPStatus.BAD_REQUEST,
             )
             await response(request.scope, request.receive, send)
