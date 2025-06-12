@@ -384,9 +384,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(
             func: Callable[
                 ...,
-                Awaitable[
-                    Iterable[types.TextContent | types.ImageContent | types.AudioContent | types.EmbeddedResource]
-                ],
+                Awaitable[Iterable[types.Content]],
             ],
         ):
             logger.debug("Registering handler for CallToolRequest")

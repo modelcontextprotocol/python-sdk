@@ -54,12 +54,13 @@ async def sse_client(
     async with anyio.create_task_group() as tg:
         try:
             logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
-            async with httpx_client_factory(headers=headers, auth=auth) as client:
+            async with httpx_client_factory(
+                headers=headers, auth=auth, timeout=httpx.Timeout(timeout, read=sse_read_timeout)
+            ) as client:
                 async with aconnect_sse(
                     client,
                     "GET",
                     url,
-                    timeout=httpx.Timeout(timeout, read=sse_read_timeout),
                 ) as event_source:
                     event_source.response.raise_for_status()
                     logger.debug("SSE connection established")
