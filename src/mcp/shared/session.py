@@ -202,9 +202,7 @@ class BaseSession(
 
     async def __aenter__(self) -> Self:
         async with AsyncExitStack() as exit_stack:
-            self._task_group = await exit_stack.enter_async_context(
-                anyio.create_task_group()
-            )
+            self._task_group = await exit_stack.enter_async_context(anyio.create_task_group())
             self._task_group.start_soon(self._receive_loop)
             # Using BaseSession as a context manager should not block on exit (this
             # would be very surprising behavior), so make sure to cancel the tasks

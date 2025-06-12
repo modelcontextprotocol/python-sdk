@@ -97,12 +97,10 @@ class ServerSession(
 
     async def __aenter__(self) -> Self:
         await super().__aenter__()
-        self._incoming_message_stream_writer, self._incoming_message_stream_reader = (
-            anyio.create_memory_object_stream[ServerRequestResponder](0)
-        )
-        self._exit_stack.push_async_callback(
-            self._incoming_message_stream_reader.aclose
-        )
+        self._incoming_message_stream_writer, self._incoming_message_stream_reader = anyio.create_memory_object_stream[
+            ServerRequestResponder
+        ](0)
+        self._exit_stack.push_async_callback(self._incoming_message_stream_reader.aclose)
         return self
 
     @property

@@ -442,9 +442,7 @@ async def streamablehttp_client(
 
         async with create_mcp_http_client(
             headers=transport.request_headers,
-            timeout=httpx.Timeout(
-                transport.timeout, read=transport.sse_read_timeout
-            ),
+            timeout=httpx.Timeout(transport.timeout, read=transport.sse_read_timeout),
         ) as client:
             async with anyio.create_task_group() as tg:
                 # Define callbacks that need access to tg
