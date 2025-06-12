@@ -187,6 +187,7 @@ class ClientSessionGroup:
         session_tool_name = self.tools[name].name
         return await session.call_tool(session_tool_name, args)
 
+
     async def disconnect_from_server(self, session: mcp.ClientSession) -> None:
         """Disconnects from a single MCP server."""
 
@@ -382,11 +383,61 @@ class ClientSessionGroup:
 
     async def read_resource(self, uri: AnyUrl) -> types.ReadResourceResult:
         """Read a resource from the appropriate session based on the URI."""
-        print(self._resources)
-        print(self._resource_to_session)
         for name, resource in self._resources.items():
             if resource.uri == uri:
                 session = self._resource_to_session.get(name)
                 if session:
                     return await session.read_resource(uri)
-        raise ValueError(f"Resource not found: {uri}")
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message=f"No session found for resource with URI '{uri}'",
+            )
+        )
+    
+    async def subscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+        """Send a resources/subscribe request."""
+        for name, resource in self._resources.items():
+            if resource.uri == uri:
+                session = self._resource_to_session[name]
+                if session:
+                    return await session.subscribe_resource(uri)
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message=f"No session found for resource with URI '{uri}'",
+            )
+        )
+
+    async def unsubscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+        """Send a resources/unsubscribe request."""
+        # Find the session that owns this resource
+        for name, resource in self._resources.items():
+            if resource.uri == uri:
+                session = self._resource_to_session.get(name)
+                if session:
+                    return await session.unsubscribe_resource(uri)
+        
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message=f"No resource found with URI '{uri}'",
+            )
+        )
+
+    async def get_prompt(
+        self, name: str, arguments: dict[str, str] | None = None
+    ) -> types.GetPromptResult:
+        """Send a prompts/get request."""
+        if name in self._prompts:
+            prompt = self._prompts[name]
+            session = self._tool_to_session.get(name)
+            if session:
+                return await session.get_prompt(prompt.name, arguments)
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message=f"No prompt found with name '{name}'",
+            )
+        )
+
