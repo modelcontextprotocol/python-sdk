@@ -4,10 +4,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from pydantic import AnyUrl, BaseModel
 
-from mcp.shared.auth import (
-    OAuthClientInformationFull,
-    OAuthToken,
-)
+from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 
 class AuthorizationParams(BaseModel):
@@ -96,9 +93,7 @@ RefreshTokenT = TypeVar("RefreshTokenT", bound=RefreshToken)
 AccessTokenT = TypeVar("AccessTokenT", bound=AccessToken)
 
 
-class OAuthAuthorizationServerProvider(
-    Protocol, Generic[AuthorizationCodeT, RefreshTokenT, AccessTokenT]
-):
+class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, RefreshTokenT, AccessTokenT]):
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         """
         Retrieves client information by client ID.
@@ -129,9 +124,7 @@ class OAuthAuthorizationServerProvider(
         """
         ...
 
-    async def authorize(
-        self, client: OAuthClientInformationFull, params: AuthorizationParams
-    ) -> str:
+    async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
         """
         Called as part of the /authorize endpoint, and returns a URL that the client
         will be redirected to.
@@ -207,9 +200,7 @@ class OAuthAuthorizationServerProvider(
         """
         ...
 
-    async def load_refresh_token(
-        self, client: OAuthClientInformationFull, refresh_token: str
-    ) -> RefreshTokenT | None:
+    async def load_refresh_token(self, client: OAuthClientInformationFull, refresh_token: str) -> RefreshTokenT | None:
         """
         Loads a RefreshToken by its token string.
 

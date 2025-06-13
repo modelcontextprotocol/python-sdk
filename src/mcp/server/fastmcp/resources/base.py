@@ -19,13 +19,9 @@ class Resource(BaseModel, abc.ABC):
 
     model_config = ConfigDict(validate_default=True)
 
-    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)] = Field(
-        default=..., description="URI of the resource"
-    )
+    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)] = Field(default=..., description="URI of the resource")
     name: str | None = Field(description="Name of the resource", default=None)
-    description: str | None = Field(
-        description="Description of the resource", default=None
-    )
+    description: str | None = Field(description="Description of the resource", default=None)
     mime_type: str = Field(
         default="text/plain",
         description="MIME type of the resource content",

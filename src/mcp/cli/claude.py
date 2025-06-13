@@ -21,9 +21,7 @@ def get_claude_config_path() -> Path | None:
     elif sys.platform == "darwin":
         path = Path(Path.home(), "Library", "Application Support", "Claude")
     elif sys.platform.startswith("linux"):
-        path = Path(
-            os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"), "Claude"
-        )
+        path = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"), "Claude")
     else:
         return None
 
@@ -37,8 +35,7 @@ def get_uv_path() -> str:
     uv_path = shutil.which("uv")
     if not uv_path:
         logger.error(
-            "uv executable not found in PATH, falling back to 'uv'. "
-            "Please ensure uv is installed and in your PATH"
+            "uv executable not found in PATH, falling back to 'uv'. " "Please ensure uv is installed and in your PATH"
         )
         return "uv"  # Fall back to just "uv" if not found
     return uv_path
@@ -94,10 +91,7 @@ def update_claude_config(
             config["mcpServers"] = {}
 
         # Always preserve existing env vars and merge with new ones
-        if (
-            server_name in config["mcpServers"]
-            and "env" in config["mcpServers"][server_name]
-        ):
+        if server_name in config["mcpServers"] and "env" in config["mcpServers"][server_name]:
             existing_env = config["mcpServers"][server_name]["env"]
             if env_vars:
                 # New vars take precedence over existing ones

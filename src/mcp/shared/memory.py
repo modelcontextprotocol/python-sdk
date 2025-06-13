@@ -11,26 +11,15 @@ import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 import mcp.types as types
-from mcp.client.session import (
-    ClientSession,
-    ListRootsFnT,
-    LoggingFnT,
-    MessageHandlerFnT,
-    SamplingFnT,
-)
+from mcp.client.session import ClientSession, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.server import Server
 from mcp.shared.message import SessionMessage
 
-MessageStream = tuple[
-    MemoryObjectReceiveStream[SessionMessage | Exception],
-    MemoryObjectSendStream[SessionMessage],
-]
+MessageStream = tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]]
 
 
 @asynccontextmanager
-async def create_client_server_memory_streams() -> (
-    AsyncGenerator[tuple[MessageStream, MessageStream], None]
-):
+async def create_client_server_memory_streams() -> AsyncGenerator[tuple[MessageStream, MessageStream], None]:
     """
     Creates a pair of bidirectional memory streams for client-server communication.
 
@@ -39,12 +28,8 @@ async def create_client_server_memory_streams() -> (
         (read_stream, write_stream)
     """
     # Create streams for both directions
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        SessionMessage | Exception
-    ](1)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        SessionMessage | Exception
-    ](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
 
     client_streams = (server_to_client_receive, client_to_server_send)
     server_streams = (client_to_server_receive, server_to_client_send)
