@@ -14,13 +14,13 @@ from pydantic import BaseModel, Field
 import mcp.types as types
 from mcp.shared.message import SessionMessage
 
-logger = logging.getLogger(__name__)
-
 from .win32 import (
     create_windows_process,
     get_windows_executable_command,
     terminate_windows_process,
 )
+
+logger = logging.getLogger(__name__)
 
 # Environment variables to inherit by default
 DEFAULT_INHERITED_ENV_VARS = (
