@@ -24,6 +24,10 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+from mcp.server.transport_security import (
+    TransportSecurityMiddleware,
+    TransportSecuritySettings,
+)
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -130,12 +134,14 @@ class StreamableHTTPServerTransport:
     _read_stream: MemoryObjectReceiveStream[SessionMessage | Exception] | None = None
     _write_stream: MemoryObjectSendStream[SessionMessage] | None = None
     _write_stream_reader: MemoryObjectReceiveStream[SessionMessage] | None = None
+    _security: TransportSecurityMiddleware
 
     def __init__(
         self,
         mcp_session_id: str | None,
         is_json_response_enabled: bool = False,
         event_store: EventStore | None = None,
+        security_settings: TransportSecuritySettings | None = None,
     ) -> None:
         """
         Initialize a new StreamableHTTP server transport.
@@ -148,6 +154,7 @@ class StreamableHTTPServerTransport:
             event_store: Event store for resumability support. If provided,
                         resumability will be enabled, allowing clients to
                         reconnect and resume messages.
+            security_settings: Optional security settings for DNS rebinding protection.
 
         Raises:
             ValueError: If the session ID contains invalid characters.
@@ -158,6 +165,7 @@ class StreamableHTTPServerTransport:
         self.mcp_session_id = mcp_session_id
         self.is_json_response_enabled = is_json_response_enabled
         self._event_store = event_store
+        self._security = TransportSecurityMiddleware(security_settings)
         self._request_streams: dict[
             RequestId,
             tuple[
@@ -251,6 +259,14 @@ class StreamableHTTPServerTransport:
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Application entry point that handles all HTTP requests"""
         request = Request(scope, receive)
+
+        # Validate request headers for DNS rebinding protection
+        is_post = request.method == "POST"
+        error_response = await self._security.validate_request(request, is_post=is_post)
+        if error_response:
+            await error_response(scope, receive, send)
+            return
+
         if self._terminated:
             # If the session has been terminated, return 404 Not Found
             response = self._create_error_response(

@@ -52,6 +52,10 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 import mcp.types as types
+from mcp.server.transport_security import (
+    TransportSecurityMiddleware,
+    TransportSecuritySettings,
+)
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -71,16 +75,22 @@ class SseServerTransport:
 
     _endpoint: str
     _read_stream_writers: dict[UUID, MemoryObjectSendStream[SessionMessage | Exception]]
+    _security: TransportSecurityMiddleware
 
-    def __init__(self, endpoint: str) -> None:
+    def __init__(self, endpoint: str, security_settings: TransportSecuritySettings | None = None) -> None:
         """
         Creates a new SSE server transport, which will direct the client to POST
         messages to the relative or absolute URL given.
+
+        Args:
+            endpoint: The relative or absolute URL for POST messages.
+            security_settings: Optional security settings for DNS rebinding protection.
         """
 
         super().__init__()
         self._endpoint = endpoint
         self._read_stream_writers = {}
+        self._security = TransportSecurityMiddleware(security_settings)
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
 
     @asynccontextmanager
@@ -88,6 +98,13 @@ class SseServerTransport:
         if scope["type"] != "http":
             logger.error("connect_sse received non-HTTP request")
             raise ValueError("connect_sse can only handle HTTP requests")
+
+        # Validate request headers for DNS rebinding protection
+        request = Request(scope, receive)
+        error_response = await self._security.validate_request(request, is_post=False)
+        if error_response:
+            await error_response(scope, receive, send)
+            raise ValueError("Request validation failed")
 
         logger.debug("Setting up SSE connection")
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
@@ -159,6 +176,11 @@ class SseServerTransport:
     async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:
         logger.debug("Handling POST message")
         request = Request(scope, receive)
+
+        # Validate request headers for DNS rebinding protection
+        error_response = await self._security.validate_request(request, is_post=True)
+        if error_response:
+            return await error_response(scope, receive, send)
 
         session_id_param = request.query_params.get("session_id")
         if session_id_param is None:
