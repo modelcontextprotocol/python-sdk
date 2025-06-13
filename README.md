@@ -859,14 +859,14 @@ async def main():
     # instead of OAuthClientProvider.
 
     # If you already have a user token from another provider, you can
-    # exchange it for an MCP token using the token-exchange grant
+    # exchange it for an MCP token using the token_exchange grant
     # implemented by TokenExchangeProvider.
     token_exchange_auth = TokenExchangeProvider(
         server_url="https://api.example.com",
         client_metadata=OAuthClientMetadata(
             client_name="My Client",
             redirect_uris=["http://localhost:3000/callback"],
-            grant_types=["token-exchange"],
+            grant_types=["token_exchange"],
             response_types=["code"],
         ),
         storage=CustomTokenStorage(),

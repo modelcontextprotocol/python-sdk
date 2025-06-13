@@ -252,9 +252,7 @@ class SimpleGitHubOAuthProvider(OAuthAuthorizationServerProvider):
         """Exchange an external token for an MCP access token."""
         raise NotImplementedError("Token exchange is not supported")
 
-    async def exchange_client_credentials(
-        self, client: OAuthClientInformationFull, scopes: list[str]
-    ) -> OAuthToken:
+    async def exchange_client_credentials(self, client: OAuthClientInformationFull, scopes: list[str]) -> OAuthToken:
         """Exchange client credentials for an access token."""
         token = f"mcp_{secrets.token_hex(32)}"
         self.tokens[token] = AccessToken(

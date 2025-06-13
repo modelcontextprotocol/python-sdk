@@ -161,9 +161,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider):
             refresh_token=new_refresh_token,
         )
 
-    async def exchange_client_credentials(
-        self, client: OAuthClientInformationFull, scopes: list[str]
-    ) -> OAuthToken:
+    async def exchange_client_credentials(self, client: OAuthClientInformationFull, scopes: list[str]) -> OAuthToken:
         access_token = f"access_{secrets.token_hex(32)}"
         self.tokens[access_token] = AccessToken(
             token=access_token,
@@ -401,7 +399,7 @@ class TestAuthEndpoints:
             "authorization_code",
             "refresh_token",
             "client_credentials",
-            "token-exchange",
+            "token_exchange",
         ]
         assert metadata["service_documentation"] == "https://docs.example.com/"
 
@@ -976,12 +974,13 @@ class TestAuthEndpoints:
         error_data = response.json()
         assert "error" in error_data
         assert error_data["error"] == "invalid_client_metadata"
-        assert error_data["error_description"] == "grant_types must be authorization_code and refresh_token or client_credentials or token exchange"
+        assert (
+            error_data["error_description"]
+            == "grant_types must be authorization_code and refresh_token or client_credentials or token exchange"
+        )
 
     @pytest.mark.anyio
-    async def test_client_registration_client_credentials(
-        self, test_client: httpx.AsyncClient
-    ):
+    async def test_client_registration_client_credentials(self, test_client: httpx.AsyncClient):
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "CC Client",
@@ -1275,9 +1274,7 @@ class TestAuthorizeEndpointErrors:
         [{"grant_types": ["client_credentials"]}],
         indirect=True,
     )
-    async def test_client_credentials_token(
-        self, test_client: httpx.AsyncClient, registered_client
-    ):
+    async def test_client_credentials_token(self, test_client: httpx.AsyncClient, registered_client):
         response = await test_client.post(
             "/token",
             data={
@@ -1292,27 +1289,23 @@ class TestAuthorizeEndpointErrors:
         assert "access_token" in data
 
     @pytest.mark.anyio
-    async def test_metadata_includes_token_exchange(
-        self, test_client: httpx.AsyncClient
-    ):
+    async def test_metadata_includes_token_exchange(self, test_client: httpx.AsyncClient):
         response = await test_client.get("/.well-known/oauth-authorization-server")
         assert response.status_code == 200
         metadata = response.json()
-        assert "token-exchange" in metadata["grant_types_supported"]
+        assert "token_exchange" in metadata["grant_types_supported"]
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(
         "registered_client",
-        [{"grant_types": ["token-exchange"]}],
+        [{"grant_types": ["token_exchange"]}],
         indirect=True,
     )
-    async def test_token_exchange_success(
-        self, test_client: httpx.AsyncClient, registered_client
-    ):
+    async def test_token_exchange_success(self, test_client: httpx.AsyncClient, registered_client):
         response = await test_client.post(
             "/token",
             data={
-                "grant_type": "token-exchange",
+                "grant_type": "token_exchange",
                 "client_id": registered_client["client_id"],
                 "client_secret": registered_client["client_secret"],
                 "subject_token": "good_token",
@@ -1326,16 +1319,14 @@ class TestAuthorizeEndpointErrors:
     @pytest.mark.anyio
     @pytest.mark.parametrize(
         "registered_client",
-        [{"grant_types": ["token-exchange"]}],
+        [{"grant_types": ["token_exchange"]}],
         indirect=True,
     )
-    async def test_token_exchange_invalid_subject(
-        self, test_client: httpx.AsyncClient, registered_client
-    ):
+    async def test_token_exchange_invalid_subject(self, test_client: httpx.AsyncClient, registered_client):
         response = await test_client.post(
             "/token",
             data={
-                "grant_type": "token-exchange",
+                "grant_type": "token_exchange",
                 "client_id": registered_client["client_id"],
                 "client_secret": registered_client["client_secret"],
                 "subject_token": "bad_token",

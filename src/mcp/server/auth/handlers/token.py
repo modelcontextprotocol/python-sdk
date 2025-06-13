@@ -47,13 +47,11 @@ class ClientCredentialsRequest(BaseModel):
 class TokenExchangeRequest(BaseModel):
     """RFC 8693 token exchange request."""
 
-    grant_type: Literal["token-exchange"]
+    grant_type: Literal["token_exchange"]
     subject_token: str = Field(..., description="Token to exchange")
     subject_token_type: str = Field(..., description="Type of the subject token")
     actor_token: str | None = Field(None, description="Optional actor token")
-    actor_token_type: str | None = Field(
-        None, description="Type of the actor token if provided"
-    )
+    actor_token_type: str | None = Field(None, description="Type of the actor token if provided")
     resource: str | None = None
     audience: str | None = None
     scope: str | None = None
@@ -64,19 +62,13 @@ class TokenExchangeRequest(BaseModel):
 class TokenRequest(
     RootModel[
         Annotated[
-            AuthorizationCodeRequest
-            | RefreshTokenRequest
-            | ClientCredentialsRequest
-            | TokenExchangeRequest,
+            AuthorizationCodeRequest | RefreshTokenRequest | ClientCredentialsRequest | TokenExchangeRequest,
             Field(discriminator="grant_type"),
         ]
     ]
 ):
     root: Annotated[
-        AuthorizationCodeRequest
-        | RefreshTokenRequest
-        | ClientCredentialsRequest
-        | TokenExchangeRequest,
+        AuthorizationCodeRequest | RefreshTokenRequest | ClientCredentialsRequest | TokenExchangeRequest,
         Field(discriminator="grant_type"),
     ]
 
@@ -223,9 +215,7 @@ class TokenHandler:
                     else []
                 )
                 try:
-                    tokens = await self.provider.exchange_client_credentials(
-                        client_info, scopes
-                    )
+                    tokens = await self.provider.exchange_client_credentials(client_info, scopes)
                 except TokenError as e:
                     return self.response(
                         TokenErrorResponse(

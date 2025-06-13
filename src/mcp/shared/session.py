@@ -370,7 +370,7 @@ class BaseSession(
                         )
 
                         session_message = SessionMessage(message=JSONRPCMessage(error_response))
-  
+
                         await self._write_stream.send(session_message)
 
                 elif isinstance(message.message.root, JSONRPCNotification):

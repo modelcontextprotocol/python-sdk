@@ -176,11 +176,7 @@ class StreamableHTTPTransport:
                 # Call resumption token callback if we have an ID. Only update
                 # the resumption token on notifications to avoid overwriting it
                 # with the token from the final response.
-                if (
-                    sse.id
-                    and resumption_callback
-                    and not isinstance(message.root, JSONRPCResponse | JSONRPCError)
-                ):
+                if sse.id and resumption_callback and not isinstance(message.root, JSONRPCResponse | JSONRPCError):
                     await resumption_callback(sse.id.strip())
 
                 # If this is a response or error return True indicating completion

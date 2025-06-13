@@ -91,7 +91,7 @@ def oauth_metadata():
             "authorization_code",
             "refresh_token",
             "client_credentials",
-            "token-exchange",
+            "token_exchange",
         ],
         code_challenge_methods_supported=["S256"],
     )
@@ -205,13 +205,13 @@ class TestOAuthClientProvider:
     async def test_get_authorization_base_url(self, oauth_provider):
         """Test authorization base URL extraction."""
         # Test with path
-        assert (_get_authorization_base_url("https://api.example.com/v1/mcp") == "https://api.example.com")
+        assert _get_authorization_base_url("https://api.example.com/v1/mcp") == "https://api.example.com"
 
         # Test with no path
-        assert (_get_authorization_base_url("https://api.example.com") == "https://api.example.com")
+        assert _get_authorization_base_url("https://api.example.com") == "https://api.example.com"
 
         # Test with port
-        assert (_get_authorization_base_url("https://api.example.com:8080/path/to/mcp") == "https://api.example.com:8080")
+        assert _get_authorization_base_url("https://api.example.com:8080/path/to/mcp") == "https://api.example.com:8080"
 
     @pytest.mark.anyio
     async def test_discover_oauth_metadata_success(self, oauth_provider, oauth_metadata):
@@ -930,7 +930,7 @@ def test_build_metadata(
             "authorization_code",
             "refresh_token",
             "client_credentials",
-            "token-exchange",
+            "token_exchange",
         ],
         token_endpoint_auth_methods_supported=["client_secret_post"],
         service_documentation=AnyHttpUrl(service_documentation_url),
@@ -969,10 +969,7 @@ class TestClientCredentialsProvider:
             await client_credentials_provider.ensure_token()
 
             mock_client.post.assert_called_once()
-            assert (
-                client_credentials_provider._current_tokens.access_token
-                == oauth_token.access_token
-            )
+            assert client_credentials_provider._current_tokens.access_token == oauth_token.access_token
 
     @pytest.mark.anyio
     async def test_async_auth_flow(self, client_credentials_provider, oauth_token):
@@ -985,10 +982,7 @@ class TestClientCredentialsProvider:
 
         auth_flow = client_credentials_provider.async_auth_flow(request)
         updated_request = await auth_flow.__anext__()
-        assert (
-            updated_request.headers["Authorization"]
-            == f"Bearer {oauth_token.access_token}"
-        )
+        assert updated_request.headers["Authorization"] == f"Bearer {oauth_token.access_token}"
         try:
             await auth_flow.asend(mock_response)
         except StopAsyncIteration:
@@ -1022,7 +1016,4 @@ class TestTokenExchangeProvider:
             await token_exchange_provider.ensure_token()
 
             mock_client.post.assert_called_once()
-            assert (
-                token_exchange_provider._current_tokens.access_token
-                == oauth_token.access_token
-            )
+            assert token_exchange_provider._current_tokens.access_token == oauth_token.access_token

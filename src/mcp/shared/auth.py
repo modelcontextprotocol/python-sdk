@@ -47,13 +47,13 @@ class OAuthClientMetadata(BaseModel):
     # client_secret_post;
     # ie: we do not support client_secret_basic
     token_endpoint_auth_method: Literal["none", "client_secret_post"] = "client_secret_post"
-    # grant_types: this implementation supports authorization_code, refresh_token, client_credentials, & token-exchange
+    # grant_types: this implementation supports authorization_code, refresh_token, client_credentials, & token_exchange
     grant_types: list[
         Literal[
             "authorization_code",
             "refresh_token",
             "client_credentials",
-            "token-exchange",
+            "token_exchange",
         ]
     ] = [
         "authorization_code",
@@ -129,14 +129,12 @@ class OAuthMetadata(BaseModel):
                 "authorization_code",
                 "refresh_token",
                 "client_credentials",
-                "token-exchange",
+                "token_exchange",
             ]
         ]
         | None
     ) = None
-    token_endpoint_auth_methods_supported: (
-        list[Literal["none", "client_secret_post"]] | None
-    ) = None
+    token_endpoint_auth_methods_supported: list[Literal["none", "client_secret_post"]] | None = None
     token_endpoint_auth_signing_alg_values_supported: None = None
     service_documentation: AnyHttpUrl | None = None
     ui_locales_supported: list[str] | None = None

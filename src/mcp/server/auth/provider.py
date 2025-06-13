@@ -239,9 +239,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         """
         ...
 
-    async def exchange_client_credentials(
-        self, client: OAuthClientInformationFull, scopes: list[str]
-    ) -> OAuthToken:
+    async def exchange_client_credentials(self, client: OAuthClientInformationFull, scopes: list[str]) -> OAuthToken:
         """Exchange client credentials for an access token."""
         ...
 

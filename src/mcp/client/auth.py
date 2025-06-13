@@ -17,7 +17,6 @@ from urllib.parse import urlencode, urljoin
 import anyio
 import httpx
 
-from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -90,9 +89,7 @@ async def _discover_oauth_metadata(server_url: str) -> OAuthMetadata | None:
                     return None
                 response.raise_for_status()
                 metadata_json = response.json()
-                logger.debug(
-                    f"OAuth metadata discovered (no MCP header): {metadata_json}"
-                )
+                logger.debug(f"OAuth metadata discovered (no MCP header): {metadata_json}")
                 return OAuthMetadata.model_validate(metadata_json)
             except Exception:
                 logger.exception("Failed to discover OAuth metadata")
@@ -513,16 +510,10 @@ class ClientCredentialsProvider(httpx.Auth):
             auth_base_url = _get_authorization_base_url(server_url)
             registration_url = urljoin(auth_base_url, "/register")
 
-        if (
-            client_metadata.scope is None
-            and metadata
-            and metadata.scopes_supported is not None
-        ):
+        if client_metadata.scope is None and metadata and metadata.scopes_supported is not None:
             client_metadata.scope = " ".join(metadata.scopes_supported)
 
-        registration_data = client_metadata.model_dump(
-            by_alias=True, mode="json", exclude_none=True
-        )
+        registration_data = client_metadata.model_dump(by_alias=True, mode="json", exclude_none=True)
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -558,9 +549,7 @@ class ClientCredentialsProvider(httpx.Auth):
             returned_scopes = set(token_response.scope.split())
             unauthorized_scopes = returned_scopes - requested_scopes
             if unauthorized_scopes:
-                raise Exception(
-                    f"Server granted unauthorized scopes: {unauthorized_scopes}."
-                )
+                raise Exception(f"Server granted unauthorized scopes: {unauthorized_scopes}.")
         else:
             granted = set(token_response.scope.split())
             logger.debug(
@@ -574,9 +563,7 @@ class ClientCredentialsProvider(httpx.Auth):
 
     async def _get_or_register_client(self) -> OAuthClientInformationFull:
         if not self._client_info:
-            self._client_info = await self._register_oauth_client(
-                self.server_url, self.client_metadata, self._metadata
-            )
+            self._client_info = await self._register_oauth_client(self.server_url, self.client_metadata, self._metadata)
             await self.storage.set_client_info(self._client_info)
         return self._client_info
 
@@ -612,9 +599,7 @@ class ClientCredentialsProvider(httpx.Auth):
             )
 
         if response.status_code != 200:
-            raise Exception(
-                f"Token request failed: {response.status_code} {response.text}"
-            )
+            raise Exception(f"Token request failed: {response.status_code} {response.text}")
 
         token_response = OAuthToken.model_validate(response.json())
         await self._validate_token_scopes(token_response)
@@ -633,17 +618,13 @@ class ClientCredentialsProvider(httpx.Auth):
                 return
             await self._request_token()
 
-    async def async_auth_flow(
-        self, request: httpx.Request
-    ) -> AsyncGenerator[httpx.Request, httpx.Response]:
+    async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
         if not self._has_valid_token():
             await self.initialize()
             await self.ensure_token()
 
         if self._current_tokens and self._current_tokens.access_token:
-            request.headers["Authorization"] = (
-                f"Bearer {self._current_tokens.access_token}"
-            )
+            request.headers["Authorization"] = f"Bearer {self._current_tokens.access_token}"
 
         response = yield request
 
@@ -688,12 +669,10 @@ class TokenExchangeProvider(ClientCredentialsProvider):
             token_url = urljoin(auth_base_url, "/token")
 
         subject_token = await self.subject_token_supplier()
-        actor_token = (
-            await self.actor_token_supplier() if self.actor_token_supplier else None
-        )
+        actor_token = await self.actor_token_supplier() if self.actor_token_supplier else None
 
         token_data = {
-            "grant_type": "token-exchange",
+            "grant_type": "token_exchange",
             "client_id": client_info.client_id,
             "subject_token": subject_token,
             "subject_token_type": self.subject_token_type,
@@ -722,9 +701,7 @@ class TokenExchangeProvider(ClientCredentialsProvider):
             )
 
         if response.status_code != 200:
-            raise Exception(
-                f"Token request failed: {response.status_code} {response.text}"
-            )
+            raise Exception(f"Token request failed: {response.status_code} {response.text}")
 
         token_response = OAuthToken.model_validate(response.json())
         await self._validate_token_scopes(token_response)

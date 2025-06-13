@@ -72,7 +72,7 @@ class RegistrationHandler:
         valid_sets = [
             {"authorization_code", "refresh_token"},
             {"client_credentials"},
-            {"token-exchange"},
+            {"token_exchange"},
         ]
 
         if grant_types_set not in valid_sets:

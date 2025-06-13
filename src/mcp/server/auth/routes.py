@@ -163,7 +163,7 @@ def build_metadata(
             "authorization_code",
             "refresh_token",
             "client_credentials",
-            "token-exchange",
+            "token_exchange",
         ],
         token_endpoint_auth_methods_supported=["client_secret_post"],
         token_endpoint_auth_signing_alg_values_supported=None,
