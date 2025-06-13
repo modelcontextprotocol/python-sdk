@@ -66,9 +66,7 @@ async def test_request_id_match() -> None:
         )
 
         await client_writer.send(SessionMessage(JSONRPCMessage(root=init_req)))
-        response = (
-            await server_reader.receive()
-        )  # Get init response but don't need to check it
+        response = await server_reader.receive()  # Get init response but don't need to check it
 
         # Send initialized notification
         initialized_notification = JSONRPCNotification(
@@ -76,14 +74,10 @@ async def test_request_id_match() -> None:
             params=NotificationParams().model_dump(by_alias=True, exclude_none=True),
             jsonrpc="2.0",
         )
-        await client_writer.send(
-            SessionMessage(JSONRPCMessage(root=initialized_notification))
-        )
+        await client_writer.send(SessionMessage(JSONRPCMessage(root=initialized_notification)))
 
         # Send ping request with custom ID
-        ping_request = JSONRPCRequest(
-            id=custom_request_id, method="ping", params={}, jsonrpc="2.0"
-        )
+        ping_request = JSONRPCRequest(id=custom_request_id, method="ping", params={}, jsonrpc="2.0")
 
         await client_writer.send(SessionMessage(JSONRPCMessage(root=ping_request)))
 
@@ -91,9 +85,7 @@ async def test_request_id_match() -> None:
         response = await server_reader.receive()
 
         # Verify response ID matches request ID
-        assert (
-            response.message.root.id == custom_request_id
-        ), "Response ID should match request ID"
+        assert response.message.root.id == custom_request_id, "Response ID should match request ID"
 
         # Cancel server task
         tg.cancel_scope.cancel()

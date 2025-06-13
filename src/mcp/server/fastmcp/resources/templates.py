@@ -15,18 +15,12 @@ from mcp.server.fastmcp.resources.types import FunctionResource, Resource
 class ResourceTemplate(BaseModel):
     """A template for dynamically creating resources."""
 
-    uri_template: str = Field(
-        description="URI template with parameters (e.g. weather://{city}/current)"
-    )
+    uri_template: str = Field(description="URI template with parameters (e.g. weather://{city}/current)")
     name: str = Field(description="Name of the resource")
     description: str | None = Field(description="Description of what the resource does")
-    mime_type: str = Field(
-        default="text/plain", description="MIME type of the resource content"
-    )
+    mime_type: str = Field(default="text/plain", description="MIME type of the resource content")
     fn: Callable[..., Any] = Field(exclude=True)
-    parameters: dict[str, Any] = Field(
-        description="JSON schema for function parameters"
-    )
+    parameters: dict[str, Any] = Field(description="JSON schema for function parameters")
 
     @classmethod
     def from_function(

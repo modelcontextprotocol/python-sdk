@@ -100,9 +100,7 @@ class TestFileResource:
         with pytest.raises(ValueError, match="Error reading file"):
             await resource.read()
 
-    @pytest.mark.skipif(
-        os.name == "nt", reason="File permissions behave differently on Windows"
-    )
+    @pytest.mark.skipif(os.name == "nt", reason="File permissions behave differently on Windows")
     @pytest.mark.anyio
     async def test_permission_error(self, temp_file: Path):
         """Test reading a file without permissions."""

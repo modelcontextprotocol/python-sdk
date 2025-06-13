@@ -17,6 +17,7 @@ from urllib.parse import urlencode, urljoin
 import anyio
 import httpx
 
+from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -100,10 +101,7 @@ class OAuthClientProvider(httpx.Auth):
 
     def _generate_code_verifier(self) -> str:
         """Generate a cryptographically random code verifier for PKCE."""
-        return "".join(
-            secrets.choice(string.ascii_letters + string.digits + "-._~")
-            for _ in range(128)
-        )
+        return "".join(secrets.choice(string.ascii_letters + string.digits + "-._~") for _ in range(128))
 
     def _generate_code_challenge(self, code_verifier: str) -> str:
         """Generate a code challenge from a code verifier using SHA256."""
@@ -129,7 +127,7 @@ class OAuthClientProvider(httpx.Auth):
         # Extract base URL per MCP spec
         auth_base_url = self._get_authorization_base_url(server_url)
         url = urljoin(auth_base_url, "/.well-known/oauth-authorization-server")
-        headers = {"MCP-Protocol-Version": LATEST_PROTOCOL_VERSION}
+        headers = {MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION}
 
         async with httpx.AsyncClient() as client:
             try:
@@ -148,9 +146,7 @@ class OAuthClientProvider(httpx.Auth):
                         return None
                     response.raise_for_status()
                     metadata_json = response.json()
-                    logger.debug(
-                        f"OAuth metadata discovered (no MCP header): {metadata_json}"
-                    )
+                    logger.debug(f"OAuth metadata discovered (no MCP header): {metadata_json}")
                     return OAuthMetadata.model_validate(metadata_json)
                 except Exception:
                     logger.exception("Failed to discover OAuth metadata")
@@ -176,17 +172,11 @@ class OAuthClientProvider(httpx.Auth):
             registration_url = urljoin(auth_base_url, "/register")
 
         # Handle default scope
-        if (
-            client_metadata.scope is None
-            and metadata
-            and metadata.scopes_supported is not None
-        ):
+        if client_metadata.scope is None and metadata and metadata.scopes_supported is not None:
             client_metadata.scope = " ".join(metadata.scopes_supported)
 
         # Serialize client metadata
-        registration_data = client_metadata.model_dump(
-            by_alias=True, mode="json", exclude_none=True
-        )
+        registration_data = client_metadata.model_dump(by_alias=True, mode="json", exclude_none=True)
 
         async with httpx.AsyncClient() as client:
             try:
@@ -213,9 +203,7 @@ class OAuthClientProvider(httpx.Auth):
                 logger.exception("Registration error")
                 raise
 
-    async def async_auth_flow(
-        self, request: httpx.Request
-    ) -> AsyncGenerator[httpx.Request, httpx.Response]:
+    async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
         """
         HTTPX auth flow integration.
         """
@@ -225,9 +213,7 @@ class OAuthClientProvider(httpx.Auth):
             await self.ensure_token()
         # Add Bearer token if available
         if self._current_tokens and self._current_tokens.access_token:
-            request.headers["Authorization"] = (
-                f"Bearer {self._current_tokens.access_token}"
-            )
+            request.headers["Authorization"] = f"Bearer {self._current_tokens.access_token}"
 
         response = yield request
 
@@ -305,11 +291,7 @@ class OAuthClientProvider(httpx.Auth):
                 return
 
             # Try refreshing existing token
-            if (
-                self._current_tokens
-                and self._current_tokens.refresh_token
-                and await self._refresh_access_token()
-            ):
+            if self._current_tokens and self._current_tokens.refresh_token and await self._refresh_access_token():
                 return
 
             # Fall back to full OAuth flow
@@ -361,12 +343,8 @@ class OAuthClientProvider(httpx.Auth):
         auth_code, returned_state = await self.callback_handler()
 
         # Validate state parameter for CSRF protection
-        if returned_state is None or not secrets.compare_digest(
-            returned_state, self._auth_state
-        ):
-            raise Exception(
-                f"State parameter mismatch: {returned_state} != {self._auth_state}"
-            )
+        if returned_state is None or not secrets.compare_digest(returned_state, self._auth_state):
+            raise Exception(f"State parameter mismatch: {returned_state} != {self._auth_state}")
 
         # Clear state after validation
         self._auth_state = None
@@ -377,9 +355,7 @@ class OAuthClientProvider(httpx.Auth):
         # Exchange authorization code for tokens
         await self._exchange_code_for_token(auth_code, client_info)
 
-    async def _exchange_code_for_token(
-        self, auth_code: str, client_info: OAuthClientInformationFull
-    ) -> None:
+    async def _exchange_code_for_token(self, auth_code: str, client_info: OAuthClientInformationFull) -> None:
         """Exchange authorization code for access token."""
         # Get token endpoint
         if self._metadata and self._metadata.token_endpoint:
@@ -412,17 +388,10 @@ class OAuthClientProvider(httpx.Auth):
                 # Parse OAuth error response
                 try:
                     error_data = response.json()
-                    error_msg = error_data.get(
-                        "error_description", error_data.get("error", "Unknown error")
-                    )
-                    raise Exception(
-                        f"Token exchange failed: {error_msg} "
-                        f"(HTTP {response.status_code})"
-                    )
+                    error_msg = error_data.get("error_description", error_data.get("error", "Unknown error"))
+                    raise Exception(f"Token exchange failed: {error_msg} " f"(HTTP {response.status_code})")
                 except Exception:
-                    raise Exception(
-                        f"Token exchange failed: {response.status_code} {response.text}"
-                    )
+                    raise Exception(f"Token exchange failed: {response.status_code} {response.text}")
 
             # Parse token response
             token_response = OAuthToken.model_validate(response.json())
