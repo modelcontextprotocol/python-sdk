@@ -2,7 +2,7 @@ import anyio
 import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
-from pydantic import AnyUrl
+from pydantic import AnyUrl, FileUrl
 
 SAMPLE_RESOURCES = {
     "greeting": "Hello! This is a sample text resource.",
@@ -26,7 +26,7 @@ def main(port: int, transport: str) -> int:
     async def list_resources() -> list[types.Resource]:
         return [
             types.Resource(
-                uri=AnyUrl(f"file:///{name}.txt"),
+                uri=FileUrl(f"file:///{name}.txt"),
                 name=name,
                 description=f"A sample text resource named {name}",
                 mimeType="text/plain",

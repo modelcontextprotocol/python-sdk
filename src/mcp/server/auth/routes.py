@@ -16,6 +16,7 @@ from mcp.server.auth.handlers.token import TokenHandler
 from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
+from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.auth import OAuthMetadata
 
 
@@ -31,11 +32,7 @@ def validate_issuer_url(url: AnyHttpUrl):
     """
 
     # RFC 8414 requires HTTPS, but we allow localhost HTTP for testing
-    if (
-        url.scheme != "https"
-        and url.host != "localhost"
-        and not url.host.startswith("127.0.0.1")
-    ):
+    if url.scheme != "https" and url.host != "localhost" and not url.host.startswith("127.0.0.1"):
         raise ValueError("Issuer URL must be HTTPS")
 
     # No fragments or query parameters allowed
@@ -59,7 +56,7 @@ def cors_middleware(
         app=request_response(handler),
         allow_origins="*",
         allow_methods=allow_methods,
-        allow_headers=["mcp-protocol-version"],
+        allow_headers=[MCP_PROTOCOL_VERSION_HEADER],
     )
     return cors_app
 
@@ -73,9 +70,7 @@ def create_auth_routes(
 ) -> list[Route]:
     validate_issuer_url(issuer_url)
 
-    client_registration_options = (
-        client_registration_options or ClientRegistrationOptions()
-    )
+    client_registration_options = client_registration_options or ClientRegistrationOptions()
     revocation_options = revocation_options or RevocationOptions()
     metadata = build_metadata(
         issuer_url,
@@ -182,15 +177,11 @@ def build_metadata(
 
     # Add registration endpoint if supported
     if client_registration_options.enabled:
-        metadata.registration_endpoint = AnyHttpUrl(
-            str(issuer_url).rstrip("/") + REGISTRATION_PATH
-        )
+        metadata.registration_endpoint = AnyHttpUrl(str(issuer_url).rstrip("/") + REGISTRATION_PATH)
 
     # Add revocation endpoint if supported
     if revocation_options.enabled:
-        metadata.revocation_endpoint = AnyHttpUrl(
-            str(issuer_url).rstrip("/") + REVOCATION_PATH
-        )
+        metadata.revocation_endpoint = AnyHttpUrl(str(issuer_url).rstrip("/") + REVOCATION_PATH)
         metadata.revocation_endpoint_auth_methods_supported = ["client_secret_post"]
 
     return metadata

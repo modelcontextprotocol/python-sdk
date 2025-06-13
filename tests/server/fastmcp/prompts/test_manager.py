@@ -72,9 +72,7 @@ class TestPromptManager:
         prompt = Prompt.from_function(fn)
         manager.add_prompt(prompt)
         messages = await manager.render_prompt("fn")
-        assert messages == [
-            UserMessage(content=TextContent(type="text", text="Hello, world!"))
-        ]
+        assert messages == [UserMessage(content=TextContent(type="text", text="Hello, world!"))]
 
     @pytest.mark.anyio
     async def test_render_prompt_with_args(self):
@@ -87,9 +85,7 @@ class TestPromptManager:
         prompt = Prompt.from_function(fn)
         manager.add_prompt(prompt)
         messages = await manager.render_prompt("fn", arguments={"name": "World"})
-        assert messages == [
-            UserMessage(content=TextContent(type="text", text="Hello, World!"))
-        ]
+        assert messages == [UserMessage(content=TextContent(type="text", text="Hello, World!"))]
 
     @pytest.mark.anyio
     async def test_render_unknown_prompt(self):

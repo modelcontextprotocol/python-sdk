@@ -46,10 +46,8 @@ class OAuthClientMetadata(BaseModel):
     # token_endpoint_auth_method: this implementation only supports none &
     # client_secret_post;
     # ie: we do not support client_secret_basic
-    token_endpoint_auth_method: Literal["none", "client_secret_post"] = (
-        "client_secret_post"
-    )
-    # grant_types: support authorization_code, refresh_token, client_credentials
+    token_endpoint_auth_method: Literal["none", "client_secret_post"] = "client_secret_post"
+    # grant_types: this implementation supports authorization_code, refresh_token, client_credentials, & token-exchange
     grant_types: list[
         Literal[
             "authorization_code",
@@ -92,17 +90,12 @@ class OAuthClientMetadata(BaseModel):
         if redirect_uri is not None:
             # Validate redirect_uri against client's registered redirect URIs
             if redirect_uri not in self.redirect_uris:
-                raise InvalidRedirectUriError(
-                    f"Redirect URI '{redirect_uri}' not registered for client"
-                )
+                raise InvalidRedirectUriError(f"Redirect URI '{redirect_uri}' not registered for client")
             return redirect_uri
         elif len(self.redirect_uris) == 1:
             return self.redirect_uris[0]
         else:
-            raise InvalidRedirectUriError(
-                "redirect_uri must be specified when client "
-                "has multiple registered URIs"
-            )
+            raise InvalidRedirectUriError("redirect_uri must be specified when client " "has multiple registered URIs")
 
 
 class OAuthClientInformationFull(OAuthClientMetadata):

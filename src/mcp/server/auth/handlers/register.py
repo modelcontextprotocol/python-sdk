@@ -10,11 +10,7 @@ from starlette.responses import Response
 
 from mcp.server.auth.errors import stringify_pydantic_error
 from mcp.server.auth.json_response import PydanticJSONResponse
-from mcp.server.auth.provider import (
-    OAuthAuthorizationServerProvider,
-    RegistrationError,
-    RegistrationErrorCode,
-)
+from mcp.server.auth.provider import OAuthAuthorizationServerProvider, RegistrationError, RegistrationErrorCode
 from mcp.server.auth.settings import ClientRegistrationOptions
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 
@@ -60,9 +56,7 @@ class RegistrationHandler:
 
         if client_metadata.scope is None and self.options.default_scopes is not None:
             client_metadata.scope = " ".join(self.options.default_scopes)
-        elif (
-            client_metadata.scope is not None and self.options.valid_scopes is not None
-        ):
+        elif client_metadata.scope is not None and self.options.valid_scopes is not None:
             requested_scopes = set(client_metadata.scope.split())
             valid_scopes = set(self.options.valid_scopes)
             if not requested_scopes.issubset(valid_scopes):
@@ -131,8 +125,6 @@ class RegistrationHandler:
         except RegistrationError as e:
             # Handle registration errors as defined in RFC 7591 Section 3.2.2
             return PydanticJSONResponse(
-                content=RegistrationErrorResponse(
-                    error=e.error, error_description=e.error_description
-                ),
+                content=RegistrationErrorResponse(error=e.error, error_description=e.error_description),
                 status_code=400,
             )

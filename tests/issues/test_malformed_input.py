@@ -23,12 +23,8 @@ async def test_malformed_initialize_request_does_not_crash_server():
     instead of crashing the server (HackerOne #3156202).
     """
     # Create in-memory streams for testing
-    read_send_stream, read_receive_stream = anyio.create_memory_object_stream[
-        SessionMessage | Exception
-    ](10)
-    write_send_stream, write_receive_stream = anyio.create_memory_object_stream[
-        SessionMessage
-    ](10)
+    read_send_stream, read_receive_stream = anyio.create_memory_object_stream[SessionMessage | Exception](10)
+    write_send_stream, write_receive_stream = anyio.create_memory_object_stream[SessionMessage](10)
 
     try:
         # Create a malformed initialize request (missing required params field)
@@ -78,9 +74,8 @@ async def test_malformed_initialize_request_does_not_crash_server():
                     method="tools/call",
                     # params=None  # Missing required params
                 )
-                another_request_message = SessionMessage(
-                    message=JSONRPCMessage(another_malformed_request)
-                )
+
+                another_request_message = SessionMessage(message=JSONRPCMessage(another_malformed_request))
 
                 await read_send_stream.send(another_request_message)
                 await anyio.sleep(0.1)
@@ -109,12 +104,8 @@ async def test_multiple_concurrent_malformed_requests():
     Test that multiple concurrent malformed requests don't crash the server.
     """
     # Create in-memory streams for testing
-    read_send_stream, read_receive_stream = anyio.create_memory_object_stream[
-        SessionMessage | Exception
-    ](100)
-    write_send_stream, write_receive_stream = anyio.create_memory_object_stream[
-        SessionMessage
-    ](100)
+    read_send_stream, read_receive_stream = anyio.create_memory_object_stream[SessionMessage | Exception](100)
+    write_send_stream, write_receive_stream = anyio.create_memory_object_stream[SessionMessage](100)
 
     try:
         # Start a server session
@@ -136,9 +127,7 @@ async def test_multiple_concurrent_malformed_requests():
                     method="initialize",
                     # params=None  # Missing required params
                 )
-                request_message = SessionMessage(
-                    message=JSONRPCMessage(malformed_request)
-                )
+                request_message = SessionMessage(message=JSONRPCMessage(malformed_request))
                 malformed_requests.append(request_message)
 
             # Send all requests

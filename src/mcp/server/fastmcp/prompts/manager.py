@@ -39,9 +39,7 @@ class PromptManager:
         self._prompts[prompt.name] = prompt
         return prompt
 
-    async def render_prompt(
-        self, name: str, arguments: dict[str, Any] | None = None
-    ) -> list[Message]:
+    async def render_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> list[Message]:
         """Render a prompt by name with arguments."""
         prompt = self.get_prompt(name)
         if not prompt:
