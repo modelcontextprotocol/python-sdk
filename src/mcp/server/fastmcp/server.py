@@ -88,6 +88,10 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # HTTP settings
     host: str = "127.0.0.1"
     port: int = 8000
+
+    root_path: str = ""  # Root path, same with root_path in uvicorn config.
+                         # Used for SSE or streamable HTTP.
+
     mount_path: str = "/"  # Mount path (e.g. "/github", defaults to root path)
     sse_path: str = "/sse"
     message_path: str = "/messages/"
@@ -579,6 +583,7 @@ class FastMCP:
             starlette_app,
             host=self.settings.host,
             port=self.settings.port,
+            root_path=self.settings.root_path,
             log_level=self.settings.log_level.lower(),
         )
         server = uvicorn.Server(config)
@@ -594,6 +599,7 @@ class FastMCP:
             starlette_app,
             host=self.settings.host,
             port=self.settings.port,
+            root_path=self.settings.root_path,
             log_level=self.settings.log_level.lower(),
         )
         server = uvicorn.Server(config)
