@@ -25,6 +25,14 @@ for reference.
 
 LATEST_PROTOCOL_VERSION = "2025-03-26"
 
+"""
+The default negotiated version of the Model Context Protocol when no version is specified.
+We need this to satisfy the MCP specification, which requires the server to assume a
+specific version if none is provided by the client. See section "Protocol Version Header" at
+https://modelcontextprotocol.io/specification
+"""
+DEFAULT_NEGOTIATED_VERSION = "2025-03-26"
+
 ProgressToken = str | int
 Cursor = str
 Role = Literal["user", "assistant"]

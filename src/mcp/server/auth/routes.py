@@ -16,6 +16,7 @@ from mcp.server.auth.handlers.token import TokenHandler
 from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
+from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.auth import OAuthMetadata
 
 
@@ -55,7 +56,7 @@ def cors_middleware(
         app=request_response(handler),
         allow_origins="*",
         allow_methods=allow_methods,
-        allow_headers=["mcp-protocol-version"],
+        allow_headers=[MCP_PROTOCOL_VERSION_HEADER],
     )
     return cors_app
 

@@ -17,7 +17,13 @@ from urllib.parse import urlencode, urljoin
 import anyio
 import httpx
 
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata, OAuthToken
+from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
+from mcp.shared.auth import (
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthMetadata,
+    OAuthToken,
+)
 from mcp.types import LATEST_PROTOCOL_VERSION
 
 logger = logging.getLogger(__name__)
@@ -121,7 +127,7 @@ class OAuthClientProvider(httpx.Auth):
         # Extract base URL per MCP spec
         auth_base_url = self._get_authorization_base_url(server_url)
         url = urljoin(auth_base_url, "/.well-known/oauth-authorization-server")
-        headers = {"MCP-Protocol-Version": LATEST_PROTOCOL_VERSION}
+        headers = {MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION}
 
         async with httpx.AsyncClient() as client:
             try:
