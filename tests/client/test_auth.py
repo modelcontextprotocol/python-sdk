@@ -99,7 +99,7 @@ def oauth_token():
 
 
 @pytest.fixture
-async def oauth_provider(client_metadata, mock_storage):
+def oauth_provider(client_metadata, mock_storage):
     async def mock_redirect_handler(url: str) -> None:
         pass
 
