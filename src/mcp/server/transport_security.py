@@ -117,7 +117,7 @@ class TransportSecurityMiddleware:
         # Validate Host header
         host = request.headers.get("host")
         if not self._validate_host(host):
-            return Response("Invalid Host header", status_code=400)
+            return Response("Invalid Host header", status_code=421)
 
         # Validate Origin header
         origin = request.headers.get("origin")
