@@ -61,6 +61,7 @@ async def sse_client(
                     client,
                     "GET",
                     url,
+                    timeout=httpx.Timeout(timeout, read=sse_read_timeout),
                 ) as event_source:
                     event_source.response.raise_for_status()
                     logger.debug("SSE connection established")
@@ -106,7 +107,7 @@ async def sse_client(
                                     case _:
                                         logger.warning(f"Unknown SSE event: {sse.event}")
                         except Exception as exc:
-                            logger.error(f"Error in sse_reader: {exc}")
+                            logger.error(f"Error in sse_reader: {exc.__class__.__name__}", exc_info=True)
                             await read_stream_writer.send(exc)
                         finally:
                             await read_stream_writer.aclose()
@@ -127,7 +128,8 @@ async def sse_client(
                                     response.raise_for_status()
                                     logger.debug("Client message sent successfully: " f"{response.status_code}")
                         except Exception as exc:
-                            logger.error(f"Error in post_writer: {exc}")
+                            logger.error(f"Error in post_writer: {exc.__class__.__name__}", exc_info=True)
+                            await read_stream_writer.send(exc)
                         finally:
                             await write_stream.aclose()
 
