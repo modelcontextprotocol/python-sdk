@@ -6,7 +6,7 @@ import time
 from typing import Any, Literal
 
 import click
-from pydantic import AnyHttpUrl
+from pydantic import AnyHttpUrl, AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -144,7 +144,7 @@ class SimpleGitHubOAuthProvider(OAuthAuthorizationServerProvider):
             auth_code = AuthorizationCode(
                 code=new_code,
                 client_id=client_id,
-                redirect_uri=AnyHttpUrl(redirect_uri),
+                redirect_uri=AnyUrl(redirect_uri),
                 redirect_uri_provided_explicitly=redirect_uri_provided_explicitly,
                 expires_at=time.time() + 300,
                 scopes=[self.settings.mcp_scope],
