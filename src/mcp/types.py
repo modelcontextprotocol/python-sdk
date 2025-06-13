@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
+from typing_extensions import deprecated
+
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
 from pydantic.networks import AnyUrl, UrlConstraints
 
@@ -962,8 +964,9 @@ class ResourceTemplateReference(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-# Deprecated: Use ResourceTemplateReference instead
-ResourceReference = ResourceTemplateReference
+@deprecated("`ResourceReference` is deprecated, you should use `ResourceTemplateReference`.")
+class ResourceReference(ResourceTemplateReference):
+    pass
 
 
 class PromptReference(BaseModel):
