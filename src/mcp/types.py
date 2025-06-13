@@ -1,10 +1,9 @@
 from collections.abc import Callable
 from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
-from typing_extensions import deprecated
-
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
 from pydantic.networks import AnyUrl, UrlConstraints
+from typing_extensions import deprecated
 
 """
 Model Context Protocol bindings for Python
