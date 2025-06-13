@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 import uvicorn
-from pydantic import AnyUrl
+from pydantic import AnyUrl, BaseModel, Field
 from starlette.applications import Starlette
 from starlette.requests import Request
 
@@ -22,12 +22,13 @@ import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.resources import FunctionResource
 from mcp.shared.context import RequestContext
 from mcp.types import (
     CreateMessageRequestParams,
     CreateMessageResult,
+    ElicitResult,
     GetPromptResult,
     InitializeResult,
     ReadResourceResult,
@@ -88,6 +89,20 @@ def make_fastmcp_app():
     @mcp.tool(description="A simple echo tool")
     def echo(message: str) -> str:
         return f"Echo: {message}"
+
+    # Add a tool that uses elicitation
+    @mcp.tool(description="A tool that uses elicitation")
+    async def ask_user(prompt: str, ctx: Context) -> str:
+        class AnswerSchema(BaseModel):
+            answer: str = Field(description="The user's answer to the question")
+
+        result = await ctx.elicit(message=f"Tool wants to ask: {prompt}", schema=AnswerSchema)
+
+        if result.action == "accept" and result.data:
+            return f"User answered: {result.data.answer}"
+        else:
+            # Handle cancellation or decline
+            return f"User cancelled or declined: {result.action}"
 
     # Create the SSE app
     app = mcp.sse_app()
@@ -217,6 +232,49 @@ def make_everything_fastmcp() -> FastMCP:
             context_data["method"] = request.method
             context_data["path"] = request.url.path
         return json.dumps(context_data)
+
+    # Restaurant booking tool with elicitation
+    @mcp.tool(description="Book a table at a restaurant with elicitation")
+    async def book_restaurant(
+        date: str,
+        time: str,
+        party_size: int,
+        ctx: Context,
+    ) -> str:
+        """Book a table - uses elicitation if requested date is unavailable."""
+
+        class AlternativeDateSchema(BaseModel):
+            checkAlternative: bool = Field(description="Would you like to try another date?")
+            alternativeDate: str = Field(
+                default="2024-12-26",
+                description="What date would you prefer? (YYYY-MM-DD)",
+            )
+
+        # For testing: assume dates starting with "2024-12-25" are unavailable
+        if date.startswith("2024-12-25"):
+            # Use elicitation to ask about alternatives
+            result = await ctx.elicit(
+                message=(
+                    f"No tables available for {party_size} people on {date} "
+                    f"at {time}. Would you like to check another date?"
+                ),
+                schema=AlternativeDateSchema,
+            )
+
+            if result.action == "accept" and result.data:
+                if result.data.checkAlternative:
+                    alt_date = result.data.alternativeDate
+                    return f"✅ Booked table for {party_size} on {alt_date} at {time}"
+                else:
+                    return "❌ No booking made"
+            elif result.action in ("decline", "cancel"):
+                return "❌ Booking cancelled"
+            else:
+                # Validation error
+                return f"❌ Invalid input: {result.validation_error}"
+        else:
+            # Available - book directly
+            return f"✅ Booked table for {party_size} on {date} at {time}"
 
     return mcp
 
@@ -609,6 +667,22 @@ class NotificationCollector:
                 await self.handle_tool_list_changed(message.root.params)
 
 
+async def create_test_elicitation_callback(context, params):
+    """Shared elicitation callback for tests.
+
+    Handles elicitation requests for restaurant booking tests.
+    """
+    # For restaurant booking test
+    if "No tables available" in params.message:
+        return ElicitResult(
+            action="accept",
+            content={"checkAlternative": True, "alternativeDate": "2024-12-26"},
+        )
+    else:
+        # Default response
+        return ElicitResult(action="decline")
+
+
 async def call_all_mcp_features(session: ClientSession, collector: NotificationCollector) -> None:
     """
     Test all MCP features using the provided session.
@@ -703,6 +777,21 @@ async def call_all_mcp_features(session: ClientSession, collector: NotificationC
     assert "debug" in log_levels
     assert "info" in log_levels
     assert "warning" in log_levels
+
+    # 5. Test elicitation tool
+    # Test restaurant booking with unavailable date (triggers elicitation)
+    booking_result = await session.call_tool(
+        "book_restaurant",
+        {
+            "date": "2024-12-25",  # Unavailable date to trigger elicitation
+            "time": "19:00",
+            "party_size": 4,
+        },
+    )
+    assert len(booking_result.content) == 1
+    assert isinstance(booking_result.content[0], TextContent)
+    # Should have booked the alternative date from elicitation callback
+    assert "✅ Booked table for 4 on 2024-12-26" in booking_result.content[0].text
 
     # Test resources
     # 1. Static resource
@@ -809,8 +898,6 @@ async def test_fastmcp_all_features_sse(everything_server: None, everything_serv
     # Create notification collector
     collector = NotificationCollector()
 
-    # Create a sampling callback that simulates an LLM
-
     # Connect to the server with callbacks
     async with sse_client(everything_server_url + "/sse") as streams:
         # Set up message handler to capture notifications
@@ -823,6 +910,7 @@ async def test_fastmcp_all_features_sse(everything_server: None, everything_serv
         async with ClientSession(
             *streams,
             sampling_callback=sampling_callback,
+            elicitation_callback=create_test_elicitation_callback,
             message_handler=message_handler,
         ) as session:
             # Run the common test suite
@@ -855,6 +943,7 @@ async def test_fastmcp_all_features_streamable_http(
             read_stream,
             write_stream,
             sampling_callback=sampling_callback,
+            elicitation_callback=create_test_elicitation_callback,
             message_handler=message_handler,
         ) as session:
             # Run the common test suite with HTTP-specific test suffix

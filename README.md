@@ -30,6 +30,8 @@
     - [Prompts](#prompts)
     - [Images](#images)
     - [Context](#context)
+    - [Elicitation](#elicitation)
+    - [Authentication](#authentication)
   - [Running Your Server](#running-your-server)
     - [Development Mode](#development-mode)
     - [Claude Desktop Integration](#claude-desktop-integration)
@@ -309,6 +311,44 @@ async def long_task(files: list[str], ctx: Context) -> str:
         data, mime_type = await ctx.read_resource(f"file://{file}")
     return "Processing complete"
 ```
+
+### Elicitation
+
+Request additional information from users during tool execution:
+
+```python
+from mcp.server.fastmcp import FastMCP, Context
+from pydantic import BaseModel, Field
+
+mcp = FastMCP("Booking System")
+
+
+@mcp.tool()
+async def book_table(date: str, party_size: int, ctx: Context) -> str:
+    """Book a table with confirmation"""
+    
+    # Schema must only contain primitive types (str, int, float, bool)
+    class ConfirmBooking(BaseModel):
+        confirm: bool = Field(description="Confirm booking?")
+        notes: str = Field(default="", description="Special requests")
+    
+    result = await ctx.elicit(
+        message=f"Confirm booking for {party_size} on {date}?", schema=ConfirmBooking
+    )
+    
+    if result.action == "accept" and result.data:
+        if result.data.confirm:
+            return f"Booked! Notes: {result.data.notes or 'None'}"
+        return "Booking cancelled"
+    
+    # User declined or cancelled
+    return f"Booking {result.action}"
+```
+
+The `elicit()` method returns an `ElicitationResult` with:
+- `action`: "accept", "decline", or "cancel" 
+- `data`: The validated response (only when accepted)
+- `validation_error`: Any validation error message
 
 ### Authentication
 

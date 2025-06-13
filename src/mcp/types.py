@@ -218,6 +218,12 @@ class SamplingCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class ElicitationCapability(BaseModel):
+    """Capability for elicitation operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+
 class ClientCapabilities(BaseModel):
     """Capabilities a client may support."""
 
@@ -225,6 +231,8 @@ class ClientCapabilities(BaseModel):
     """Experimental, non-standard capabilities that the client supports."""
     sampling: SamplingCapability | None = None
     """Present if the client supports sampling from an LLM."""
+    elicitation: ElicitationCapability | None = None
+    """Present if the client supports elicitation from the user."""
     roots: RootsCapability | None = None
     """Present if the client supports listing roots."""
     model_config = ConfigDict(extra="allow")
@@ -1133,11 +1141,49 @@ class ClientNotification(
     pass
 
 
-class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult]):
+# Type for elicitation schema - a JSON Schema dict
+ElicitRequestedSchema: TypeAlias = dict[str, Any]
+"""Schema for elicitation requests."""
+
+
+class ElicitRequestParams(RequestParams):
+    """Parameters for elicitation requests."""
+
+    message: str
+    requestedSchema: ElicitRequestedSchema
+    model_config = ConfigDict(extra="allow")
+
+
+class ElicitRequest(Request[ElicitRequestParams, Literal["elicitation/create"]]):
+    """A request from the server to elicit information from the client."""
+
+    method: Literal["elicitation/create"]
+    params: ElicitRequestParams
+
+
+class ElicitResult(Result):
+    """The client's response to an elicitation request."""
+
+    action: Literal["accept", "decline", "cancel"]
+    """
+    The user action in response to the elicitation.
+    - "accept": User submitted the form/confirmed the action
+    - "decline": User explicitly declined the action
+    - "cancel": User dismissed without making an explicit choice
+    """
+
+    content: dict[str, str | int | float | bool | None] | None = None
+    """
+    The submitted form data, only present when action is "accept".
+    Contains values matching the requested schema.
+    """
+
+
+class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult]):
     pass
 
 
-class ServerRequest(RootModel[PingRequest | CreateMessageRequest | ListRootsRequest]):
+class ServerRequest(RootModel[PingRequest | CreateMessageRequest | ListRootsRequest | ElicitRequest]):
     pass
 
 
