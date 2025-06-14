@@ -866,7 +866,7 @@ async def main():
         client_metadata=OAuthClientMetadata(
             client_name="My Client",
             redirect_uris=["http://localhost:3000/callback"],
-            grant_types=["token_exchange"],
+            grant_types=["client_credentials", "token_exchange"],
             response_types=["code"],
         ),
         storage=CustomTokenStorage(),

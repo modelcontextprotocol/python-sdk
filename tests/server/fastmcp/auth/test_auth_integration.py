@@ -976,7 +976,11 @@ class TestAuthEndpoints:
         assert error_data["error"] == "invalid_client_metadata"
         assert (
             error_data["error_description"]
-            == "grant_types must be authorization_code and refresh_token or client_credentials or token exchange"
+            == (
+                "grant_types must be authorization_code and refresh_token "
+                "or client_credentials or token exchange or "
+                "client_credentials and token_exchange"
+            )
         )
 
     @pytest.mark.anyio
@@ -1336,3 +1340,33 @@ class TestAuthorizeEndpointErrors:
         assert response.status_code == 400
         data = response.json()
         assert data["error"] == "invalid_grant"
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "registered_client",
+        [{"grant_types": ["client_credentials", "token_exchange"]}],
+        indirect=True,
+    )
+    async def test_client_credentials_and_token_exchange(self, test_client: httpx.AsyncClient, registered_client):
+        cc_response = await test_client.post(
+            "/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": registered_client["client_id"],
+                "client_secret": registered_client["client_secret"],
+                "scope": "read write",
+            },
+        )
+        assert cc_response.status_code == 200
+
+        te_response = await test_client.post(
+            "/token",
+            data={
+                "grant_type": "token_exchange",
+                "client_id": registered_client["client_id"],
+                "client_secret": registered_client["client_secret"],
+                "subject_token": "good_token",
+                "subject_token_type": "access_token",
+            },
+        )
+        assert te_response.status_code == 200
