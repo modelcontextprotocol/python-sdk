@@ -312,7 +312,10 @@ class BaseSession(
             message=JSONRPCMessage(jsonrpc_notification),
             metadata=ServerMessageMetadata(related_request_id=related_request_id) if related_request_id else None,
         )
-        await self._write_stream.send(session_message)
+        try:
+            await self._write_stream.send(session_message)
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+            logging.debug("Discarding notification due to closed stream")
 
     async def _send_response(self, request_id: RequestId, response: SendResultT | ErrorData) -> None:
         if isinstance(response, ErrorData):
@@ -400,16 +403,14 @@ class BaseSession(
                             await self._handle_incoming(notification)
                     except Exception as e:
                         # For other validation errors, log and continue
-                        logging.warning(
-                            f"Failed to validate notification: {e}. " f"Message was: {message.message.root}"
-                        )
+                        logging.warning(f"Failed to validate notification: {e}. Message was: {message.message.root}")
                 else:  # Response or error
                     stream = self._response_streams.pop(message.message.root.id, None)
                     if stream:
                         await stream.send(message.message.root)
                     else:
                         await self._handle_incoming(
-                            RuntimeError("Received response with an unknown " f"request ID: {message}")
+                            RuntimeError(f"Received response with an unknown request ID: {message}")
                         )
 
             # after the read stream is closed, we need to send errors
