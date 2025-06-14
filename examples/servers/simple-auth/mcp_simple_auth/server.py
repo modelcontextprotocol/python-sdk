@@ -238,6 +238,36 @@ class SimpleGitHubOAuthProvider(OAuthAuthorizationServerProvider):
         """Exchange refresh token"""
         raise NotImplementedError("Not supported")
 
+    async def exchange_token(
+        self,
+        client: OAuthClientInformationFull,
+        subject_token: str,
+        subject_token_type: str,
+        actor_token: str | None,
+        actor_token_type: str | None,
+        scope: list[str] | None,
+        audience: str | None,
+        resource: str | None,
+    ) -> OAuthToken:
+        """Exchange an external token for an MCP access token."""
+        raise NotImplementedError("Token exchange is not supported")
+
+    async def exchange_client_credentials(self, client: OAuthClientInformationFull, scopes: list[str]) -> OAuthToken:
+        """Exchange client credentials for an access token."""
+        token = f"mcp_{secrets.token_hex(32)}"
+        self.tokens[token] = AccessToken(
+            token=token,
+            client_id=client.client_id,
+            scopes=scopes,
+            expires_at=int(time.time()) + 3600,
+        )
+        return OAuthToken(
+            access_token=token,
+            token_type="Bearer",
+            expires_in=3600,
+            scope=" ".join(scopes),
+        )
+
     async def revoke_token(self, token: str, token_type_hint: str | None = None) -> None:
         """Revoke a token."""
         if token in self.tokens:
