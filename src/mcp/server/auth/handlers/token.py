@@ -248,7 +248,7 @@ class TokenHandler:
             case RefreshTokenRequest():
                 refresh_token = await self.provider.load_refresh_token(client_info, token_request.refresh_token)
                 if refresh_token is None or refresh_token.client_id != token_request.client_id:
-                    # if token belongs to different client, pretend it doesn't exist
+                    # if token belongs to a different client, pretend it doesn't exist
                     return self.response(
                         TokenErrorResponse(
                             error="invalid_grant",

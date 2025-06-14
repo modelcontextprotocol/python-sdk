@@ -974,13 +974,10 @@ class TestAuthEndpoints:
         error_data = response.json()
         assert "error" in error_data
         assert error_data["error"] == "invalid_client_metadata"
-        assert (
-            error_data["error_description"]
-            == (
-                "grant_types must be authorization_code and refresh_token "
-                "or client_credentials or token exchange or "
-                "client_credentials and token_exchange"
-            )
+        assert error_data["error_description"] == (
+            "grant_types must be authorization_code and refresh_token "
+            "or client_credentials or token exchange or "
+            "client_credentials and token_exchange"
         )
 
     @pytest.mark.anyio
