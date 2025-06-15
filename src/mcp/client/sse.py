@@ -123,6 +123,10 @@ async def sse_client(
                                             mode="json",
                                             exclude_none=True,
                                         ),
+                                        timeout=httpx.Timeout(
+                                            timeout,
+                                            read=sse_read_timeout,
+                                        ),
                                     )
                                     response.raise_for_status()
                                     logger.debug("Client message sent successfully: " f"{response.status_code}")
