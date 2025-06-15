@@ -263,6 +263,12 @@ class LoggingCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class CompletionsCapability(BaseModel):
+    """Capability for completions operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+
 class ServerCapabilities(BaseModel):
     """Capabilities that a server may support."""
 
@@ -276,6 +282,10 @@ class ServerCapabilities(BaseModel):
     """Present if the server offers any resources to read."""
     tools: ToolsCapability | None = None
     """Present if the server offers any tools to call."""
+    completions: CompletionsCapability | None = None
+    """
+    Present if the server offers autocompletion suggestions for prompts and resources.
+    """
     model_config = ConfigDict(extra="allow")
 
 
