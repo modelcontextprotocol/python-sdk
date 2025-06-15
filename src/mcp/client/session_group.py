@@ -16,7 +16,7 @@ from types import TracebackType
 from typing import Any, TypeAlias
 
 import anyio
-from pydantic import BaseModel
+from pydantic import AnyUrl, BaseModel
 from typing_extensions import Self
 
 import mcp
@@ -98,6 +98,7 @@ class ClientSessionGroup:
     # Client-server connection management.
     _sessions: dict[mcp.ClientSession, _ComponentNames]
     _tool_to_session: dict[str, mcp.ClientSession]
+    _resource_to_session: dict[str, mcp.ClientSession]
     _exit_stack: contextlib.AsyncExitStack
     _session_exit_stacks: dict[mcp.ClientSession, contextlib.AsyncExitStack]
 
@@ -114,20 +115,16 @@ class ClientSessionGroup:
     ) -> None:
         """Initializes the MCP client."""
 
-        self._tools = {}
-        self._resources = {}
-        self._prompts = {}
-
-        self._sessions = {}
-        self._tool_to_session = {}
-        if exit_stack is None:
-            self._exit_stack = contextlib.AsyncExitStack()
-            self._owns_exit_stack = True
-        else:
-            self._exit_stack = exit_stack
-            self._owns_exit_stack = False
+        self._exit_stack = exit_stack or contextlib.AsyncExitStack()
+        self._owns_exit_stack = exit_stack is None
         self._session_exit_stacks = {}
         self._component_name_hook = component_name_hook
+        self._prompts = {}
+        self._resources = {}
+        self._tools = {}
+        self._sessions = {}
+        self._tool_to_session = {}
+        self._resource_to_session = {}  # New mapping
 
     async def __aenter__(self) -> Self:
         # Enter the exit stack only if we created it ourselves
@@ -172,11 +169,22 @@ class ClientSessionGroup:
         """Returns the tools as a dictionary of names to tools."""
         return self._tools
 
+    @property
+    def resource_templates(self) -> list[types.ResourceTemplate]:
+        """Return all unique resource templates from the resources."""
+        templates: list[types.ResourceTemplate] = []
+        for r in self._resources.values():
+            t = getattr(r, "template", None)
+            if t is not None and t not in templates:
+                templates.append(t)
+        return templates
+
     async def call_tool(self, name: str, args: dict[str, Any]) -> types.CallToolResult:
         """Executes a tool given its name and arguments."""
         session = self._tool_to_session[name]
         session_tool_name = self.tools[name].name
         return await session.call_tool(session_tool_name, args)
+
 
     async def disconnect_from_server(self, session: mcp.ClientSession) -> None:
         """Disconnects from a single MCP server."""
@@ -290,8 +298,8 @@ class ClientSessionGroup:
         resources_temp: dict[str, types.Resource] = {}
         tools_temp: dict[str, types.Tool] = {}
         tool_to_session_temp: dict[str, mcp.ClientSession] = {}
+        resource_to_session_temp: dict[str, mcp.ClientSession] = {}
 
-        # Query the server for its prompts and aggregate to list.
         try:
             prompts = (await session.list_prompts()).prompts
             for prompt in prompts:
@@ -308,6 +316,7 @@ class ClientSessionGroup:
                 name = self._component_name(resource.name, server_info)
                 resources_temp[name] = resource
                 component_names.resources.add(name)
+                resource_to_session_temp[name] = session
         except McpError as err:
             logging.warning(f"Could not fetch resources: {err}")
 
@@ -359,8 +368,70 @@ class ClientSessionGroup:
         self._resources.update(resources_temp)
         self._tools.update(tools_temp)
         self._tool_to_session.update(tool_to_session_temp)
+        self._resource_to_session.update(resource_to_session_temp)
 
     def _component_name(self, name: str, server_info: types.Implementation) -> str:
         if self._component_name_hook:
             return self._component_name_hook(name, server_info)
         return name
+
+    async def read_resource(self, uri: AnyUrl) -> types.ReadResourceResult:
+        """Read a resource from the appropriate session based on the URI."""
+        for name, resource in self._resources.items():
+            if resource.uri == uri:
+                session = self._resource_to_session.get(name)
+                if session:
+                    return await session.read_resource(uri)
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message=f"No session found for resource with URI '{uri}'",
+            )
+        )
+    
+    async def subscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+        """Send a resources/subscribe request."""
+        for name, resource in self._resources.items():
+            if resource.uri == uri:
+                session = self._resource_to_session[name]
+                if session:
+                    return await session.subscribe_resource(uri)
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message=f"No session found for resource with URI '{uri}'",
+            )
+        )
+
+    async def unsubscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+        """Send a resources/unsubscribe request."""
+        # Find the session that owns this resource
+        for name, resource in self._resources.items():
+            if resource.uri == uri:
+                session = self._resource_to_session.get(name)
+                if session:
+                    return await session.unsubscribe_resource(uri)
+        
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message=f"No resource found with URI '{uri}'",
+            )
+        )
+
+    async def get_prompt(
+        self, name: str, arguments: dict[str, str] | None = None
+    ) -> types.GetPromptResult:
+        """Send a prompts/get request."""
+        if name in self._prompts:
+            prompt = self._prompts[name]
+            session = self._tool_to_session.get(name)
+            if session:
+                return await session.get_prompt(prompt.name, arguments)
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message=f"No prompt found with name '{name}'",
+            )
+        )
+
