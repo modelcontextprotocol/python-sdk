@@ -251,11 +251,9 @@ class StreamableHTTPSessionManager:
                             # Only remove from instances if not terminated
                             if (
                                 http_transport.mcp_session_id
-                                and http_transport.mcp_session_id
-                                in self._server_instances
+                                and http_transport.mcp_session_id in self._server_instances
                                 and not (
-                                    hasattr(http_transport, "_terminated")
-                                    and http_transport._terminated  # pyright: ignore
+                                    hasattr(http_transport, "_terminated") and http_transport._terminated  # pyright: ignore
                                 )
                             ):
                                 logger.info(
@@ -263,9 +261,7 @@ class StreamableHTTPSessionManager:
                                     f"{http_transport.mcp_session_id} from "
                                     "active instances."
                                 )
-                                del self._server_instances[
-                                    http_transport.mcp_session_id
-                                ]
+                                del self._server_instances[http_transport.mcp_session_id]
 
                 # Assert task group is not None for type checking
                 assert self._task_group is not None

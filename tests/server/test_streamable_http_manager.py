@@ -73,9 +73,7 @@ async def test_handle_request_without_run_raises_error():
     with pytest.raises(RuntimeError) as excinfo:
         await manager.handle_request(scope, receive, send)
 
-    assert "Task group is not initialized. Make sure to use run()." in str(
-        excinfo.value
-    )
+    assert "Task group is not initialized. Make sure to use run()." in str(excinfo.value)
 
 
 class TestException(Exception):
@@ -137,12 +135,10 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager):
     # Give other tasks a chance to run. This is important for the finally block.
     await anyio.sleep(0.01)
 
-    assert (
-        session_id not in manager._server_instances
-    ), "Session ID should be removed from _server_instances after graceful exit"
-    assert (
-        not manager._server_instances
-    ), "No sessions should be tracked after the only session exits gracefully"
+    assert session_id not in manager._server_instances, (
+        "Session ID should be removed from _server_instances after graceful exit"
+    )
+    assert not manager._server_instances, "No sessions should be tracked after the only session exits gracefully"
 
 
 @pytest.mark.anyio
@@ -195,9 +191,7 @@ async def test_stateful_session_cleanup_on_exception(running_manager):
     # Give other tasks a chance to run to ensure the finally block executes
     await anyio.sleep(0.01)
 
-    assert (
-        session_id not in manager._server_instances
-    ), "Session ID should be removed from _server_instances after an exception"
-    assert (
-        not manager._server_instances
-    ), "No sessions should be tracked after the only session crashes"
+    assert session_id not in manager._server_instances, (
+        "Session ID should be removed from _server_instances after an exception"
+    )
+    assert not manager._server_instances, "No sessions should be tracked after the only session crashes"
