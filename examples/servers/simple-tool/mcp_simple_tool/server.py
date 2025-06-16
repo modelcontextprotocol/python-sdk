@@ -41,6 +41,7 @@ def main(port: int, transport: str) -> int:
         return [
             types.Tool(
                 name="fetch",
+                title="Website Fetcher",
                 description="Fetches a website and returns its content",
                 inputSchema={
                     "type": "object",

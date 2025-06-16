@@ -10,6 +10,12 @@ SAMPLE_RESOURCES = {
     "about": "This is the simple-resource MCP server implementation.",
 }
 
+RESOURCE_TITLES = {
+    "greeting": "Welcome Message",
+    "help": "Help Documentation",
+    "about": "About This Server",
+}
+
 
 @click.command()
 @click.option("--port", default=8000, help="Port to listen on for SSE")
@@ -28,6 +34,7 @@ def main(port: int, transport: str) -> int:
             types.Resource(
                 uri=FileUrl(f"file:///{name}.txt"),
                 name=name,
+                title=RESOURCE_TITLES.get(name),
                 description=f"A sample text resource named {name}",
                 mimeType="text/plain",
             )

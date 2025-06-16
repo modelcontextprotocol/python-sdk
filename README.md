@@ -212,13 +212,13 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("My App")
 
 
-@mcp.resource("config://app")
+@mcp.resource("config://app", title="Application Configuration")
 def get_config() -> str:
     """Static configuration data"""
     return "App configuration here"
 
 
-@mcp.resource("users://{user_id}/profile")
+@mcp.resource("users://{user_id}/profile", title="User Profile")
 def get_user_profile(user_id: str) -> str:
     """Dynamic user data"""
     return f"Profile data for user {user_id}"
@@ -235,13 +235,13 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("My App")
 
 
-@mcp.tool()
+@mcp.tool(title="BMI Calculator")
 def calculate_bmi(weight_kg: float, height_m: float) -> float:
     """Calculate BMI given weight in kg and height in meters"""
     return weight_kg / (height_m**2)
 
 
-@mcp.tool()
+@mcp.tool(title="Weather Fetcher")
 async def fetch_weather(city: str) -> str:
     """Fetch current weather for a city"""
     async with httpx.AsyncClient() as client:
@@ -260,12 +260,12 @@ from mcp.server.fastmcp.prompts import base
 mcp = FastMCP("My App")
 
 
-@mcp.prompt()
+@mcp.prompt(title="Code Review")
 def review_code(code: str) -> str:
     return f"Please review this code:\n\n{code}"
 
 
-@mcp.prompt()
+@mcp.prompt(title="Debug Assistant")
 def debug_error(error: str) -> list[base.Message]:
     return [
         base.UserMessage("I'm seeing this error:"),
