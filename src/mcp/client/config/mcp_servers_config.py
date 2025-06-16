@@ -110,6 +110,8 @@ class MCPServersConfig(BaseModel):
         if isinstance(config_path, str):
             config_path = Path(config_path)
 
+        config_path = config_path.expanduser()
+
         with open(config_path) as config_file:
             # Check if YAML parsing is requested
             should_use_yaml = use_pyyaml or config_path.suffix.lower() in (".yaml", ".yml")
