@@ -5,6 +5,9 @@ mcpServers:
   time:
     command: uvx mcp-server-time
 
+  filesystem:
+    command: npx -y @modelcontextprotocol/server-filesystem /Users/username/Desktop /path/to/other/allowed/dir
+
   # Stdio server with full command string
   # The library will automatically parse this.
   # The effective_command will be "python" and effective_args will be ["-m", "my_server"]
@@ -39,12 +42,6 @@ mcpServers:
     command: python -m my_server  # Will be parsed to: command="python", args=["-m", "my_server"]
     args:
       - --debug  # Will be appended to parsed args: ["-m", "my_server", "--debug"]
-
-  # Streamable HTTP server with headers
-  streamable_http_server_with_headers:
-    url: https://api.example.com/mcp
-    headers:
-      Authorization: Bearer token123
 
   # Servers with explicit types - these demonstrate that type inference
   # can be overridden by explicitly specifying the "type" field
