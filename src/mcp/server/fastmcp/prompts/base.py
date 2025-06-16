@@ -58,6 +58,7 @@ class Prompt(BaseModel):
     """A prompt template that can be rendered with parameters."""
 
     name: str = Field(description="Name of the prompt")
+    title: str | None = Field(None, description="Human-readable title of the prompt")
     description: str | None = Field(None, description="Description of what the prompt does")
     arguments: list[PromptArgument] | None = Field(None, description="Arguments that can be passed to the prompt")
     fn: Callable[..., PromptResult | Awaitable[PromptResult]] = Field(exclude=True)
@@ -67,6 +68,7 @@ class Prompt(BaseModel):
         cls,
         fn: Callable[..., PromptResult | Awaitable[PromptResult]],
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
     ) -> "Prompt":
         """Create a Prompt from a function.
@@ -103,6 +105,7 @@ class Prompt(BaseModel):
 
         return cls(
             name=func_name,
+            title=title,
             description=description or fn.__doc__ or "",
             arguments=arguments,
             fn=fn,

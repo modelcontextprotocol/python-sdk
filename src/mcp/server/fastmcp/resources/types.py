@@ -72,6 +72,7 @@ class FunctionResource(Resource):
         fn: Callable[..., Any],
         uri: str,
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
     ) -> "FunctionResource":
@@ -86,6 +87,7 @@ class FunctionResource(Resource):
         return cls(
             uri=AnyUrl(uri),
             name=func_name,
+            title=title,
             description=description or fn.__doc__ or "",
             mime_type=mime_type or "text/plain",
             fn=fn,

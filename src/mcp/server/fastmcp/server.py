@@ -237,6 +237,7 @@ class FastMCP:
         return [
             MCPTool(
                 name=info.name,
+                title=info.title,
                 description=info.description,
                 inputSchema=info.parameters,
                 annotations=info.annotations,
@@ -270,6 +271,7 @@ class FastMCP:
             MCPResource(
                 uri=resource.uri,
                 name=resource.name or "",
+                title=resource.title,
                 description=resource.description,
                 mimeType=resource.mime_type,
             )
@@ -282,6 +284,7 @@ class FastMCP:
             MCPResourceTemplate(
                 uriTemplate=template.uri_template,
                 name=template.name,
+                title=template.title,
                 description=template.description,
             )
             for template in templates
@@ -305,6 +308,7 @@ class FastMCP:
         self,
         fn: AnyFunction,
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
     ) -> None:
@@ -316,14 +320,16 @@ class FastMCP:
         Args:
             fn: The function to register as a tool
             name: Optional name for the tool (defaults to function name)
+            title: Optional human-readable title for the tool
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
         """
-        self._tool_manager.add_tool(fn, name=name, description=description, annotations=annotations)
+        self._tool_manager.add_tool(fn, name=name, title=title, description=description, annotations=annotations)
 
     def tool(
         self,
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
@@ -335,6 +341,7 @@ class FastMCP:
 
         Args:
             name: Optional name for the tool (defaults to function name)
+            title: Optional human-readable title for the tool
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
 
@@ -360,7 +367,7 @@ class FastMCP:
             )
 
         def decorator(fn: AnyFunction) -> AnyFunction:
-            self.add_tool(fn, name=name, description=description, annotations=annotations)
+            self.add_tool(fn, name=name, title=title, description=description, annotations=annotations)
             return fn
 
         return decorator
@@ -396,6 +403,7 @@ class FastMCP:
         uri: str,
         *,
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
@@ -413,6 +421,7 @@ class FastMCP:
         Args:
             uri: URI for the resource (e.g. "resource://my-resource" or "resource://{param}")
             name: Optional name for the resource
+            title: Optional human-readable title for the resource
             description: Optional description of the resource
             mime_type: Optional MIME type for the resource
 
@@ -462,6 +471,7 @@ class FastMCP:
                     fn=fn,
                     uri_template=uri,
                     name=name,
+                    title=title,
                     description=description,
                     mime_type=mime_type,
                 )
@@ -471,6 +481,7 @@ class FastMCP:
                     fn=fn,
                     uri=uri,
                     name=name,
+                    title=title,
                     description=description,
                     mime_type=mime_type,
                 )
@@ -487,11 +498,14 @@ class FastMCP:
         """
         self._prompt_manager.add_prompt(prompt)
 
-    def prompt(self, name: str | None = None, description: str | None = None) -> Callable[[AnyFunction], AnyFunction]:
+    def prompt(
+        self, name: str | None = None, title: str | None = None, description: str | None = None
+    ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a prompt.
 
         Args:
             name: Optional name for the prompt (defaults to function name)
+            title: Optional human-readable title for the prompt
             description: Optional description of what the prompt does
 
         Example:
@@ -529,7 +543,7 @@ class FastMCP:
             )
 
         def decorator(func: AnyFunction) -> AnyFunction:
-            prompt = Prompt.from_function(func, name=name, description=description)
+            prompt = Prompt.from_function(func, name=name, title=title, description=description)
             self.add_prompt(prompt)
             return func
 
@@ -831,6 +845,7 @@ class FastMCP:
         return [
             MCPPrompt(
                 name=prompt.name,
+                title=prompt.title,
                 description=prompt.description,
                 arguments=[
                     MCPPromptArgument(
