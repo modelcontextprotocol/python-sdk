@@ -147,7 +147,7 @@ def test_stdio_server_with_full_command_and_explicit_args(mcp_config_file: Path)
     assert stdio_server.effective_args == ["-m", "my_server", "--debug"]
 
 
-def test_streamable_http_server(mcp_config_file: Path):
+def test_streamable_http_server_with_headers(mcp_config_file: Path):
     config = MCPServersConfig.from_file(mcp_config_file)
 
     http_server = config.servers["streamable_http_server_with_headers"]
