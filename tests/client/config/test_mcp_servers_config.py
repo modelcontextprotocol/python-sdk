@@ -420,7 +420,7 @@ def test_get_required_inputs_empty_inputs_list():
     """Test getting required inputs when inputs is explicitly set to an empty list."""
     config_data = {
         "inputs": [],  # Explicitly empty list
-        "servers": {"test_server": {"type": "stdio", "command": "python test.py"}}
+        "servers": {"test_server": {"type": "stdio", "command": "python test.py"}},
     }
 
     config = MCPServersConfig.model_validate(config_data)
@@ -773,10 +773,10 @@ def test_sse_type_inference():
             "webhook_server": {
                 "url": "https://webhook.example.com/mcp/api",
                 "description": "A simple SSE server",
-                "headers": {"X-API-Key": "secret123"}
+                "headers": {"X-API-Key": "secret123"},
                 # No explicit type - should be inferred as sse
                 # because "SSE" is in the description
-            }
+            },
         }
     }
 
@@ -808,9 +808,9 @@ def test_streamable_http_type_inference():
             },
             "webhook_server": {
                 "url": "https://webhook.example.com/mcp/api",
-                "headers": {"X-API-Key": "secret123"}
+                "headers": {"X-API-Key": "secret123"},
                 # No explicit type - should be inferred as streamable_http
-            }
+            },
         }
     }
 
