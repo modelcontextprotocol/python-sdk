@@ -10,57 +10,14 @@ from mcp.client.config.mcp_servers_config import (
     MCPServersConfig,
     SSEServerConfig,
     StdioServerConfig,
-    StreamableHttpConfig,
+    StreamableHTTPServerConfig,
 )
 
 
 @pytest.fixture
-def mcp_config_file(tmp_path: Path) -> Path:
-    """Create temporary JSON config file with mixed server types"""
-
-    config_data = {
-        "mcpServers": {
-            # Servers with inferred types
-            "stdio_server": {
-                "command": "python",
-                "args": ["-m", "my_server"],
-                "env": {"DEBUG": "true"},
-            },
-            "stdio_server_with_full_command": {
-                "command": "python -m my_server",
-            },
-            "stdio_server_with_full_command_and_explicit_args": {
-                "command": "python -m my_server",  # Two args here: -m and my_server
-                "args": ["--debug"],  # One explicit arg here: --debug
-            },
-            "streamable_http_server_with_headers": {
-                "url": "https://api.example.com/mcp",
-                "headers": {"Authorization": "Bearer token123"},
-            },
-            # Servers with explicit types
-            "stdio_server_with_explicit_type": {
-                "type": "stdio",  # Explicitly specified
-                "command": "python",
-                "args": ["-m", "my_server"],
-                "env": {"DEBUG": "true"},
-            },
-            "streamable_http_server_with_explicit_type": {
-                "type": "streamable_http",  # Explicitly specified
-                "url": "https://api.example.com/mcp",
-            },
-            "sse_server_with_explicit_type": {
-                "type": "sse",  # Explicitly specified
-                "url": "https://api.example.com/sse",
-            },
-        }
-    }
-
-    # Write to temporary file
-    config_file_path = tmp_path / "mcp.json"
-    with open(config_file_path, "w") as config_file:
-        json.dump(config_data, config_file)
-
-    return config_file_path
+def mcp_config_file() -> Path:
+    """Return path to the mcp.json config file with mixed server types"""
+    return Path(__file__).parent / "mcp.json"
 
 
 def test_stdio_server(mcp_config_file: Path):
@@ -96,7 +53,7 @@ def test_streamable_http_server_with_explicit_type(mcp_config_file: Path):
     config = MCPServersConfig.from_file(mcp_config_file)
 
     http_server = config.servers["streamable_http_server_with_explicit_type"]
-    assert isinstance(http_server, StreamableHttpConfig)
+    assert isinstance(http_server, StreamableHTTPServerConfig)
     assert http_server.type == "streamable_http"
 
 
@@ -144,7 +101,7 @@ def test_streamable_http_server_with_headers(mcp_config_file: Path):
     config = MCPServersConfig.from_file(mcp_config_file)
 
     http_server = config.servers["streamable_http_server_with_headers"]
-    assert isinstance(http_server, StreamableHttpConfig)
+    assert isinstance(http_server, StreamableHTTPServerConfig)
 
     assert http_server.url == "https://api.example.com/mcp"
     assert http_server.headers == {"Authorization": "Bearer token123"}

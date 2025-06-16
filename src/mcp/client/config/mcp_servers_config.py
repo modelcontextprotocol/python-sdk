@@ -37,7 +37,7 @@ class StdioServerConfig(MCPServerConfig):
         return parsed_args + explicit_args
 
 
-class StreamableHttpConfig(MCPServerConfig):
+class StreamableHTTPServerConfig(MCPServerConfig):
     """Configuration for StreamableHTTP-based MCP servers."""
 
     type: Literal["streamable_http"] = "streamable_http"
@@ -54,7 +54,7 @@ class SSEServerConfig(MCPServerConfig):
 
 
 # Discriminated union for different server config types
-ServerConfigUnion = Annotated[StdioServerConfig | StreamableHttpConfig | SSEServerConfig, Field(discriminator="type")]
+ServerConfigUnion = Annotated[StdioServerConfig | StreamableHTTPServerConfig | SSEServerConfig, Field(discriminator="type")]
 
 
 class MCPServersConfig(BaseModel):

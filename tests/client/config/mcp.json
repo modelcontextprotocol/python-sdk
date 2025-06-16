@@ -1,0 +1,34 @@
+{
+  "mcpServers": {
+    "stdio_server": {
+      "command": "python",
+      "args": ["-m", "my_server"],
+      "env": {"DEBUG": "true"}
+    },
+    "stdio_server_with_full_command": {
+      "command": "python -m my_server"
+    },
+    "stdio_server_with_full_command_and_explicit_args": {
+      "command": "python -m my_server",
+      "args": ["--debug"]
+    },
+    "streamable_http_server_with_headers": {
+      "url": "https://api.example.com/mcp",
+      "headers": {"Authorization": "Bearer token123"}
+    },
+    "stdio_server_with_explicit_type": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "my_server"],
+      "env": {"DEBUG": "true"}
+    },
+    "streamable_http_server_with_explicit_type": {
+      "type": "streamable_http",
+      "url": "https://api.example.com/mcp"
+    },
+    "sse_server_with_explicit_type": {
+      "type": "sse",
+      "url": "https://api.example.com/sse"
+    }
+  }
+} 
