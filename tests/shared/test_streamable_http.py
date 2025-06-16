@@ -1526,6 +1526,7 @@ def test_server_backwards_compatibility_no_protocol_version(basic_server, basic_
 @pytest.mark.anyio
 async def test_client_crash_handled(basic_server, basic_server_url):
     """Test that cases where the client crashes are handled gracefully."""
+
     # Simulate bad client that crashes after init
     async def bad_client():
         """Client that triggers ClosedResourceError"""
@@ -1537,7 +1538,7 @@ async def test_client_crash_handled(basic_server, basic_server_url):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
                 raise Exception("client crash")
-    
+
     # Run bad client a few times to trigger the crash
     for _ in range(3):
         try:
@@ -1545,7 +1546,7 @@ async def test_client_crash_handled(basic_server, basic_server_url):
         except Exception:
             pass
         await anyio.sleep(0.1)
-    
+
     # Try a good client, it should still be able to connect and list tools
     async with streamablehttp_client(f"{basic_server_url}/mcp") as (
         read_stream,
