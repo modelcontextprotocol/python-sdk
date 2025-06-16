@@ -120,12 +120,20 @@ class MCPServersConfig(BaseModel):
         """Automatically infer server types when 'type' field is omitted."""
 
         for server_config in servers_data.values():
-            if isinstance(server_config, dict) and "type" not in server_config:
+            server_config = cast(dict[str, str], server_config)
+            sse_mentioned_in_config = (
+                "sse" in server_config.get("url", "")
+                or "sse" in server_config.get("name", "")
+                or "sse" in server_config.get("description", "")
+            )
+            if "type" not in server_config:
                 # Infer type based on distinguishing fields
                 if "command" in server_config:
                     server_config["type"] = "stdio"
-                elif "url" in server_config:
+                elif "url" in server_config and sse_mentioned_in_config:
                     # Could infer SSE vs streamable_http based on URL patterns in the future
+                    server_config["type"] = "sse"
+                elif "url" in server_config:
                     server_config["type"] = "streamable_http"
 
         return servers_data
