@@ -302,7 +302,7 @@ class ClientSession(
 
     async def complete(
         self,
-        ref: types.ResourceReference | types.PromptReference,
+        ref: types.ResourceTemplateReference | types.PromptReference,
         argument: dict[str, str],
     ) -> types.CompleteResult:
         """Send a completion/complete request."""

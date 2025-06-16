@@ -431,7 +431,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(
             func: Callable[
                 [
-                    types.PromptReference | types.ResourceReference,
+                    types.PromptReference | types.ResourceTemplateReference,
                     types.CompletionArgument,
                 ],
                 Awaitable[types.Completion | None],

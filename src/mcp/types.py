@@ -3,6 +3,7 @@ from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
 from pydantic.networks import AnyUrl, UrlConstraints
+from typing_extensions import deprecated
 
 """
 Model Context Protocol bindings for Python
@@ -961,13 +962,18 @@ class CreateMessageResult(Result):
     """The reason why sampling stopped, if known."""
 
 
-class ResourceReference(BaseModel):
+class ResourceTemplateReference(BaseModel):
     """A reference to a resource or resource template definition."""
 
     type: Literal["ref/resource"]
     uri: str
     """The URI or URI template of the resource."""
     model_config = ConfigDict(extra="allow")
+
+
+@deprecated("`ResourceReference` is deprecated, you should use `ResourceTemplateReference`.")
+class ResourceReference(ResourceTemplateReference):
+    pass
 
 
 class PromptReference(BaseModel):
@@ -992,7 +998,7 @@ class CompletionArgument(BaseModel):
 class CompleteRequestParams(RequestParams):
     """Parameters for completion requests."""
 
-    ref: ResourceReference | PromptReference
+    ref: ResourceTemplateReference | PromptReference
     argument: CompletionArgument
     model_config = ConfigDict(extra="allow")
 
