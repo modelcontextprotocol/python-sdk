@@ -2,6 +2,7 @@
 
 # stdlib imports
 import json
+import shlex
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -27,15 +28,19 @@ class StdioServerConfig(MCPServerConfig):
     args: list[str] | None = None
     env: dict[str, str] | None = None
 
+    def _parse_command(self) -> list[str]:
+        """Parse the command string into parts, handling quotes properly."""
+        return shlex.split(self.command)
+
     @property
     def effective_command(self) -> str:
         """Get the effective command (first part of the command string)."""
-        return self.command.split()[0]
+        return self._parse_command()[0]
 
     @property
     def effective_args(self) -> list[str]:
         """Get the effective arguments (parsed from command plus explicit args)."""
-        command_parts = self.command.split()
+        command_parts = self._parse_command()
         parsed_args = command_parts[1:] if len(command_parts) > 1 else []
         explicit_args = self.args or []
         return parsed_args + explicit_args

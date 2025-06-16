@@ -106,3 +106,42 @@ def test_streamable_http_server_with_headers(mcp_config_file: Path):
     assert http_server.url == "https://api.example.com/mcp"
     assert http_server.headers == {"Authorization": "Bearer token123"}
     assert http_server.type == "streamable_http"  # Should be automatically inferred
+
+
+def test_stdio_server_with_quoted_arguments():
+    """Test that stdio servers handle quoted arguments with spaces correctly."""
+    # Test with double quotes
+    config_data = {
+        "mcpServers": {
+            "server_with_double_quotes": {"command": 'python -m my_server --config "path with spaces/config.json"'},
+            "server_with_single_quotes": {
+                "command": "python -m my_server --config 'another path with spaces/config.json'"
+            },
+            "server_with_mixed_quotes": {
+                "command": "python -m my_server --name \"My Server\" --path '/home/user/my path'"
+            },
+        }
+    }
+
+    config = MCPServersConfig.model_validate(config_data)
+
+    # Test double quotes
+    double_quote_server = config.servers["server_with_double_quotes"]
+    assert isinstance(double_quote_server, StdioServerConfig)
+    assert double_quote_server.effective_command == "python"
+    expected_args_double = ["-m", "my_server", "--config", "path with spaces/config.json"]
+    assert double_quote_server.effective_args == expected_args_double
+
+    # Test single quotes
+    single_quote_server = config.servers["server_with_single_quotes"]
+    assert isinstance(single_quote_server, StdioServerConfig)
+    assert single_quote_server.effective_command == "python"
+    expected_args_single = ["-m", "my_server", "--config", "another path with spaces/config.json"]
+    assert single_quote_server.effective_args == expected_args_single
+
+    # Test mixed quotes
+    mixed_quote_server = config.servers["server_with_mixed_quotes"]
+    assert isinstance(mixed_quote_server, StdioServerConfig)
+    assert mixed_quote_server.effective_command == "python"
+    expected_args_mixed = ["-m", "my_server", "--name", "My Server", "--path", "/home/user/my path"]
+    assert mixed_quote_server.effective_args == expected_args_mixed
