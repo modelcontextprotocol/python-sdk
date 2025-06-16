@@ -995,11 +995,21 @@ class CompletionArgument(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class CompletionContext(BaseModel):
+    """Additional, optional context for completions."""
+
+    arguments: dict[str, str] | None = None
+    """Previously-resolved variables in a URI template or prompt."""
+    model_config = ConfigDict(extra="allow")
+
+
 class CompleteRequestParams(RequestParams):
     """Parameters for completion requests."""
 
     ref: ResourceTemplateReference | PromptReference
     argument: CompletionArgument
+    context: CompletionContext | None = None
+    """Additional, optional context for completions"""
     model_config = ConfigDict(extra="allow")
 
 

@@ -364,6 +364,24 @@ class FastMCP:
 
         return decorator
 
+    def completion(self):
+        """Decorator to register a completion handler.
+
+        The completion handler receives:
+        - ref: PromptReference or ResourceTemplateReference
+        - argument: CompletionArgument with name and partial value
+        - context: Optional CompletionContext with previously resolved arguments
+
+        Example:
+            @mcp.completion()
+            async def handle_completion(ref, argument, context):
+                if isinstance(ref, ResourceTemplateReference):
+                    # Return completions based on ref, argument, and context
+                    return Completion(values=["option1", "option2"])
+                return None
+        """
+        return self._mcp_server.completion()
+
     def add_resource(self, resource: Resource) -> None:
         """Add a resource to the server.
 

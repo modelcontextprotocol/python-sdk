@@ -30,6 +30,7 @@
     - [Prompts](#prompts)
     - [Images](#images)
     - [Context](#context)
+    - [Completions](#completions)
   - [Running Your Server](#running-your-server)
     - [Development Mode](#development-mode)
     - [Claude Desktop Integration](#claude-desktop-integration)
@@ -308,6 +309,68 @@ async def long_task(files: list[str], ctx: Context) -> str:
         await ctx.report_progress(i, len(files))
         data, mime_type = await ctx.read_resource(f"file://{file}")
     return "Processing complete"
+```
+
+### Completions
+
+MCP supports providing completion suggestions for prompt arguments and resource template parameters. With the context parameter, servers can provide completions based on previously resolved values:
+
+Client usage:
+```python
+from mcp.client.session import ClientSession
+from mcp.types import ResourceTemplateReference
+
+
+async def use_completion(session: ClientSession):
+    # Complete without context
+    result = await session.complete(
+        ref=ResourceTemplateReference(
+            type="ref/resource", uri="github://repos/{owner}/{repo}"
+        ),
+        argument={"name": "owner", "value": "model"},
+    )
+
+    # Complete with context - repo suggestions based on owner
+    result = await session.complete(
+        ref=ResourceTemplateReference(
+            type="ref/resource", uri="github://repos/{owner}/{repo}"
+        ),
+        argument={"name": "repo", "value": "test"},
+        context_arguments={"owner": "modelcontextprotocol"},
+    )
+```
+
+Server implementation:
+```python
+from mcp.server import Server
+from mcp.types import (
+    Completion,
+    CompletionArgument,
+    CompletionContext,
+    PromptReference,
+    ResourceTemplateReference,
+)
+
+server = Server("example-server")
+
+
+@server.completion()
+async def handle_completion(
+    ref: PromptReference | ResourceTemplateReference,
+    argument: CompletionArgument,
+    context: CompletionContext | None,
+) -> Completion | None:
+    if isinstance(ref, ResourceTemplateReference):
+        if ref.uri == "github://repos/{owner}/{repo}" and argument.name == "repo":
+            # Use context to provide owner-specific repos
+            if context and context.arguments:
+                owner = context.arguments.get("owner")
+                if owner == "modelcontextprotocol":
+                    repos = ["python-sdk", "typescript-sdk", "specification"]
+                    # Filter based on partial input
+                    filtered = [r for r in repos if r.startswith(argument.value)]
+                    return Completion(values=filtered)
+    return None
 ```
 
 ### Authentication

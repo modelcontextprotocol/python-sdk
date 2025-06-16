@@ -304,8 +304,13 @@ class ClientSession(
         self,
         ref: types.ResourceTemplateReference | types.PromptReference,
         argument: dict[str, str],
+        context_arguments: dict[str, str] | None = None,
     ) -> types.CompleteResult:
         """Send a completion/complete request."""
+        context = None
+        if context_arguments is not None:
+            context = types.CompletionContext(arguments=context_arguments)
+
         return await self.send_request(
             types.ClientRequest(
                 types.CompleteRequest(
@@ -313,6 +318,7 @@ class ClientSession(
                     params=types.CompleteRequestParams(
                         ref=ref,
                         argument=types.CompletionArgument(**argument),
+                        context=context,
                     ),
                 )
             ),
