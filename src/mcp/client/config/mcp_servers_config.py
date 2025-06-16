@@ -54,7 +54,9 @@ class SSEServerConfig(MCPServerConfig):
 
 
 # Discriminated union for different server config types
-ServerConfigUnion = Annotated[StdioServerConfig | StreamableHTTPServerConfig | SSEServerConfig, Field(discriminator="type")]
+ServerConfigUnion = Annotated[
+    StdioServerConfig | StreamableHTTPServerConfig | SSEServerConfig, Field(discriminator="type")
+]
 
 
 class MCPServersConfig(BaseModel):
