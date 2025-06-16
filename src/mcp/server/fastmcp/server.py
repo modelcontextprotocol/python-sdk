@@ -4,19 +4,17 @@ from __future__ import annotations as _annotations
 
 import inspect
 import re
-import types
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import (
     AbstractAsyncContextManager,
     asynccontextmanager,
 )
 from itertools import chain
-from typing import Any, Generic, Literal, TypeVar, Union, get_args, get_origin
+from typing import Any, Generic, Literal
 
 import anyio
 import pydantic_core
-from pydantic import BaseModel, Field, ValidationError
-from pydantic.fields import FieldInfo
+from pydantic import BaseModel, Field
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
@@ -36,6 +34,7 @@ from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import (
     AuthSettings,
 )
+from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, elicit_with_validation
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
@@ -66,21 +65,6 @@ from mcp.types import ResourceTemplate as MCPResourceTemplate
 from mcp.types import Tool as MCPTool
 
 logger = get_logger(__name__)
-
-ElicitSchemaModelT = TypeVar("ElicitSchemaModelT", bound=BaseModel)
-
-
-class ElicitationResult(BaseModel, Generic[ElicitSchemaModelT]):
-    """Result of an elicitation request."""
-
-    action: Literal["accept", "decline", "cancel"]
-    """The user's action in response to the elicitation."""
-
-    data: ElicitSchemaModelT | None = None
-    """The validated data if action is 'accept', None otherwise."""
-
-    validation_error: str | None = None
-    """Validation error message if data failed to validate."""
 
 
 class Settings(BaseSettings, Generic[LifespanResultT]):
@@ -893,43 +877,6 @@ def _convert_to_content(
     return [TextContent(type="text", text=result)]
 
 
-# Primitive types allowed in elicitation schemas
-_ELICITATION_PRIMITIVE_TYPES = (str, int, float, bool)
-
-
-def _validate_elicitation_schema(schema: type[BaseModel]) -> None:
-    """Validate that a Pydantic model only contains primitive field types."""
-    for field_name, field_info in schema.model_fields.items():
-        if not _is_primitive_field(field_info):
-            raise TypeError(
-                f"Elicitation schema field '{field_name}' must be a primitive type "
-                f"{_ELICITATION_PRIMITIVE_TYPES} or Optional of these types. "
-                f"Complex types like lists, dicts, or nested models are not allowed."
-            )
-
-
-def _is_primitive_field(field_info: FieldInfo) -> bool:
-    """Check if a field is a primitive type allowed in elicitation schemas."""
-    annotation = field_info.annotation
-
-    # Handle None type
-    if annotation is types.NoneType:
-        return True
-
-    # Handle basic primitive types
-    if annotation in _ELICITATION_PRIMITIVE_TYPES:
-        return True
-
-    # Handle Union types
-    origin = get_origin(annotation)
-    if origin is Union or origin is types.UnionType:
-        args = get_args(annotation)
-        # All args must be primitive types or None
-        return all(arg is types.NoneType or arg in _ELICITATION_PRIMITIVE_TYPES for arg in args)
-
-    return False
-
-
 class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     """Context object providing access to MCP capabilities.
 
@@ -1053,26 +1000,9 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             The result.data will only be populated if action is "accept" and validation succeeded.
         """
 
-        # Validate that schema only contains primitive types and fail loudly if not
-        _validate_elicitation_schema(schema)
-
-        json_schema = schema.model_json_schema()
-
-        result = await self.request_context.session.elicit(
-            message=message,
-            requestedSchema=json_schema,
-            related_request_id=self.request_id,
+        return await elicit_with_validation(
+            session=self.request_context.session, message=message, schema=schema, related_request_id=self.request_id
         )
-
-        if result.action == "accept" and result.content:
-            # Validate and parse the content using the schema
-            try:
-                validated_data = schema.model_validate(result.content)
-                return ElicitationResult(action="accept", data=validated_data)
-            except ValidationError as e:
-                return ElicitationResult(action="accept", validation_error=str(e))
-        else:
-            return ElicitationResult(action=result.action)
 
     async def log(
         self,

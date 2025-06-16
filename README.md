@@ -380,6 +380,11 @@ Request additional information from users during tool execution:
 
 ```python
 from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.elicitation import (
+    AcceptedElicitation,
+    DeclinedElicitation,
+    CancelledElicitation,
+)
 from pydantic import BaseModel, Field
 
 mcp = FastMCP("Booking System")
@@ -398,13 +403,15 @@ async def book_table(date: str, party_size: int, ctx: Context) -> str:
         message=f"Confirm booking for {party_size} on {date}?", schema=ConfirmBooking
     )
 
-    if result.action == "accept" and result.data:
-        if result.data.confirm:
-            return f"Booked! Notes: {result.data.notes or 'None'}"
-        return "Booking cancelled"
-
-    # User declined or cancelled
-    return f"Booking {result.action}"
+    match result:
+        case AcceptedElicitation(data=data):
+            if data.confirm:
+                return f"Booked! Notes: {data.notes or 'None'}"
+            return "Booking cancelled"
+        case DeclinedElicitation():
+            return "Booking declined"
+        case CancelledElicitation():
+            return "Booking cancelled"
 ```
 
 The `elicit()` method returns an `ElicitationResult` with:

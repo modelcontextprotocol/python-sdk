@@ -313,8 +313,8 @@ def make_everything_fastmcp() -> FastMCP:
             elif result.action in ("decline", "cancel"):
                 return "❌ Booking cancelled"
             else:
-                # Validation error
-                return f"❌ Invalid input: {result.validation_error}"
+                # Handle case where action is "accept" but data is None
+                return "❌ No booking data received"
         else:
             # Available - book directly
             return f"✅ Booked table for {party_size} on {date} at {time}"
