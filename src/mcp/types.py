@@ -200,6 +200,8 @@ class Implementation(BaseModel):
     """Describes the name and version of an MCP implementation."""
 
     name: str
+    title: str | None = None
+    """A human-readable title for the implementation."""
     version: str
     model_config = ConfigDict(extra="allow")
 
@@ -389,6 +391,8 @@ class Resource(BaseModel):
     """The URI of this resource."""
     name: str
     """A human-readable name for this resource."""
+    title: str | None = None
+    """A human-readable title for this resource."""
     description: str | None = None
     """A description of what this resource represents."""
     mimeType: str | None = None
@@ -419,6 +423,8 @@ class ResourceTemplate(BaseModel):
     """
     name: str
     """A human-readable name for the type of resource this template refers to."""
+    title: str | None = None
+    """A human-readable title for the type of resource this template refers to."""
     description: str | None = None
     """A human-readable description of what this template is for."""
     mimeType: str | None = None
@@ -606,6 +612,8 @@ class Prompt(BaseModel):
 
     name: str
     """The name of the prompt or prompt template."""
+    title: str | None = None
+    """A human-readable title for the prompt."""
     description: str | None = None
     """An optional description of what this prompt provides."""
     arguments: list[PromptArgument] | None = None
@@ -813,6 +821,8 @@ class Tool(BaseModel):
 
     name: str
     """The name of the tool."""
+    title: str | None = None
+    """A human-readable title for the tool."""
     description: str | None = None
     """A human-readable description of the tool."""
     inputSchema: dict[str, Any]
