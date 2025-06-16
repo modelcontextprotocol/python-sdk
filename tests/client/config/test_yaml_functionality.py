@@ -1,5 +1,6 @@
 # stdlib imports
 from pathlib import Path
+from unittest.mock import patch
 
 # third party imports
 import pytest
@@ -109,3 +110,41 @@ def test_npx_filesystem_server(mcp_yaml_config_file: Path):
         "/Users/username/Desktop",
         "/path/to/other/allowed/dir",
     ]
+
+
+def test_yaml_not_importable_error(mcp_yaml_config_file: Path):
+    """Test that trying to parse a YAML file when yaml module is not available raises ImportError."""
+
+    # Mock the yaml module to be None (simulating import failure)
+    with patch("mcp.client.config.mcp_servers_config.yaml", None):
+        with pytest.raises(ImportError, match="PyYAML is required to parse YAML files"):
+            MCPServersConfig.from_file(mcp_yaml_config_file)
+
+
+def test_yaml_not_importable_error_with_use_pyyaml_true():
+    """Test that trying to use use_pyyaml=True when yaml module is not available raises ImportError."""
+
+    # Create a simple JSON file content but force YAML parsing
+    json_file = Path(__file__).parent / "mcp.json"
+
+    # Mock the yaml module to be None (simulating import failure)
+    with patch("mcp.client.config.mcp_servers_config.yaml", None):
+        with pytest.raises(ImportError, match="PyYAML is required to parse YAML files"):
+            MCPServersConfig.from_file(json_file, use_pyyaml=True)
+
+
+def test_yaml_not_importable_error_with_yml_extension(tmp_path: Path):
+    """Test that trying to parse a .yml file when yaml module is not available raises ImportError."""
+
+    # Create a temporary .yml file
+    yml_file = tmp_path / "test_config.yml"
+    yml_file.write_text("""
+mcpServers:
+  test_server:
+    command: python -m test_server
+""")
+
+    # Mock the yaml module to be None (simulating import failure)
+    with patch("mcp.client.config.mcp_servers_config.yaml", None):
+        with pytest.raises(ImportError, match="PyYAML is required to parse YAML files"):
+            MCPServersConfig.from_file(yml_file)
