@@ -2,6 +2,7 @@
 
 # stdlib imports
 import json
+import os
 import shlex
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -107,10 +108,9 @@ class MCPServersConfig(BaseModel):
                         Also automatically used for .yaml/.yml files.
         """
 
-        if isinstance(config_path, str):
-            config_path = Path(config_path)
-
-        config_path = config_path.expanduser()
+        config_path = os.path.expandvars(config_path)  # Expand environment variables like $HOME
+        config_path = Path(config_path)  # Convert to Path object
+        config_path = config_path.expanduser()  # Expand ~ to home directory
 
         with open(config_path) as config_file:
             # Check if YAML parsing is requested
