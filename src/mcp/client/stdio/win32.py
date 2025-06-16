@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TextIO
 
 import anyio
+import psutil
 from anyio.abc import Process
 
 
@@ -85,8 +86,17 @@ async def create_windows_process(
         process = await anyio.open_process([command, *args], env=env, stderr=errlog, cwd=cwd)
         return process
 
-
 async def terminate_windows_process(process: Process):
+    """
+    Terminate a process and subprocesses.
+    """
+    parent = psutil.Process(process.pid)
+    children = parent.children(recursive=True)
+    await terminate_psutil_process(children)
+    await terminate_psutil_process([parent])
+    
+
+async def terminate_psutil_process(processes: list[psutil.Process]):
     """
     Terminate a Windows process.
 
@@ -98,10 +108,22 @@ async def terminate_windows_process(process: Process):
     Args:
         process: The process to terminate
     """
-    try:
-        process.terminate()
-        with anyio.fail_after(2.0):
-            await process.wait()
-    except TimeoutError:
-        # Force kill if it doesn't terminate
-        process.kill()
+    for process in processes:
+        try:
+            process.terminate()  # Send SIGTERM (or equivalent on Windows)
+        except psutil.NoSuchProcess:
+            pass
+        except Exception:
+            pass
+    # Allow some time for children to terminate gracefully
+    _, alive = psutil.wait_procs(processes, timeout=2.0)
+    for child in alive:
+        try:
+            child.kill()  # Force kill if still alive
+        except psutil.NoSuchProcess:
+            pass  # Already gone
+        except Exception:
+            pass
+
+
+
