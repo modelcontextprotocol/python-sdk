@@ -551,6 +551,9 @@ rich = [
 ws = [
     { name = "websockets" },
 ]
+yaml = [
+    { name = "pyyaml" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -580,6 +583,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.5.2" },
     { name = "python-dotenv", marker = "extra == 'cli'", specifier = ">=1.0.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
+    { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=6.0.2" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.9.4" },
     { name = "sse-starlette", specifier = ">=1.6.1" },
     { name = "starlette", specifier = ">=0.27" },
@@ -587,7 +591,7 @@ requires-dist = [
     { name = "uvicorn", marker = "sys_platform != 'emscripten'", specifier = ">=0.23.1" },
     { name = "websockets", marker = "extra == 'ws'", specifier = ">=15.0.1" },
 ]
-provides-extras = ["cli", "rich", "ws"]
+provides-extras = ["cli", "rich", "ws", "yaml"]
 
 [package.metadata.requires-dev]
 dev = [

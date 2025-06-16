@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 # third party imports
+try:
+    import yaml
+except ImportError:
+    yaml = None  # type: ignore
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -81,7 +85,21 @@ class MCPServersConfig(BaseModel):
         return servers_data
 
     @classmethod
-    def from_file(cls, config_path: Path) -> "MCPServersConfig":
-        """Load configuration from a JSON file."""
+    def from_file(cls, config_path: Path, use_pyyaml: bool = False) -> "MCPServersConfig":
+        """Load configuration from a JSON or YAML file.
+
+        Args:
+            config_path: Path to the configuration file
+            use_pyyaml: If True, force use of PyYAML parser. Defaults to False.
+                        Also automatically used for .yaml/.yml files.
+        """
         with open(config_path) as config_file:
-            return cls.model_validate(json.load(config_file))
+            # Check if YAML parsing is requested
+            should_use_yaml = use_pyyaml or config_path.suffix.lower() in (".yaml", ".yml")
+
+            if should_use_yaml:
+                if not yaml:
+                    raise ImportError("PyYAML is required to parse YAML files. ")
+                return cls.model_validate(yaml.safe_load(config_file))
+            else:
+                return cls.model_validate(json.load(config_file))
