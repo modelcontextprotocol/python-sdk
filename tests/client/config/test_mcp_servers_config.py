@@ -1,5 +1,4 @@
 # stdlib imports
-import json
 from pathlib import Path
 
 # third party imports
