@@ -98,7 +98,7 @@ class MCPServersConfig(BaseModel):
         return servers_data
 
     @classmethod
-    def from_file(cls, config_path: Path, use_pyyaml: bool = False) -> "MCPServersConfig":
+    def from_file(cls, config_path: Path | str, use_pyyaml: bool = False) -> "MCPServersConfig":
         """Load configuration from a JSON or YAML file.
 
         Args:
@@ -106,6 +106,10 @@ class MCPServersConfig(BaseModel):
             use_pyyaml: If True, force use of PyYAML parser. Defaults to False.
                         Also automatically used for .yaml/.yml files.
         """
+
+        if isinstance(config_path, str):
+            config_path = Path(config_path)
+
         with open(config_path) as config_file:
             # Check if YAML parsing is requested
             should_use_yaml = use_pyyaml or config_path.suffix.lower() in (".yaml", ".yml")
