@@ -190,6 +190,44 @@ class MCPServersConfig(BaseModel):
             return data
 
     @classmethod
+    def _strip_json_comments(cls, content: str) -> str:
+        """Strip // comments from JSON content, being careful not to remove // inside strings."""
+        result = []
+        lines = content.split("\n")
+
+        for line in lines:
+            # Track if we're inside a string
+            in_string = False
+            escaped = False
+            comment_start = -1
+
+            for i, char in enumerate(line):
+                if escaped:
+                    escaped = False
+                    continue
+
+                if char == "\\" and in_string:
+                    escaped = True
+                    continue
+
+                if char == '"':
+                    in_string = not in_string
+                    continue
+
+                # Look for // comment start when not in string
+                if not in_string and char == "/" and i + 1 < len(line) and line[i + 1] == "/":
+                    comment_start = i
+                    break
+
+            # If we found a comment, remove it
+            if comment_start != -1:
+                line = line[:comment_start].rstrip()
+
+            result.append(line)
+
+        return "\n".join(result)
+
+    @classmethod
     def from_file(
         cls, config_path: Path | str, use_pyyaml: bool = False, inputs: dict[str, str] | None = None
     ) -> "MCPServersConfig":
@@ -207,15 +245,19 @@ class MCPServersConfig(BaseModel):
         config_path = config_path.expanduser()  # Expand ~ to home directory
 
         with open(config_path) as config_file:
+            content = config_file.read()
+
             # Check if YAML parsing is requested
             should_use_yaml = use_pyyaml or config_path.suffix.lower() in (".yaml", ".yml")
 
             if should_use_yaml:
                 if not yaml:
                     raise ImportError("PyYAML is required to parse YAML files. ")
-                data = yaml.safe_load(config_file)
+                data = yaml.safe_load(content)
             else:
-                data = json.load(config_file)
+                # Strip comments from JSON content (JSONC support)
+                cleaned_content = cls._strip_json_comments(content)
+                data = json.loads(cleaned_content)
 
             # Create a preliminary config to validate inputs if they're defined
             preliminary_config = cls.model_validate(data)

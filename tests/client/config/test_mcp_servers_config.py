@@ -1,6 +1,6 @@
 # stdlib imports
-from pathlib import Path
 import json
+from pathlib import Path
 
 # third party imports
 import pytest
@@ -587,3 +587,159 @@ servers:
     assert isinstance(server, StdioServerConfig)
     assert server.command == "python -m test_module"
     assert server.args == ["--config", "/etc/config.json"]
+
+
+def test_jsonc_comment_stripping():
+    """Test stripping of // comments from JSONC content."""
+    # Test basic comment stripping
+    content_with_comments = """
+{
+    // This is a comment
+    "servers": {
+        "test_server": {
+            "type": "stdio",
+            "command": "python test.py" // End of line comment
+        }
+    },
+    // Another comment
+    "inputs": [] // Final comment
+}
+"""
+
+    stripped = MCPServersConfig._strip_json_comments(content_with_comments)
+    config = MCPServersConfig.model_validate(json.loads(stripped))
+
+    assert "test_server" in config.servers
+    server = config.servers["test_server"]
+    assert isinstance(server, StdioServerConfig)
+    assert server.command == "python test.py"
+
+
+def test_jsonc_comments_inside_strings_preserved():
+    """Test that // inside strings are not treated as comments."""
+    content_with_urls = """
+{
+    "servers": {
+        "web_server": {
+            "type": "sse",
+            "url": "https://example.com/api/endpoint" // This is a comment
+        },
+        "protocol_server": {
+            "type": "stdio",
+            "command": "node server.js --url=http://localhost:3000"
+        }
+    }
+}
+"""
+
+    stripped = MCPServersConfig._strip_json_comments(content_with_urls)
+    config = MCPServersConfig.model_validate(json.loads(stripped))
+
+    web_server = config.servers["web_server"]
+    assert isinstance(web_server, SSEServerConfig)
+    assert web_server.url == "https://example.com/api/endpoint"
+
+    protocol_server = config.servers["protocol_server"]
+    assert isinstance(protocol_server, StdioServerConfig)
+    # The // in the URL should be preserved
+    assert "http://localhost:3000" in protocol_server.command
+
+
+def test_jsonc_escaped_quotes_handling():
+    """Test that escaped quotes in strings are handled correctly."""
+    content_with_escaped = """
+{
+    "servers": {
+        "test_server": {
+            "type": "stdio",
+            "command": "python -c \\"print('Hello // World')\\"", // Comment after escaped quotes
+            "description": "Server with \\"escaped quotes\\" and // in string"
+        }
+    }
+}
+"""
+
+    stripped = MCPServersConfig._strip_json_comments(content_with_escaped)
+    config = MCPServersConfig.model_validate(json.loads(stripped))
+
+    server = config.servers["test_server"]
+    assert isinstance(server, StdioServerConfig)
+    # The command should preserve the escaped quotes and // inside the string
+    assert server.command == "python -c \"print('Hello // World')\""
+
+
+def test_from_file_with_jsonc_comments(tmp_path: Path):
+    """Test loading JSONC file with comments via from_file method."""
+    jsonc_content = """
+{
+    // Configuration for MCP servers
+    "inputs": [
+        {
+            "type": "promptString",
+            "id": "api-key", // Secret API key
+            "description": "API Key for authentication"
+        }
+    ],
+    "servers": {
+        // Main server configuration
+        "main_server": {
+            "type": "sse",
+            "url": "https://api.example.com/mcp/sse", // Production URL
+            "headers": {
+                "Authorization": "Bearer ${input:api-key}" // Dynamic token
+            }
+        }
+    }
+    // End of configuration
+}
+"""
+
+    config_file = tmp_path / "test_config.json"
+    config_file.write_text(jsonc_content)
+
+    inputs = {"api-key": "secret123"}
+
+    # Should load successfully despite comments
+    config = MCPServersConfig.from_file(config_file, inputs=inputs)
+
+    # Verify input definitions were parsed
+    assert config.inputs is not None
+    assert len(config.inputs) == 1
+    assert config.inputs[0].id == "api-key"
+
+    # Verify server configuration and input substitution
+    server = config.servers["main_server"]
+    assert isinstance(server, SSEServerConfig)
+    assert server.url == "https://api.example.com/mcp/sse"
+    assert server.headers == {"Authorization": "Bearer secret123"}
+
+
+def test_jsonc_multiline_strings_with_comments():
+    """Test that comments in multiline scenarios are handled correctly."""
+    content = """
+{
+    "servers": {
+        "test1": {
+            // Comment before
+            "type": "stdio", // Comment after
+            "command": "python server.py"
+        }, // Comment after object
+        "test2": { "type": "sse", "url": "https://example.com" } // Inline comment
+    }
+}
+"""
+
+    stripped = MCPServersConfig._strip_json_comments(content)
+    config = MCPServersConfig.model_validate(json.loads(stripped))
+
+    assert len(config.servers) == 2
+    assert "test1" in config.servers
+    assert "test2" in config.servers
+
+    test1 = config.servers["test1"]
+    assert isinstance(test1, StdioServerConfig)
+    assert test1.command == "python server.py"
+
+    test2 = config.servers["test2"]
+    assert isinstance(test2, SSEServerConfig)
+    assert test2.url == "https://example.com"
