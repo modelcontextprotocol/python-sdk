@@ -86,23 +86,26 @@ def test_streamable_http_server(mcp_yaml_config_file: Path):
 def test_npx_filesystem_server(mcp_yaml_config_file: Path):
     """Test the filesystem server configuration with full command string and multiple arguments."""
     config = MCPServersConfig.from_file(mcp_yaml_config_file)
-    
+
     # Should have the filesystem server
     assert "filesystem" in config.servers
-    
+
     # Verify the server configuration
     filesystem_server = config.servers["filesystem"]
     assert isinstance(filesystem_server, StdioServerConfig)
     assert filesystem_server.type == "stdio"  # Should be auto-inferred from command field
-    assert filesystem_server.command == "npx -y @modelcontextprotocol/server-filesystem /Users/username/Desktop /path/to/other/allowed/dir"
+    assert (
+        filesystem_server.command
+        == "npx -y @modelcontextprotocol/server-filesystem /Users/username/Desktop /path/to/other/allowed/dir"
+    )
     assert filesystem_server.args is None  # No explicit args
     assert filesystem_server.env is None  # No environment variables
-    
+
     # Test the effective command and args parsing
     assert filesystem_server.effective_command == "npx"
     assert filesystem_server.effective_args == [
-        "-y", 
-        "@modelcontextprotocol/server-filesystem", 
-        "/Users/username/Desktop", 
-        "/path/to/other/allowed/dir"
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/username/Desktop",
+        "/path/to/other/allowed/dir",
     ]
