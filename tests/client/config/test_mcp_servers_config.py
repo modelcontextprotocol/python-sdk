@@ -24,6 +24,13 @@ def mcp_config_file(tmp_path: Path) -> Path:
                 "args": ["-m", "my_server"],
                 "env": {"DEBUG": "true"},
             },
+            "stdio_server_with_full_command": {
+                "command": "python -m my_server",
+            },
+            "stdio_server_with_full_command_and_explicit_args": {
+                "command": "python -m my_server",  # Two args here: -m and my_server
+                "args": ["--debug"],               # One explicit arg here: --debug
+            },
             "http_streamable": {
                 "url": "https://api.example.com/mcp",
                 "headers": {"Authorization": "Bearer token123"},
@@ -49,7 +56,45 @@ def test_stdio_server(mcp_config_file: Path):
     assert stdio_server.args == ["-m", "my_server"]
     assert stdio_server.env == {"DEBUG": "true"}
     assert stdio_server.type == "stdio"  # Should be automatically inferred
-    
+
+    # In this case, effective_command and effective_args are the same as command
+    # and args.
+    # But later on, we will see a test where the command is specified as a
+    # single string, and we expect the command to be split into command and args
+    assert stdio_server.effective_command == "python"
+    assert stdio_server.effective_args == ["-m", "my_server"]
+
+
+def test_stdio_server_with_full_command_should_be_split(mcp_config_file: Path):
+    """This test should fail - it expects the command to be split into command and args."""
+    config = MCPServersConfig.from_file(mcp_config_file)
+
+    stdio_server = config.servers["stdio_server_with_full_command"]
+    assert isinstance(stdio_server, StdioServerConfig)
+
+    # This is how the command was specified
+    assert stdio_server.command == "python -m my_server"
+
+    # This is how the command is split into command and args
+    assert stdio_server.effective_command == "python"
+    assert stdio_server.effective_args == ["-m", "my_server"]
+
+
+def test_stdio_server_with_full_command_and_explicit_args(mcp_config_file: Path):
+    """Test that effective_args combines parsed command args with explicit args."""
+    config = MCPServersConfig.from_file(mcp_config_file)
+
+    stdio_server = config.servers["stdio_server_with_full_command_and_explicit_args"]
+    assert isinstance(stdio_server, StdioServerConfig)
+
+    # Test original values
+    assert stdio_server.command == "python -m my_server"
+    assert stdio_server.args == ["--debug"]
+
+    # Test effective values - should combine parsed command args with explicit args
+    assert stdio_server.effective_command == "python"
+    assert stdio_server.effective_args == ["-m", "my_server", "--debug"]
+
 
 def test_streamable_http_server(mcp_config_file: Path):
     config = MCPServersConfig.from_file(mcp_config_file)

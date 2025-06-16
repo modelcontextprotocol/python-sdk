@@ -23,6 +23,19 @@ class StdioServerConfig(MCPServerConfig):
     args: list[str] | None = None
     env: dict[str, str] | None = None
 
+    @property
+    def effective_command(self) -> str:
+        """Get the effective command (first part of the command string)."""
+        return self.command.split()[0]
+
+    @property
+    def effective_args(self) -> list[str]:
+        """Get the effective arguments (parsed from command plus explicit args)."""
+        command_parts = self.command.split()
+        parsed_args = command_parts[1:] if len(command_parts) > 1 else []
+        explicit_args = self.args or []
+        return parsed_args + explicit_args
+
 
 class StreamableHttpConfig(MCPServerConfig):
     """Configuration for StreamableHTTP-based MCP servers."""
