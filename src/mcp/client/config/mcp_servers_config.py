@@ -6,7 +6,7 @@ import os
 import re
 import shlex
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 
 # third party imports
 try:
@@ -141,11 +141,7 @@ class MCPServersConfig(BaseModel):
             return []
 
         required_input_ids = self.get_required_inputs()
-        missing_inputs = []
-
-        for input_id in required_input_ids:
-            if input_id not in provided_inputs:
-                missing_inputs.append(input_id)
+        missing_inputs = [input_id for input_id in required_input_ids if input_id not in provided_inputs]
 
         return missing_inputs
 
@@ -175,16 +171,15 @@ class MCPServersConfig(BaseModel):
             return re.sub(r"\$\{input:([^}]+)\}", replace_input, data)
 
         elif isinstance(data, dict):
-            result = {}  # type: ignore
-            for k, v in data.items():  # type: ignore
-                result[k] = cls._substitute_inputs(v, inputs)  # type: ignore
-            return result
+            dict_result: dict[str, Any] = {}
+            dict_data = cast(dict[str, Any], data)
+            for k, v in dict_data.items():
+                dict_result[k] = cls._substitute_inputs(v, inputs)
+            return dict_result
 
         elif isinstance(data, list):
-            result = []  # type: ignore
-            for item in data:  # type: ignore
-                result.append(cls._substitute_inputs(item, inputs))  # type: ignore
-            return result
+            list_data = cast(list[Any], data)
+            return [cls._substitute_inputs(item, inputs) for item in list_data]
 
         else:
             return data
@@ -192,7 +187,7 @@ class MCPServersConfig(BaseModel):
     @classmethod
     def _strip_json_comments(cls, content: str) -> str:
         """Strip // comments from JSON content, being careful not to remove // inside strings."""
-        result = []
+        result: list[str] = []
         lines = content.split("\n")
 
         for line in lines:
@@ -266,12 +261,12 @@ class MCPServersConfig(BaseModel):
             if inputs is not None and preliminary_config.inputs:
                 missing_inputs = preliminary_config.validate_inputs(inputs)
                 if missing_inputs:
-                    descriptions = []
+                    descriptions: list[str] = []
                     for input_id in missing_inputs:
                         desc = preliminary_config.get_input_description(input_id)
                         descriptions.append(f"  - {input_id}: {desc or 'No description'}")
 
-                    raise ValueError(f"Missing required input values:\n" + "\n".join(descriptions))
+                    raise ValueError("Missing required input values:\n" + "\n".join(descriptions))
 
             # Substitute input placeholders if inputs provided
             if inputs:
