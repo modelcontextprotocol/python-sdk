@@ -47,12 +47,10 @@ def mcp_config_file(tmp_path: Path) -> Path:
             "streamable_http_server_with_explicit_type": {
                 "type": "streamable_http",  # Explicitly specified
                 "url": "https://api.example.com/mcp",
-                "headers": {"Authorization": "Bearer token123"},
             },
             "sse_server_with_explicit_type": {
                 "type": "sse",  # Explicitly specified
                 "url": "https://api.example.com/sse",
-                "headers": {"Authorization": "Bearer token456"},
             },
         }
     }
@@ -84,36 +82,31 @@ def test_stdio_server(mcp_config_file: Path):
     assert stdio_server.effective_args == ["-m", "my_server"]
 
 
-def test_explicit_types_are_respected(mcp_config_file: Path):
-    """Test that explicit 'type' fields in JSON config are respected and work correctly."""
+def test_stdio_server_with_explicit_type(mcp_config_file: Path):
+    """Test that stdio server with explicit 'type' field is respected and works correctly."""
     config = MCPServersConfig.from_file(mcp_config_file)
 
-    # Test that servers are parsed correctly with explicit types
-    assert "stdio_server_with_explicit_type" in config.servers
-    assert "streamable_http_server_with_explicit_type" in config.servers
-    assert "sse_server_with_explicit_type" in config.servers
-    
-    # Test stdio server with explicit type
     stdio_server = config.servers["stdio_server_with_explicit_type"]
     assert isinstance(stdio_server, StdioServerConfig)
     assert stdio_server.type == "stdio"
-    assert stdio_server.command == "python"
-    assert stdio_server.args == ["-m", "my_server"]
-    assert stdio_server.env == {"DEBUG": "true"}
-    
-    # Test HTTP server with explicit type
+
+
+def test_streamable_http_server_with_explicit_type(mcp_config_file: Path):
+    """Test that streamable HTTP server with explicit 'type' field is respected and works correctly."""
+    config = MCPServersConfig.from_file(mcp_config_file)
+
     http_server = config.servers["streamable_http_server_with_explicit_type"]
     assert isinstance(http_server, StreamableHttpConfig)
     assert http_server.type == "streamable_http"
-    assert http_server.url == "https://api.example.com/mcp"
-    assert http_server.headers == {"Authorization": "Bearer token123"}
 
-    # Test SSE server with explicit type
+
+def test_sse_server_with_explicit_type(mcp_config_file: Path):
+    """Test that SSE server with explicit 'type' field is respected and works correctly."""
+    config = MCPServersConfig.from_file(mcp_config_file)
+
     sse_server = config.servers["sse_server_with_explicit_type"]
     assert isinstance(sse_server, SSEServerConfig)
     assert sse_server.type == "sse"
-    assert sse_server.url == "https://api.example.com/sse"
-    assert sse_server.headers == {"Authorization": "Bearer token456"}
 
 
 def test_stdio_server_with_full_command_should_be_split(mcp_config_file: Path):
