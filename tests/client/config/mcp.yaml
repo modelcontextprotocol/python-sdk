@@ -45,16 +45,16 @@ mcpServers:
   # Stdio server with full command string AND explicit args
   # The effective_args will combine parsed command args with explicit args
   stdio_server_with_full_command_and_explicit_args:
-    command: python -m my_server  # Will be parsed to: command="python", args=["-m", "my_server"]
+    command: python -m my_server # Will be parsed to: command="python", args=["-m", "my_server"]
     args:
-      - --debug  # Will be appended to parsed args: ["-m", "my_server", "--debug"]
+      - --debug # Will be appended to parsed args: ["-m", "my_server", "--debug"]
 
   # Servers with explicit types - these demonstrate that type inference
   # can be overridden by explicitly specifying the "type" field
 
   # Stdio server with explicit type specification
   stdio_server_with_explicit_type:
-    type: stdio  # Explicitly specified type
+    type: stdio # Explicitly specified type
     command: python
     args:
       - -m
@@ -64,10 +64,10 @@ mcpServers:
 
   # Streamable HTTP server with explicit type specification
   streamable_http_server_with_explicit_type:
-    type: streamable_http  # Explicitly specified type
+    type: streamable_http # Explicitly specified type
     url: https://api.example.com/mcp
 
   # SSE (Server-Sent Events) server with explicit type specification
   sse_server_with_explicit_type:
-    type: sse  # Explicitly specified type
+    type: sse # Explicitly specified type
     url: https://api.example.com/sse
