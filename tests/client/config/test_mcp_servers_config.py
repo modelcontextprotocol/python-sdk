@@ -8,6 +8,7 @@ import pytest
 # local imports
 from mcp.client.config.mcp_servers_config import (
     MCPServersConfig,
+    SSEServerConfig,
     StdioServerConfig,
     StreamableHttpConfig,
 )
@@ -19,6 +20,7 @@ def mcp_config_file(tmp_path: Path) -> Path:
 
     config_data = {
         "mcpServers": {
+            # Servers with inferred types
             "stdio_server": {
                 "command": "python",
                 "args": ["-m", "my_server"],
@@ -29,11 +31,28 @@ def mcp_config_file(tmp_path: Path) -> Path:
             },
             "stdio_server_with_full_command_and_explicit_args": {
                 "command": "python -m my_server",  # Two args here: -m and my_server
-                "args": ["--debug"],               # One explicit arg here: --debug
+                "args": ["--debug"],  # One explicit arg here: --debug
             },
             "http_streamable": {
                 "url": "https://api.example.com/mcp",
                 "headers": {"Authorization": "Bearer token123"},
+            },
+            # Servers with explicit types
+            "stdio_server_explicit": {
+                "type": "stdio",  # Explicitly specified
+                "command": "python",
+                "args": ["-m", "my_server"],
+                "env": {"DEBUG": "true"},
+            },
+            "http_server_explicit_streamable_http": {
+                "type": "streamable_http",  # Explicitly specified
+                "url": "https://api.example.com/mcp",
+                "headers": {"Authorization": "Bearer token123"},
+            },
+            "http_server_explicit_sse": {
+                "type": "sse",  # Explicitly specified
+                "url": "https://api.example.com/sse",
+                "headers": {"Authorization": "Bearer token456"},
             },
         }
     }
@@ -63,6 +82,38 @@ def test_stdio_server(mcp_config_file: Path):
     # single string, and we expect the command to be split into command and args
     assert stdio_server.effective_command == "python"
     assert stdio_server.effective_args == ["-m", "my_server"]
+
+
+def test_explicit_types_are_respected(mcp_config_file: Path):
+    """Test that explicit 'type' fields in JSON config are respected and work correctly."""
+    config = MCPServersConfig.from_file(mcp_config_file)
+
+    # Test that servers are parsed correctly with explicit types
+    assert "stdio_server_explicit" in config.servers
+    assert "http_server_explicit_streamable_http" in config.servers
+    assert "http_server_explicit_sse" in config.servers
+
+    # Test stdio server with explicit type
+    stdio_server = config.servers["stdio_server_explicit"]
+    assert isinstance(stdio_server, StdioServerConfig)
+    assert stdio_server.type == "stdio"
+    assert stdio_server.command == "python"
+    assert stdio_server.args == ["-m", "my_server"]
+    assert stdio_server.env == {"DEBUG": "true"}
+
+    # Test HTTP server with explicit type
+    http_server = config.servers["http_server_explicit_streamable_http"]
+    assert isinstance(http_server, StreamableHttpConfig)
+    assert http_server.type == "streamable_http"
+    assert http_server.url == "https://api.example.com/mcp"
+    assert http_server.headers == {"Authorization": "Bearer token123"}
+
+    # Test SSE server with explicit type
+    sse_server = config.servers["http_server_explicit_sse"]
+    assert isinstance(sse_server, SSEServerConfig)
+    assert sse_server.type == "sse"
+    assert sse_server.url == "https://api.example.com/sse"
+    assert sse_server.headers == {"Authorization": "Bearer token456"}
 
 
 def test_stdio_server_with_full_command_should_be_split(mcp_config_file: Path):

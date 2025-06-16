@@ -45,8 +45,16 @@ class StreamableHttpConfig(MCPServerConfig):
     headers: dict[str, str] | None = None
 
 
+class SSEServerConfig(MCPServerConfig):
+    """Configuration for SSE-based MCP servers."""
+
+    type: Literal["sse"] = "sse"
+    url: str
+    headers: dict[str, str] | None = None
+
+
 # Discriminated union for different server config types
-ServerConfigUnion = Annotated[StdioServerConfig | StreamableHttpConfig, Field(discriminator="type")]
+ServerConfigUnion = Annotated[StdioServerConfig | StreamableHttpConfig | SSEServerConfig, Field(discriminator="type")]
 
 
 class MCPServersConfig(BaseModel):
@@ -56,7 +64,7 @@ class MCPServersConfig(BaseModel):
 
     @field_validator("servers", mode="before")
     @classmethod
-    def infer_server_types(cls, servers_data: dict[str, MCPServerConfig]) -> dict[str, MCPServerConfig]:
+    def infer_server_types(cls, servers_data: dict[str, Any]) -> dict[str, Any]:
         """Automatically infer server types when 'type' field is omitted."""
 
         for server_config in servers_data.values():
@@ -65,6 +73,7 @@ class MCPServersConfig(BaseModel):
                 if "command" in server_config:
                     server_config["type"] = "stdio"
                 elif "url" in server_config:
+                    # Could infer SSE vs streamable_http based on URL patterns in the future
                     server_config["type"] = "streamable_http"
 
         return servers_data
