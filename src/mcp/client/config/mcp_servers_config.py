@@ -29,8 +29,16 @@ class StdioServerConfig(MCPServerConfig):
     env: dict[str, str] | None = None
 
     def _parse_command(self) -> list[str]:
-        """Parse the command string into parts, handling quotes properly."""
-        return shlex.split(self.command)
+        """Parse the command string into parts, handling quotes properly.
+
+        Strips unnecessary whitespace and newlines to handle YAML multi-line strings.
+        Treats backslashes followed by newlines as line continuations.
+        """
+        # Handle backslash line continuations by removing them and the following newline
+        cleaned_command = self.command.replace("\\\n", " ")
+        # Then normalize all whitespace (including remaining newlines) to single spaces
+        cleaned_command = " ".join(cleaned_command.split())
+        return shlex.split(cleaned_command)
 
     @property
     def effective_command(self) -> str:

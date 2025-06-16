@@ -98,12 +98,11 @@ def test_npx_filesystem_server(mcp_yaml_config_file: Path):
     assert filesystem_server.args is None  # No explicit args
     assert filesystem_server.env is None  # No environment variables
     
-    # Test the effective command parsing
+    # Test the effective command and args parsing
     assert filesystem_server.effective_command == "npx"
-    expected_args = [
+    assert filesystem_server.effective_args == [
         "-y", 
         "@modelcontextprotocol/server-filesystem", 
         "/Users/username/Desktop", 
         "/path/to/other/allowed/dir"
     ]
-    assert filesystem_server.effective_args == expected_args

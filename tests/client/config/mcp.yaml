@@ -8,6 +8,12 @@ mcpServers:
   filesystem:
     command: npx -y @modelcontextprotocol/server-filesystem /Users/username/Desktop /path/to/other/allowed/dir
 
+  filesystem_multi_line:
+    command: >
+      npx -y @modelcontextprotocol/server-filesystem \
+        /Users/username/Desktop \
+        /path/to/other/allowed/dir
+
   # Stdio server with full command string
   # The library will automatically parse this.
   # The effective_command will be "python" and effective_args will be ["-m", "my_server"]
