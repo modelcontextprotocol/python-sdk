@@ -28,6 +28,10 @@ class InputDefinition(BaseModel):
 class MCPServerConfig(BaseModel):
     """Base class for MCP server configurations."""
 
+    name: str | None = None
+    description: str | None = None
+    isActive: bool = True
+
     def as_dict(self) -> dict[str, Any]:
         """Return the server configuration as a dictionary."""
         return self.model_dump(exclude_none=True)
