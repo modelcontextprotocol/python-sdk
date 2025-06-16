@@ -10,7 +10,7 @@
 [![Documentation][docs-badge]][docs-url]
 [![Specification][spec-badge]][spec-url]
 [![GitHub Discussions][discussions-badge]][discussions-url]
-
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/OohBen/python-sdk)
 </div>
 
 <!-- omit in toc -->
