@@ -18,7 +18,9 @@ from pydantic import BaseModel, Field, field_validator
 class MCPServerConfig(BaseModel):
     """Base class for MCP server configurations."""
 
-    pass
+    def as_dict(self) -> dict[str, Any]:
+        """Return the server configuration as a dictionary."""
+        return self.model_dump(exclude_none=True)
 
 
 class StdioServerConfig(MCPServerConfig):
