@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 # third party imports
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class MCPServerConfig(BaseModel):
@@ -54,19 +54,20 @@ class MCPServersConfig(BaseModel):
 
     servers: dict[str, ServerConfigUnion] = Field(alias="mcpServers")
 
-    @model_validator(mode="before")
+    @field_validator("servers", mode="before")
     @classmethod
-    def infer_server_types(cls, data: Any) -> Any:
+    def infer_server_types(cls, servers_data: dict[str, MCPServerConfig]) -> dict[str, MCPServerConfig]:
         """Automatically infer server types when 'type' field is omitted."""
-        if isinstance(data, dict) and "mcpServers" in data:
-            for _server_name, server_config in data["mcpServers"].items():  # type: ignore
-                if isinstance(server_config, dict) and "type" not in server_config:
-                    # Infer type based on distinguishing fields
-                    if "command" in server_config:
-                        server_config["type"] = "stdio"
-                    elif "url" in server_config:
-                        server_config["type"] = "streamable_http"
-        return data
+
+        for server_config in servers_data.values():
+            if isinstance(server_config, dict) and "type" not in server_config:
+                # Infer type based on distinguishing fields
+                if "command" in server_config:
+                    server_config["type"] = "stdio"
+                elif "url" in server_config:
+                    server_config["type"] = "streamable_http"
+
+        return servers_data
 
     @classmethod
     def from_file(cls, config_path: Path) -> "MCPServersConfig":
