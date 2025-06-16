@@ -122,9 +122,9 @@ class MCPServersConfig(BaseModel):
         for server_config in servers_data.values():
             server_config = cast(dict[str, str], server_config)
             sse_mentioned_in_config = (
-                "sse" in server_config.get("url", "")
-                or "sse" in server_config.get("name", "")
-                or "sse" in server_config.get("description", "")
+                "sse" in server_config.get("url", "").lower()
+                or "sse" in server_config.get("name", "").lower()
+                or "sse" in server_config.get("description", "").lower()
             )
             if "type" not in server_config:
                 # Infer type based on distinguishing fields
