@@ -12,7 +12,7 @@ try:
     import yaml
 except ImportError:
     yaml = None  # type: ignore
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class MCPServerConfig(BaseModel):
@@ -82,7 +82,22 @@ ServerConfigUnion = Annotated[
 class MCPServersConfig(BaseModel):
     """Configuration for multiple MCP servers."""
 
-    servers: dict[str, ServerConfigUnion] = Field(alias="mcpServers")
+    servers: dict[str, ServerConfigUnion]
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_field_aliases(cls, data: dict[str, Any]) -> dict[str, Any]:
+        """Handle both 'servers' and 'mcpServers' field names."""
+
+        # If 'mcpServers' exists but 'servers' doesn't, use 'mcpServers'
+        if "mcpServers" in data and "servers" not in data:
+            data["servers"] = data["mcpServers"]
+            del data["mcpServers"]
+        # If both exist, prefer 'servers' and remove 'mcpServers'
+        elif "mcpServers" in data and "servers" in data:
+            del data["mcpServers"]
+
+        return data
 
     @field_validator("servers", mode="before")
     @classmethod

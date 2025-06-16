@@ -144,3 +144,44 @@ def test_stdio_server_with_quoted_arguments():
     assert mixed_quote_server.effective_command == "python"
     expected_args_mixed = ["-m", "my_server", "--name", "My Server", "--path", "/home/user/my path"]
     assert mixed_quote_server.effective_args == expected_args_mixed
+
+
+def test_both_field_names_supported():
+    """Test that both 'servers' and 'mcpServers' field names are supported."""
+    # Test with 'mcpServers' field name (traditional format)
+    config_with_mcp_servers = MCPServersConfig.model_validate(
+        {"mcpServers": {"test_server": {"command": "python -m test_server", "type": "stdio"}}}
+    )
+
+    # Test with 'servers' field name (new format)
+    config_with_servers = MCPServersConfig.model_validate(
+        {"servers": {"test_server": {"command": "python -m test_server", "type": "stdio"}}}
+    )
+
+    # Both should produce identical results
+    assert config_with_mcp_servers.servers == config_with_servers.servers
+    assert "test_server" in config_with_mcp_servers.servers
+    assert "test_server" in config_with_servers.servers
+
+    # Verify the server configurations are correct
+    server1 = config_with_mcp_servers.servers["test_server"]
+    server2 = config_with_servers.servers["test_server"]
+
+    assert isinstance(server1, StdioServerConfig)
+    assert isinstance(server2, StdioServerConfig)
+    assert server1.command == server2.command == "python -m test_server"
+
+
+def test_servers_field_takes_precedence():
+    """Test that 'servers' field takes precedence when both are present."""
+    config_data = {
+        "mcpServers": {"old_server": {"command": "python -m old_server", "type": "stdio"}},
+        "servers": {"new_server": {"command": "python -m new_server", "type": "stdio"}},
+    }
+
+    config = MCPServersConfig.model_validate(config_data)
+
+    # Should only have the 'servers' content, not 'mcpServers'
+    assert "new_server" in config.servers
+    assert "old_server" not in config.servers
+    assert len(config.servers) == 1
