@@ -202,6 +202,7 @@ def test_input_substitution():
                 "command": "python -m ${input:module-name}",
                 "args": ["--config", "${input:config-file}"],
                 "env": {"API_KEY": "${input:api-key}", "ENV": "${input:environment}"},
+                "isActive": True,
             },
         }
     }
@@ -413,6 +414,21 @@ def test_get_required_inputs_no_inputs_defined():
     required_inputs = config.get_required_inputs()
 
     assert required_inputs == []
+
+
+def test_get_required_inputs_empty_inputs_list():
+    """Test getting required inputs when inputs is explicitly set to an empty list."""
+    config_data = {
+        "inputs": [],  # Explicitly empty list
+        "servers": {"test_server": {"type": "stdio", "command": "python test.py"}}
+    }
+
+    config = MCPServersConfig.model_validate(config_data)
+    required_inputs = config.get_required_inputs()
+    assert config.validate_inputs({}) == []
+
+    assert required_inputs == []
+    assert config.inputs == []  # Verify inputs is actually an empty list, not None
 
 
 def test_validate_inputs_all_provided():
@@ -743,3 +759,73 @@ def test_jsonc_multiline_strings_with_comments():
     test2 = config.servers["test2"]
     assert isinstance(test2, SSEServerConfig)
     assert test2.url == "https://example.com"
+
+
+def test_sse_type_inference():
+    """Test that servers with 'url' field (and SSE mention) are inferred as sse type."""
+    config_data = {
+        "servers": {
+            "api_server": {
+                "url": "https://api.example.com/sse"
+                # No explicit type - should be inferred as sse
+                # because "sse" is in the url
+            },
+            "webhook_server": {
+                "url": "https://webhook.example.com/mcp/api",
+                "description": "A simple SSE server",
+                "headers": {"X-API-Key": "secret123"}
+                # No explicit type - should be inferred as sse
+                # because "SSE" is in the description
+            }
+        }
+    }
+
+    config = MCPServersConfig.model_validate(config_data)
+
+    # Verify first server
+    api_server = config.servers["api_server"]
+    assert isinstance(api_server, SSEServerConfig)
+    assert api_server.type == "sse"  # Should be auto-inferred
+    assert api_server.url == "https://api.example.com/sse"
+    assert api_server.headers is None
+
+    # Verify second server
+    webhook_server = config.servers["webhook_server"]
+    assert isinstance(webhook_server, SSEServerConfig)
+    assert webhook_server.type == "sse"  # Should be auto-inferred
+    assert webhook_server.url == "https://webhook.example.com/mcp/api"
+    assert webhook_server.headers == {"X-API-Key": "secret123"}
+
+
+def test_streamable_http_type_inference():
+    """Test that servers with 'url' field (but no SSE mention) are inferred as streamable_http type."""
+    config_data = {
+        "servers": {
+            "api_server": {
+                "url": "https://api.example.com/mcp"
+                # No explicit type - should be inferred as streamable_http
+                # No mention of 'sse' in url, name, or description
+            },
+            "webhook_server": {
+                "url": "https://webhook.example.com/mcp/api",
+                "headers": {"X-API-Key": "secret123"}
+                # No explicit type - should be inferred as streamable_http
+            }
+        }
+    }
+
+    config = MCPServersConfig.model_validate(config_data)
+
+    # Verify first server
+    api_server = config.servers["api_server"]
+    assert isinstance(api_server, StreamableHTTPServerConfig)
+    assert api_server.type == "streamable_http"  # Should be auto-inferred
+    assert api_server.url == "https://api.example.com/mcp"
+    assert api_server.headers is None
+
+    # Verify second server
+    webhook_server = config.servers["webhook_server"]
+    assert isinstance(webhook_server, StreamableHTTPServerConfig)
+    assert webhook_server.type == "streamable_http"  # Should be auto-inferred
+    assert webhook_server.url == "https://webhook.example.com/mcp/api"
+    assert webhook_server.headers == {"X-API-Key": "secret123"}

@@ -32,10 +32,6 @@ class MCPServerConfig(BaseModel):
     description: str | None = None
     isActive: bool = True
 
-    def as_dict(self) -> dict[str, Any]:
-        """Return the server configuration as a dictionary."""
-        return self.model_dump(exclude_none=True)
-
 
 class StdioServerConfig(MCPServerConfig):
     """Configuration for stdio-based MCP servers."""
