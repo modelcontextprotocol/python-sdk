@@ -1,0 +1,57 @@
+{
+  // MCP Servers Configuration
+  // This file demonstrates various server configurations for testing
+  "mcpServers": {
+
+    // Basic stdio server with explicit command and args
+    // Type will be automatically inferred from the "command" field
+    "stdio_server": {
+      "command": "python",
+      "args": ["-m", "my_server"],
+      "env": {"DEBUG": "true"}
+    },
+
+    // Stdio server with full command string that needs to be parsed
+    // The effective_command will be "python" and effective_args will be ["-m", "my_server"]
+    "stdio_server_with_full_command": {
+      "command": "python -m my_server"
+    },
+
+    // Stdio server with full command string AND explicit args
+    // The effective_args will combine parsed command args with explicit args
+    "stdio_server_with_full_command_and_explicit_args": {
+      "command": "python -m my_server",  // Will be parsed to: command="python", args=["-m", "my_server"]
+      "args": ["--debug"]                // Will be appended to parsed args: ["-m", "my_server", "--debug"]
+    },
+
+    // Streamable HTTP server with headers
+    // Type will be automatically inferred from the "url" field
+    "streamable_http_server_with_headers": {
+      "url": "https://api.example.com/mcp",
+      "headers": {"Authorization": "Bearer token123"}
+    },
+
+    // Servers with explicit types - these demonstrate that type inference
+    // can be overridden by explicitly specifying the "type" field
+
+    // Stdio server with explicit type specification
+    "stdio_server_with_explicit_type": {
+      "type": "stdio",  // Explicitly specified type
+      "command": "python",
+      "args": ["-m", "my_server"],
+      "env": {"DEBUG": "true"}
+    },
+
+    // Streamable HTTP server with explicit type specification
+    "streamable_http_server_with_explicit_type": {
+      "type": "streamable_http",  // Explicitly specified type
+      "url": "https://api.example.com/mcp"
+    },
+
+    // SSE (Server-Sent Events) server with explicit type specification
+    "sse_server_with_explicit_type": {
+      "type": "sse",  // Explicitly specified type
+      "url": "https://api.example.com/sse"
+    }
+  }
+}
