@@ -418,6 +418,10 @@ class BaseSession(
                 # Without this handler, the exception would propagate up and
                 # crash the server's task group.
                 logging.debug("Read stream closed by client")
+            except Exception as e:
+                # Other exceptions are not expected and should be logged. We purposefully
+                # catch all exceptions here to avoid crashing the server.
+                logging.exception(f"Unhandled exception in receive loop: {e}")
             finally:
                 # after the read stream is closed, we need to send errors
                 # to any pending requests
