@@ -41,6 +41,7 @@
   - [Advanced Usage](#advanced-usage)
     - [Low-Level Server](#low-level-server)
     - [Writing MCP Clients](#writing-mcp-clients)
+    - [API for Client Configuration](#api-for-client-configuration)
     - [MCP Primitives](#mcp-primitives)
     - [Server Capabilities](#server-capabilities)
   - [Documentation](#documentation)
@@ -862,6 +863,11 @@ async def main():
 
 For a complete working example, see [`examples/clients/simple-auth-client/`](examples/clients/simple-auth-client/).
 
+### API for Client Configuration
+
+The MCP Python SDK provides an API for client configuration. This lets client applications easily load MCP servers from configuration files in a variety of formats and with some useful, built-in features.
+
+See the [Client Configuration Guide](docs/client-configuration.md) for complete details.
 
 ### MCP Primitives
 

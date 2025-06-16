@@ -1,0 +1,300 @@
+# MCP Client Configuration (NEW)
+
+This guide covers how to configure MCP servers for client applications,
+such as Claude Desktop, Cursor, and VS Code.
+
+## Configuration File Formats
+
+MCP supports multiple configuration file formats for maximum flexibility.
+
+### JSON Configuration
+
+```json
+{
+  "mcpServers": {
+    "time": {
+      "command": "uvx",
+      "args": ["mcp-server-time"]
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/username/Desktop"]
+    }
+  }
+}
+```
+
+This is a typical JSON configuration file for an MCP server in that it has
+`command` and `args` (as a list) fields.
+
+Also supported is to specify the entire command in the `command` field (easier
+to write and read). In this case, the library will automatically split the
+command into `command` and `args` fields internally.
+
+```json
+{
+  "mcpServers": {
+    "time": {
+      "command": "uvx mcp-server-time"
+    },
+    "filesystem": {
+      "command": "npx -y @modelcontextprotocol/server-filesystem /Users/username/Desktop"
+    }
+  }
+}
+```
+
+JSON is the most commonly used format for MCP servers, but it has some
+limitations, which is why subsequent sections cover other formats, such as JSONC
+and YAML.
+
+### JSON with Comments (JSONC)
+
+For better maintainability, MCP supports JSON files with `//` comments:
+
+```jsonc
+{
+  "mcpServers": {
+    // Can get current time in various timezones
+    "time": {
+      "command": "uvx mcp-server-time"
+    },
+
+    // Can get the contents of the user's desktop
+    "filesystem": {
+      "command": "npx -y @modelcontextprotocol/server-filesystem /Users/username/Desktop"
+    }
+  }
+}
+```
+
+### YAML Configuration
+
+YAML configuration files are supported for improved readability:
+
+```yaml
+mcpServers:
+  # Can get current time in various timezones
+  time:
+    command: uvx mcp-server-time
+
+  # Can get the contents of the user's desktop
+  filesystem:
+    command: npx -y @modelcontextprotocol/server-filesystem /Users/username/Desktop
+```
+
+**Installation**: YAML support requires the optional dependency:
+
+```bash
+pip install "mcp[yaml]"
+```
+
+## Server Types and Auto-Detection
+
+MCP automatically infers server types based on configuration fields when the
+`type` field is omitted:
+
+### Stdio Servers
+
+Servers with a `command` field are automatically detected as `stdio` type:
+
+```yaml
+mcpServers:
+  python-server:
+    command: python -m my_server
+    # type: stdio (auto-inferred)
+```
+
+### Streamable HTTP Servers
+
+Servers with a `url` field (without SSE keywords) are detected as `streamable_http` type:
+
+```yaml
+mcpServers:
+  api-server:
+    url: https://api.example.com/mcp
+    # type: streamable_http (auto-inferred)
+```
+
+### SSE Servers
+
+Servers with a `url` field containing "sse" in the URL, name, or description are detected as `sse` type:
+
+```yaml
+mcpServers:
+  sse-server:
+    url: https://api.example.com/sse
+    # type: sse (auto-inferred due to "sse" in URL)
+    
+  event-server:
+    url: https://api.example.com/events
+    description: "SSE-based event server"
+    # type: sse (auto-inferred due to "SSE" in description)
+```
+
+## Input Variables and Substitution
+
+MCP supports dynamic configuration using input variables, which is a feature
+that VS Code supports. This works in both JSON and YAML configurations.
+
+### Defining Inputs
+
+```yaml
+inputs:
+  - id: api-key
+    type: promptString
+    description: "Your API key"
+    password: true
+  - id: server-host
+    type: promptString
+    description: "Server hostname"
+
+mcpServers:
+  dynamic-server:
+    url: https://${input:server-host}/mcp
+    headers:
+      Authorization: Bearer ${input:api-key}
+```
+
+### Using Inputs
+
+When loading the configuration, provide input values:
+
+```python
+from mcp.client.config.mcp_servers_config import MCPServersConfig
+
+# Load with input substitution
+config = MCPServersConfig.from_file(
+    "config.yaml",
+    inputs={
+        "api-key": "secret-key-123",
+        "server-host": "api.example.com"
+    }
+)
+```
+
+### Input Validation
+
+MCP validates that all required inputs are provided:
+
+```python
+# Check required inputs
+required_inputs = config.get_required_inputs()
+print(f"Required inputs: {required_inputs}")
+
+# Validate provided inputs
+missing_inputs = config.validate_inputs(provided_inputs)
+if missing_inputs:
+    print(f"Missing required inputs: {missing_inputs}")
+```
+
+## Configuration Schema
+
+### Server Configuration Base Fields
+
+All server types support these common fields:
+
+- `name` (string, optional): Display name for the server
+- `description` (string, optional): Server description
+- `isActive` (boolean, default: true): Whether the server is active
+
+### Stdio Server Configuration
+
+```yaml
+mcpServers:
+  stdio-server:
+    type: stdio  # Optional if 'command' is present
+    command: python -m my_server
+    args:  # Optional additional arguments
+      - --debug
+      - --port=8080
+    env:  # Optional environment variables
+      DEBUG: "true"
+      API_KEY: secret123
+```
+
+### Streamable HTTP Server Configuration
+
+```yaml
+mcpServers:
+  http-server:
+    type: streamable_http  # Optional if 'url' is present
+    url: https://api.example.com/mcp
+    headers:  # Optional HTTP headers
+      Authorization: Bearer token123
+      X-Custom-Header: value
+```
+
+### SSE Server Configuration
+
+```yaml
+mcpServers:
+  sse-server:
+    type: sse
+    url: https://api.example.com/sse
+    headers:  # Optional HTTP headers
+      Authorization: Bearer token123
+```
+
+## Field Aliases
+
+MCP supports both traditional and modern field names:
+
+- `mcpServers` (most common) or `servers` (VS Code)
+
+```yaml
+# More common format
+mcpServers:
+  my-server:
+    command: python -m server
+
+# VS Code format (equivalent)
+servers:
+  my-server:
+    command: python -m server
+```
+
+## Loading Configuration Files
+
+```python
+from mcp.client.config.mcp_servers_config import MCPServersConfig
+from pathlib import Path
+
+# Load JSON
+config = MCPServersConfig.from_file("config.json")
+
+# Load YAML (auto-detected by extension)
+config = MCPServersConfig.from_file("config.yaml")
+
+# Force YAML parsing
+config = MCPServersConfig.from_file("config.json", use_pyyaml=True)
+
+# Load with input substitution
+config = MCPServersConfig.from_file(
+    "config.yaml",
+    inputs={"api-key": "secret"}
+)
+```
+
+## Error Handling
+
+### Missing YAML Dependency
+
+```python
+try:
+    config = MCPServersConfig.from_file("config.yaml")
+except ImportError as e:
+    print("Install YAML support: pip install 'mcp[yaml]'")
+```
+
+### Missing Input Values
+
+```python
+try:
+    config = MCPServersConfig.from_file("config.yaml", inputs={})
+except ValueError as e:
+    print(f"Configuration error: {e}")
+    # Error: Missing required input values:
+    #   - api-key: Your API key
+    #   - server-host: Server hostname
+```

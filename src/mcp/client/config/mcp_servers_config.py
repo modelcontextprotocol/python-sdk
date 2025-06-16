@@ -1,4 +1,47 @@
-"""Configuration management for MCP servers."""
+"""Configuration management for MCP servers.
+
+This module provides comprehensive configuration management for MCP (Model
+Context Protocol) servers, supporting multiple file formats and advanced
+features:
+
+Features:
+
+- Multiple file formats: JSON, JSONC (JSON with comments), and YAML (.yaml/.yml)
+
+- Automatic server type inference based on configuration fields
+
+- Input variable substitution with ${input:key} syntax and validation of
+  required inputs, borrowed from VS Code
+
+- Support for both 'mcpServers' and 'servers' (VS Code) field names
+
+Supported Server Types:
+
+- streamable_http: HTTP-based servers using streamable transport
+
+- stdio: Servers that communicate via standard input/output
+
+- sse: Server-Sent Events based servers
+
+Example usage:
+
+    # Load basic configuration
+    config = MCPServersConfig.from_file("config.json")
+
+    # Load YAML with input substitution
+    config = MCPServersConfig.from_file(
+        "config.yaml",
+        inputs={"api-key": "secret", "host": "api.example.com"}
+    )
+
+    # Validate inputs
+    missing = config.validate_inputs(provided_inputs)
+    if missing:
+        raise ValueError(f"Missing inputs: {missing}")
+
+Dependencies:
+- PyYAML: Required for YAML file support (install with 'mcp[yaml]')
+"""
 
 # stdlib imports
 import json
