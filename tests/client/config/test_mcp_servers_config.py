@@ -1,5 +1,6 @@
 # stdlib imports
 from pathlib import Path
+import json
 
 # third party imports
 import pytest
@@ -185,3 +186,404 @@ def test_servers_field_takes_precedence():
     assert "new_server" in config.servers
     assert "old_server" not in config.servers
     assert len(config.servers) == 1
+
+
+def test_input_substitution():
+    """Test that ${input:key} placeholders are substituted correctly."""
+    config_data = {
+        "servers": {
+            "azure_server": {
+                "type": "sse",
+                "url": "https://${input:app-name}.azurewebsites.net/mcp/sse",
+                "headers": {"Authorization": "Bearer ${input:api-token}", "X-Custom-Header": "${input:custom-value}"},
+            },
+            "stdio_server": {
+                "type": "stdio",
+                "command": "python -m ${input:module-name}",
+                "args": ["--config", "${input:config-file}"],
+                "env": {"API_KEY": "${input:api-key}", "ENV": "${input:environment}"},
+            },
+        }
+    }
+
+    inputs = {
+        "app-name": "my-function-app",
+        "api-token": "abc123token",
+        "custom-value": "custom-header-value",
+        "module-name": "my_server",
+        "config-file": "/path/to/config.json",
+        "api-key": "secret-api-key",
+        "environment": "production",
+    }
+
+    # Test substitution
+    substituted = MCPServersConfig._substitute_inputs(config_data, inputs)
+    config = MCPServersConfig.model_validate(substituted)
+
+    # Test SSE server substitution
+    sse_server = config.servers["azure_server"]
+    assert isinstance(sse_server, SSEServerConfig)
+    assert sse_server.url == "https://my-function-app.azurewebsites.net/mcp/sse"
+    assert sse_server.headers == {"Authorization": "Bearer abc123token", "X-Custom-Header": "custom-header-value"}
+
+    # Test stdio server substitution
+    stdio_server = config.servers["stdio_server"]
+    assert isinstance(stdio_server, StdioServerConfig)
+    assert stdio_server.command == "python -m my_server"
+    assert stdio_server.args == ["--config", "/path/to/config.json"]
+    assert stdio_server.env == {"API_KEY": "secret-api-key", "ENV": "production"}
+
+
+def test_input_substitution_missing_key():
+    """Test that missing input keys raise appropriate errors."""
+    config_data = {"servers": {"test_server": {"type": "sse", "url": "https://${input:missing-key}.example.com"}}}
+
+    inputs = {"other-key": "value"}
+
+    with pytest.raises(ValueError, match="Missing input value for key: 'missing-key'"):
+        MCPServersConfig._substitute_inputs(config_data, inputs)
+
+
+def test_input_substitution_partial():
+    """Test that only specified placeholders are substituted."""
+    config_data = {
+        "servers": {
+            "test_server": {
+                "type": "sse",
+                "url": "https://${input:app-name}.example.com/api/${input:version}",
+                "headers": {"Static-Header": "static-value", "Dynamic-Header": "${input:token}"},
+            }
+        }
+    }
+
+    inputs = {
+        "app-name": "myapp",
+        "token": "secret123",
+        # Note: 'version' is intentionally missing
+    }
+
+    with pytest.raises(ValueError, match="Missing input value for key: 'version'"):
+        MCPServersConfig._substitute_inputs(config_data, inputs)
+
+
+def test_from_file_with_inputs(tmp_path: Path):
+    """Test loading config from file with input substitution."""
+    # Create test config file
+    config_content = {
+        "servers": {
+            "dynamic_server": {
+                "type": "streamable_http",
+                "url": "https://${input:host}/mcp/api",
+                "headers": {"Authorization": "Bearer ${input:token}"},
+            }
+        }
+    }
+
+    config_file = tmp_path / "test_config.json"
+    with open(config_file, "w") as f:
+        json.dump(config_content, f)
+
+    inputs = {"host": "api.example.com", "token": "test-token-123"}
+
+    # Load with input substitution
+    config = MCPServersConfig.from_file(config_file, inputs=inputs)
+
+    server = config.servers["dynamic_server"]
+    assert isinstance(server, StreamableHTTPServerConfig)
+    assert server.url == "https://api.example.com/mcp/api"
+    assert server.headers == {"Authorization": "Bearer test-token-123"}
+
+
+def test_from_file_without_inputs(tmp_path: Path):
+    """Test loading config from file without input substitution."""
+    # Create test config file with placeholders
+    config_content = {
+        "servers": {
+            "static_server": {"type": "sse", "url": "https://static.example.com/mcp/sse"},
+            "placeholder_server": {"type": "sse", "url": "https://${input:host}/mcp/sse"},
+        }
+    }
+
+    config_file = tmp_path / "test_config.json"
+    with open(config_file, "w") as f:
+        json.dump(config_content, f)
+
+    # Load without input substitution - placeholders should remain
+    config = MCPServersConfig.from_file(config_file)
+
+    static_server = config.servers["static_server"]
+    assert isinstance(static_server, SSEServerConfig)
+    assert static_server.url == "https://static.example.com/mcp/sse"
+
+    placeholder_server = config.servers["placeholder_server"]
+    assert isinstance(placeholder_server, SSEServerConfig)
+    assert placeholder_server.url == "https://${input:host}/mcp/sse"  # Unchanged
+
+
+def test_input_substitution_yaml_file(tmp_path: Path):
+    """Test input substitution with YAML files."""
+    yaml_content = """
+servers:
+  yaml_server:
+    type: stdio
+    command: python -m ${input:module}
+    args:
+      - --port
+      - "${input:port}"
+    env:
+      DEBUG: "${input:debug}"
+"""
+
+    config_file = tmp_path / "test_config.yaml"
+    config_file.write_text(yaml_content)
+
+    inputs = {"module": "test_server", "port": "8080", "debug": "true"}
+
+    config = MCPServersConfig.from_file(config_file, inputs=inputs)
+
+    server = config.servers["yaml_server"]
+    assert isinstance(server, StdioServerConfig)
+    assert server.command == "python -m test_server"
+    assert server.args == ["--port", "8080"]
+    assert server.env == {"DEBUG": "true"}
+
+
+def test_input_definitions_parsing():
+    """Test parsing of input definitions from config."""
+    config_data = {
+        "inputs": [
+            {"type": "promptString", "id": "functionapp-name", "description": "Azure Functions App Name"},
+            {
+                "type": "promptString",
+                "id": "api-token",
+                "description": "API Token for authentication",
+                "password": True,
+            },
+        ],
+        "servers": {
+            "azure_server": {
+                "type": "sse",
+                "url": "https://${input:functionapp-name}.azurewebsites.net/mcp/sse",
+                "headers": {"Authorization": "Bearer ${input:api-token}"},
+            }
+        },
+    }
+
+    config = MCPServersConfig.model_validate(config_data)
+
+    # Test input definitions are parsed correctly
+    assert config.inputs is not None
+    assert len(config.inputs) == 2
+
+    app_name_input = config.inputs[0]
+    assert app_name_input.id == "functionapp-name"
+    assert app_name_input.description == "Azure Functions App Name"
+    assert app_name_input.password is False
+    assert app_name_input.type == "promptString"
+
+    api_token_input = config.inputs[1]
+    assert api_token_input.id == "api-token"
+    assert api_token_input.description == "API Token for authentication"
+    assert api_token_input.password is True
+    assert api_token_input.type == "promptString"
+
+
+def test_get_required_inputs():
+    """Test getting list of required input IDs."""
+    config_data = {
+        "inputs": [
+            {"id": "input1", "description": "First input"},
+            {"id": "input2", "description": "Second input"},
+            {"id": "input3", "description": "Third input"},
+        ],
+        "servers": {"test_server": {"type": "stdio", "command": "python test.py"}},
+    }
+
+    config = MCPServersConfig.model_validate(config_data)
+    required_inputs = config.get_required_inputs()
+
+    assert required_inputs == ["input1", "input2", "input3"]
+
+
+def test_get_required_inputs_no_inputs_defined():
+    """Test getting required inputs when no inputs are defined."""
+    config_data = {"servers": {"test_server": {"type": "stdio", "command": "python test.py"}}}
+
+    config = MCPServersConfig.model_validate(config_data)
+    required_inputs = config.get_required_inputs()
+
+    assert required_inputs == []
+
+
+def test_validate_inputs_all_provided():
+    """Test input validation when all required inputs are provided."""
+    config_data = {
+        "inputs": [
+            {"id": "username", "description": "Username"},
+            {"id": "password", "description": "Password", "password": True},
+        ],
+        "servers": {"test_server": {"type": "stdio", "command": "python test.py"}},
+    }
+
+    config = MCPServersConfig.model_validate(config_data)
+    provided_inputs = {"username": "testuser", "password": "secret123"}
+
+    missing_inputs = config.validate_inputs(provided_inputs)
+    assert missing_inputs == []
+
+
+def test_validate_inputs_some_missing():
+    """Test input validation when some required inputs are missing."""
+    config_data = {
+        "inputs": [
+            {"id": "required1", "description": "First required input"},
+            {"id": "required2", "description": "Second required input"},
+            {"id": "required3", "description": "Third required input"},
+        ],
+        "servers": {"test_server": {"type": "stdio", "command": "python test.py"}},
+    }
+
+    config = MCPServersConfig.model_validate(config_data)
+    provided_inputs = {
+        "required1": "value1",
+        # required2 and required3 are missing
+    }
+
+    missing_inputs = config.validate_inputs(provided_inputs)
+    assert set(missing_inputs) == {"required2", "required3"}
+
+
+def test_get_input_description():
+    """Test getting input descriptions."""
+    config_data = {
+        "inputs": [
+            {"id": "api-key", "description": "API Key for authentication"},
+            {"id": "host", "description": "Server hostname"},
+        ],
+        "servers": {"test_server": {"type": "stdio", "command": "python test.py"}},
+    }
+
+    config = MCPServersConfig.model_validate(config_data)
+
+    assert config.get_input_description("api-key") == "API Key for authentication"
+    assert config.get_input_description("host") == "Server hostname"
+    assert config.get_input_description("nonexistent") is None
+
+
+def test_get_input_description_no_inputs():
+    """Test getting input description when no inputs are defined."""
+    config_data = {"servers": {"test_server": {"type": "stdio", "command": "python test.py"}}}
+
+    config = MCPServersConfig.model_validate(config_data)
+    assert config.get_input_description("any-key") is None
+
+
+def test_from_file_with_input_validation_success(tmp_path: Path):
+    """Test loading file with input definitions and successful validation."""
+    config_content = {
+        "inputs": [
+            {"id": "app-name", "description": "Application name"},
+            {"id": "env", "description": "Environment (dev/prod)"},
+        ],
+        "servers": {
+            "app_server": {
+                "type": "streamable_http",
+                "url": "https://${input:app-name}-${input:env}.example.com/mcp/api",
+            }
+        },
+    }
+
+    config_file = tmp_path / "test_config.json"
+    with open(config_file, "w") as f:
+        json.dump(config_content, f)
+
+    inputs = {"app-name": "myapp", "env": "prod"}
+
+    # Should load successfully with all required inputs provided
+    config = MCPServersConfig.from_file(config_file, inputs=inputs)
+
+    server = config.servers["app_server"]
+    assert isinstance(server, StreamableHTTPServerConfig)
+    assert server.url == "https://myapp-prod.example.com/mcp/api"
+
+
+def test_from_file_with_input_validation_failure(tmp_path: Path):
+    """Test loading file with input definitions and validation failure."""
+    config_content = {
+        "inputs": [
+            {"id": "required-key", "description": "A required API key"},
+            {"id": "optional-host", "description": "Optional hostname"},
+        ],
+        "servers": {"test_server": {"type": "sse", "url": "https://${input:optional-host}/api"}},
+    }
+
+    config_file = tmp_path / "test_config.json"
+    with open(config_file, "w") as f:
+        json.dump(config_content, f)
+
+    inputs = {
+        # Missing 'required-key' and 'optional-host'
+    }
+
+    # Should raise ValueError with helpful error message
+    with pytest.raises(ValueError, match="Missing required input values"):
+        MCPServersConfig.from_file(config_file, inputs=inputs)
+
+
+def test_from_file_without_input_definitions_no_validation(tmp_path: Path):
+    """Test that configs without input definitions don't perform validation."""
+    config_content = {
+        "servers": {"test_server": {"type": "stdio", "command": "python -m server --token ${input:token}"}}
+    }
+
+    config_file = tmp_path / "test_config.json"
+    with open(config_file, "w") as f:
+        json.dump(config_content, f)
+
+    # Even with empty inputs, should load fine since no input definitions exist
+    config = MCPServersConfig.from_file(config_file, inputs={})
+
+    server = config.servers["test_server"]
+    assert isinstance(server, StdioServerConfig)
+    # Placeholder should remain unchanged
+    assert server.command == "python -m server --token ${input:token}"
+
+
+def test_input_definition_with_yaml_file(tmp_path: Path):
+    """Test input definitions work with YAML files."""
+    yaml_content = """
+inputs:
+  - type: promptString
+    id: module-name
+    description: Python module to run
+  - type: promptString
+    id: config-path
+    description: Path to configuration file
+    
+servers:
+  yaml_server:
+    type: stdio
+    command: python -m ${input:module-name}
+    args:
+      - --config
+      - ${input:config-path}
+"""
+
+    config_file = tmp_path / "test_config.yaml"
+    config_file.write_text(yaml_content)
+
+    inputs = {"module-name": "test_module", "config-path": "/etc/config.json"}
+
+    config = MCPServersConfig.from_file(config_file, inputs=inputs)
+
+    # Verify input definitions were parsed
+    assert config.inputs is not None
+    assert len(config.inputs) == 2
+    assert config.inputs[0].id == "module-name"
+    assert config.inputs[1].id == "config-path"
+
+    # Verify substitution worked
+    server = config.servers["yaml_server"]
+    assert isinstance(server, StdioServerConfig)
+    assert server.command == "python -m test_module"
+    assert server.args == ["--config", "/etc/config.json"]

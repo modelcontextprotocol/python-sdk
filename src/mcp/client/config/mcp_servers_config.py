@@ -3,6 +3,7 @@
 # stdlib imports
 import json
 import os
+import re
 import shlex
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -13,6 +14,15 @@ try:
 except ImportError:
     yaml = None  # type: ignore
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+class InputDefinition(BaseModel):
+    """Definition of an input parameter."""
+
+    type: Literal["promptString"] = "promptString"
+    id: str
+    description: str | None = None
+    password: bool = False
 
 
 class MCPServerConfig(BaseModel):
@@ -83,6 +93,7 @@ class MCPServersConfig(BaseModel):
     """Configuration for multiple MCP servers."""
 
     servers: dict[str, ServerConfigUnion]
+    inputs: list[InputDefinition] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -115,14 +126,80 @@ class MCPServersConfig(BaseModel):
 
         return servers_data
 
+    def get_required_inputs(self) -> list[str]:
+        """Get list of input IDs that are defined in the inputs section."""
+        if not self.inputs:
+            return []
+        return [input_def.id for input_def in self.inputs]
+
+    def validate_inputs(self, provided_inputs: dict[str, str]) -> list[str]:
+        """Validate provided inputs against input definitions.
+
+        Returns list of missing required input IDs.
+        """
+        if not self.inputs:
+            return []
+
+        required_input_ids = self.get_required_inputs()
+        missing_inputs = []
+
+        for input_id in required_input_ids:
+            if input_id not in provided_inputs:
+                missing_inputs.append(input_id)
+
+        return missing_inputs
+
+    def get_input_description(self, input_id: str) -> str | None:
+        """Get the description for a specific input ID."""
+        if not self.inputs:
+            return None
+
+        for input_def in self.inputs:
+            if input_def.id == input_id:
+                return input_def.description
+
+        return None
+
     @classmethod
-    def from_file(cls, config_path: Path | str, use_pyyaml: bool = False) -> "MCPServersConfig":
+    def _substitute_inputs(cls, data: Any, inputs: dict[str, str]) -> Any:
+        """Recursively substitute ${input:key} placeholders with values from inputs dict."""
+        if isinstance(data, str):
+            # Replace ${input:key} patterns with values from inputs
+            def replace_input(match: re.Match[str]) -> str:
+                key = match.group(1)
+                if key in inputs:
+                    return inputs[key]
+                else:
+                    raise ValueError(f"Missing input value for key: '{key}'")
+
+            return re.sub(r"\$\{input:([^}]+)\}", replace_input, data)
+
+        elif isinstance(data, dict):
+            result = {}  # type: ignore
+            for k, v in data.items():  # type: ignore
+                result[k] = cls._substitute_inputs(v, inputs)  # type: ignore
+            return result
+
+        elif isinstance(data, list):
+            result = []  # type: ignore
+            for item in data:  # type: ignore
+                result.append(cls._substitute_inputs(item, inputs))  # type: ignore
+            return result
+
+        else:
+            return data
+
+    @classmethod
+    def from_file(
+        cls, config_path: Path | str, use_pyyaml: bool = False, inputs: dict[str, str] | None = None
+    ) -> "MCPServersConfig":
         """Load configuration from a JSON or YAML file.
 
         Args:
             config_path: Path to the configuration file
             use_pyyaml: If True, force use of PyYAML parser. Defaults to False.
                         Also automatically used for .yaml/.yml files.
+            inputs: Dictionary of input values to substitute for ${input:key} placeholders
         """
 
         config_path = os.path.expandvars(config_path)  # Expand environment variables like $HOME
@@ -136,6 +213,26 @@ class MCPServersConfig(BaseModel):
             if should_use_yaml:
                 if not yaml:
                     raise ImportError("PyYAML is required to parse YAML files. ")
-                return cls.model_validate(yaml.safe_load(config_file))
+                data = yaml.safe_load(config_file)
             else:
-                return cls.model_validate(json.load(config_file))
+                data = json.load(config_file)
+
+            # Create a preliminary config to validate inputs if they're defined
+            preliminary_config = cls.model_validate(data)
+
+            # Validate inputs if provided and input definitions exist
+            if inputs is not None and preliminary_config.inputs:
+                missing_inputs = preliminary_config.validate_inputs(inputs)
+                if missing_inputs:
+                    descriptions = []
+                    for input_id in missing_inputs:
+                        desc = preliminary_config.get_input_description(input_id)
+                        descriptions.append(f"  - {input_id}: {desc or 'No description'}")
+
+                    raise ValueError(f"Missing required input values:\n" + "\n".join(descriptions))
+
+            # Substitute input placeholders if inputs provided
+            if inputs:
+                data = cls._substitute_inputs(data, inputs)
+
+            return cls.model_validate(data)
