@@ -2,8 +2,25 @@
 
 This guide, for client application developers, covers a new API for client
 configuration. Client applications can use this API to get info about configured
-MCP servers from configuration files in a variety of formats and with some
-useful, built-in features.
+MCP servers from configuration files 
+
+## Why should my application use this API?
+
+- Eliminate the need to write and maintain code to parse configuration files
+- Your application can easily benefit from bug fixes and new features related to configuration
+- Allows your application to support features that other applications may have
+  and which your application does not. E.g.,
+
+  - Allow specifying the entire command in the `command` field (not having to
+    specify an `args` list), which makes it easier for users to manage
+  - Allow comments in JSON configuration files
+  - Input variables (as supported by VS Code), plus validation of required inputs
+    and interpolation of input values
+  - YAML configuration files, which are more readable and easier to write than JSON
+
+- If every application that uses MCP supported this API, it would lead to
+  greater consistency in how MCP servers are configured and used, which is a
+  tremendous win for users and a benefit to the MCP ecosystem.
 
 ## Loading Configuration Files
 
