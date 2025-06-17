@@ -138,6 +138,31 @@ class MCPServersConfig(BaseModel):
     servers: dict[str, ServerConfigUnion]
     inputs: list[InputDefinition] | None = None
 
+    def server(
+        self,
+        name: str,
+        input_values: dict[str, str] | None = None,
+    ) -> ServerConfigUnion:
+        """Get a server config by name."""
+        server = self.servers[name]
+
+        # Validate inputs if provided and input definitions exist
+        if input_values is not None and self.inputs:
+            missing_inputs = self.validate_inputs(input_values)
+            if missing_inputs:
+                descriptions: list[str] = []
+                for input_id in missing_inputs:
+                    desc = self.get_input_description(input_id)
+                    descriptions.append(f"  - {input_id}: {desc or 'No description'}")
+
+                raise ValueError("Missing required input values:\n" + "\n".join(descriptions))
+
+        # Substitute input placeholders if inputs provided
+        if input_values:
+            server.__dict__ = self._substitute_inputs(server.__dict__, input_values)
+
+        return server
+
     @model_validator(mode="before")
     @classmethod
     def handle_field_aliases(cls, data: dict[str, Any]) -> dict[str, Any]:
@@ -275,7 +300,9 @@ class MCPServersConfig(BaseModel):
 
     @classmethod
     def from_file(
-        cls, config_path: Path | str, use_pyyaml: bool = False, inputs: dict[str, str] | None = None
+        cls,
+        config_path: Path | str,
+        use_pyyaml: bool = False,
     ) -> "MCPServersConfig":
         """Load configuration from a JSON or YAML file.
 
@@ -304,23 +331,5 @@ class MCPServersConfig(BaseModel):
                 # Strip comments from JSON content (JSONC support)
                 cleaned_content = cls._strip_json_comments(content)
                 data = json.loads(cleaned_content)
-
-            # Create a preliminary config to validate inputs if they're defined
-            preliminary_config = cls.model_validate(data)
-
-            # Validate inputs if provided and input definitions exist
-            if inputs is not None and preliminary_config.inputs:
-                missing_inputs = preliminary_config.validate_inputs(inputs)
-                if missing_inputs:
-                    descriptions: list[str] = []
-                    for input_id in missing_inputs:
-                        desc = preliminary_config.get_input_description(input_id)
-                        descriptions.append(f"  - {input_id}: {desc or 'No description'}")
-
-                    raise ValueError("Missing required input values:\n" + "\n".join(descriptions))
-
-            # Substitute input placeholders if inputs provided
-            if inputs:
-                data = cls._substitute_inputs(data, inputs)
 
             return cls.model_validate(data)
