@@ -69,8 +69,7 @@ class NotificationParams(BaseModel):
 
     meta: Meta | None = Field(alias="_meta", default=None)
     """
-    This parameter name is reserved by MCP to allow clients and servers to attach
-    additional metadata to their notifications.
+    Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
     """
 
 
@@ -105,13 +104,11 @@ class Notification(BaseModel, Generic[NotificationParamsT, MethodT]):
 class Result(BaseModel):
     """Base class for JSON-RPC results."""
 
-    model_config = ConfigDict(extra="allow")
-
     meta: dict[str, Any] | None = Field(alias="_meta", default=None)
     """
-    This result property is reserved by the protocol to allow clients and servers to
-    attach additional metadata to their responses.
+    Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
     """
+    model_config = ConfigDict(extra="allow")
 
 
 class PaginatedResult(Result):
@@ -394,6 +391,10 @@ class Resource(BaseModel):
     This can be used by Hosts to display file sizes and estimate context window usage.
     """
     annotations: Annotations | None = None
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -415,6 +416,10 @@ class ResourceTemplate(BaseModel):
     included if all resources matching this template have the same type.
     """
     annotations: Annotations | None = None
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -461,6 +466,10 @@ class ResourceContents(BaseModel):
     """The URI of this resource."""
     mimeType: str | None = None
     """The MIME type of this resource, if known."""
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -588,6 +597,10 @@ class Prompt(BaseModel):
     """An optional description of what this prompt provides."""
     arguments: list[PromptArgument] | None = None
     """A list of arguments to use for templating the prompt."""
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -621,6 +634,10 @@ class TextContent(BaseModel):
     text: str
     """The text content of the message."""
     annotations: Annotations | None = None
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -636,6 +653,10 @@ class ImageContent(BaseModel):
     image types.
     """
     annotations: Annotations | None = None
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -651,6 +672,10 @@ class AudioContent(BaseModel):
     audio types.
     """
     annotations: Annotations | None = None
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -673,6 +698,10 @@ class EmbeddedResource(BaseModel):
     type: Literal["resource"]
     resource: TextResourceContents | BlobResourceContents
     annotations: Annotations | None = None
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -772,6 +801,10 @@ class Tool(BaseModel):
     """A JSON Schema object defining the expected parameters for the tool."""
     annotations: ToolAnnotations | None = None
     """Optional additional tool information."""
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -1073,6 +1106,10 @@ class Root(BaseModel):
     An optional name for the root. This can be used to provide a human-readable
     identifier for the root, which may be useful for display purposes or for
     referencing the root in other parts of the application.
+    """
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    Reserved by MCP for protocol-level metadata; implementations must not make assumptions about its contents.
     """
     model_config = ConfigDict(extra="allow")
 
