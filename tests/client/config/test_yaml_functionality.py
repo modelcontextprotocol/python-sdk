@@ -1,0 +1,150 @@
+# stdlib imports
+from pathlib import Path
+from unittest.mock import patch
+
+# third party imports
+import pytest
+
+# local imports
+from mcp.client.config.mcp_servers_config import MCPServersConfig, StdioServerConfig, StreamableHTTPServerConfig
+
+
+@pytest.fixture
+def mcp_yaml_config_file() -> Path:
+    """Return path to the mcp.yaml config file."""
+    return Path(__file__).parent / "mcp.yaml"
+
+
+def test_yaml_extension_auto_detection(mcp_yaml_config_file: Path):
+    """Test that .yaml files are automatically parsed with PyYAML."""
+    config = MCPServersConfig.from_file(mcp_yaml_config_file)
+
+    # Should successfully load the YAML file with all 9 servers
+    assert config.has_server("stdio_server")
+    assert config.has_server("streamable_http_server_with_headers")
+    assert config.has_server("sse_server_with_explicit_type")
+
+    # Verify a specific server
+    stdio_server = config.server("stdio_server")
+    assert isinstance(stdio_server, StdioServerConfig)
+    assert stdio_server.command == "python"
+    assert stdio_server.args == ["-m", "my_server"]
+    assert stdio_server.env == {"DEBUG": "true"}
+
+
+def test_use_pyyaml_parameter_with_json_file():
+    """Test that use_pyyaml=True forces PyYAML parsing even for JSON files."""
+    json_file = Path(__file__).parent / "mcp.json"
+
+    # Load with PyYAML explicitly
+    config = MCPServersConfig.from_file(json_file, use_pyyaml=True)
+
+    # Should work fine - PyYAML can parse JSON
+    assert len(config.list_servers()) == 7
+    assert config.has_server("stdio_server")
+
+    # Verify it produces the same result as normal JSON parsing
+    config_json = MCPServersConfig.from_file(json_file, use_pyyaml=False)
+    assert len(config.list_servers()) == len(config_json.list_servers())
+    assert list(config.list_servers()) == list(config_json.list_servers())
+
+
+def test_uvx_time_server(mcp_yaml_config_file: Path):
+    """Test the time server configuration with uvx command."""
+    config = MCPServersConfig.from_file(mcp_yaml_config_file)
+
+    # Should have the time server
+    assert config.has_server("time")
+
+    # Verify the server configuration
+    time_server = config.server("time")
+    assert isinstance(time_server, StdioServerConfig)
+    assert time_server.type == "stdio"  # Should be auto-inferred from command field
+    assert time_server.command == "uvx mcp-server-time"
+    assert time_server.args is None  # No explicit args
+    assert time_server.env is None  # No environment variables
+
+    # Test the effective command parsing
+    assert time_server.effective_command == "uvx"
+    assert time_server.effective_args == ["mcp-server-time"]
+
+
+def test_streamable_http_server(mcp_yaml_config_file: Path):
+    """Test the new streamable HTTP server configuration without headers."""
+    config = MCPServersConfig.from_file(mcp_yaml_config_file)
+
+    # Should have the new streamable_http_server
+    assert config.has_server("streamable_http_server")
+
+    # Verify the server configuration
+    http_server = config.server("streamable_http_server")
+    assert isinstance(http_server, StreamableHTTPServerConfig)
+    assert http_server.type == "streamable_http"  # Should be auto-inferred
+    assert http_server.url == "https://api.example.com/mcp"
+    assert http_server.headers is None  # No headers specified
+
+
+def test_npx_filesystem_server(mcp_yaml_config_file: Path):
+    """Test the filesystem server configuration with full command string and multiple arguments."""
+    config = MCPServersConfig.from_file(mcp_yaml_config_file)
+
+    # Should have the filesystem server
+    assert config.has_server("filesystem")
+
+    # Verify the server configuration
+    filesystem_server = config.server("filesystem")
+    assert isinstance(filesystem_server, StdioServerConfig)
+    assert filesystem_server.type == "stdio"  # Should be auto-inferred from command field
+    assert (
+        filesystem_server.command
+        == "npx -y @modelcontextprotocol/server-filesystem /Users/username/Desktop /path/to/other/allowed/dir"
+    )
+    assert filesystem_server.args is None  # No explicit args
+    assert filesystem_server.env is None  # No environment variables
+
+    # Test the effective command and args parsing
+    assert filesystem_server.effective_command == "npx"
+    assert filesystem_server.effective_args == [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/username/Desktop",
+        "/path/to/other/allowed/dir",
+    ]
+
+
+def test_yaml_not_importable_error(mcp_yaml_config_file: Path):
+    """Test that trying to parse a YAML file when yaml module is not available raises ImportError."""
+
+    # Mock the yaml module to be None (simulating import failure)
+    with patch("mcp.client.config.mcp_servers_config.yaml", None):
+        with pytest.raises(ImportError, match="PyYAML is required to parse YAML files"):
+            MCPServersConfig.from_file(mcp_yaml_config_file)
+
+
+def test_yaml_not_importable_error_with_use_pyyaml_true():
+    """Test that trying to use use_pyyaml=True when yaml module is not available raises ImportError."""
+
+    # Create a simple JSON file content but force YAML parsing
+    json_file = Path(__file__).parent / "mcp.json"
+
+    # Mock the yaml module to be None (simulating import failure)
+    with patch("mcp.client.config.mcp_servers_config.yaml", None):
+        with pytest.raises(ImportError, match="PyYAML is required to parse YAML files"):
+            MCPServersConfig.from_file(json_file, use_pyyaml=True)
+
+
+def test_yaml_not_importable_error_with_yml_extension(tmp_path: Path):
+    """Test that trying to parse a .yml file when yaml module is not available raises ImportError."""
+
+    # Create a temporary .yml file
+    yml_file = tmp_path / "test_config.yml"
+    yml_file.write_text("""
+mcpServers:
+  test_server:
+    command: python -m test_server
+""")
+
+    # Mock the yaml module to be None (simulating import failure)
+    with patch("mcp.client.config.mcp_servers_config.yaml", None):
+        with pytest.raises(ImportError, match="PyYAML is required to parse YAML files"):
+            MCPServersConfig.from_file(yml_file)
