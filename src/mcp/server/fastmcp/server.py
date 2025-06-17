@@ -626,7 +626,7 @@ class FastMCP:
         import uvicorn
 
         starlette_app = self.streamable_http_app()
-
+        
         config = uvicorn.Config(
             starlette_app,
             host=self.settings.host,
@@ -775,7 +775,7 @@ class FastMCP:
     def streamable_http_app(self) -> Starlette:
         """Return an instance of the StreamableHTTP server app."""
         from starlette.middleware import Middleware
-        from starlette.routing import Mount
+        from starlette.routing import Mount, Router
 
         # Create session manager on first call (lazy initialization)
         if self._session_manager is None:
@@ -791,12 +791,26 @@ class FastMCP:
         async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
             await self.session_manager.handle_request(scope, receive, send)
 
-        # Create routes
+        async def streamable_http_endpoint(request: Request):
+            return await handle_streamable_http(
+                request.scope, request.receive, request._send
+            )  # type: ignore[reportPrivateUsage]
+
+        # Normalize the main path (no trailing slash)
+        _main_path = self.settings.streamable_http_path.removesuffix("/")
+
+        streamable_router = Router(
+            routes=[
+                Route("/", endpoint=streamable_http_endpoint, methods=["GET", "POST"]),
+            ],
+            redirect_slashes=False,
+        )
+
         routes: list[Route | Mount] = []
         middleware: list[Middleware] = []
         required_scopes = []
 
-        # Add auth endpoints if auth provider is configured
+        # Auth endpoints if auth provider is configured
         if self._auth_server_provider:
             assert self.settings.auth
             from mcp.server.auth.routes import create_auth_routes
@@ -821,18 +835,19 @@ class FastMCP:
                     revocation_options=self.settings.auth.revocation_options,
                 )
             )
+
             routes.append(
                 Mount(
-                    self.settings.streamable_http_path,
-                    app=RequireAuthMiddleware(handle_streamable_http, required_scopes),
+                    _main_path,
+                    app=RequireAuthMiddleware(streamable_router, required_scopes),
                 )
             )
         else:
             # Auth is disabled, no wrapper needed
             routes.append(
                 Mount(
-                    self.settings.streamable_http_path,
-                    app=handle_streamable_http,
+                    _main_path,
+                    app=streamable_router,
                 )
             )
 
