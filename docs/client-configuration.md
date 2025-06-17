@@ -36,13 +36,9 @@ config = MCPServersConfig.from_file("~/Library/Application\ Support/Claude/claud
 config = MCPServersConfig.from_file("~/.cursor/mcp.yaml")  # Not yet supported in Cursor but maybe soon...?!
 config = MCPServersConfig.from_file("~/Library/Application\ Support/Claude/claude_desktop_config.yaml")  # Maybe someday...?!
 
-# Load with input substitution
-config = MCPServersConfig.from_file(
-    ".vscode/mcp.json",
-    inputs={"api-key": "secret"}
-)
+config = MCPServersConfig.from_file(".vscode/mcp.json")
 
-mcp_server = config.servers["time"]
+mcp_server = config.server("time")
 print(mcp_server.command)
 print(mcp_server.args)
 print(mcp_server.env)
@@ -261,13 +257,12 @@ When loading the configuration, provide input values:
 ```python
 from mcp.client.config.mcp_servers_config import MCPServersConfig
 
-# Load with input substitution
-config = MCPServersConfig.from_file(
-    "config.yaml",
-    inputs={
-        "api-key": "secret-key-123",
-        "server-host": "api.example.com"
-    }
+config = MCPServersConfig.from_file("config.yaml")
+
+# Substitute input values into the configuration
+server = config.server(
+  "dynamic-server",
+  input_values={"api-key": "secret-key-123", "server-host": "api.example.com"},
 )
 ```
 
@@ -350,27 +345,4 @@ mcpServers:
 servers:
   my-server:
     command: python -m server
-```
-
-## Error Handling
-
-### Missing YAML Dependency
-
-```python
-try:
-    config = MCPServersConfig.from_file("config.yaml")
-except ImportError as e:
-    print("Install YAML support: pip install 'mcp[yaml]'")
-```
-
-### Missing Input Values
-
-```python
-try:
-    config = MCPServersConfig.from_file("config.yaml", inputs={})
-except ValueError as e:
-    print(f"Configuration error: {e}")
-    # Error: Missing required input values:
-    #   - api-key: Your API key
-    #   - server-host: Server hostname
 ```
