@@ -20,8 +20,9 @@ MCP servers from configuration files
 
 - If every application that uses MCP supported this API, it would lead to
   greater consistency in how MCP servers are configured and used, which is a
-  tremendous win for users and a benefit to the MCP ecosystem.
-
+  tremendous win for users and a benefit to the MCP ecosystem. Note: This is the
+  Python SDK, but hopefully this can be ported to the SDKs for other languages.
+  
 ## Loading Configuration Files
 
 ```python
@@ -32,7 +33,7 @@ config = MCPServersConfig.from_file("~/.cursor/mcp.json")
 config = MCPServersConfig.from_file("~/Library/Application\ Support/Claude/claude_desktop_config.json")
 
 # Load YAML (auto-detected by extension)
-config = MCPServersConfig.from_file("~/.cursor/mcp.yaml")  # Not yet support in Cursor but maybe soon...?!
+config = MCPServersConfig.from_file("~/.cursor/mcp.yaml")  # Not yet supported in Cursor but maybe soon...?!
 config = MCPServersConfig.from_file("~/Library/Application\ Support/Claude/claude_desktop_config.yaml")  # Maybe someday...?!
 
 # Load with input substitution
