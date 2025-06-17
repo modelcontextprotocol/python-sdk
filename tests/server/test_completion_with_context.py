@@ -131,3 +131,50 @@ async def test_dependent_completion_scenario():
             context_arguments={"database": "products_db"},
         )
         assert table_result2.completion.values == ["products", "categories", "inventory"]
+
+
+@pytest.mark.anyio
+async def test_completion_error_on_missing_context():
+    """Test that server can raise error when required context is missing."""
+    server = Server("test-server")
+
+    @server.completion()
+    async def handle_completion(
+        ref: PromptReference | ResourceTemplateReference,
+        argument: CompletionArgument,
+        context: CompletionContext | None,
+    ) -> Completion | None:
+        if isinstance(ref, ResourceTemplateReference):
+            if ref.uri == "db://{database}/{table}":
+                if argument.name == "table":
+                    # Check if database context is provided
+                    if not context or not context.arguments or "database" not in context.arguments:
+                        # Raise an error instead of returning error as completion
+                        raise ValueError("Please select a database first to see available tables")
+                    # Normal completion if context is provided
+                    db = context.arguments.get("database")
+                    if db == "test_db":
+                        return Completion(values=["users", "orders", "products"], total=3, hasMore=False)
+
+        return Completion(values=[], total=0, hasMore=False)
+
+    async with create_connected_server_and_client_session(server) as client:
+        # Try to complete table without database context - should raise error
+        with pytest.raises(Exception) as exc_info:
+            await client.complete(
+                ref=ResourceTemplateReference(type="ref/resource", uri="db://{database}/{table}"),
+                argument={"name": "table", "value": ""},
+            )
+        
+        # Verify error message
+        assert "Please select a database first" in str(exc_info.value)
+        
+        # Now complete with proper context - should work normally
+        result_with_context = await client.complete(
+            ref=ResourceTemplateReference(type="ref/resource", uri="db://{database}/{table}"),
+            argument={"name": "table", "value": ""},
+            context_arguments={"database": "test_db"},
+        )
+        
+        # Should get normal completions
+        assert result_with_context.completion.values == ["users", "orders", "products"]
