@@ -44,5 +44,5 @@ jobs:
         run: uv sync --frozen --all-extras --python ${{ matrix.python-version }}
 
       - name: Run pytest
-        run: uv run --no-sync pytest
+        run: uv run --frozen --no-sync pytest
     continue-on-error: true
