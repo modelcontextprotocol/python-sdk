@@ -196,12 +196,19 @@ class EmptyResult(Result):
     """A response that indicates success but carries no data."""
 
 
-class Implementation(BaseModel):
-    """Describes the name and version of an MCP implementation."""
+class BaseMetadata(BaseModel):
+    """Base class for entities with name and optional title fields."""
 
     name: str
+    """The programmatic name of the entity."""
+
     title: str | None = None
-    """A human-readable title for the implementation."""
+    """An optional human-readable title for the entity."""
+
+
+class Implementation(BaseMetadata):
+    """Describes the name and version of an MCP implementation."""
+
     version: str
     model_config = ConfigDict(extra="allow")
 
@@ -384,15 +391,11 @@ class Annotations(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class Resource(BaseModel):
+class Resource(BaseMetadata):
     """A known resource that the server is capable of reading."""
 
     uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """The URI of this resource."""
-    name: str
-    """A human-readable name for this resource."""
-    title: str | None = None
-    """A human-readable title for this resource."""
     description: str | None = None
     """A description of what this resource represents."""
     mimeType: str | None = None
@@ -413,7 +416,7 @@ class Resource(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class ResourceTemplate(BaseModel):
+class ResourceTemplate(BaseMetadata):
     """A template description for resources available on the server."""
 
     uriTemplate: str
@@ -421,10 +424,6 @@ class ResourceTemplate(BaseModel):
     A URI template (according to RFC 6570) that can be used to construct resource
     URIs.
     """
-    name: str
-    """A human-readable name for the type of resource this template refers to."""
-    title: str | None = None
-    """A human-readable title for the type of resource this template refers to."""
     description: str | None = None
     """A human-readable description of what this template is for."""
     mimeType: str | None = None
@@ -607,13 +606,9 @@ class PromptArgument(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class Prompt(BaseModel):
+class Prompt(BaseMetadata):
     """A prompt or prompt template that the server offers."""
 
-    name: str
-    """The name of the prompt or prompt template."""
-    title: str | None = None
-    """A human-readable title for the prompt."""
     description: str | None = None
     """An optional description of what this prompt provides."""
     arguments: list[PromptArgument] | None = None
@@ -816,13 +811,9 @@ class ToolAnnotations(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class Tool(BaseModel):
+class Tool(BaseMetadata):
     """Definition for a tool the client can call."""
 
-    name: str
-    """The name of the tool."""
-    title: str | None = None
-    """A human-readable title for the tool."""
     description: str | None = None
     """A human-readable description of the tool."""
     inputSchema: dict[str, Any]
