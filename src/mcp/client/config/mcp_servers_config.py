@@ -133,10 +133,49 @@ ServerConfigUnion = Annotated[
 
 
 class MCPServersConfig(BaseModel):
-    """Configuration for multiple MCP servers."""
+    """Configuration for multiple MCP servers.
+
+    Note:
+        Direct access to the 'servers' field is discouraged.
+        Use the server() method instead for proper input validation and substitution.
+    """
 
     servers: dict[str, ServerConfigUnion]
     inputs: list[InputDefinition] | None = None
+
+    def __getattribute__(self, name: str) -> Any:
+        """Get an attribute from the config.
+
+        This emits a warning if the `servers` field is accessed directly.
+        This is to discourage direct access to the `servers` field.
+        Use the `server()` method instead for proper input validation and substitution.
+        """
+
+        if name == "servers":
+            import inspect
+            import warnings
+
+            # Get the calling frame to check if it's internal access
+            frame = inspect.currentframe()
+            if frame and frame.f_back:
+                caller_filename = frame.f_back.f_code.co_filename
+                caller_function = frame.f_back.f_code.co_name
+
+                # Don't warn for internal methods, tests, or if called from within this class
+                is_internal_call = (
+                    caller_function in ("server", "list_servers", "has_server", "__init__", "model_validate")
+                    or "mcp_servers_config.py" in caller_filename
+                )
+
+                if not is_internal_call:
+                    warnings.warn(
+                        f"Direct access to 'servers' field of {self.__class__.__name__} is discouraged. "
+                        + "Use server() method instead for proper input validation and substitution.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+
+        return super().__getattribute__(name)
 
     def server(
         self,
@@ -162,6 +201,14 @@ class MCPServersConfig(BaseModel):
             server.__dict__ = self._substitute_inputs(server.__dict__, input_values)
 
         return server
+
+    def list_servers(self) -> list[str]:
+        """Get a list of available server names."""
+        return list(self.servers.keys())
+
+    def has_server(self, name: str) -> bool:
+        """Check if a server with the given name exists."""
+        return name in self.servers
 
     @model_validator(mode="before")
     @classmethod

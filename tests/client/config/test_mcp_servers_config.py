@@ -183,9 +183,9 @@ def test_servers_field_takes_precedence():
     config = MCPServersConfig.model_validate(config_data)
 
     # Should only have the 'servers' content, not 'mcpServers'
-    assert "new_server" in config.servers
-    assert "old_server" not in config.servers
-    assert len(config.servers) == 1
+    assert config.has_server("new_server")
+    assert not config.has_server("old_server")
+    assert len(config.list_servers()) == 1
 
 
 def test_from_file_with_inputs(tmp_path: Path):
@@ -582,8 +582,8 @@ def test_jsonc_comment_stripping():
     stripped = MCPServersConfig._strip_json_comments(content_with_comments)
     config = MCPServersConfig.model_validate(json.loads(stripped))
 
-    assert "test_server" in config.servers
-    server = config.servers["test_server"]
+    assert config.has_server("test_server")
+    server = config.server("test_server")
     assert isinstance(server, StdioServerConfig)
     assert server.command == "python test.py"
 
@@ -704,10 +704,10 @@ def test_jsonc_multiline_strings_with_comments():
     config = MCPServersConfig.model_validate(json.loads(stripped))
 
     assert len(config.servers) == 2
-    assert "test1" in config.servers
-    assert "test2" in config.servers
+    assert config.has_server("test1")
+    assert config.has_server("test2")
 
-    test1 = config.servers["test1"]
+    test1 = config.server("test1")
     assert isinstance(test1, StdioServerConfig)
     assert test1.command == "python server.py"
 

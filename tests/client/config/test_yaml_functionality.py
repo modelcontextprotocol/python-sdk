@@ -20,12 +20,12 @@ def test_yaml_extension_auto_detection(mcp_yaml_config_file: Path):
     config = MCPServersConfig.from_file(mcp_yaml_config_file)
 
     # Should successfully load the YAML file with all 9 servers
-    assert "stdio_server" in config.servers
-    assert "streamable_http_server_with_headers" in config.servers
-    assert "sse_server_with_explicit_type" in config.servers
+    assert config.has_server("stdio_server")
+    assert config.has_server("streamable_http_server_with_headers")
+    assert config.has_server("sse_server_with_explicit_type")
 
     # Verify a specific server
-    stdio_server = config.servers["stdio_server"]
+    stdio_server = config.server("stdio_server")
     assert isinstance(stdio_server, StdioServerConfig)
     assert stdio_server.command == "python"
     assert stdio_server.args == ["-m", "my_server"]
@@ -40,13 +40,13 @@ def test_use_pyyaml_parameter_with_json_file():
     config = MCPServersConfig.from_file(json_file, use_pyyaml=True)
 
     # Should work fine - PyYAML can parse JSON
-    assert len(config.servers) == 7
-    assert "stdio_server" in config.servers
+    assert len(config.list_servers()) == 7
+    assert config.has_server("stdio_server")
 
     # Verify it produces the same result as normal JSON parsing
     config_json = MCPServersConfig.from_file(json_file, use_pyyaml=False)
-    assert len(config.servers) == len(config_json.servers)
-    assert list(config.servers.keys()) == list(config_json.servers.keys())
+    assert len(config.list_servers()) == len(config_json.list_servers())
+    assert list(config.list_servers()) == list(config_json.list_servers())
 
 
 def test_uvx_time_server(mcp_yaml_config_file: Path):
@@ -54,10 +54,10 @@ def test_uvx_time_server(mcp_yaml_config_file: Path):
     config = MCPServersConfig.from_file(mcp_yaml_config_file)
 
     # Should have the time server
-    assert "time" in config.servers
+    assert config.has_server("time")
 
     # Verify the server configuration
-    time_server = config.servers["time"]
+    time_server = config.server("time")
     assert isinstance(time_server, StdioServerConfig)
     assert time_server.type == "stdio"  # Should be auto-inferred from command field
     assert time_server.command == "uvx mcp-server-time"
@@ -74,10 +74,10 @@ def test_streamable_http_server(mcp_yaml_config_file: Path):
     config = MCPServersConfig.from_file(mcp_yaml_config_file)
 
     # Should have the new streamable_http_server
-    assert "streamable_http_server" in config.servers
+    assert config.has_server("streamable_http_server")
 
     # Verify the server configuration
-    http_server = config.servers["streamable_http_server"]
+    http_server = config.server("streamable_http_server")
     assert isinstance(http_server, StreamableHTTPServerConfig)
     assert http_server.type == "streamable_http"  # Should be auto-inferred
     assert http_server.url == "https://api.example.com/mcp"
@@ -89,10 +89,10 @@ def test_npx_filesystem_server(mcp_yaml_config_file: Path):
     config = MCPServersConfig.from_file(mcp_yaml_config_file)
 
     # Should have the filesystem server
-    assert "filesystem" in config.servers
+    assert config.has_server("filesystem")
 
     # Verify the server configuration
-    filesystem_server = config.servers["filesystem"]
+    filesystem_server = config.server("filesystem")
     assert isinstance(filesystem_server, StdioServerConfig)
     assert filesystem_server.type == "stdio"  # Should be auto-inferred from command field
     assert (
