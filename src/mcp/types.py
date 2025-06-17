@@ -733,14 +733,27 @@ class EmbeddedResource(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-Content = TextContent | ImageContent | AudioContent | EmbeddedResource
+class ResourceLink(Resource):
+    """
+    A resource that the server is capable of reading, included in a prompt or tool call result.
+
+    Note: resource links returned by tools are not guaranteed to appear in the results of `resources/list` requests.
+    """
+
+    type: Literal["resource_link"]
+
+
+ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
+"""A content block that can be used in prompts and tool results."""
+
+Content = ContentBlock
 
 
 class PromptMessage(BaseModel):
     """Describes a message returned as part of a prompt."""
 
     role: Role
-    content: Content
+    content: ContentBlock
     model_config = ConfigDict(extra="allow")
 
 
@@ -859,7 +872,7 @@ class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
 class CallToolResult(Result):
     """The server's response to a tool call."""
 
-    content: list[Content]
+    content: list[ContentBlock]
     isError: bool = False
 
 

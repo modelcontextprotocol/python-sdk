@@ -37,6 +37,7 @@ from mcp.types import (
     ProgressNotification,
     PromptReference,
     ReadResourceResult,
+    ResourceLink,
     ResourceListChangedNotification,
     ResourceTemplateReference,
     SamplingMessage,
@@ -146,6 +147,25 @@ def make_everything_fastmcp() -> FastMCP:
     @mcp.tool(description="A simple echo tool", title="Echo Tool")
     def echo(message: str) -> str:
         return f"Echo: {message}"
+
+    # Tool that returns ResourceLinks
+    @mcp.tool(description="Lists files and returns resource links", title="List Files Tool")
+    def list_files() -> list[ResourceLink]:
+        """Returns a list of resource links for files matching the pattern."""
+
+        # Mock some file resources for testing
+        file_resources = [
+            {
+                "type": "resource_link",
+                "uri": "file:///project/README.md",
+                "name": "README.md",
+                "mimeType": "text/markdown",
+            }
+        ]
+
+        result: list[ResourceLink] = [ResourceLink.model_validate(file_json) for file_json in file_resources]
+
+        return result
 
     # Tool with sampling capability
     @mcp.tool(description="A tool that uses sampling to generate content", title="Sampling Tool")
@@ -753,7 +773,17 @@ async def call_all_mcp_features(session: ClientSession, collector: NotificationC
     assert isinstance(tool_result.content[0], TextContent)
     assert tool_result.content[0].text == "Echo: hello"
 
-    # 2. Tool with context (logging and progress)
+    # 2. Test tool that returns ResourceLinks
+    list_files_result = await session.call_tool("list_files")
+    assert len(list_files_result.content) == 1
+
+    # Rest should be ResourceLinks
+    content = list_files_result.content[0]
+    assert isinstance(content, ResourceLink)
+    assert str(content.uri).startswith("file:///")
+    assert content.name is not None
+    assert content.mimeType is not None
+
     # Test progress callback functionality
     progress_updates = []
 
