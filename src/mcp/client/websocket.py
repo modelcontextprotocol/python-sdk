@@ -2,6 +2,7 @@ import json
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def websocket_client(
     url: str,
+    headers: dict[str, Any] | None = None,
 ) -> AsyncGenerator[
     tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]],
     None,
@@ -46,7 +48,9 @@ async def websocket_client(
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
     # Connect using websockets, requesting the "mcp" subprotocol
-    async with ws_connect(url, subprotocols=[Subprotocol("mcp")]) as ws:
+    async with ws_connect(
+        url, subprotocols=[Subprotocol("mcp")], additional_headers=headers
+    ) as ws:
 
         async def ws_reader():
             """
