@@ -5,15 +5,18 @@ from mcp.server.lowlevel import Server
 from pydantic import AnyUrl, FileUrl
 
 SAMPLE_RESOURCES = {
-    "greeting": "Hello! This is a sample text resource.",
-    "help": "This server provides a few sample text resources for testing.",
-    "about": "This is the simple-resource MCP server implementation.",
-}
-
-RESOURCE_TITLES = {
-    "greeting": "Welcome Message",
-    "help": "Help Documentation",
-    "about": "About This Server",
+    "greeting": {
+        "content": "Hello! This is a sample text resource.",
+        "title": "Welcome Message",
+    },
+    "help": {
+        "content": "This server provides a few sample text resources for testing.",
+        "title": "Help Documentation",
+    },
+    "about": {
+        "content": "This is the simple-resource MCP server implementation.",
+        "title": "About This Server",
+    },
 }
 
 
@@ -34,7 +37,7 @@ def main(port: int, transport: str) -> int:
             types.Resource(
                 uri=FileUrl(f"file:///{name}.txt"),
                 name=name,
-                title=RESOURCE_TITLES.get(name),
+                title=SAMPLE_RESOURCES[name]["title"],
                 description=f"A sample text resource named {name}",
                 mimeType="text/plain",
             )
@@ -50,7 +53,7 @@ def main(port: int, transport: str) -> int:
         if name not in SAMPLE_RESOURCES:
             raise ValueError(f"Unknown resource: {uri}")
 
-        return SAMPLE_RESOURCES[name]
+        return SAMPLE_RESOURCES[name]["content"]
 
     if transport == "sse":
         from mcp.server.sse import SseServerTransport

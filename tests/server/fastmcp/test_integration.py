@@ -126,7 +126,7 @@ def make_everything_fastmcp() -> FastMCP:
     mcp = FastMCP(name="EverythingServer")
 
     # Tool with context for logging and progress
-    @mcp.tool(description="A tool that demonstrates logging and progress")
+    @mcp.tool(description="A tool that demonstrates logging and progress", title="Progress Tool")
     async def tool_with_progress(message: str, ctx: Context, steps: int = 3) -> str:
         await ctx.info(f"Starting processing of '{message}' with {steps} steps")
 
@@ -143,12 +143,12 @@ def make_everything_fastmcp() -> FastMCP:
         return f"Processed '{message}' in {steps} steps"
 
     # Simple tool for basic functionality
-    @mcp.tool(description="A simple echo tool")
+    @mcp.tool(description="A simple echo tool", title="Echo Tool")
     def echo(message: str) -> str:
         return f"Echo: {message}"
 
     # Tool with sampling capability
-    @mcp.tool(description="A tool that uses sampling to generate content")
+    @mcp.tool(description="A tool that uses sampling to generate content", title="Sampling Tool")
     async def sampling_tool(prompt: str, ctx: Context) -> str:
         await ctx.info(f"Requesting sampling for prompt: {prompt}")
 
@@ -167,7 +167,7 @@ def make_everything_fastmcp() -> FastMCP:
             return f"Sampling result: {str(result.content)[:100]}..."
 
     # Tool that sends notifications and logging
-    @mcp.tool(description="A tool that demonstrates notifications and logging")
+    @mcp.tool(description="A tool that demonstrates notifications and logging", title="Notification Tool")
     async def notification_tool(message: str, ctx: Context) -> str:
         # Send different log levels
         await ctx.debug("Debug: Starting notification tool")
@@ -188,35 +188,36 @@ def make_everything_fastmcp() -> FastMCP:
     static_resource = FunctionResource(
         uri=AnyUrl("resource://static/info"),
         name="Static Info",
+        title="Static Information",
         description="Static information resource",
         fn=get_static_info,
     )
     mcp.add_resource(static_resource)
 
     # Resource - dynamic function
-    @mcp.resource("resource://dynamic/{category}")
+    @mcp.resource("resource://dynamic/{category}", title="Dynamic Resource")
     def dynamic_resource(category: str) -> str:
         return f"Dynamic resource content for category: {category}"
 
     # Resource template
-    @mcp.resource("resource://template/{id}/data")
+    @mcp.resource("resource://template/{id}/data", title="Template Resource")
     def template_resource(id: str) -> str:
         return f"Template resource data for ID: {id}"
 
     # Prompt - simple
-    @mcp.prompt(description="A simple prompt")
+    @mcp.prompt(description="A simple prompt", title="Simple Prompt")
     def simple_prompt(topic: str) -> str:
         return f"Tell me about {topic}"
 
     # Prompt - complex with multiple messages
-    @mcp.prompt(description="Complex prompt with context")
+    @mcp.prompt(description="Complex prompt with context", title="Complex Prompt")
     def complex_prompt(user_query: str, context: str = "general") -> str:
         # For simplicity, return a single string that incorporates the context
         # Since FastMCP doesn't support system messages in the same way
         return f"Context: {context}. Query: {user_query}"
 
     # Resource template with completion support
-    @mcp.resource("github://repos/{owner}/{repo}")
+    @mcp.resource("github://repos/{owner}/{repo}", title="GitHub Repository")
     def github_repo_resource(owner: str, repo: str) -> str:
         return f"Repository: {owner}/{repo}"
 
@@ -250,7 +251,7 @@ def make_everything_fastmcp() -> FastMCP:
         return Completion(values=[], total=0, hasMore=False)
 
     # Tool that echoes request headers from context
-    @mcp.tool(description="Echo request headers from context")
+    @mcp.tool(description="Echo request headers from context", title="Echo Headers")
     def echo_headers(ctx: Context[Any, Any, Request]) -> str:
         """Returns the request headers as JSON."""
         headers_info = {}
@@ -260,7 +261,7 @@ def make_everything_fastmcp() -> FastMCP:
         return json.dumps(headers_info)
 
     # Tool that returns full request context
-    @mcp.tool(description="Echo request context with custom data")
+    @mcp.tool(description="Echo request context with custom data", title="Echo Context")
     def echo_context(custom_request_id: str, ctx: Context[Any, Any, Request]) -> str:
         """Returns request context including headers and custom data."""
         context_data = {
@@ -277,7 +278,7 @@ def make_everything_fastmcp() -> FastMCP:
         return json.dumps(context_data)
 
     # Restaurant booking tool with elicitation
-    @mcp.tool(description="Book a table at a restaurant with elicitation")
+    @mcp.tool(description="Book a table at a restaurant with elicitation", title="Restaurant Booking")
     async def book_restaurant(
         date: str,
         time: str,
@@ -1055,3 +1056,77 @@ async def test_elicitation_feature(server: None, server_url: str) -> None:
             assert isinstance(tool_result.content[0], TextContent)
             # # The test should only succeed with the successful elicitation response
             assert tool_result.content[0].text == "User answered: Test User"
+
+
+@pytest.mark.anyio
+async def test_title_precedence(everything_server: None, everything_server_url: str) -> None:
+    """Test that titles are properly returned for tools, resources, and prompts."""
+    from mcp.shared.metadata_utils import get_display_name
+
+    async with sse_client(everything_server_url + "/sse") as streams:
+        async with ClientSession(*streams) as session:
+            # Initialize the session
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+            # Test tools have titles
+            tools_result = await session.list_tools()
+            assert tools_result.tools
+
+            # Check specific tools have titles
+            tool_names_to_titles = {
+                "tool_with_progress": "Progress Tool",
+                "echo": "Echo Tool",
+                "sampling_tool": "Sampling Tool",
+                "notification_tool": "Notification Tool",
+                "echo_headers": "Echo Headers",
+                "echo_context": "Echo Context",
+                "book_restaurant": "Restaurant Booking",
+            }
+
+            for tool in tools_result.tools:
+                if tool.name in tool_names_to_titles:
+                    assert tool.title == tool_names_to_titles[tool.name]
+                    # Test get_display_name utility
+                    assert get_display_name(tool) == tool_names_to_titles[tool.name]
+
+            # Test resources have titles
+            resources_result = await session.list_resources()
+            assert resources_result.resources
+
+            # Check specific resources have titles
+            static_resource = next((r for r in resources_result.resources if r.name == "Static Info"), None)
+            assert static_resource is not None
+            assert static_resource.title == "Static Information"
+            assert get_display_name(static_resource) == "Static Information"
+
+            # Test resource templates have titles
+            resource_templates = await session.list_resource_templates()
+            assert resource_templates.resourceTemplates
+
+            # Check specific resource templates have titles
+            template_uris_to_titles = {
+                "resource://dynamic/{category}": "Dynamic Resource",
+                "resource://template/{id}/data": "Template Resource",
+                "github://repos/{owner}/{repo}": "GitHub Repository",
+            }
+
+            for template in resource_templates.resourceTemplates:
+                if template.uriTemplate in template_uris_to_titles:
+                    assert template.title == template_uris_to_titles[template.uriTemplate]
+                    assert get_display_name(template) == template_uris_to_titles[template.uriTemplate]
+
+            # Test prompts have titles
+            prompts_result = await session.list_prompts()
+            assert prompts_result.prompts
+
+            # Check specific prompts have titles
+            prompt_names_to_titles = {
+                "simple_prompt": "Simple Prompt",
+                "complex_prompt": "Complex Prompt",
+            }
+
+            for prompt in prompts_result.prompts:
+                if prompt.name in prompt_names_to_titles:
+                    assert prompt.title == prompt_names_to_titles[prompt.name]
+                    assert get_display_name(prompt) == prompt_names_to_titles[prompt.name]

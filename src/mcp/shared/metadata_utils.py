@@ -1,7 +1,7 @@
 """Utility functions for working with metadata in MCP types.
 
 These utilities are primarily intended for client-side usage to properly display
-human-readable names in user interfaces.
+human-readable names in user interfaces in a spec compliant way.
 """
 
 from mcp.types import Implementation, Prompt, Resource, ResourceTemplate, Tool
