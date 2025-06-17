@@ -18,7 +18,7 @@ from mcp.shared.memory import (
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
-    Content,
+    ContentBlock,
     EmbeddedResource,
     ImageContent,
     TextContent,
@@ -194,7 +194,7 @@ def image_tool_fn(path: str) -> Image:
     return Image(path)
 
 
-def mixed_content_tool_fn() -> list[Content]:
+def mixed_content_tool_fn() -> list[ContentBlock]:
     return [
         TextContent(type="text", text="Hello"),
         ImageContent(type="image", data="abc", mimeType="image/png"),

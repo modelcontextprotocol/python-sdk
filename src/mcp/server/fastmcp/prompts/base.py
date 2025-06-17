@@ -7,16 +7,16 @@ from typing import Any, Literal
 import pydantic_core
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
-from mcp.types import Content, TextContent
+from mcp.types import ContentBlock, TextContent
 
 
 class Message(BaseModel):
     """Base class for all prompt messages."""
 
     role: Literal["user", "assistant"]
-    content: Content
+    content: ContentBlock
 
-    def __init__(self, content: str | Content, **kwargs: Any):
+    def __init__(self, content: str | ContentBlock, **kwargs: Any):
         if isinstance(content, str):
             content = TextContent(type="text", text=content)
         super().__init__(content=content, **kwargs)
@@ -27,7 +27,7 @@ class UserMessage(Message):
 
     role: Literal["user", "assistant"] = "user"
 
-    def __init__(self, content: str | Content, **kwargs: Any):
+    def __init__(self, content: str | ContentBlock, **kwargs: Any):
         super().__init__(content=content, **kwargs)
 
 
@@ -36,7 +36,7 @@ class AssistantMessage(Message):
 
     role: Literal["user", "assistant"] = "assistant"
 
-    def __init__(self, content: str | Content, **kwargs: Any):
+    def __init__(self, content: str | ContentBlock, **kwargs: Any):
         super().__init__(content=content, **kwargs)
 
 
