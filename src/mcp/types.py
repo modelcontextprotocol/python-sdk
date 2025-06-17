@@ -746,7 +746,8 @@ class ResourceLink(Resource):
 ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
 """A content block that can be used in prompts and tool results."""
 
-Content = ContentBlock
+Content: TypeAlias = ContentBlock
+# """DEPRECATED: Content is deprecated, you should use ContentBlock directly."""
 
 
 class PromptMessage(BaseModel):
