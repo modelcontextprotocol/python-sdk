@@ -165,16 +165,16 @@ async def test_completion_error_on_missing_context():
                 ref=ResourceTemplateReference(type="ref/resource", uri="db://{database}/{table}"),
                 argument={"name": "table", "value": ""},
             )
-        
+
         # Verify error message
         assert "Please select a database first" in str(exc_info.value)
-        
+
         # Now complete with proper context - should work normally
         result_with_context = await client.complete(
             ref=ResourceTemplateReference(type="ref/resource", uri="db://{database}/{table}"),
             argument={"name": "table", "value": ""},
             context_arguments={"database": "test_db"},
         )
-        
+
         # Should get normal completions
         assert result_with_context.completion.values == ["users", "orders", "products"]
