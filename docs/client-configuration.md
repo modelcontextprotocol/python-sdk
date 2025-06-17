@@ -240,7 +240,7 @@ servers:
       Authorization: Bearer ${input:api-key}
 ```
 
-### Getting DeclaredInputs
+### Getting Declared Inputs
 
 The application can use the `inputs` field to get the declared inputs and
 prompt the user for the values or otherwise allow them to be specified.
