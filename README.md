@@ -130,14 +130,34 @@ def get_greeting(name: str) -> str:
     return f"Hello, {name}!"
 ```
 
-You can install this server in [Claude Desktop](https://claude.ai/download) and interact with it right away by running:
+### Installing in Claude Desktop
+
+You can install this server in [Claude Desktop](https://claude.ai/download) by running:
+
 ```bash
-mcp install server.py
+uv run mcp install server.py
 ```
 
+Then open Claude Dekstop app, open Settings / Developer / Edit Config, edit the config JSON file and replace
+
+```json
+"command": "uv",
+```
+
+with full path to `uv` executable on your machine, for Mac it's usually:
+
+```json
+"command": "/Users/YOUR_USERNAME/.local/bin/uv",
+```
+
+Save the file and restart Claude Desktop.
+
+### Running the server with MCP Inspector
+
 Alternatively, you can test it with the MCP Inspector:
+
 ```bash
-mcp dev server.py
+uv run mcp dev server.py
 ```
 
 ## What is MCP?
