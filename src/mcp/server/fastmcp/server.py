@@ -972,6 +972,39 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         assert self._fastmcp is not None, "Context is not available outside of a request"
         return await self._fastmcp.read_resource(uri)
 
+    async def elicit(
+        self,
+        message: str,
+        requestedSchema: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Elicit information from the client/user.
+
+        This method can be used to interactively ask for additional information from the
+        client within a tool's execution.
+        The client might display the message to the user and collect a response
+        according to the provided schema. Or in case a client is an agent, it might
+        decide how to handle the elicitation -- either by asking the user or
+        automatically generating a response.
+
+        Args:
+            message: The message to present to the user
+            requestedSchema: JSON Schema defining the expected response structure
+
+        Returns:
+            The user's response as a dict matching the request schema structure
+
+        Raises:
+            ValueError: If elicitation is not supported by the client or fails
+        """
+
+        result = await self.request_context.session.elicit(
+            message=message,
+            requestedSchema=requestedSchema,
+            related_request_id=self.request_id,
+        )
+
+        return result.response
+
     async def log(
         self,
         level: Literal["debug", "info", "warning", "error"],
