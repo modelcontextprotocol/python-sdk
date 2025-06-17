@@ -1,7 +1,39 @@
 # MCP Client Configuration (NEW)
 
-This guide covers how to configure MCP servers for client applications,
-such as Claude Desktop, Cursor, and VS Code.
+This guide, for client application developers, covers a new API for client
+configuration. Client applications can use this API to get info about configured
+MCP servers from configuration files in a variety of formats and with some
+useful, built-in features.
+
+## Loading Configuration Files
+
+```python
+from mcp.client.config.mcp_servers_config import MCPServersConfig
+
+# Load JSON
+config = MCPServersConfig.from_file("~/.cursor/mcp.json")
+config = MCPServersConfig.from_file("~/Library/Application\ Support/Claude/claude_desktop_config.json")
+
+# Load YAML (auto-detected by extension)
+config = MCPServersConfig.from_file("~/.cursor/mcp.yaml")  # Not yet support in Cursor but maybe soon...?!
+config = MCPServersConfig.from_file("~/Library/Application\ Support/Claude/claude_desktop_config.yaml")  # Maybe someday...?!
+
+# Load with input substitution
+config = MCPServersConfig.from_file(
+    ".vscode/mcp.json",
+    inputs={"api-key": "secret"}
+)
+
+mcp_server = config.servers["time"]
+print(mcp_server.command)
+print(mcp_server.args)
+print(mcp_server.env)
+print(mcp_server.headers)
+print(mcp_server.inputs)
+print(mcp_server.isActive)
+print(mcp_server.effective_command)
+print(mcp_server.effective_args)
+```
 
 ## Configuration File Formats
 
@@ -27,9 +59,10 @@ MCP supports multiple configuration file formats for maximum flexibility.
 This is a typical JSON configuration file for an MCP server in that it has
 `command` and `args` (as a list) fields.
 
-Also supported is to specify the entire command in the `command` field (easier
-to write and read). In this case, the library will automatically split the
-command into `command` and `args` fields internally.
+Users can also specify the entire command in the `command` field, which
+makes it easier to read and write. Internally, the library splits the command
+into `command` and `args` fields, so the result is a nicer user experience and
+no application code needs to change.
 
 ```json
 {
@@ -50,7 +83,8 @@ and YAML.
 
 ### JSON with Comments (JSONC)
 
-For better maintainability, MCP supports JSON files with `//` comments:
+The API supports JSON files with `//` comments (JSONC), which is very commonly
+used in the VS Code ecosystem:
 
 ```jsonc
 {
@@ -70,7 +104,9 @@ For better maintainability, MCP supports JSON files with `//` comments:
 
 ### YAML Configuration
 
-YAML configuration files are supported for improved readability:
+The API supports YAML configuration files, which offer improved readability,
+comments, and the ability to completely sidestep issues with commas, that are
+common when working with JSON.
 
 ```yaml
 mcpServers:
@@ -107,7 +143,8 @@ mcpServers:
 
 ### Streamable HTTP Servers
 
-Servers with a `url` field (without SSE keywords) are detected as `streamable_http` type:
+Servers with a `url` field (without SSE keywords) are detected as
+`streamable_http` type:
 
 ```yaml
 mcpServers:
@@ -118,7 +155,8 @@ mcpServers:
 
 ### SSE Servers
 
-Servers with a `url` field containing "sse" in the URL, name, or description are detected as `sse` type:
+Servers with a `url` field containing "sse" in the URL, name, or description are
+detected as `sse` type:
 
 ```yaml
 mcpServers:
@@ -137,7 +175,35 @@ mcpServers:
 MCP supports dynamic configuration using input variables, which is a feature
 that VS Code supports. This works in both JSON and YAML configurations.
 
-### Defining Inputs
+### Declaring Inputs (JSON)
+
+```json
+{
+  "inputs": [
+    {
+      "id": "api-key",
+      "type": "promptString",
+      "description": "Your API key",
+      "password": true
+    },
+    {
+      "id": "server-host",
+      "type": "promptString",
+      "description": "Server hostname"
+    }
+  ],
+  "servers": {
+    "dynamic-server": {
+      "url": "https://${input:server-host}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:api-key}"
+      }
+    }
+  }
+}
+```
+
+### Declaring Inputs (YAML)
 
 ```yaml
 inputs:
@@ -149,11 +215,25 @@ inputs:
     type: promptString
     description: "Server hostname"
 
-mcpServers:
+servers:
   dynamic-server:
     url: https://${input:server-host}/mcp
     headers:
       Authorization: Bearer ${input:api-key}
+```
+
+### Getting DeclaredInputs
+
+The application can use the `inputs` field to get the declared inputs and
+prompt the user for the values or otherwise allow them to be specified.
+
+The application gets the declared inputs by doing:
+
+```python
+config = MCPServersConfig.from_file(".vscode/mcp.json")
+for input in config.inputs:
+    # Prompt the user for the value
+    ...
 ```
 
 ### Using Inputs
@@ -192,7 +272,7 @@ if missing_inputs:
 
 ### Server Configuration Base Fields
 
-All server types support these common fields:
+All server types support these common optionalfields:
 
 - `name` (string, optional): Display name for the server
 - `description` (string, optional): Server description
@@ -252,28 +332,6 @@ mcpServers:
 servers:
   my-server:
     command: python -m server
-```
-
-## Loading Configuration Files
-
-```python
-from mcp.client.config.mcp_servers_config import MCPServersConfig
-from pathlib import Path
-
-# Load JSON
-config = MCPServersConfig.from_file("config.json")
-
-# Load YAML (auto-detected by extension)
-config = MCPServersConfig.from_file("config.yaml")
-
-# Force YAML parsing
-config = MCPServersConfig.from_file("config.json", use_pyyaml=True)
-
-# Load with input substitution
-config = MCPServersConfig.from_file(
-    "config.yaml",
-    inputs={"api-key": "secret"}
-)
 ```
 
 ## Error Handling
