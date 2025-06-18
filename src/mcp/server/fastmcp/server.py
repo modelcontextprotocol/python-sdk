@@ -27,6 +27,7 @@ from starlette.types import Receive, Scope, Send
 
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import (
+    AuthenticatedUser,
     BearerAuthBackend,
     RequireAuthMiddleware,
 )
@@ -1046,6 +1047,11 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             logger=logger_name,
             related_request_id=self.request_id,
         )
+
+    @property
+    def user(self) -> AuthenticatedUser | None:
+        """Get the authenticated user if available."""
+        return self.request_context.request.user if isinstance(self.request_context.request, Request) else None
 
     @property
     def client_id(self) -> str | None:
