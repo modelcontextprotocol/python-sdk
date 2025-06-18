@@ -30,6 +30,9 @@
     - [Prompts](#prompts)
     - [Images](#images)
     - [Context](#context)
+    - [Completions](#completions)
+    - [Elicitation](#elicitation)
+    - [Authentication](#authentication)
   - [Running Your Server](#running-your-server)
     - [Development Mode](#development-mode)
     - [Claude Desktop Integration](#claude-desktop-integration)
@@ -73,7 +76,7 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 
 ### Adding MCP to your python project
 
-We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python projects. 
+We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python projects.
 
 If you haven't created a uv-managed project yet, create one:
 
@@ -209,13 +212,13 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("My App")
 
 
-@mcp.resource("config://app")
+@mcp.resource("config://app", title="Application Configuration")
 def get_config() -> str:
     """Static configuration data"""
     return "App configuration here"
 
 
-@mcp.resource("users://{user_id}/profile")
+@mcp.resource("users://{user_id}/profile", title="User Profile")
 def get_user_profile(user_id: str) -> str:
     """Dynamic user data"""
     return f"Profile data for user {user_id}"
@@ -232,13 +235,13 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("My App")
 
 
-@mcp.tool()
+@mcp.tool(title="BMI Calculator")
 def calculate_bmi(weight_kg: float, height_m: float) -> float:
     """Calculate BMI given weight in kg and height in meters"""
     return weight_kg / (height_m**2)
 
 
-@mcp.tool()
+@mcp.tool(title="Weather Fetcher")
 async def fetch_weather(city: str) -> str:
     """Fetch current weather for a city"""
     async with httpx.AsyncClient() as client:
@@ -257,12 +260,12 @@ from mcp.server.fastmcp.prompts import base
 mcp = FastMCP("My App")
 
 
-@mcp.prompt()
+@mcp.prompt(title="Code Review")
 def review_code(code: str) -> str:
     return f"Please review this code:\n\n{code}"
 
 
-@mcp.prompt()
+@mcp.prompt(title="Debug Assistant")
 def debug_error(error: str) -> list[base.Message]:
     return [
         base.UserMessage("I'm seeing this error:"),
@@ -309,6 +312,112 @@ async def long_task(files: list[str], ctx: Context) -> str:
         data, mime_type = await ctx.read_resource(f"file://{file}")
     return "Processing complete"
 ```
+
+### Completions
+
+MCP supports providing completion suggestions for prompt arguments and resource template parameters. With the context parameter, servers can provide completions based on previously resolved values:
+
+Client usage:
+```python
+from mcp.client.session import ClientSession
+from mcp.types import ResourceTemplateReference
+
+
+async def use_completion(session: ClientSession):
+    # Complete without context
+    result = await session.complete(
+        ref=ResourceTemplateReference(
+            type="ref/resource", uri="github://repos/{owner}/{repo}"
+        ),
+        argument={"name": "owner", "value": "model"},
+    )
+
+    # Complete with context - repo suggestions based on owner
+    result = await session.complete(
+        ref=ResourceTemplateReference(
+            type="ref/resource", uri="github://repos/{owner}/{repo}"
+        ),
+        argument={"name": "repo", "value": "test"},
+        context_arguments={"owner": "modelcontextprotocol"},
+    )
+```
+
+Server implementation:
+```python
+from mcp.server import Server
+from mcp.types import (
+    Completion,
+    CompletionArgument,
+    CompletionContext,
+    PromptReference,
+    ResourceTemplateReference,
+)
+
+server = Server("example-server")
+
+
+@server.completion()
+async def handle_completion(
+    ref: PromptReference | ResourceTemplateReference,
+    argument: CompletionArgument,
+    context: CompletionContext | None,
+) -> Completion | None:
+    if isinstance(ref, ResourceTemplateReference):
+        if ref.uri == "github://repos/{owner}/{repo}" and argument.name == "repo":
+            # Use context to provide owner-specific repos
+            if context and context.arguments:
+                owner = context.arguments.get("owner")
+                if owner == "modelcontextprotocol":
+                    repos = ["python-sdk", "typescript-sdk", "specification"]
+                    # Filter based on partial input
+                    filtered = [r for r in repos if r.startswith(argument.value)]
+                    return Completion(values=filtered)
+    return None
+```
+### Elicitation
+
+Request additional information from users during tool execution:
+
+```python
+from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.elicitation import (
+    AcceptedElicitation,
+    DeclinedElicitation,
+    CancelledElicitation,
+)
+from pydantic import BaseModel, Field
+
+mcp = FastMCP("Booking System")
+
+
+@mcp.tool()
+async def book_table(date: str, party_size: int, ctx: Context) -> str:
+    """Book a table with confirmation"""
+
+    # Schema must only contain primitive types (str, int, float, bool)
+    class ConfirmBooking(BaseModel):
+        confirm: bool = Field(description="Confirm booking?")
+        notes: str = Field(default="", description="Special requests")
+
+    result = await ctx.elicit(
+        message=f"Confirm booking for {party_size} on {date}?", schema=ConfirmBooking
+    )
+
+    match result:
+        case AcceptedElicitation(data=data):
+            if data.confirm:
+                return f"Booked! Notes: {data.notes or 'None'}"
+            return "Booking cancelled"
+        case DeclinedElicitation():
+            return "Booking declined"
+        case CancelledElicitation():
+            return "Booking cancelled"
+```
+
+The `elicit()` method returns an `ElicitationResult` with:
+- `action`: "accept", "decline", or "cancel"
+- `data`: The validated response (only when accepted)
+- `validation_error`: Any validation error message
 
 ### Authentication
 
@@ -808,6 +917,42 @@ async def main():
             # Call a tool
             tool_result = await session.call_tool("echo", {"message": "hello"})
 ```
+
+### Client Display Utilities
+
+When building MCP clients, the SDK provides utilities to help display human-readable names for tools, resources, and prompts:
+
+```python
+from mcp.shared.metadata_utils import get_display_name
+from mcp.client.session import ClientSession
+
+
+async def display_tools(session: ClientSession):
+    """Display available tools with human-readable names"""
+    tools_response = await session.list_tools()
+
+    for tool in tools_response.tools:
+        # get_display_name() returns the title if available, otherwise the name
+        display_name = get_display_name(tool)
+        print(f"Tool: {display_name}")
+        if tool.description:
+            print(f"   {tool.description}")
+
+
+async def display_resources(session: ClientSession):
+    """Display available resources with human-readable names"""
+    resources_response = await session.list_resources()
+
+    for resource in resources_response.resources:
+        display_name = get_display_name(resource)
+        print(f"Resource: {display_name} ({resource.uri})")
+```
+
+The `get_display_name()` function implements the proper precedence rules for displaying names:
+- For tools: `title` > `annotations.title` > `name`
+- For other objects: `title` > `name`
+
+This ensures your client UI shows the most user-friendly names that servers provide.
 
 ### OAuth Authentication for Clients
 

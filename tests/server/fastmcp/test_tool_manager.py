@@ -44,6 +44,7 @@ class TestAddTools:
 
         original_tool = Tool(
             name="add",
+            title="Add Tool",
             description="Add two numbers.",
             fn=add,
             fn_metadata=fn_metadata,

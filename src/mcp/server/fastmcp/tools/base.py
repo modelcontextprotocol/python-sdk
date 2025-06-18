@@ -22,6 +22,7 @@ class Tool(BaseModel):
 
     fn: Callable[..., Any] = Field(exclude=True)
     name: str = Field(description="Name of the tool")
+    title: str | None = Field(None, description="Human-readable title of the tool")
     description: str = Field(description="Description of what the tool does")
     parameters: dict[str, Any] = Field(description="JSON schema for tool parameters")
     fn_metadata: FuncMetadata = Field(
@@ -36,6 +37,7 @@ class Tool(BaseModel):
         cls,
         fn: Callable[..., Any],
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
         context_kwarg: str | None = None,
         annotations: ToolAnnotations | None = None,
@@ -69,6 +71,7 @@ class Tool(BaseModel):
         return cls(
             fn=fn,
             name=func_name,
+            title=title,
             description=func_doc,
             parameters=parameters,
             fn_metadata=func_arg_metadata,

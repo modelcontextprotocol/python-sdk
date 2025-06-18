@@ -17,6 +17,7 @@ class ResourceTemplate(BaseModel):
 
     uri_template: str = Field(description="URI template with parameters (e.g. weather://{city}/current)")
     name: str = Field(description="Name of the resource")
+    title: str | None = Field(description="Human-readable title of the resource", default=None)
     description: str | None = Field(description="Description of what the resource does")
     mime_type: str = Field(default="text/plain", description="MIME type of the resource content")
     fn: Callable[..., Any] = Field(exclude=True)
@@ -28,6 +29,7 @@ class ResourceTemplate(BaseModel):
         fn: Callable[..., Any],
         uri_template: str,
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
     ) -> ResourceTemplate:
@@ -45,6 +47,7 @@ class ResourceTemplate(BaseModel):
         return cls(
             uri_template=uri_template,
             name=func_name,
+            title=title,
             description=description or fn.__doc__ or "",
             mime_type=mime_type or "text/plain",
             fn=fn,
@@ -71,6 +74,7 @@ class ResourceTemplate(BaseModel):
             return FunctionResource(
                 uri=uri,  # type: ignore
                 name=self.name,
+                title=self.title,
                 description=self.description,
                 mime_type=self.mime_type,
                 fn=lambda: result,  # Capture result in closure

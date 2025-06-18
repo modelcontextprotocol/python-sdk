@@ -22,6 +22,7 @@ from mcp.server.streamable_http import (
     EventStore,
     StreamableHTTPServerTransport,
 )
+from mcp.server.transport_security import TransportSecuritySettings
 
 logger = logging.getLogger(__name__)
 
@@ -60,11 +61,13 @@ class StreamableHTTPSessionManager:
         event_store: EventStore | None = None,
         json_response: bool = False,
         stateless: bool = False,
+        security_settings: TransportSecuritySettings | None = None,
     ):
         self.app = app
         self.event_store = event_store
         self.json_response = json_response
         self.stateless = stateless
+        self.security_settings = security_settings
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
@@ -162,6 +165,7 @@ class StreamableHTTPSessionManager:
             mcp_session_id=None,  # No session tracking in stateless mode
             is_json_response_enabled=self.json_response,
             event_store=None,  # No event store in stateless mode
+            security_settings=self.security_settings,
         )
 
         # Start server in a new task
@@ -217,6 +221,7 @@ class StreamableHTTPSessionManager:
                     mcp_session_id=new_session_id,
                     is_json_response_enabled=self.json_response,
                     event_store=self.event_store,  # May be None (no resumability)
+                    security_settings=self.security_settings,
                 )
 
                 assert http_transport.mcp_session_id is not None
