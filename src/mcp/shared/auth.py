@@ -71,6 +71,8 @@ class OAuthClientMetadata(BaseModel):
     def validate_scope(self, requested_scope: str | None) -> list[str] | None:
         if requested_scope is None:
             return None
+        if requested_scope == "":
+            return []
         requested_scopes = requested_scope.split(" ")
         allowed_scopes = [] if self.scope is None else self.scope.split(" ")
         for scope in requested_scopes:

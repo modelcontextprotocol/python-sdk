@@ -761,6 +761,17 @@ class TestOAuthClientProvider:
         assert "scope" not in auth_params
 
     @pytest.mark.anyio
+    async def test_client_metadata_validate_scopes_none(self, client_metadata):
+        """Test that validate_scopes method handles None and empty string correctly."""
+        # Should return None
+        requested_scopes = client_metadata.validate_scope(None)
+        assert requested_scopes is None
+
+        # No scopes should be requested; this can happen when a client authorizes with "&scope=".
+        requested_scopes = client_metadata.validate_scope("")
+        assert requested_scopes == []
+
+    @pytest.mark.anyio
     async def test_state_parameter_validation_uses_constant_time(
         self, oauth_provider, oauth_metadata, oauth_client_info
     ):
