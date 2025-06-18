@@ -11,7 +11,6 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import cast
 
 import anyio
 import httpx
@@ -241,15 +240,16 @@ class StreamableHTTPTransport:
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
 
-            async for sse in event_source.aiter_sse():
-                is_complete = await self._handle_sse_event(
-                    sse,
-                    ctx.read_stream_writer,
-                    original_request_id,
-                    ctx.metadata.on_resumption_token_update if ctx.metadata else None,
-                )
-                if is_complete:
-                    break
+            async with aclosing(event_source.aiter_sse()) as iterator:
+                async for sse in iterator:
+                    is_complete = await self._handle_sse_event(
+                        sse,
+                        ctx.read_stream_writer,
+                        original_request_id,
+                        ctx.metadata.on_resumption_token_update if ctx.metadata else None,
+                    )
+                    if is_complete:
+                        break
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
@@ -320,9 +320,7 @@ class StreamableHTTPTransport:
     ) -> None:
         """Handle SSE response from the server."""
         try:
-            event_source = EventSource(response)
-            sse_iter = cast(AsyncGenerator[ServerSentEvent], event_source.aiter_sse())
-            async with aclosing(sse_iter) as items:
+            async with aclosing(EventSource(response).aiter_sse()) as items:
                 async for sse in items:
                     is_complete = await self._handle_sse_event(
                         sse,

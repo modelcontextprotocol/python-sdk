@@ -5,6 +5,7 @@ Tests for OAuth client authentication implementation.
 import base64
 import hashlib
 import time
+from contextlib import aclosing
 from unittest.mock import AsyncMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
 
@@ -654,17 +655,17 @@ class TestOAuthClientProvider:
         mock_response = Mock()
         mock_response.status_code = 401
 
-        auth_flow = oauth_provider.async_auth_flow(request)
-        await auth_flow.__anext__()
+        async with aclosing(oauth_provider.async_auth_flow(request)) as auth_flow:
+            await auth_flow.__anext__()
 
-        # Send 401 response
-        try:
-            await auth_flow.asend(mock_response)
-        except StopAsyncIteration:
-            pass
+            # Send 401 response
+            try:
+                await auth_flow.asend(mock_response)
+            except StopAsyncIteration:
+                pass
 
-        # Should clear current tokens
-        assert oauth_provider._current_tokens is None
+            # Should clear current tokens
+            assert oauth_provider._current_tokens is None
 
     @pytest.mark.anyio
     async def test_async_auth_flow_no_token(self, oauth_provider):
@@ -675,14 +676,14 @@ class TestOAuthClientProvider:
             patch.object(oauth_provider, "initialize") as mock_init,
             patch.object(oauth_provider, "ensure_token") as mock_ensure,
         ):
-            auth_flow = oauth_provider.async_auth_flow(request)
-            updated_request = await auth_flow.__anext__()
+            async with aclosing(oauth_provider.async_auth_flow(request)) as auth_flow:
+                updated_request = await auth_flow.__anext__()
 
-            mock_init.assert_called_once()
-            mock_ensure.assert_called_once()
+                mock_init.assert_called_once()
+                mock_ensure.assert_called_once()
 
-            # No Authorization header should be added if no token
-            assert "Authorization" not in updated_request.headers
+                # No Authorization header should be added if no token
+                assert "Authorization" not in updated_request.headers
 
     @pytest.mark.anyio
     async def test_scope_priority_client_metadata_first(self, oauth_provider, oauth_client_info):

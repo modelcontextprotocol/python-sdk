@@ -126,5 +126,4 @@ filterwarnings = [
     "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel",
     # This is to avoid test failures on Trio due to httpx's failure to explicitly close
     # async generators
-    "ignore::pytest.PytestUnraisableExceptionWarning"
 ]

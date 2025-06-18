@@ -3,6 +3,7 @@ import multiprocessing
 import socket
 import time
 from collections.abc import AsyncGenerator, Generator
+from contextlib import aclosing
 
 import anyio
 import httpx
@@ -160,14 +161,15 @@ async def test_raw_sse_connection(http_client: httpx.AsyncClient) -> None:
                 assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
 
                 line_number = 0
-                async for line in response.aiter_lines():
-                    if line_number == 0:
-                        assert line == "event: endpoint"
-                    elif line_number == 1:
-                        assert line.startswith("data: /messages/?session_id=")
-                    else:
-                        return
-                    line_number += 1
+                async with aclosing(response.aiter_lines()) as lines:
+                    async for line in lines:
+                        if line_number == 0:
+                            assert line == "event: endpoint"
+                        elif line_number == 1:
+                            assert line.startswith("data: /messages/?session_id=")
+                        else:
+                            return
+                        line_number += 1
 
         # Add timeout to prevent test from hanging if it fails
         with anyio.fail_after(3):
