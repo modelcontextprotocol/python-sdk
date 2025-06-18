@@ -74,6 +74,7 @@ async def test_malformed_initialize_request_does_not_crash_server():
                     method="tools/call",
                     # params=None  # Missing required params
                 )
+
                 another_request_message = SessionMessage(message=JSONRPCMessage(another_malformed_request))
 
                 await read_send_stream.send(another_request_message)

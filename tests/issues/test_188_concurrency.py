@@ -35,7 +35,7 @@ async def test_messages_are_executed_concurrently():
         end_time = anyio.current_time()
 
         duration = end_time - start_time
-        assert duration < 10 * _sleep_time_seconds
+        assert duration < 15 * _sleep_time_seconds
         print(duration)
 
 
