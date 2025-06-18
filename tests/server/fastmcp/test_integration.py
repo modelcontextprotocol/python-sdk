@@ -14,26 +14,38 @@ from typing import Any
 
 import pytest
 import uvicorn
-from pydantic import AnyUrl
+from pydantic import AnyUrl, BaseModel, Field
 from starlette.applications import Starlette
 from starlette.requests import Request
 
-import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.resources import FunctionResource
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import RequestContext
 from mcp.types import (
+    Completion,
+    CompletionArgument,
+    CompletionContext,
     CreateMessageRequestParams,
     CreateMessageResult,
+    ElicitResult,
     GetPromptResult,
     InitializeResult,
+    LoggingMessageNotification,
+    ProgressNotification,
+    PromptReference,
     ReadResourceResult,
+    ResourceLink,
+    ResourceListChangedNotification,
+    ResourceTemplateReference,
     SamplingMessage,
+    ServerNotification,
     TextContent,
     TextResourceContents,
+    ToolListChangedNotification,
 )
 
 
@@ -82,12 +94,29 @@ def stateless_http_server_url(stateless_http_server_port: int) -> str:
 # Create a function to make the FastMCP server app
 def make_fastmcp_app():
     """Create a FastMCP server without auth settings."""
-    mcp = FastMCP(name="NoAuthServer")
+    transport_security = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+    )
+    mcp = FastMCP(name="NoAuthServer", transport_security=transport_security)
 
     # Add a simple tool
     @mcp.tool(description="A simple echo tool")
     def echo(message: str) -> str:
         return f"Echo: {message}"
+
+    # Add a tool that uses elicitation
+    @mcp.tool(description="A tool that uses elicitation")
+    async def ask_user(prompt: str, ctx: Context) -> str:
+        class AnswerSchema(BaseModel):
+            answer: str = Field(description="The user's answer to the question")
+
+        result = await ctx.elicit(message=f"Tool wants to ask: {prompt}", schema=AnswerSchema)
+
+        if result.action == "accept" and result.data:
+            return f"User answered: {result.data.answer}"
+        else:
+            # Handle cancellation or decline
+            return f"User cancelled or declined: {result.action}"
 
     # Create the SSE app
     app = mcp.sse_app()
@@ -97,12 +126,13 @@ def make_fastmcp_app():
 
 def make_everything_fastmcp() -> FastMCP:
     """Create a FastMCP server with all features enabled for testing."""
-    from mcp.server.fastmcp import Context
-
-    mcp = FastMCP(name="EverythingServer")
+    transport_security = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+    )
+    mcp = FastMCP(name="EverythingServer", transport_security=transport_security)
 
     # Tool with context for logging and progress
-    @mcp.tool(description="A tool that demonstrates logging and progress")
+    @mcp.tool(description="A tool that demonstrates logging and progress", title="Progress Tool")
     async def tool_with_progress(message: str, ctx: Context, steps: int = 3) -> str:
         await ctx.info(f"Starting processing of '{message}' with {steps} steps")
 
@@ -119,12 +149,31 @@ def make_everything_fastmcp() -> FastMCP:
         return f"Processed '{message}' in {steps} steps"
 
     # Simple tool for basic functionality
-    @mcp.tool(description="A simple echo tool")
+    @mcp.tool(description="A simple echo tool", title="Echo Tool")
     def echo(message: str) -> str:
         return f"Echo: {message}"
 
+    # Tool that returns ResourceLinks
+    @mcp.tool(description="Lists files and returns resource links", title="List Files Tool")
+    def list_files() -> list[ResourceLink]:
+        """Returns a list of resource links for files matching the pattern."""
+
+        # Mock some file resources for testing
+        file_resources = [
+            {
+                "type": "resource_link",
+                "uri": "file:///project/README.md",
+                "name": "README.md",
+                "mimeType": "text/markdown",
+            }
+        ]
+
+        result: list[ResourceLink] = [ResourceLink.model_validate(file_json) for file_json in file_resources]
+
+        return result
+
     # Tool with sampling capability
-    @mcp.tool(description="A tool that uses sampling to generate content")
+    @mcp.tool(description="A tool that uses sampling to generate content", title="Sampling Tool")
     async def sampling_tool(prompt: str, ctx: Context) -> str:
         await ctx.info(f"Requesting sampling for prompt: {prompt}")
 
@@ -143,7 +192,7 @@ def make_everything_fastmcp() -> FastMCP:
             return f"Sampling result: {str(result.content)[:100]}..."
 
     # Tool that sends notifications and logging
-    @mcp.tool(description="A tool that demonstrates notifications and logging")
+    @mcp.tool(description="A tool that demonstrates notifications and logging", title="Notification Tool")
     async def notification_tool(message: str, ctx: Context) -> str:
         # Send different log levels
         await ctx.debug("Debug: Starting notification tool")
@@ -164,35 +213,70 @@ def make_everything_fastmcp() -> FastMCP:
     static_resource = FunctionResource(
         uri=AnyUrl("resource://static/info"),
         name="Static Info",
+        title="Static Information",
         description="Static information resource",
         fn=get_static_info,
     )
     mcp.add_resource(static_resource)
 
     # Resource - dynamic function
-    @mcp.resource("resource://dynamic/{category}")
+    @mcp.resource("resource://dynamic/{category}", title="Dynamic Resource")
     def dynamic_resource(category: str) -> str:
         return f"Dynamic resource content for category: {category}"
 
     # Resource template
-    @mcp.resource("resource://template/{id}/data")
+    @mcp.resource("resource://template/{id}/data", title="Template Resource")
     def template_resource(id: str) -> str:
         return f"Template resource data for ID: {id}"
 
     # Prompt - simple
-    @mcp.prompt(description="A simple prompt")
+    @mcp.prompt(description="A simple prompt", title="Simple Prompt")
     def simple_prompt(topic: str) -> str:
         return f"Tell me about {topic}"
 
     # Prompt - complex with multiple messages
-    @mcp.prompt(description="Complex prompt with context")
+    @mcp.prompt(description="Complex prompt with context", title="Complex Prompt")
     def complex_prompt(user_query: str, context: str = "general") -> str:
         # For simplicity, return a single string that incorporates the context
         # Since FastMCP doesn't support system messages in the same way
         return f"Context: {context}. Query: {user_query}"
 
+    # Resource template with completion support
+    @mcp.resource("github://repos/{owner}/{repo}", title="GitHub Repository")
+    def github_repo_resource(owner: str, repo: str) -> str:
+        return f"Repository: {owner}/{repo}"
+
+    # Add completion handler for the server
+    @mcp.completion()
+    async def handle_completion(
+        ref: PromptReference | ResourceTemplateReference,
+        argument: CompletionArgument,
+        context: CompletionContext | None,
+    ) -> Completion | None:
+        # Handle GitHub repository completion
+        if isinstance(ref, ResourceTemplateReference):
+            if ref.uri == "github://repos/{owner}/{repo}" and argument.name == "repo":
+                if context and context.arguments and context.arguments.get("owner") == "modelcontextprotocol":
+                    # Return repos for modelcontextprotocol org
+                    return Completion(values=["python-sdk", "typescript-sdk", "specification"], total=3, hasMore=False)
+                elif context and context.arguments and context.arguments.get("owner") == "test-org":
+                    # Return repos for test-org
+                    return Completion(values=["test-repo1", "test-repo2"], total=2, hasMore=False)
+
+        # Handle prompt completions
+        if isinstance(ref, PromptReference):
+            if ref.name == "complex_prompt" and argument.name == "context":
+                # Complete context values
+                contexts = ["general", "technical", "business", "academic"]
+                return Completion(
+                    values=[c for c in contexts if c.startswith(argument.value)], total=None, hasMore=False
+                )
+
+        # Default: no completion available
+        return Completion(values=[], total=0, hasMore=False)
+
     # Tool that echoes request headers from context
-    @mcp.tool(description="Echo request headers from context")
+    @mcp.tool(description="Echo request headers from context", title="Echo Headers")
     def echo_headers(ctx: Context[Any, Any, Request]) -> str:
         """Returns the request headers as JSON."""
         headers_info = {}
@@ -202,7 +286,7 @@ def make_everything_fastmcp() -> FastMCP:
         return json.dumps(headers_info)
 
     # Tool that returns full request context
-    @mcp.tool(description="Echo request context with custom data")
+    @mcp.tool(description="Echo request context with custom data", title="Echo Context")
     def echo_context(custom_request_id: str, ctx: Context[Any, Any, Request]) -> str:
         """Returns request context including headers and custom data."""
         context_data = {
@@ -218,6 +302,49 @@ def make_everything_fastmcp() -> FastMCP:
             context_data["path"] = request.url.path
         return json.dumps(context_data)
 
+    # Restaurant booking tool with elicitation
+    @mcp.tool(description="Book a table at a restaurant with elicitation", title="Restaurant Booking")
+    async def book_restaurant(
+        date: str,
+        time: str,
+        party_size: int,
+        ctx: Context,
+    ) -> str:
+        """Book a table - uses elicitation if requested date is unavailable."""
+
+        class AlternativeDateSchema(BaseModel):
+            checkAlternative: bool = Field(description="Would you like to try another date?")
+            alternativeDate: str = Field(
+                default="2024-12-26",
+                description="What date would you prefer? (YYYY-MM-DD)",
+            )
+
+        # For testing: assume dates starting with "2024-12-25" are unavailable
+        if date.startswith("2024-12-25"):
+            # Use elicitation to ask about alternatives
+            result = await ctx.elicit(
+                message=(
+                    f"No tables available for {party_size} people on {date} "
+                    f"at {time}. Would you like to check another date?"
+                ),
+                schema=AlternativeDateSchema,
+            )
+
+            if result.action == "accept" and result.data:
+                if result.data.checkAlternative:
+                    alt_date = result.data.alternativeDate
+                    return f"✅ Booked table for {party_size} on {alt_date} at {time}"
+                else:
+                    return "❌ No booking made"
+            elif result.action in ("decline", "cancel"):
+                return "❌ Booking cancelled"
+            else:
+                # Handle case where action is "accept" but data is None
+                return "❌ No booking data received"
+        else:
+            # Available - book directly
+            return f"✅ Booked table for {party_size} on {date} at {time}"
+
     return mcp
 
 
@@ -231,8 +358,10 @@ def make_everything_fastmcp_app():
 
 def make_fastmcp_streamable_http_app():
     """Create a FastMCP server with StreamableHTTP transport."""
-
-    mcp = FastMCP(name="NoAuthServer")
+    transport_security = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+    )
+    mcp = FastMCP(name="NoAuthServer", transport_security=transport_security)
 
     # Add a simple tool
     @mcp.tool(description="A simple echo tool")
@@ -257,8 +386,10 @@ def make_everything_fastmcp_streamable_http_app():
 
 def make_fastmcp_stateless_http_app():
     """Create a FastMCP server with stateless StreamableHTTP transport."""
-
-    mcp = FastMCP(name="StatelessServer", stateless_http=True)
+    transport_security = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+    )
+    mcp = FastMCP(name="StatelessServer", stateless_http=True, transport_security=transport_security)
 
     # Add a simple tool
     @mcp.tool(description="A simple echo tool")
@@ -597,16 +728,32 @@ class NotificationCollector:
 
     async def handle_generic_notification(self, message) -> None:
         # Check if this is a ServerNotification
-        if isinstance(message, types.ServerNotification):
+        if isinstance(message, ServerNotification):
             # Check the specific notification type
-            if isinstance(message.root, types.ProgressNotification):
+            if isinstance(message.root, ProgressNotification):
                 await self.handle_progress(message.root.params)
-            elif isinstance(message.root, types.LoggingMessageNotification):
+            elif isinstance(message.root, LoggingMessageNotification):
                 await self.handle_log(message.root.params)
-            elif isinstance(message.root, types.ResourceListChangedNotification):
+            elif isinstance(message.root, ResourceListChangedNotification):
                 await self.handle_resource_list_changed(message.root.params)
-            elif isinstance(message.root, types.ToolListChangedNotification):
+            elif isinstance(message.root, ToolListChangedNotification):
                 await self.handle_tool_list_changed(message.root.params)
+
+
+async def create_test_elicitation_callback(context, params):
+    """Shared elicitation callback for tests.
+
+    Handles elicitation requests for restaurant booking tests.
+    """
+    # For restaurant booking test
+    if "No tables available" in params.message:
+        return ElicitResult(
+            action="accept",
+            content={"checkAlternative": True, "alternativeDate": "2024-12-26"},
+        )
+    else:
+        # Default response
+        return ElicitResult(action="decline")
 
 
 async def call_all_mcp_features(session: ClientSession, collector: NotificationCollector) -> None:
@@ -635,7 +782,17 @@ async def call_all_mcp_features(session: ClientSession, collector: NotificationC
     assert isinstance(tool_result.content[0], TextContent)
     assert tool_result.content[0].text == "Echo: hello"
 
-    # 2. Tool with context (logging and progress)
+    # 2. Test tool that returns ResourceLinks
+    list_files_result = await session.call_tool("list_files")
+    assert len(list_files_result.content) == 1
+
+    # Rest should be ResourceLinks
+    content = list_files_result.content[0]
+    assert isinstance(content, ResourceLink)
+    assert str(content.uri).startswith("file:///")
+    assert content.name is not None
+    assert content.mimeType is not None
+
     # Test progress callback functionality
     progress_updates = []
 
@@ -703,6 +860,21 @@ async def call_all_mcp_features(session: ClientSession, collector: NotificationC
     assert "debug" in log_levels
     assert "info" in log_levels
     assert "warning" in log_levels
+
+    # 5. Test elicitation tool
+    # Test restaurant booking with unavailable date (triggers elicitation)
+    booking_result = await session.call_tool(
+        "book_restaurant",
+        {
+            "date": "2024-12-25",  # Unavailable date to trigger elicitation
+            "time": "19:00",
+            "party_size": 4,
+        },
+    )
+    assert len(booking_result.content) == 1
+    assert isinstance(booking_result.content[0], TextContent)
+    # Should have booked the alternative date from elicitation callback
+    assert "✅ Booked table for 4 on 2024-12-26" in booking_result.content[0].text
 
     # Test resources
     # 1. Static resource
@@ -781,6 +953,41 @@ async def call_all_mcp_features(session: ClientSession, collector: NotificationC
     if context_data["method"]:
         assert context_data["method"] == "POST"
 
+    # Test completion functionality
+    # 1. Test resource template completion with context
+    repo_result = await session.complete(
+        ref=ResourceTemplateReference(type="ref/resource", uri="github://repos/{owner}/{repo}"),
+        argument={"name": "repo", "value": ""},
+        context_arguments={"owner": "modelcontextprotocol"},
+    )
+    assert repo_result.completion.values == ["python-sdk", "typescript-sdk", "specification"]
+    assert repo_result.completion.total == 3
+    assert repo_result.completion.hasMore is False
+
+    # 2. Test with different context
+    repo_result2 = await session.complete(
+        ref=ResourceTemplateReference(type="ref/resource", uri="github://repos/{owner}/{repo}"),
+        argument={"name": "repo", "value": ""},
+        context_arguments={"owner": "test-org"},
+    )
+    assert repo_result2.completion.values == ["test-repo1", "test-repo2"]
+    assert repo_result2.completion.total == 2
+
+    # 3. Test prompt argument completion
+    context_result = await session.complete(
+        ref=PromptReference(type="ref/prompt", name="complex_prompt"),
+        argument={"name": "context", "value": "tech"},
+    )
+    assert "technical" in context_result.completion.values
+
+    # 4. Test completion without context (should return empty)
+    no_context_result = await session.complete(
+        ref=ResourceTemplateReference(type="ref/resource", uri="github://repos/{owner}/{repo}"),
+        argument={"name": "repo", "value": "test"},
+    )
+    assert no_context_result.completion.values == []
+    assert no_context_result.completion.total == 0
+
 
 async def sampling_callback(
     context: RequestContext[ClientSession, None],
@@ -809,8 +1016,6 @@ async def test_fastmcp_all_features_sse(everything_server: None, everything_serv
     # Create notification collector
     collector = NotificationCollector()
 
-    # Create a sampling callback that simulates an LLM
-
     # Connect to the server with callbacks
     async with sse_client(everything_server_url + "/sse") as streams:
         # Set up message handler to capture notifications
@@ -823,6 +1028,7 @@ async def test_fastmcp_all_features_sse(everything_server: None, everything_serv
         async with ClientSession(
             *streams,
             sampling_callback=sampling_callback,
+            elicitation_callback=create_test_elicitation_callback,
             message_handler=message_handler,
         ) as session:
             # Run the common test suite
@@ -855,7 +1061,111 @@ async def test_fastmcp_all_features_streamable_http(
             read_stream,
             write_stream,
             sampling_callback=sampling_callback,
+            elicitation_callback=create_test_elicitation_callback,
             message_handler=message_handler,
         ) as session:
             # Run the common test suite with HTTP-specific test suffix
             await call_all_mcp_features(session, collector)
+
+
+@pytest.mark.anyio
+async def test_elicitation_feature(server: None, server_url: str) -> None:
+    """Test the elicitation feature."""
+
+    # Create a custom handler for elicitation requests
+    async def elicitation_callback(context, params):
+        # Verify the elicitation parameters
+        if params.message == "Tool wants to ask: What is your name?":
+            return ElicitResult(content={"answer": "Test User"}, action="accept")
+        else:
+            raise ValueError("Unexpected elicitation message")
+
+    # Connect to the server with our custom elicitation handler
+    async with sse_client(server_url + "/sse") as streams:
+        async with ClientSession(*streams, elicitation_callback=elicitation_callback) as session:
+            # First initialize the session
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "NoAuthServer"
+
+            # Call the tool that uses elicitation
+            tool_result = await session.call_tool("ask_user", {"prompt": "What is your name?"})
+            # Verify the result
+            assert len(tool_result.content) == 1
+            assert isinstance(tool_result.content[0], TextContent)
+            # # The test should only succeed with the successful elicitation response
+            assert tool_result.content[0].text == "User answered: Test User"
+
+
+@pytest.mark.anyio
+async def test_title_precedence(everything_server: None, everything_server_url: str) -> None:
+    """Test that titles are properly returned for tools, resources, and prompts."""
+    from mcp.shared.metadata_utils import get_display_name
+
+    async with sse_client(everything_server_url + "/sse") as streams:
+        async with ClientSession(*streams) as session:
+            # Initialize the session
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+            # Test tools have titles
+            tools_result = await session.list_tools()
+            assert tools_result.tools
+
+            # Check specific tools have titles
+            tool_names_to_titles = {
+                "tool_with_progress": "Progress Tool",
+                "echo": "Echo Tool",
+                "sampling_tool": "Sampling Tool",
+                "notification_tool": "Notification Tool",
+                "echo_headers": "Echo Headers",
+                "echo_context": "Echo Context",
+                "book_restaurant": "Restaurant Booking",
+            }
+
+            for tool in tools_result.tools:
+                if tool.name in tool_names_to_titles:
+                    assert tool.title == tool_names_to_titles[tool.name]
+                    # Test get_display_name utility
+                    assert get_display_name(tool) == tool_names_to_titles[tool.name]
+
+            # Test resources have titles
+            resources_result = await session.list_resources()
+            assert resources_result.resources
+
+            # Check specific resources have titles
+            static_resource = next((r for r in resources_result.resources if r.name == "Static Info"), None)
+            assert static_resource is not None
+            assert static_resource.title == "Static Information"
+            assert get_display_name(static_resource) == "Static Information"
+
+            # Test resource templates have titles
+            resource_templates = await session.list_resource_templates()
+            assert resource_templates.resourceTemplates
+
+            # Check specific resource templates have titles
+            template_uris_to_titles = {
+                "resource://dynamic/{category}": "Dynamic Resource",
+                "resource://template/{id}/data": "Template Resource",
+                "github://repos/{owner}/{repo}": "GitHub Repository",
+            }
+
+            for template in resource_templates.resourceTemplates:
+                if template.uriTemplate in template_uris_to_titles:
+                    assert template.title == template_uris_to_titles[template.uriTemplate]
+                    assert get_display_name(template) == template_uris_to_titles[template.uriTemplate]
+
+            # Test prompts have titles
+            prompts_result = await session.list_prompts()
+            assert prompts_result.prompts
+
+            # Check specific prompts have titles
+            prompt_names_to_titles = {
+                "simple_prompt": "Simple Prompt",
+                "complex_prompt": "Complex Prompt",
+            }
+
+            for prompt in prompts_result.prompts:
+                if prompt.name in prompt_names_to_titles:
+                    assert prompt.title == prompt_names_to_titles[prompt.name]
+                    assert get_display_name(prompt) == prompt_names_to_titles[prompt.name]

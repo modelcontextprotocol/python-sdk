@@ -37,6 +37,7 @@ from mcp.server.streamable_http import (
     StreamId,
 )
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import (
@@ -227,10 +228,14 @@ def create_app(is_json_response_enabled=False, event_store: EventStore | None = 
     server = ServerTest()
 
     # Create the session manager
+    security_settings = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+    )
     session_manager = StreamableHTTPSessionManager(
         app=server,
         event_store=event_store,
         json_response=is_json_response_enabled,
+        security_settings=security_settings,
     )
 
     # Create an ASGI application that uses the session manager
@@ -436,8 +441,9 @@ def test_content_type_validation(basic_server, basic_server_url):
         },
         data="This is not JSON",
     )
-    assert response.status_code == 415
-    assert "Unsupported Media Type" in response.text
+
+    assert response.status_code == 400
+    assert "Invalid Content-Type" in response.text
 
 
 def test_json_validation(basic_server, basic_server_url):
@@ -1521,3 +1527,40 @@ def test_server_backwards_compatibility_no_protocol_version(basic_server, basic_
     )
     assert response.status_code == 200  # Should succeed for backwards compatibility
     assert response.headers.get("Content-Type") == "text/event-stream"
+
+
+@pytest.mark.anyio
+async def test_client_crash_handled(basic_server, basic_server_url):
+    """Test that cases where the client crashes are handled gracefully."""
+
+    # Simulate bad client that crashes after init
+    async def bad_client():
+        """Client that triggers ClosedResourceError"""
+        async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                raise Exception("client crash")
+
+    # Run bad client a few times to trigger the crash
+    for _ in range(3):
+        try:
+            await bad_client()
+        except Exception:
+            pass
+        await anyio.sleep(0.1)
+
+    # Try a good client, it should still be able to connect and list tools
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            tools = await session.list_tools()
+            assert tools.tools

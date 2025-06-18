@@ -45,7 +45,7 @@ def main(
     app = Server("mcp-streamable-http-demo")
 
     @app.call_tool()
-    async def call_tool(name: str, arguments: dict) -> list[types.Content]:
+    async def call_tool(name: str, arguments: dict) -> list[types.ContentBlock]:
         ctx = app.request_context
         interval = arguments.get("interval", 1.0)
         count = arguments.get("count", 5)

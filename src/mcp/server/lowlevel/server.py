@@ -384,7 +384,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(
             func: Callable[
                 ...,
-                Awaitable[Iterable[types.Content]],
+                Awaitable[Iterable[types.ContentBlock]],
             ],
         ):
             logger.debug("Registering handler for CallToolRequest")
@@ -433,6 +433,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                 [
                     types.PromptReference | types.ResourceTemplateReference,
                     types.CompletionArgument,
+                    types.CompletionContext | None,
                 ],
                 Awaitable[types.Completion | None],
             ],
@@ -440,7 +441,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             logger.debug("Registering handler for CompleteRequest")
 
             async def handler(req: types.CompleteRequest):
-                completion = await func(req.params.ref, req.params.argument)
+                completion = await func(req.params.ref, req.params.argument, req.params.context)
                 return types.ServerResult(
                     types.CompleteResult(
                         completion=completion

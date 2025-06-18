@@ -7,16 +7,16 @@ from typing import Any, Literal
 import pydantic_core
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
-from mcp.types import Content, TextContent
+from mcp.types import ContentBlock, TextContent
 
 
 class Message(BaseModel):
     """Base class for all prompt messages."""
 
     role: Literal["user", "assistant"]
-    content: Content
+    content: ContentBlock
 
-    def __init__(self, content: str | Content, **kwargs: Any):
+    def __init__(self, content: str | ContentBlock, **kwargs: Any):
         if isinstance(content, str):
             content = TextContent(type="text", text=content)
         super().__init__(content=content, **kwargs)
@@ -27,7 +27,7 @@ class UserMessage(Message):
 
     role: Literal["user", "assistant"] = "user"
 
-    def __init__(self, content: str | Content, **kwargs: Any):
+    def __init__(self, content: str | ContentBlock, **kwargs: Any):
         super().__init__(content=content, **kwargs)
 
 
@@ -36,7 +36,7 @@ class AssistantMessage(Message):
 
     role: Literal["user", "assistant"] = "assistant"
 
-    def __init__(self, content: str | Content, **kwargs: Any):
+    def __init__(self, content: str | ContentBlock, **kwargs: Any):
         super().__init__(content=content, **kwargs)
 
 
@@ -58,6 +58,7 @@ class Prompt(BaseModel):
     """A prompt template that can be rendered with parameters."""
 
     name: str = Field(description="Name of the prompt")
+    title: str | None = Field(None, description="Human-readable title of the prompt")
     description: str | None = Field(None, description="Description of what the prompt does")
     arguments: list[PromptArgument] | None = Field(None, description="Arguments that can be passed to the prompt")
     fn: Callable[..., PromptResult | Awaitable[PromptResult]] = Field(exclude=True)
@@ -67,6 +68,7 @@ class Prompt(BaseModel):
         cls,
         fn: Callable[..., PromptResult | Awaitable[PromptResult]],
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
     ) -> "Prompt":
         """Create a Prompt from a function.
@@ -103,6 +105,7 @@ class Prompt(BaseModel):
 
         return cls(
             name=func_name,
+            title=title,
             description=description or fn.__doc__ or "",
             arguments=arguments,
             fn=fn,
