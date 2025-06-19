@@ -151,7 +151,7 @@ class TokenHandler:
                     authorize_request_redirect_uri = auth_code.redirect_uri
                 else:
                     authorize_request_redirect_uri = None
-                if token_request.redirect_uri != authorize_request_redirect_uri:
+                if str(token_request.redirect_uri) != str(authorize_request_redirect_uri):
                     return self.response(
                         TokenErrorResponse(
                             error="invalid_request",
