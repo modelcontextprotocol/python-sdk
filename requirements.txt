@@ -1,0 +1,4 @@
+python-dotenv
+model-context-protocol
+uvicorn
+aiohttp

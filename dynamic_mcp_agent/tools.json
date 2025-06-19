@@ -1,0 +1,60 @@
+[
+  {
+    "id": "query_database_tool",
+    "description": "Queries a database with the given SQL query and returns the result.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "sql_query": {
+          "type": "string",
+          "description": "The SQL query to execute (e.g., 'SELECT * FROM users WHERE id = 1')."
+        }
+      },
+      "required": ["sql_query"]
+    },
+    "executable_function_name": "query_database"
+  },
+  {
+    "id": "call_rest_api_tool",
+    "description": "Calls a REST API endpoint with the given parameters and returns the JSON response.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "The full URL of the API endpoint."
+        },
+        "method": {
+          "type": "string",
+          "enum": ["GET", "POST", "PUT", "DELETE"],
+          "description": "The HTTP method to use."
+        },
+        "headers": {
+          "type": "object",
+          "description": "Optional HTTP headers as key-value pairs."
+        },
+        "body": {
+          "type": "object",
+          "description": "Optional JSON body for POST or PUT requests."
+        }
+      },
+      "required": ["url", "method"]
+    },
+    "executable_function_name": "call_rest_api"
+  },
+  {
+    "id": "scrape_web_tool",
+    "description": "Scrapes textual content from a given URL.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "The URL of the webpage to scrape."
+        }
+      },
+      "required": ["url"]
+    },
+    "executable_function_name": "scrape_web"
+  }
+]
