@@ -888,6 +888,22 @@ async def run():
 
             # Call a tool
             result = await session.call_tool("tool-name", arguments={"arg1": "value"})
+            # Parse the result (type: CallToolResult)
+            for item in result.content:
+                if isinstance(item, types.TextContent):
+                    # Extract text directly from TextContent
+                    print(f"Tool output (TextContent): {item.text}")
+                elif isinstance(item, types.EmbeddedResource):
+                    # Check if the embedded resource contains text
+                    if isinstance(item.resource, types.TextResourceContents):
+                        print(f"Tool output (EmbeddedResource - Text): {item.resource.text}")
+                    elif isinstance(item.resource, types.BlobResourceContents):
+                        print(f"Tool output (EmbeddedResource - Blob): URI {item.resource.uri}, MIME Type {item.resource.mimeType}")
+                elif isinstance(item, types.ImageContent):
+                    # Showing only a snippet of image data
+                    print(f"Tool output (ImageContent): MIME Type {item.mimeType}, Data (base64): {item.data[:30]}...")
+                else:
+                    print(f"Tool output (Unknown Content Type): {type(item)}")
 
 
 if __name__ == "__main__":
@@ -900,7 +916,7 @@ Clients can also connect using [Streamable HTTP transport](https://modelcontextp
 
 ```python
 from mcp.client.streamable_http import streamablehttp_client
-from mcp import ClientSession
+from mcp import ClientSession, types
 
 
 async def main():
@@ -916,6 +932,22 @@ async def main():
             await session.initialize()
             # Call a tool
             tool_result = await session.call_tool("echo", {"message": "hello"})
+            # Parse the result (type: CallToolResult)
+            for item in tool_result.content:
+                if isinstance(item, types.TextContent):
+                    # Extract text directly from TextContent
+                    print(f"Tool output (TextContent): {item.text}")
+                elif isinstance(item, types.EmbeddedResource):
+                    # Check if the embedded resource contains text
+                    if isinstance(item.resource, types.TextResourceContents):
+                        print(f"Tool output (EmbeddedResource - Text): {item.resource.text}")
+                    elif isinstance(item.resource, types.BlobResourceContents):
+                        print(f"Tool output (EmbeddedResource - Blob): URI {item.resource.uri}, MIME Type {item.resource.mimeType}")
+                elif isinstance(item, types.ImageContent):
+                    # Showing only a snippet of image data
+                    print(f"Tool output (ImageContent): MIME Type {item.mimeType}, Data (base64): {item.data[:30]}...")
+                else:
+                    print(f"Tool output (Unknown Content Type): {type(item)}")
 ```
 
 ### Client Display Utilities
