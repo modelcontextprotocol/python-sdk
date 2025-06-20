@@ -73,7 +73,7 @@ class IntrospectionTokenVerifier(TokenVerifier):
                     client_id=data.get("client_id", "unknown"),
                     scopes=data.get("scope", "").split() if data.get("scope") else [],
                     expires_at=data.get("exp"),
-                    resource=data.get("aud") or data.get("resource"),  # Include resource in token
+                    resource=data.get("aud"),  # Include resource in token
                 )
             except Exception as e:
                 logger.warning(f"Token introspection failed: {e}")
@@ -82,7 +82,7 @@ class IntrospectionTokenVerifier(TokenVerifier):
     def _validate_resource(self, token_data: dict) -> bool:
         """Validate token was issued for this resource server."""
         if not self.server_url or not self.resource_url:
-            return True  # No validation if server URL not configured
+            return False  # Fail if strict validation requested but URLs missing
 
         # Check 'aud' claim first (standard JWT audience)
         aud = token_data.get("aud")
@@ -93,11 +93,6 @@ class IntrospectionTokenVerifier(TokenVerifier):
             return False
         elif aud:
             return self._is_valid_resource(aud)
-
-        # Check custom 'resource' claim if no 'aud'
-        resource = token_data.get("resource")
-        if resource:
-            return self._is_valid_resource(resource)
 
         # No resource binding - invalid per RFC 8707
         return False

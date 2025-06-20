@@ -1,6 +1,6 @@
 """Utilities for OAuth 2.0 Resource Indicators (RFC 8707)."""
 
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse, urlsplit, urlunsplit
 
 from pydantic import AnyUrl, HttpUrl
 
@@ -20,20 +20,9 @@ def resource_url_from_server_url(url: str | HttpUrl | AnyUrl) -> str:
     # Convert to string if needed
     url_str = str(url)
 
-    # Parse the URL
-    parsed = urlparse(url_str)
-
-    # Create canonical form: lowercase scheme and host, no fragment
-    canonical = urlunparse(
-        (
-            parsed.scheme.lower(),  # Lowercase scheme
-            parsed.netloc.lower(),  # Lowercase host (includes port)
-            parsed.path,
-            parsed.params,
-            parsed.query,
-            "",  # Remove fragment
-        )
-    )
+    # Parse the URL and remove fragment, create canonical form
+    parsed = urlsplit(url_str)
+    canonical = urlunsplit(parsed._replace(scheme=parsed.scheme.lower(), netloc=parsed.netloc.lower(), fragment=""))
 
     return canonical
 
