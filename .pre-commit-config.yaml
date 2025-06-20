@@ -7,6 +7,13 @@ repos:
       - id: prettier
         types_or: [yaml, json5]
 
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.18.1
+    hooks:
+      - id: markdownlint-cli2
+        args: ["--fix"]
+        types: [markdown]
+
   - repo: local
     hooks:
       - id: ruff-format

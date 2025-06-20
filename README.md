@@ -95,6 +95,7 @@ If you haven't created a uv-managed project yet, create one:
    ```
 
 Alternatively, for projects using pip for dependencies:
+
 ```bash
 pip install "mcp[cli]"
 ```
@@ -134,11 +135,13 @@ def get_greeting(name: str) -> str:
 ```
 
 You can install this server in [Claude Desktop](https://claude.ai/download) and interact with it right away by running:
+
 ```bash
 uv run mcp install server.py
 ```
 
 Alternatively, you can test it with the MCP Inspector:
+
 ```bash
 uv run mcp dev server.py
 ```
@@ -264,9 +267,10 @@ _Full example: [examples/snippets/servers/basic_tool.py](https://github.com/mode
 #### Structured Output
 
 Tools will return structured results by default, if their return type
-annotation is compatible. Otherwise, they will return unstructured results. 
+annotation is compatible. Otherwise, they will return unstructured results.
 
 Structured output supports these return types:
+
 - Pydantic models (BaseModel subclasses)
 - TypedDicts
 - Dataclasses and other classes with type hints
@@ -278,17 +282,17 @@ Classes without type hints cannot be serialized for structured output. Only
 classes with properly annotated attributes will be converted to Pydantic models
 for schema generation and validation.
 
-Structured results are automatically validated against the output schema 
-generated from the annotation. This ensures the tool returns well-typed, 
+Structured results are automatically validated against the output schema
+generated from the annotation. This ensures the tool returns well-typed,
 validated data that clients can easily process.
 
 **Note:** For backward compatibility, unstructured results are also
-returned. Unstructured results are provided for backward compatibility 
+returned. Unstructured results are provided for backward compatibility
 with previous versions of the MCP specification, and are quirks-compatible
 with previous versions of FastMCP in the current version of the SDK.
 
-**Note:** In cases where a tool function's return type annotation 
-causes the tool to be classified as structured _and this is undesirable_, 
+**Note:** In cases where a tool function's return type annotation
+causes the tool to be classified as structured _and this is undesirable_,
 the  classification can be suppressed by passing `structured_output=False`
 to the `@tool` decorator.
 
@@ -464,6 +468,7 @@ _Full example: [examples/snippets/servers/tool_progress.py](https://github.com/m
 MCP supports providing completion suggestions for prompt arguments and resource template parameters. With the context parameter, servers can provide completions based on previously resolved values:
 
 Client usage:
+
 ```python
 from mcp.client.session import ClientSession
 from mcp.types import ResourceTemplateReference
@@ -596,6 +601,7 @@ _Full example: [examples/snippets/servers/elicitation.py](https://github.com/mod
 <!-- /snippet-source -->
 
 The `elicit()` method returns an `ElicitationResult` with:
+
 - `action`: "accept", "decline", or "cancel"
 - `data`: The validated response (only when accepted)
 - `validation_error`: Any validation error message
@@ -697,6 +703,7 @@ mcp = FastMCP(
 For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](examples/servers/simple-auth/).
 
 **Architecture:**
+
 - **Authorization Server (AS)**: Handles OAuth flows, user authentication, and token issuance
 - **Resource Server (RS)**: Your MCP server that validates tokens and serves protected resources
 - **Client**: Discovers AS through RFC 9728, obtains tokens, and uses them with the MCP server
@@ -748,6 +755,7 @@ if __name__ == "__main__":
 ```
 
 Run it with:
+
 ```bash
 python server.py
 # or
@@ -827,10 +835,12 @@ app.mount("/math", math.mcp.streamable_http_app())
 ```
 
 For low level server with Streamable HTTP implementations, see:
+
 - Stateful server: [`examples/servers/simple-streamablehttp/`](examples/servers/simple-streamablehttp/)
 - Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](examples/servers/simple-streamablehttp-stateless/)
 
 The streamable HTTP transport supports:
+
 - Stateful and stateless operation modes
 - Resumability with event stores
 - JSON or SSE response formats
@@ -1003,6 +1013,7 @@ async def query_db(name: str, arguments: dict) -> list:
 ```
 
 The lifespan API provides:
+
 - A way to initialize resources when the server starts and clean them up when it stops
 - Access to initialized resources through the request context in handlers
 - Type-safe context passing between lifespan and request handlers
@@ -1129,6 +1140,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
 ```
 
 Tools can return data in three ways:
+
 1. **Content only**: Return a list of content blocks (default behavior before spec revision 2025-06-18)
 2. **Structured data only**: Return a dictionary that will be serialized to JSON (Introduced in spec revision 2025-06-18)
 3. **Both**: Return a tuple of (content, structured_data) preferred option to use for backwards compatibility
@@ -1254,6 +1266,7 @@ async def display_resources(session: ClientSession):
 ```
 
 The `get_display_name()` function implements the proper precedence rules for displaying names:
+
 - For tools: `title` > `annotations.title` > `name`
 - For other objects: `title` > `name`
 
@@ -1311,7 +1324,6 @@ async def main():
 ```
 
 For a complete working example, see [`examples/clients/simple-auth-client/`](examples/clients/simple-auth-client/).
-
 
 ### MCP Primitives
 
