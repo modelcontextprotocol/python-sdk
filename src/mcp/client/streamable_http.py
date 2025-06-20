@@ -471,8 +471,8 @@ async def streamablehttp_client(
     read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
-    async with anyio.create_task_group() as tg:
-        try:
+    try:
+        async with anyio.create_task_group() as tg:
             logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 
             async with httpx_client_factory(
@@ -504,6 +504,13 @@ async def streamablehttp_client(
                     if transport.session_id and terminate_on_close:
                         await transport.terminate_session(client)
                     tg.cancel_scope.cancel()
-        finally:
-            await read_stream_writer.aclose()
-            await write_stream.aclose()
+    except Exception as e:
+        logger.error(f"TaskGroup exception in StreamableHTTP transport: {e}")
+        try:
+            await read_stream_writer.send(e)
+        except Exception:
+            logger.error(f"Failed to send TaskGroup exception to read stream: {e}")
+        raise
+    finally:
+        await read_stream_writer.aclose()
+        await write_stream.aclose()
