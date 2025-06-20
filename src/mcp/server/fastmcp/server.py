@@ -9,7 +9,6 @@ from contextlib import (
     AbstractAsyncContextManager,
     asynccontextmanager,
 )
-from itertools import chain
 from typing import Any, Generic, Literal
 
 import anyio
@@ -40,7 +39,6 @@ from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
-from mcp.server.fastmcp.utilities.types import Image
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.lowlevel.server import Server as MCPServer
@@ -56,7 +54,6 @@ from mcp.types import (
     AnyFunction,
     ContentBlock,
     GetPromptResult,
-    TextContent,
     ToolAnnotations,
 )
 from mcp.types import Prompt as MCPPrompt
@@ -244,6 +241,7 @@ class FastMCP:
                 title=info.title,
                 description=info.description,
                 inputSchema=info.parameters,
+                outputSchema=info.output_schema,
                 annotations=info.annotations,
             )
             for info in tools
@@ -260,12 +258,10 @@ class FastMCP:
             request_context = None
         return Context(request_context=request_context, fastmcp=self)
 
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Sequence[ContentBlock]:
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Sequence[ContentBlock] | dict[str, Any]:
         """Call a tool by name with arguments."""
         context = self.get_context()
-        result = await self._tool_manager.call_tool(name, arguments, context=context)
-        converted_result = _convert_to_content(result)
-        return converted_result
+        return await self._tool_manager.call_tool_and_convert_result(name, arguments, context=context)
 
     async def list_resources(self) -> list[MCPResource]:
         """List all available resources."""
@@ -315,6 +311,7 @@ class FastMCP:
         title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        structured_output: bool = False,
     ) -> None:
         """Add a tool to the server.
 
@@ -327,8 +324,16 @@ class FastMCP:
             title: Optional human-readable title for the tool
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
+            structured_output: If True, validates the tool's output against its return type annotation
         """
-        self._tool_manager.add_tool(fn, name=name, title=title, description=description, annotations=annotations)
+        self._tool_manager.add_tool(
+            fn,
+            name=name,
+            title=title,
+            description=description,
+            annotations=annotations,
+            structured_output=structured_output,
+        )
 
     def tool(
         self,
@@ -336,6 +341,7 @@ class FastMCP:
         title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        structured_output: bool = False,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
 
@@ -348,6 +354,7 @@ class FastMCP:
             title: Optional human-readable title for the tool
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
+            structured_output: If True, validates the tool's output against its return type annotation
 
         Example:
             @server.tool()
@@ -371,7 +378,14 @@ class FastMCP:
             )
 
         def decorator(fn: AnyFunction) -> AnyFunction:
-            self.add_tool(fn, name=name, title=title, description=description, annotations=annotations)
+            self.add_tool(
+                fn,
+                name=name,
+                title=title,
+                description=description,
+                annotations=annotations,
+                structured_output=structured_output,
+            )
             return fn
 
         return decorator
@@ -874,28 +888,6 @@ class FastMCP:
         except Exception as e:
             logger.error(f"Error getting prompt {name}: {e}")
             raise ValueError(str(e))
-
-
-def _convert_to_content(
-    result: Any,
-) -> Sequence[ContentBlock]:
-    """Convert a result to a sequence of content objects."""
-    if result is None:
-        return []
-
-    if isinstance(result, ContentBlock):
-        return [result]
-
-    if isinstance(result, Image):
-        return [result.to_image_content()]
-
-    if isinstance(result, list | tuple):
-        return list(chain.from_iterable(_convert_to_content(item) for item in result))  # type: ignore[reportUnknownVariableType]
-
-    if not isinstance(result, str):
-        result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
-
-    return [TextContent(type="text", text=result)]
 
 
 class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):

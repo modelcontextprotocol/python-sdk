@@ -72,9 +72,10 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from typing import Any, Generic
+from typing import Any, Generic, cast
 
 import anyio
+import pydantic_core
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 from typing_extensions import TypeVar
@@ -381,10 +382,23 @@ class Server(Generic[LifespanResultT, RequestT]):
         return decorator
 
     def call_tool(self):
+        """Decorator for handling tool call requests.
+
+        The decorated function can return one of two types:
+        1. Iterable[types.ContentBlock]: Traditional MCP content blocks that are returned as-is
+        2. dict[str, Any]: Structured data that will be:
+           - Serialized to JSON and included in the content field as text
+           - Included as-is in the structuredContent field
+
+        Note: The low-level server does NOT validate tool inputs against inputSchema
+        or outputs against outputSchema. Schema validation is the responsibility of
+        higher-level implementations.
+        """
+
         def decorator(
             func: Callable[
                 ...,
-                Awaitable[Iterable[types.ContentBlock]],
+                Awaitable[Iterable[types.ContentBlock] | dict[str, Any]],
             ],
         ):
             logger.debug("Registering handler for CallToolRequest")
@@ -392,7 +406,18 @@ class Server(Generic[LifespanResultT, RequestT]):
             async def handler(req: types.CallToolRequest):
                 try:
                     results = await func(req.params.name, (req.params.arguments or {}))
-                    return types.ServerResult(types.CallToolResult(content=list(results), isError=False))
+
+                    if isinstance(results, dict):
+                        json_content = pydantic_core.to_json(results, fallback=str, indent=2).decode()
+                        return types.ServerResult(
+                            types.CallToolResult(
+                                content=[types.TextContent(type="text", text=json_content)],
+                                structuredContent=cast(dict[str, Any], results),
+                                isError=False,
+                            )
+                        )
+                    else:
+                        return types.ServerResult(types.CallToolResult(content=list(results), isError=False))
                 except Exception as e:
                     return types.ServerResult(
                         types.CallToolResult(

@@ -1,16 +1,18 @@
 import base64
+import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
-from pydantic import AnyUrl
+from pydantic import AnyUrl, BaseModel
 from starlette.routing import Mount, Route
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.prompts.base import Message, UserMessage
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
 from mcp.server.fastmcp.utilities.types import Image
+from mcp.server.lowlevel import Server
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import (
     create_connected_server_and_client_session as client_session,
@@ -23,6 +25,7 @@ from mcp.types import (
     ImageContent,
     TextContent,
     TextResourceContents,
+    Tool,
 )
 
 if TYPE_CHECKING:
@@ -349,6 +352,338 @@ class TestServerTools:
             content4 = result.content[3]
             assert isinstance(content4, TextContent)
             assert content4.text == "direct content"
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_basemodel(self):
+        """Test tool with structured output returning BaseModel"""
+
+        class UserOutput(BaseModel):
+            name: str
+            age: int
+            active: bool = True
+
+        def get_user(user_id: int) -> UserOutput:
+            """Get user by ID"""
+            return UserOutput(name="John Doe", age=30)
+
+        mcp = FastMCP()
+        mcp.add_tool(get_user, structured_output=True)
+
+        async with client_session(mcp._mcp_server) as client:
+            # Check that the tool has outputSchema
+            tools = await client.list_tools()
+            tool = next(t for t in tools.tools if t.name == "get_user")
+            assert tool.outputSchema is not None
+            assert tool.outputSchema["type"] == "object"
+            assert "name" in tool.outputSchema["properties"]
+            assert "age" in tool.outputSchema["properties"]
+
+            # Call the tool and check structured output
+            result = await client.call_tool("get_user", {"user_id": 123})
+            assert result.isError is False
+            assert result.structuredContent is not None
+            assert result.structuredContent == {"name": "John Doe", "age": 30, "active": True}
+            # Content should be JSON serialized version
+            assert len(result.content) == 1
+            assert isinstance(result.content[0], TextContent)
+            assert '"name": "John Doe"' in result.content[0].text
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_primitive(self):
+        """Test tool with structured output returning primitive type"""
+
+        def calculate_sum(a: int, b: int) -> int:
+            """Add two numbers"""
+            return a + b
+
+        mcp = FastMCP()
+        mcp.add_tool(calculate_sum, structured_output=True)
+
+        async with client_session(mcp._mcp_server) as client:
+            # Check that the tool has outputSchema
+            tools = await client.list_tools()
+            tool = next(t for t in tools.tools if t.name == "calculate_sum")
+            assert tool.outputSchema is not None
+            # Primitive types are wrapped
+            assert tool.outputSchema["type"] == "object"
+            assert "result" in tool.outputSchema["properties"]
+            assert tool.outputSchema["properties"]["result"]["type"] == "integer"
+
+            # Call the tool
+            result = await client.call_tool("calculate_sum", {"a": 5, "b": 7})
+            assert result.isError is False
+            assert result.structuredContent is not None
+            assert result.structuredContent == {"result": 12}
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_list(self):
+        """Test tool with structured output returning list"""
+
+        def get_numbers() -> list[int]:
+            """Get a list of numbers"""
+            return [1, 2, 3, 4, 5]
+
+        mcp = FastMCP()
+        mcp.add_tool(get_numbers, structured_output=True)
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("get_numbers", {})
+            assert result.isError is False
+            assert result.structuredContent is not None
+            assert result.structuredContent == {"result": [1, 2, 3, 4, 5]}
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_server_side_validation_error(self):
+        """Test that server-side validation errors are handled properly"""
+
+        class StrictOutput(BaseModel):
+            value: int
+
+        def get_data() -> StrictOutput:
+            """Return invalid data"""
+            # This will fail validation since we return a dict with string instead of int
+            return {"value": "not an int"}  # type: ignore
+
+        mcp = FastMCP()
+        mcp.add_tool(get_data, structured_output=True)
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("get_data", {})
+            assert result.isError is True
+            assert result.structuredContent is None
+            assert len(result.content) == 1
+            assert isinstance(result.content[0], TextContent)
+            assert "Output validation failed" in result.content[0].text
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_dict_str_any(self):
+        """Test tool with dict[str, Any] structured output"""
+
+        def get_metadata() -> dict[str, Any]:
+            """Get metadata dictionary"""
+            return {
+                "version": "1.0.0",
+                "enabled": True,
+                "count": 42,
+                "tags": ["production", "stable"],
+                "config": {"nested": {"value": 123}},
+            }
+
+        mcp = FastMCP()
+        mcp.add_tool(get_metadata, structured_output=True)
+
+        async with client_session(mcp._mcp_server) as client:
+            # Check schema
+            tools = await client.list_tools()
+            tool = next(t for t in tools.tools if t.name == "get_metadata")
+            assert tool.outputSchema is not None
+            assert tool.outputSchema["type"] == "object"
+            # dict[str, Any] should have minimal schema
+            assert (
+                "additionalProperties" not in tool.outputSchema or tool.outputSchema.get("additionalProperties") is True
+            )
+
+            # Call tool
+            result = await client.call_tool("get_metadata", {})
+            assert result.isError is False
+            assert result.structuredContent is not None
+            expected = {
+                "version": "1.0.0",
+                "enabled": True,
+                "count": 42,
+                "tags": ["production", "stable"],
+                "config": {"nested": {"value": 123}},
+            }
+            assert result.structuredContent == expected
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_dict_str_typed(self):
+        """Test tool with dict[str, T] structured output for specific T"""
+
+        def get_settings() -> dict[str, str]:
+            """Get settings as string dictionary"""
+            return {"theme": "dark", "language": "en", "timezone": "UTC"}
+
+        mcp = FastMCP()
+        mcp.add_tool(get_settings, structured_output=True)
+
+        async with client_session(mcp._mcp_server) as client:
+            # Check schema
+            tools = await client.list_tools()
+            tool = next(t for t in tools.tools if t.name == "get_settings")
+            assert tool.outputSchema is not None
+            assert tool.outputSchema["type"] == "object"
+            assert tool.outputSchema["additionalProperties"]["type"] == "string"
+
+            # Call tool
+            result = await client.call_tool("get_settings", {})
+            assert result.isError is False
+            assert result.structuredContent == {"theme": "dark", "language": "en", "timezone": "UTC"}
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_client_side_validation_basemodel(self):
+        """Test that client validates structured content against schema for BaseModel outputs"""
+        # Create a malicious low-level server that returns invalid structured content
+        server = Server("test-server")
+
+        # Define the expected schema for our tool
+        output_schema = {
+            "type": "object",
+            "properties": {"name": {"type": "string", "title": "Name"}, "age": {"type": "integer", "title": "Age"}},
+            "required": ["name", "age"],
+            "title": "UserOutput",
+        }
+
+        @server.list_tools()
+        async def list_tools():
+            return [
+                Tool(
+                    name="get_user",
+                    description="Get user data",
+                    inputSchema={"type": "object"},
+                    outputSchema=output_schema,
+                )
+            ]
+
+        @server.call_tool()
+        async def call_tool(name: str, arguments: dict):
+            # Return invalid structured content - age is string instead of integer
+            # The low-level server will wrap this in CallToolResult
+            return {"name": "John", "age": "invalid"}  # Invalid: age should be int
+
+        # Test that client validates the structured content
+        async with client_session(server) as client:
+            # The client validates structured content and should raise an error
+            with pytest.raises(RuntimeError) as exc_info:
+                await client.call_tool("get_user", {})
+            # Verify it's a validation error
+            assert "Invalid structured content returned by tool get_user" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_client_side_validation_primitive(self):
+        """Test that client validates structured content for primitive outputs"""
+        server = Server("test-server")
+
+        # Primitive types are wrapped in {"result": value}
+        output_schema = {
+            "type": "object",
+            "properties": {"result": {"type": "integer", "title": "Result"}},
+            "required": ["result"],
+            "title": "calculate_Output",
+        }
+
+        @server.list_tools()
+        async def list_tools():
+            return [
+                Tool(
+                    name="calculate",
+                    description="Calculate something",
+                    inputSchema={"type": "object"},
+                    outputSchema=output_schema,
+                )
+            ]
+
+        @server.call_tool()
+        async def call_tool(name: str, arguments: dict):
+            # Return invalid structured content - result is string instead of integer
+            return {"result": "not_a_number"}  # Invalid: should be int
+
+        async with client_session(server) as client:
+            # The client validates structured content and should raise an error
+            with pytest.raises(RuntimeError) as exc_info:
+                await client.call_tool("calculate", {})
+            assert "Invalid structured content returned by tool calculate" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_client_side_validation_dict_typed(self):
+        """Test that client validates dict[str, T] structured content"""
+        server = Server("test-server")
+
+        # dict[str, int] schema
+        output_schema = {"type": "object", "additionalProperties": {"type": "integer"}, "title": "get_scores_Output"}
+
+        @server.list_tools()
+        async def list_tools():
+            return [
+                Tool(
+                    name="get_scores",
+                    description="Get scores",
+                    inputSchema={"type": "object"},
+                    outputSchema=output_schema,
+                )
+            ]
+
+        @server.call_tool()
+        async def call_tool(name: str, arguments: dict):
+            # Return invalid structured content - values should be integers
+            return {"alice": "100", "bob": "85"}  # Invalid: values should be int
+
+        async with client_session(server) as client:
+            # The client validates structured content and should raise an error
+            with pytest.raises(RuntimeError) as exc_info:
+                await client.call_tool("get_scores", {})
+            assert "Invalid structured content returned by tool get_scores" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_client_side_validation_missing_required(self):
+        """Test that client validates missing required fields"""
+        server = Server("test-server")
+
+        output_schema = {
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "age": {"type": "integer"}, "email": {"type": "string"}},
+            "required": ["name", "age", "email"],  # All fields required
+            "title": "PersonOutput",
+        }
+
+        @server.list_tools()
+        async def list_tools():
+            return [
+                Tool(
+                    name="get_person",
+                    description="Get person data",
+                    inputSchema={"type": "object"},
+                    outputSchema=output_schema,
+                )
+            ]
+
+        @server.call_tool()
+        async def call_tool(name: str, arguments: dict):
+            # Return structured content missing required field 'email'
+            return {"name": "John", "age": 30}  # Missing required 'email'
+
+        async with client_session(server) as client:
+            # The client validates structured content and should raise an error
+            with pytest.raises(RuntimeError) as exc_info:
+                await client.call_tool("get_person", {})
+            assert "Invalid structured content returned by tool get_person" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_tool_not_listed_warning(self, caplog):
+        """Test that client logs warning when tool is not in list_tools but has outputSchema"""
+        server = Server("test-server")
+
+        @server.list_tools()
+        async def list_tools():
+            # Return empty list - tool is not listed
+            return []
+
+        @server.call_tool()
+        async def call_tool(name: str, arguments: dict):
+            # Server still responds to the tool call with structured content
+            return {"result": 42}
+
+        # Set logging level to capture warnings
+        caplog.set_level(logging.WARNING)
+
+        async with client_session(server) as client:
+            # Call a tool that wasn't listed
+            result = await client.call_tool("mystery_tool", {})
+            assert result.structuredContent == {"result": 42}
+            assert result.isError is False
+
+            # Check that warning was logged
+            assert "Tool mystery_tool not listed" in caplog.text
 
 
 class TestServerResources:

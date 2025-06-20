@@ -49,9 +49,17 @@ class ToolManager:
         title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        structured_output: bool = False,
     ) -> Tool:
         """Add a tool to the server."""
-        tool = Tool.from_function(fn, name=name, title=title, description=description, annotations=annotations)
+        tool = Tool.from_function(
+            fn,
+            name=name,
+            title=title,
+            description=description,
+            annotations=annotations,
+            structured_output=structured_output,
+        )
         existing = self._tools.get(tool.name)
         if existing:
             if self.warn_on_duplicate_tools:
@@ -72,3 +80,17 @@ class ToolManager:
             raise ToolError(f"Unknown tool: {name}")
 
         return await tool.run(arguments, context=context)
+
+    async def call_tool_and_convert_result(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
+    ) -> Any:
+        """Call a tool by name with arguments and convert the result if structured output is enabled."""
+        tool = self.get_tool(name)
+        if not tool:
+            raise ToolError(f"Unknown tool: {name}")
+
+        result = await tool.run(arguments, context=context)
+        return tool.convert_result(result)
