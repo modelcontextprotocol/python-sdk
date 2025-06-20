@@ -4,7 +4,6 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from pydantic import AnyUrl, BaseModel
 
-from mcp.server.auth.token_verifier import TokenVerifier
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 
@@ -88,6 +87,13 @@ TokenErrorCode = Literal[
 class TokenError(Exception):
     error: TokenErrorCode
     error_description: str | None = None
+
+
+class TokenVerifier(Protocol):
+    """Protocol for verifying bearer tokens."""
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        """Verify a bearer token and return access info if valid."""
 
 
 # NOTE: FastMCP doesn't render any of these types in the user response, so it's

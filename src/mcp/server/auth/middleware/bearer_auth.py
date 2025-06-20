@@ -7,8 +7,7 @@ from starlette.authentication import AuthCredentials, AuthenticationBackend, Sim
 from starlette.requests import HTTPConnection
 from starlette.types import Receive, Scope, Send
 
-from mcp.server.auth.provider import AccessToken
-from mcp.server.auth.token_verifier import TokenVerifier
+from mcp.server.auth.provider import AccessToken, TokenVerifier
 
 
 class AuthenticatedUser(SimpleUser):

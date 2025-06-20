@@ -30,9 +30,8 @@ from mcp.server.auth.middleware.bearer_auth import (
     BearerAuthBackend,
     RequireAuthMiddleware,
 )
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier
+from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.auth.token_verifier import TokenVerifier
 from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, elicit_with_validation
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager

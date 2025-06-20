@@ -2,8 +2,7 @@
 
 import logging
 
-from mcp.server.auth.provider import AccessToken
-from mcp.server.auth.token_verifier import TokenVerifier
+from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.shared.auth_utils import check_resource_allowed, resource_url_from_server_url
 
 logger = logging.getLogger(__name__)

@@ -429,7 +429,7 @@ MCP servers can use authentication by providing an implementation of the `TokenV
 
 ```python
 from mcp import FastMCP
-from mcp.server.auth.verifier import TokenVerifier
+from mcp.server.auth.provider import TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 
 class MyTokenVerifier(TokenVerifier):
@@ -455,7 +455,7 @@ For a complete example with separate Authorization Server and Resource Server im
 - **Resource Server (RS)**: Your MCP server that validates tokens and serves protected resources
 - **Client**: Discovers AS through RFC 9728, obtains tokens, and uses them with the MCP server
 
-See [TokenVerifier](src/mcp/server/auth/verifier.py) for more details on implementing token validation.
+See [TokenVerifier](src/mcp/server/auth/provider.py) for more details on implementing token validation.
 
 ## Running Your Server
 
