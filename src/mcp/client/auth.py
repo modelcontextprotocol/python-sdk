@@ -27,6 +27,7 @@ from mcp.shared.auth import (
     OAuthToken,
     ProtectedResourceMetadata,
 )
+from mcp.shared.auth_utils import check_resource_allowed, resource_url_from_server_url
 from mcp.types import LATEST_PROTOCOL_VERSION
 
 logger = logging.getLogger(__name__)
@@ -133,6 +134,21 @@ class OAuthContext:
         """Clear current tokens."""
         self.current_tokens = None
         self.token_expiry_time = None
+
+    def get_resource_url(self) -> str:
+        """Get resource URL for RFC 8707.
+
+        Uses PRM resource if it's a valid parent, otherwise uses canonical server URL.
+        """
+        resource = resource_url_from_server_url(self.server_url)
+
+        # If PRM provides a resource that's a valid parent, use it
+        if self.protected_resource_metadata and self.protected_resource_metadata.resource:
+            prm_resource = str(self.protected_resource_metadata.resource)
+            if check_resource_allowed(requested_resource=resource, configured_resource=prm_resource):
+                resource = prm_resource
+
+        return resource
 
 
 class OAuthClientProvider(httpx.Auth):
@@ -256,6 +272,7 @@ class OAuthClientProvider(httpx.Auth):
             "state": state,
             "code_challenge": pkce_params.code_challenge,
             "code_challenge_method": "S256",
+            "resource": self.context.get_resource_url(),  # RFC 8707
         }
 
         if self.context.client_metadata.scope:
@@ -293,6 +310,7 @@ class OAuthClientProvider(httpx.Auth):
             "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
             "client_id": self.context.client_info.client_id,
             "code_verifier": code_verifier,
+            "resource": self.context.get_resource_url(),  # RFC 8707
         }
 
         if self.context.client_info.client_secret:
@@ -343,6 +361,7 @@ class OAuthClientProvider(httpx.Auth):
             "grant_type": "refresh_token",
             "refresh_token": self.context.current_tokens.refresh_token,
             "client_id": self.context.client_info.client_id,
+            "resource": self.context.get_resource_url(),  # RFC 8707
         }
 
         if self.context.client_info.client_secret:

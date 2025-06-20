@@ -65,7 +65,7 @@ class GitHubOAuthProvider(OAuthAuthorizationServerProvider):
         self.clients: dict[str, OAuthClientInformationFull] = {}
         self.auth_codes: dict[str, AuthorizationCode] = {}
         self.tokens: dict[str, AccessToken] = {}
-        self.state_mapping: dict[str, dict[str, str]] = {}
+        self.state_mapping: dict[str, dict[str, str | None]] = {}
         # Maps MCP tokens to GitHub tokens
         self.token_mapping: dict[str, str] = {}
 
@@ -87,6 +87,7 @@ class GitHubOAuthProvider(OAuthAuthorizationServerProvider):
             "code_challenge": params.code_challenge,
             "redirect_uri_provided_explicitly": str(params.redirect_uri_provided_explicitly),
             "client_id": client.client_id,
+            "resource": params.resource,  # RFC 8707
         }
 
         # Build GitHub authorization URL
@@ -110,6 +111,12 @@ class GitHubOAuthProvider(OAuthAuthorizationServerProvider):
         code_challenge = state_data["code_challenge"]
         redirect_uri_provided_explicitly = state_data["redirect_uri_provided_explicitly"] == "True"
         client_id = state_data["client_id"]
+        resource = state_data.get("resource")  # RFC 8707
+
+        # These are required values from our own state mapping
+        assert redirect_uri is not None
+        assert code_challenge is not None
+        assert client_id is not None
 
         # Exchange code for token with GitHub
         async with create_mcp_http_client() as client:
@@ -144,6 +151,7 @@ class GitHubOAuthProvider(OAuthAuthorizationServerProvider):
                 expires_at=time.time() + 300,
                 scopes=[self.settings.mcp_scope],
                 code_challenge=code_challenge,
+                resource=resource,  # RFC 8707
             )
             self.auth_codes[new_code] = auth_code
 
@@ -180,6 +188,7 @@ class GitHubOAuthProvider(OAuthAuthorizationServerProvider):
             client_id=client.client_id,
             scopes=authorization_code.scopes,
             expires_at=int(time.time()) + 3600,
+            resource=authorization_code.resource,  # RFC 8707
         )
 
         # Find GitHub token for this client
