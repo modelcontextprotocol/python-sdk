@@ -113,16 +113,20 @@ def create_authorization_server(server_settings: AuthServerSettings, github_sett
             return JSONResponse({"active": False})
 
         # Return token info for Resource Server
-        return JSONResponse(
-            {
-                "active": True,
-                "client_id": access_token.client_id,
-                "scope": " ".join(access_token.scopes),
-                "exp": access_token.expires_at,
-                "iat": int(time.time()),
-                "token_type": "Bearer",
-            }
-        )
+        response_data = {
+            "active": True,
+            "client_id": access_token.client_id,
+            "scope": " ".join(access_token.scopes),
+            "exp": access_token.expires_at,
+            "iat": int(time.time()),
+            "token_type": "Bearer",
+        }
+        
+        # Include audience claim for RFC 8707 resource validation
+        if access_token.resource:
+            response_data["aud"] = access_token.resource
+            
+        return JSONResponse(response_data)
 
     routes.append(
         Route(
