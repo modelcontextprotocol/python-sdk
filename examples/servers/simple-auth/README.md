@@ -7,9 +7,9 @@ This is just an example of a server that uses auth, an official GitHub mcp serve
 ## Overview
 
 This simple demo to show to set up a server with:
+
 - GitHub OAuth2 authorization flow
 - Single tool: `get_user_profile` to retrieve GitHub user information
-
 
 ## Prerequisites
 
@@ -32,7 +32,6 @@ export MCP_GITHUB_GITHUB_CLIENT_SECRET="your_client_secret_here"
 
 The server will not start without these environment variables properly set.
 
-
 ## Running the Server
 
 ```bash
@@ -49,6 +48,7 @@ The server will start on `http://localhost:8000`.
 This server supports multiple transport protocols that can run on the same port:
 
 #### SSE (Server-Sent Events) - Default
+
 ```bash
 uv run mcp-simple-auth
 # or explicitly:
@@ -56,16 +56,18 @@ uv run mcp-simple-auth --transport sse
 ```
 
 SSE transport provides endpoint:
+
 - `/sse`
 
 #### Streamable HTTP
+
 ```bash
 uv run mcp-simple-auth --transport streamable-http
 ```
 
 Streamable HTTP transport provides endpoint:
-- `/mcp`
 
+- `/mcp`
 
 This ensures backward compatibility without needing multiple server instances. When using SSE transport (`--transport sse`), only the `/sse` endpoint is available.
 
@@ -79,10 +81,10 @@ The only tool in this simple example. Returns the authenticated user's GitHub pr
 
 **Returns**: GitHub user profile data including username, email, bio, etc.
 
-
 ## Troubleshooting
 
 If the server fails to start, check:
+
 1. Environment variables `MCP_GITHUB_GITHUB_CLIENT_ID` and `MCP_GITHUB_GITHUB_CLIENT_SECRET` are set
 2. The GitHub OAuth app callback URL matches `http://localhost:8000/github/callback`
 3. No other service is using port 8000
