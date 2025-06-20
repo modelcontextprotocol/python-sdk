@@ -17,38 +17,38 @@
 ## Table of Contents
 
 - [MCP Python SDK](#mcp-python-sdk)
-  - [Overview](#overview)
-  - [Installation](#installation)
-    - [Adding MCP to your python project](#adding-mcp-to-your-python-project)
-    - [Running the standalone MCP development tools](#running-the-standalone-mcp-development-tools)
-  - [Quickstart](#quickstart)
-  - [What is MCP?](#what-is-mcp)
-  - [Core Concepts](#core-concepts)
-    - [Server](#server)
-    - [Resources](#resources)
-    - [Tools](#tools)
-    - [Prompts](#prompts)
-    - [Images](#images)
-    - [Context](#context)
-    - [Completions](#completions)
-    - [Elicitation](#elicitation)
-    - [Authentication](#authentication)
-  - [Running Your Server](#running-your-server)
-    - [Development Mode](#development-mode)
-    - [Claude Desktop Integration](#claude-desktop-integration)
-    - [Direct Execution](#direct-execution)
-    - [Mounting to an Existing ASGI Server](#mounting-to-an-existing-asgi-server)
-  - [Examples](#examples)
-    - [Echo Server](#echo-server)
-    - [SQLite Explorer](#sqlite-explorer)
-  - [Advanced Usage](#advanced-usage)
-    - [Low-Level Server](#low-level-server)
-    - [Writing MCP Clients](#writing-mcp-clients)
-    - [MCP Primitives](#mcp-primitives)
-    - [Server Capabilities](#server-capabilities)
-  - [Documentation](#documentation)
-  - [Contributing](#contributing)
-  - [License](#license)
+    - [Overview](#overview)
+    - [Installation](#installation)
+        - [Adding MCP to your python project](#adding-mcp-to-your-python-project)
+        - [Running the standalone MCP development tools](#running-the-standalone-mcp-development-tools)
+    - [Quickstart](#quickstart)
+    - [What is MCP?](#what-is-mcp)
+    - [Core Concepts](#core-concepts)
+        - [Server](#server)
+        - [Resources](#resources)
+        - [Tools](#tools)
+        - [Prompts](#prompts)
+        - [Images](#images)
+        - [Context](#context)
+        - [Completions](#completions)
+        - [Elicitation](#elicitation)
+        - [Authentication](#authentication)
+    - [Running Your Server](#running-your-server)
+        - [Development Mode](#development-mode)
+        - [Claude Desktop Integration](#claude-desktop-integration)
+        - [Direct Execution](#direct-execution)
+        - [Mounting to an Existing ASGI Server](#mounting-to-an-existing-asgi-server)
+    - [Examples](#examples)
+        - [Echo Server](#echo-server)
+        - [SQLite Explorer](#sqlite-explorer)
+    - [Advanced Usage](#advanced-usage)
+        - [Low-Level Server](#low-level-server)
+        - [Writing MCP Clients](#writing-mcp-clients)
+        - [MCP Primitives](#mcp-primitives)
+        - [Server Capabilities](#server-capabilities)
+    - [Documentation](#documentation)
+    - [Contributing](#contributing)
+    - [License](#license)
 
 [pypi-badge]: https://img.shields.io/pypi/v/mcp.svg
 [pypi-url]: https://pypi.org/project/mcp/
@@ -92,6 +92,7 @@ If you haven't created a uv-managed project yet, create one:
    ```
 
 Alternatively, for projects using pip for dependencies:
+
 ```bash
 pip install "mcp[cli]"
 ```
@@ -131,11 +132,13 @@ def get_greeting(name: str) -> str:
 ```
 
 You can install this server in [Claude Desktop](https://claude.ai/download) and interact with it right away by running:
+
 ```bash
 mcp install server.py
 ```
 
 Alternatively, you can test it with the MCP Inspector:
+
 ```bash
 mcp dev server.py
 ```
@@ -318,6 +321,7 @@ async def long_task(files: list[str], ctx: Context) -> str:
 MCP supports providing completion suggestions for prompt arguments and resource template parameters. With the context parameter, servers can provide completions based on previously resolved values:
 
 Client usage:
+
 ```python
 from mcp.client.session import ClientSession
 from mcp.types import ResourceTemplateReference
@@ -343,6 +347,7 @@ async def use_completion(session: ClientSession):
 ```
 
 Server implementation:
+
 ```python
 from mcp.server import Server
 from mcp.types import (
@@ -374,6 +379,7 @@ async def handle_completion(
                     return Completion(values=filtered)
     return None
 ```
+
 ### Elicitation
 
 Request additional information from users during tool execution:
@@ -415,6 +421,7 @@ async def book_table(date: str, party_size: int, ctx: Context) -> str:
 ```
 
 The `elicit()` method returns an `ElicitationResult` with:
+
 - `action`: "accept", "decline", or "cancel"
 - `data`: The validated response (only when accepted)
 - `validation_error`: Any validation error message
@@ -506,6 +513,7 @@ if __name__ == "__main__":
 ```
 
 Run it with:
+
 ```bash
 python server.py
 # or
@@ -583,10 +591,12 @@ app.mount("/math", math.mcp.streamable_http_app())
 ```
 
 For low level server with Streamable HTTP implementations, see:
+
 - Stateful server: [`examples/servers/simple-streamablehttp/`](examples/servers/simple-streamablehttp/)
 - Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](examples/servers/simple-streamablehttp-stateless/)
 
 The streamable HTTP transport supports:
+
 - Stateful and stateless operation modes
 - Resumability with event stores
 - JSON or SSE response formats
@@ -759,6 +769,7 @@ async def query_db(name: str, arguments: dict) -> list:
 ```
 
 The lifespan API provides:
+
 - A way to initialize resources when the server starts and clean them up when it stops
 - Access to initialized resources through the request context in handlers
 - Type-safe context passing between lifespan and request handlers
@@ -949,6 +960,7 @@ async def display_resources(session: ClientSession):
 ```
 
 The `get_display_name()` function implements the proper precedence rules for displaying names:
+
 - For tools: `title` > `annotations.title` > `name`
 - For other objects: `title` > `name`
 
@@ -1006,7 +1018,6 @@ async def main():
 ```
 
 For a complete working example, see [`examples/clients/simple-auth-client/`](examples/clients/simple-auth-client/).
-
 
 ### MCP Primitives
 

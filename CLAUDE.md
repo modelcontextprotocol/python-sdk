@@ -26,15 +26,19 @@ This document contains critical information about working with this codebase. Fo
    - Bug fixes require regression tests
 
 - For commits fixing bugs or adding features based on user reports add:
+
   ```bash
   git commit --trailer "Reported-by:<name>"
   ```
+
   Where `<name>` is the name of the user.
 
 - For commits related to a Github issue, add
+
   ```bash
   git commit --trailer "Github-Issue:#<number>"
   ```
+
 - NEVER ever mention a `co-authored-by` or similar aspects. In particular, never
   mention the tool used to create the commit message or PR.
 
