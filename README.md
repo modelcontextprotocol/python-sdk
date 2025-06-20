@@ -429,14 +429,16 @@ MCP servers can use authentication by providing an implementation of the `TokenV
 
 ```python
 from mcp import FastMCP
-from mcp.server.auth.provider import TokenVerifier
+from mcp.server.auth.provider import TokenVerifier, TokenInfo
 from mcp.server.auth.settings import AuthSettings
+
 
 class MyTokenVerifier(TokenVerifier):
     # Implement token validation logic (typically via token introspection)
     async def verify_token(self, token: str) -> TokenInfo:
         # Verify with your authorization server
         ...
+
 
 mcp = FastMCP(
     "My App",
