@@ -121,11 +121,11 @@ def create_authorization_server(server_settings: AuthServerSettings, github_sett
             "iat": int(time.time()),
             "token_type": "Bearer",
         }
-        
+
         # Include audience claim for RFC 8707 resource validation
         if access_token.resource:
             response_data["aud"] = access_token.resource
-            
+
         return JSONResponse(response_data)
 
     routes.append(
