@@ -99,7 +99,7 @@ class TestServer:
 
         # Verify path values
         assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
-        assert mount_routes[0].path == "/api/messages", "Mount route path should be /messages"
+        assert mount_routes[0].path == "/api/messages", "Mount route path should be /api/messages"
 
         # Test with mount path as parameter
         mcp = FastMCP()
@@ -115,7 +115,7 @@ class TestServer:
 
         # Verify path values
         assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
-        assert mount_routes[0].path == "/param/messages", "Mount route path should be /messages"
+        assert mount_routes[0].path == "/param/messages", "Mount route path should be /param/messages"
 
     @pytest.mark.anyio
     async def test_non_ascii_description(self):
