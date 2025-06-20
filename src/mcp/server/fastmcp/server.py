@@ -217,7 +217,7 @@ class FastMCP:
         """
         TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
         if port is not None:
-            self.settings.port = port  # override port if provided
+            self.settings.port = port
         if transport not in TRANSPORTS.__args__:  # type: ignore
             raise ValueError(f"Unknown transport: {transport}")
 
