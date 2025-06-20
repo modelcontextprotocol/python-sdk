@@ -206,14 +206,18 @@ class FastMCP:
         self,
         transport: Literal["stdio", "sse", "streamable-http"] = "stdio",
         mount_path: str | None = None,
+        port: int | None = None,
     ) -> None:
         """Run the FastMCP server. Note this is a synchronous function.
 
         Args:
             transport: Transport protocol to use ("stdio", "sse", or "streamable-http")
             mount_path: Optional mount path for SSE transport
+            port: Optional port to run the server on
         """
         TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
+        if port is not None:
+            self.settings.port = port  # override port if provided
         if transport not in TRANSPORTS.__args__:  # type: ignore
             raise ValueError(f"Unknown transport: {transport}")
 

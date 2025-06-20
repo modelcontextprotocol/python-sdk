@@ -850,3 +850,36 @@ class TestServerPrompts:
         async with client_session(mcp._mcp_server) as client:
             with pytest.raises(McpError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
+
+
+@pytest.fixture
+def server_port() -> int:
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class TestServerTransports:
+    """Test port overrides during run."""
+
+    @pytest.mark.anyio
+    async def test_port_override_default_port(self, server_port):
+        """Test that the port argument overrides default port."""
+        mcp = FastMCP()
+
+        with patch("anyio.run") as mock_anyio_run:
+            mcp.run(port=server_port)
+            assert mcp.settings.port == server_port
+            mock_anyio_run.assert_called_once_with(mcp.run_stdio_async)
+
+    @pytest.mark.anyio
+    async def test_port_inheritance_without_override(self, server_port):
+        """Test that existing settings.port is preserved when no port override is provided."""
+        mcp = FastMCP(port=server_port)
+
+        with patch("anyio.run") as mock_anyio_run:
+            mcp.run()
+            assert mcp.settings.port == server_port
+            mock_anyio_run.assert_called_once_with(mcp.run_stdio_async)

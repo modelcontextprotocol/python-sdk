@@ -502,7 +502,17 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("My App")
 
 if __name__ == "__main__":
+    # Run with default settings
     mcp.run()
+    
+    # Override port
+    mcp.run(port=3000)
+    
+    # Specify transport and port
+    mcp.run(transport="streamable-http", port=8080)
+    
+    # SSE with custom mount path and port
+    mcp.run(transport="sse", mount_path="/api", port=9000)
 ```
 
 Run it with:
@@ -512,8 +522,12 @@ python server.py
 mcp run server.py
 ```
 
-Note that `mcp run` or `mcp dev` only supports server using FastMCP and not the low-level server variant.
+The `run()` method accepts these parameters:
+- `transport`: Transport protocol ("stdio", "sse", or "streamable-http")
+- `mount_path`: Optional mount path for SSE transport
+- `port`: Optional port override (defaults to settings.port or 8000)
 
+Note that `mcp run` or `mcp dev` only supports server using FastMCP and not the low-level server variant.
 ### Streamable HTTP Transport
 
 > **Note**: Streamable HTTP transport is superseding SSE transport for production deployments.
