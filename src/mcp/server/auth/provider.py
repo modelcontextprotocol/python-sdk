@@ -86,6 +86,13 @@ class TokenError(Exception):
     error_description: str | None = None
 
 
+class TokenVerifier(Protocol):
+    """Protocol for verifying bearer tokens."""
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        """Verify a bearer token and return access info if valid."""
+
+
 # NOTE: FastMCP doesn't render any of these types in the user response, so it's
 # OK to add fields to subclasses which should not be exposed externally.
 AuthorizationCodeT = TypeVar("AuthorizationCodeT", bound=AuthorizationCode)
@@ -278,3 +285,19 @@ def construct_redirect_uri(redirect_uri_base: str, **params: str | None) -> str:
 
     redirect_uri = urlunparse(parsed_uri._replace(query=urlencode(query_params)))
     return redirect_uri
+
+
+class ProviderTokenVerifier(TokenVerifier):
+    """Token verifier that uses an OAuthAuthorizationServerProvider.
+
+    This is provided for backwards compatibility with existing auth_server_provider
+    configurations. For new implementations using AS/RS separation, consider using
+    the TokenVerifier protocol with a dedicated implementation like IntrospectionTokenVerifier.
+    """
+
+    def __init__(self, provider: "OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToken, AccessToken]"):
+        self.provider = provider
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        """Verify token using the provider's load_access_token method."""
+        return await self.provider.load_access_token(token)
