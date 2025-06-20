@@ -259,6 +259,56 @@ class TestOAuthFlow:
         assert "code_verifier=test_verifier" in content
         assert "client_id=test_client" in content
         assert "client_secret=test_secret" in content
+        # Resource parameter should be included per RFC 8707
+        assert "resource=https%3A%2F%2Fapi.example.com%2Fv1%2Fmcp" in content
+
+    @pytest.mark.anyio
+    async def test_authorization_url_request(self, oauth_provider):
+        """Test authorization URL construction with resource parameter."""
+        from unittest.mock import patch
+
+        # Set up required context
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        # Mock the redirect handler to capture the URL
+        captured_url = None
+
+        async def mock_redirect_handler(url: str):
+            nonlocal captured_url
+            captured_url = url
+
+        oauth_provider.context.redirect_handler = mock_redirect_handler
+
+        # Mock callback handler
+        async def mock_callback_handler():
+            return "test_auth_code", "test_state"
+
+        oauth_provider.context.callback_handler = mock_callback_handler
+
+        # Mock pkce and state generation for predictable testing
+        with (
+            patch("mcp.client.auth.PKCEParameters.generate") as mock_pkce,
+            patch("mcp.client.auth.secrets.token_urlsafe") as mock_state,
+        ):
+            mock_pkce.return_value.code_verifier = "test_verifier"
+            mock_pkce.return_value.code_challenge = "test_challenge"
+            mock_state.return_value = "test_state"
+
+            # Mock compare_digest to return True
+            with patch("mcp.client.auth.secrets.compare_digest", return_value=True):
+                await oauth_provider._perform_authorization()
+
+        # Verify the captured URL contains resource parameter
+        assert captured_url is not None
+        assert "resource=https%3A%2F%2Fapi.example.com%2Fv1%2Fmcp" in captured_url
+        assert "client_id=test_client" in captured_url
+        assert "response_type=code" in captured_url
+        assert "code_challenge=test_challenge" in captured_url
+        assert "code_challenge_method=S256" in captured_url
 
     @pytest.mark.anyio
     async def test_refresh_token_request(self, oauth_provider, valid_tokens):
@@ -283,6 +333,8 @@ class TestOAuthFlow:
         assert "refresh_token=test_refresh_token" in content
         assert "client_id=test_client" in content
         assert "client_secret=test_secret" in content
+        # Resource parameter should be included per RFC 8707
+        assert "resource=https%3A%2F%2Fapi.example.com%2Fv1%2Fmcp" in content
 
 
 class TestAuthFlow:

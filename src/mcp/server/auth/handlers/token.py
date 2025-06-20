@@ -24,6 +24,8 @@ class AuthorizationCodeRequest(BaseModel):
     client_secret: str | None = None
     # See https://datatracker.ietf.org/doc/html/rfc7636#section-4.5
     code_verifier: str = Field(..., description="PKCE code verifier")
+    # RFC 8707 resource indicator
+    resource: str | None = Field(None, description="Resource indicator for the token")
 
 
 class RefreshTokenRequest(BaseModel):
@@ -34,6 +36,8 @@ class RefreshTokenRequest(BaseModel):
     client_id: str
     # we use the client_secret param, per https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
     client_secret: str | None = None
+    # RFC 8707 resource indicator
+    resource: str | None = Field(None, description="Resource indicator for the token")
 
 
 class TokenRequest(

@@ -47,7 +47,16 @@ cd examples/servers/simple-auth
 
 # Start Resource Server on port 8001, connected to Authorization Server
 python -m mcp_simple_auth.server --port=8001 --auth-server=http://localhost:9000  --transport=streamable-http
+
+# With RFC 8707 strict resource validation (recommended for production)
+python -m mcp_simple_auth.server --port=8001 --auth-server=http://localhost:9000  --transport=streamable-http --oauth-strict
 ```
+
+**OAuth Strict Mode (`--oauth-strict`):**
+- Enables RFC 8707 resource indicator validation
+- Ensures tokens are only accepted if they were issued for this specific resource server
+- Prevents token misuse across different services
+- Recommended for production environments where security is critical
 
 
 ### Step 3: Test with Client

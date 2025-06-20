@@ -35,6 +35,10 @@ class AuthorizationRequest(BaseModel):
         None,
         description="Optional scope; if specified, should be " "a space-separated list of scope strings",
     )
+    resource: str | None = Field(
+        None,
+        description="RFC 8707 resource indicator - the MCP server this token will be used with",
+    )
 
 
 class AuthorizationErrorResponse(BaseModel):
@@ -197,6 +201,7 @@ class AuthorizationHandler:
                 code_challenge=auth_request.code_challenge,
                 redirect_uri=redirect_uri,
                 redirect_uri_provided_explicitly=auth_request.redirect_uri is not None,
+                resource=auth_request.resource,  # RFC 8707
             )
 
             try:

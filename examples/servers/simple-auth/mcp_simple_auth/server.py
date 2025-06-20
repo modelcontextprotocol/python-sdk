@@ -43,6 +43,9 @@ class ResourceServerSettings(BaseSettings):
     # MCP settings
     mcp_scope: str = "user"
 
+    # RFC 8707 resource validation
+    oauth_strict: bool = False
+
     def __init__(self, **data):
         """Initialize settings with values from environment variables."""
         super().__init__(**data)
@@ -57,8 +60,12 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
     2. Validates tokens via Authorization Server introspection
     3. Serves MCP tools and resources
     """
-    # Create token verifier for introspection
-    token_verifier = IntrospectionTokenVerifier(settings.auth_server_introspection_endpoint)
+    # Create token verifier for introspection with RFC 8707 resource validation
+    token_verifier = IntrospectionTokenVerifier(
+        introspection_endpoint=settings.auth_server_introspection_endpoint,
+        server_url=str(settings.server_url),
+        validate_resource=settings.oauth_strict,  # Only validate when --oauth-strict is set
+    )
 
     # Create FastMCP server as a Resource Server
     app = FastMCP(
@@ -144,7 +151,12 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
     type=click.Choice(["sse", "streamable-http"]),
     help="Transport protocol to use ('sse' or 'streamable-http')",
 )
-def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http"]) -> int:
+@click.option(
+    "--oauth-strict",
+    is_flag=True,
+    help="Enable RFC 8707 resource validation",
+)
+def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http"], oauth_strict: bool) -> int:
     """
     Run the MCP Resource Server.
 
@@ -171,6 +183,7 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
             auth_server_url=auth_server_url,
             auth_server_introspection_endpoint=f"{auth_server}/introspect",
             auth_server_github_user_endpoint=f"{auth_server}/github/user",
+            oauth_strict=oauth_strict,
         )
     except ValueError as e:
         logger.error(f"Configuration error: {e}")
