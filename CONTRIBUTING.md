@@ -51,7 +51,7 @@ uv run ruff format .
 pre-commit run --all-files
 ```
 
-7. Submit a pull request to the same branch you branched from
+8. Submit a pull request to the same branch you branched from
 
 ## Code Style
 
