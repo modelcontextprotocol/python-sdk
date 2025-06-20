@@ -4,6 +4,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from pydantic import AnyUrl, BaseModel
 
+from mcp.server.auth.token_verifier import TokenVerifier
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 
@@ -283,7 +284,7 @@ def construct_redirect_uri(redirect_uri_base: str, **params: str | None) -> str:
     return redirect_uri
 
 
-class ProviderTokenVerifier:
+class ProviderTokenVerifier(TokenVerifier):
     """Token verifier that uses an OAuthAuthorizationServerProvider.
 
     This is provided for backwards compatibility with existing auth_server_provider
