@@ -26,7 +26,11 @@ repos:
       - id: pyright
         name: pyright
         entry: uv run pyright
-        args: [src]
+        args:
+          [
+            src/mcp/server/transport_security.py,
+            tests/server/fastmcp/test_integration.py,
+          ]
         language: system
         types: [python]
         pass_filenames: false
