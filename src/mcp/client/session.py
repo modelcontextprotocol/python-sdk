@@ -282,8 +282,12 @@ class ClientSession(
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
         progress_callback: ProgressFnT | None = None,
+        _meta: dict[str, Any] | None = None,
     ) -> types.CallToolResult:
-        """Send a tools/call request with optional progress callback support."""
+        """Send a tools/call request with optional progress callback."""
+
+        # Create the Meta object if _meta is provided
+        meta_obj = types.RequestParams.Meta(**_meta) if _meta else None
 
         return await self.send_request(
             types.ClientRequest(
@@ -292,6 +296,7 @@ class ClientSession(
                     params=types.CallToolRequestParams(
                         name=name,
                         arguments=arguments,
+                        _meta=meta_obj,
                     ),
                 )
             ),
