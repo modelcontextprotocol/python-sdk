@@ -198,7 +198,7 @@ mcp = FastMCP("My App", lifespan=app_lifespan)
 def query_db() -> str:
     """Tool that uses initialized resources"""
     ctx = mcp.get_context()
-    db = ctx.request_context.lifespan_context["db"]
+    db = ctx.request_context.lifespan_context.db
     return db.query()
 ```
 
