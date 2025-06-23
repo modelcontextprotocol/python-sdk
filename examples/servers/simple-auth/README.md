@@ -13,7 +13,7 @@ This example demonstrates OAuth 2.0 authentication with the Model Context Protoc
 
 **Set environment variables:**
 ```bash
-export MCP_GITHUB_CLIENT_ID="your_client_id_here"  
+export MCP_GITHUB_CLIENT_ID="your_client_id_here"
 export MCP_GITHUB_CLIENT_SECRET="your_client_secret_here"
 ```
 
@@ -28,7 +28,7 @@ export MCP_GITHUB_CLIENT_SECRET="your_client_secret_here"
 cd examples/servers/simple-auth
 
 # Start Authorization Server on port 9000
-python -m mcp_simple_auth.auth_server --port=9000
+uv run mcp-simple-auth-as --port=9000
 ```
 
 **What it provides:**
@@ -46,7 +46,7 @@ python -m mcp_simple_auth.auth_server --port=9000
 cd examples/servers/simple-auth
 
 # Start Resource Server on port 8001, connected to Authorization Server
-python -m mcp_simple_auth.server --port=8001 --auth-server=http://localhost:9000  --transport=streamable-http
+uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000  --transport=streamable-http
 ```
 
 
@@ -54,8 +54,8 @@ python -m mcp_simple_auth.server --port=8001 --auth-server=http://localhost:9000
 
 ```bash
 cd examples/clients/simple-auth-client
-# Start client with streamable HTTP  
-MCP_SERVER_PORT=8001 MCP_TRANSPORT_TYPE=streamable_http python -m mcp_simple_auth_client.main
+# Start client with streamable HTTP
+MCP_SERVER_PORT=8001 MCP_TRANSPORT_TYPE=streamable_http uv run mcp-simple-auth-client
 ```
 
 
@@ -94,7 +94,7 @@ For backwards compatibility with older MCP implementations, a legacy server is p
 
 ```bash
 # Start legacy authorization server on port 8002
-python -m mcp_simple_auth.legacy_as_server --port=8002
+uv run mcp-simple-auth-legacy --port=8002
 ```
 
 **Differences from the new architecture:**
@@ -108,12 +108,13 @@ python -m mcp_simple_auth.legacy_as_server --port=8002
 
 ```bash
 # Test with client (will automatically fall back to legacy discovery)
-MCP_SERVER_PORT=8002 MCP_TRANSPORT_TYPE=streamable_http python -m mcp_simple_auth_client.main
+cd examples/clients/simple-auth-client
+MCP_SERVER_PORT=8002 MCP_TRANSPORT_TYPE=streamable_http uv run mcp-simple-auth-client
 ```
 
 The client will:
 1. Try RFC 9728 discovery at `/.well-known/oauth-protected-resource` (404 on legacy server)
-2. Fall back to direct OAuth discovery at `/.well-known/oauth-authorization-server` 
+2. Fall back to direct OAuth discovery at `/.well-known/oauth-authorization-server`
 3. Complete authentication with the MCP server acting as its own AS
 
 This ensures existing MCP servers (which could optionally act as Authorization Servers under the old spec) continue to work while the ecosystem transitions to the new architecture where MCP servers are Resource Servers only.
