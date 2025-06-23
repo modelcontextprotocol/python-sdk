@@ -829,6 +829,69 @@ if __name__ == "__main__":
 
 Caution: The `mcp run` and `mcp dev` tool doesn't support low-level server.
 
+#### Structured Output Support
+
+The low-level server supports structured output for tools, allowing you to return both human-readable content and machine-readable structured data. Tools can define an `outputSchema` to validate their structured output:
+
+```python
+import mcp.types as types
+from mcp.server.lowlevel import Server
+
+server = Server("example-server")
+
+
+@server.list_tools()
+async def list_tools() -> list[types.Tool]:
+    return [
+        types.Tool(
+            name="calculate",
+            description="Perform mathematical calculations",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "expression": {"type": "string", "description": "Math expression"}
+                },
+                "required": ["expression"],
+            },
+            outputSchema={
+                "type": "object",
+                "properties": {
+                    "result": {"type": "number"},
+                    "expression": {"type": "string"},
+                },
+                "required": ["result", "expression"],
+            },
+        )
+    ]
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict) -> tuple[list[types.TextContent], dict]:
+    if name == "calculate":
+        expression = arguments["expression"]
+        try:
+            result = eval(expression)  # Note: Use a safe math parser in production
+
+            # Return both human-readable content and structured data
+            content = [
+                types.TextContent(
+                    type="text", text=f"The result of {expression} is {result}"
+                )
+            ]
+            structured = {"result": result, "expression": expression}
+
+            return (content, structured)
+        except Exception as e:
+            raise ValueError(f"Calculation error: {str(e)}")
+```
+
+Tools can return data in three ways:
+1. **Content only**: Return a list of content blocks (default behavior)
+2. **Structured data only**: Return a dictionary that will be serialized to JSON
+3. **Both**: Return a tuple of (content, structured_data)
+
+When an `outputSchema` is defined, the server automatically validates the structured output against the schema. This ensures type safety and helps catch errors early.
+
 ### Writing MCP Clients
 
 The SDK provides a high-level client interface for connecting to MCP servers using various [transports](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports):
