@@ -423,43 +423,42 @@ The `elicit()` method returns an `ElicitationResult` with:
 
 Authentication can be used by servers that want to expose tools accessing protected resources.
 
-`mcp.server.auth` implements an OAuth 2.0 server interface, which servers can use by
-providing an implementation of the `OAuthAuthorizationServerProvider` protocol.
+`mcp.server.auth` implements OAuth 2.1 resource server functionality, where MCP servers act as Resource Servers (RS) that validate tokens issued by separate Authorization Servers (AS). This follows the [MCP authorization specification](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) and implements RFC 9728 (Protected Resource Metadata) for AS discovery.
+
+MCP servers can use authentication by providing an implementation of the `TokenVerifier` protocol:
 
 ```python
 from mcp import FastMCP
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider
-from mcp.server.auth.settings import (
-    AuthSettings,
-    ClientRegistrationOptions,
-    RevocationOptions,
-)
+from mcp.server.auth.provider import TokenVerifier, TokenInfo
+from mcp.server.auth.settings import AuthSettings
 
 
-class MyOAuthServerProvider(OAuthAuthorizationServerProvider):
-    # See an example on how to implement at `examples/servers/simple-auth`
-    ...
+class MyTokenVerifier(TokenVerifier):
+    # Implement token validation logic (typically via token introspection)
+    async def verify_token(self, token: str) -> TokenInfo:
+        # Verify with your authorization server
+        ...
 
 
 mcp = FastMCP(
     "My App",
-    auth_server_provider=MyOAuthServerProvider(),
+    token_verifier=MyTokenVerifier(),
     auth=AuthSettings(
-        issuer_url="https://myapp.com",
-        revocation_options=RevocationOptions(
-            enabled=True,
-        ),
-        client_registration_options=ClientRegistrationOptions(
-            enabled=True,
-            valid_scopes=["myscope", "myotherscope"],
-            default_scopes=["myscope"],
-        ),
-        required_scopes=["myscope"],
+        issuer_url="https://auth.example.com",
+        resource_server_url="http://localhost:3001",
+        required_scopes=["mcp:read", "mcp:write"],
     ),
 )
 ```
 
-See [OAuthAuthorizationServerProvider](src/mcp/server/auth/provider.py) for more details.
+For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](examples/servers/simple-auth/).
+
+**Architecture:**
+- **Authorization Server (AS)**: Handles OAuth flows, user authentication, and token issuance
+- **Resource Server (RS)**: Your MCP server that validates tokens and serves protected resources
+- **Client**: Discovers AS through RFC 9728, obtains tokens, and uses them with the MCP server
+
+See [TokenVerifier](src/mcp/server/auth/provider.py) for more details on implementing token validation.
 
 ## Running Your Server
 

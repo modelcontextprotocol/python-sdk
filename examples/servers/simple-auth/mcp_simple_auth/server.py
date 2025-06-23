@@ -1,66 +1,57 @@
-"""Simple MCP Server with GitHub OAuth Authentication."""
+"""
+MCP Resource Server with Token Introspection.
+
+This server validates tokens via Authorization Server introspection and serves MCP resources.
+Demonstrates RFC 9728 Protected Resource Metadata for AS/RS separation.
+
+Usage:
+    python -m mcp_simple_auth.server --port=8001 --auth-server=http://localhost:9000
+"""
 
 import logging
-import secrets
-import time
 from typing import Any, Literal
 
 import click
+import httpx
 from pydantic import AnyHttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from starlette.exceptions import HTTPException
-from starlette.requests import Request
-from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from mcp.server.auth.middleware.auth_context import get_access_token
-from mcp.server.auth.provider import (
-    AccessToken,
-    AuthorizationCode,
-    AuthorizationParams,
-    OAuthAuthorizationServerProvider,
-    RefreshToken,
-    construct_redirect_uri,
-)
-from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp.server import FastMCP
-from mcp.shared._httpx_utils import create_mcp_http_client
-from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+
+from .token_verifier import IntrospectionTokenVerifier
 
 logger = logging.getLogger(__name__)
 
 
-class ServerSettings(BaseSettings):
-    """Settings for the simple GitHub MCP server."""
+class ResourceServerSettings(BaseSettings):
+    """Settings for the MCP Resource Server."""
 
-    model_config = SettingsConfigDict(env_prefix="MCP_GITHUB_")
+    model_config = SettingsConfigDict(env_prefix="MCP_RESOURCE_")
 
     # Server settings
     host: str = "localhost"
-    port: int = 8000
-    server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8000")
+    port: int = 8001
+    server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8001")
 
-    # GitHub OAuth settings - MUST be provided via environment variables
-    github_client_id: str  # Type: MCP_GITHUB_GITHUB_CLIENT_ID env var
-    github_client_secret: str  # Type: MCP_GITHUB_GITHUB_CLIENT_SECRET env var
-    github_callback_path: str = "http://localhost:8000/github/callback"
+    # Authorization Server settings
+    auth_server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:9000")
+    auth_server_introspection_endpoint: str = "http://localhost:9000/introspect"
+    auth_server_github_user_endpoint: str = "http://localhost:9000/github/user"
 
-    # GitHub OAuth URLs
-    github_auth_url: str = "https://github.com/login/oauth/authorize"
-    github_token_url: str = "https://github.com/login/oauth/access_token"
-
+    # MCP settings
     mcp_scope: str = "user"
-    github_scope: str = "read:user"
+
+    # RFC 8707 resource validation
+    oauth_strict: bool = False
 
     def __init__(self, **data):
-        """Initialize settings with values from environment variables.
-
-        Note: github_client_id and github_client_secret are required but can be
-        loaded automatically from environment variables (MCP_GITHUB_GITHUB_CLIENT_ID
-        and MCP_GITHUB_GITHUB_CLIENT_SECRET) and don't need to be passed explicitly.
-        """
+        """Initialize settings with values from environment variables."""
         super().__init__(**data)
 
 
+# <<<<<<< main
 class SimpleGitHubOAuthProvider(OAuthAuthorizationServerProvider):
     """Simple GitHub OAuth provider with essential functionality."""
 
@@ -286,105 +277,178 @@ def create_simple_mcp_server(settings: ServerSettings) -> FastMCP:
             default_scopes=[settings.mcp_scope],
         ),
         required_scopes=[settings.mcp_scope],
+# =======
+# def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
+#     """
+#     Create MCP Resource Server with token introspection.
+
+#     This server:
+#     1. Provides protected resource metadata (RFC 9728)
+#     2. Validates tokens via Authorization Server introspection
+#     3. Serves MCP tools and resources
+#     """
+#     # Create token verifier for introspection with RFC 8707 resource validation
+#     token_verifier = IntrospectionTokenVerifier(
+#         introspection_endpoint=settings.auth_server_introspection_endpoint,
+#         server_url=str(settings.server_url),
+#         validate_resource=settings.oauth_strict,  # Only validate when --oauth-strict is set
+# >>>>>>> main
     )
 
+    # Create FastMCP server as a Resource Server
     app = FastMCP(
-        name="Simple GitHub MCP Server",
-        instructions="A simple MCP server with GitHub OAuth authentication",
-        auth_server_provider=oauth_provider,
+        name="MCP Resource Server",
+        instructions="Resource Server that validates tokens via Authorization Server introspection",
         host=settings.host,
         port=settings.port,
         debug=True,
-        auth=auth_settings,
+        # Auth configuration for RS mode
+        token_verifier=token_verifier,
+        auth=AuthSettings(
+            issuer_url=settings.auth_server_url,
+            required_scopes=[settings.mcp_scope],
+            resource_server_url=settings.server_url,
+        ),
     )
 
-    @app.custom_route("/github/callback", methods=["GET"])
-    async def github_callback_handler(request: Request) -> Response:
-        """Handle GitHub OAuth callback."""
-        code = request.query_params.get("code")
-        state = request.query_params.get("state")
+    async def get_github_user_data() -> dict[str, Any]:
+        """
+        Get GitHub user data via Authorization Server proxy endpoint.
 
-        if not code or not state:
-            raise HTTPException(400, "Missing code or state parameter")
-
-        try:
-            redirect_uri = await oauth_provider.handle_github_callback(code, state)
-            return RedirectResponse(status_code=302, url=redirect_uri)
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error("Unexpected error", exc_info=e)
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "error": "server_error",
-                    "error_description": "Unexpected error",
-                },
-            )
-
-    def get_github_token() -> str:
-        """Get the GitHub token for the authenticated user."""
+        This avoids exposing GitHub tokens to the Resource Server.
+        The Authorization Server handles the GitHub API call and returns the data.
+        """
         access_token = get_access_token()
         if not access_token:
             raise ValueError("Not authenticated")
 
-        # Get GitHub token from mapping
-        github_token = oauth_provider.token_mapping.get(access_token.token)
-
-        if not github_token:
-            raise ValueError("No GitHub token found for user")
-
-        return github_token
-
-    @app.tool()
-    async def get_user_profile() -> dict[str, Any]:
-        """Get the authenticated user's GitHub profile information.
-
-        This is the only tool in our simple example. It requires the 'user' scope.
-        """
-        github_token = get_github_token()
-
-        async with create_mcp_http_client() as client:
+        # Call Authorization Server's GitHub proxy endpoint
+        async with httpx.AsyncClient() as client:
             response = await client.get(
-                "https://api.github.com/user",
+                settings.auth_server_github_user_endpoint,
                 headers={
-                    "Authorization": f"Bearer {github_token}",
-                    "Accept": "application/vnd.github.v3+json",
+                    "Authorization": f"Bearer {access_token.token}",
                 },
             )
 
             if response.status_code != 200:
-                raise ValueError(f"GitHub API error: {response.status_code} - {response.text}")
+                raise ValueError(f"GitHub user data fetch failed: {response.status_code} - {response.text}")
 
             return response.json()
+
+    @app.tool()
+    async def get_user_profile() -> dict[str, Any]:
+        """
+        Get the authenticated user's GitHub profile information.
+
+        This tool requires the 'user' scope and demonstrates how Resource Servers
+        can access user data without directly handling GitHub tokens.
+        """
+        return await get_github_user_data()
+
+    @app.tool()
+    async def get_user_info() -> dict[str, Any]:
+        """
+        Get information about the currently authenticated user.
+
+        Returns token and scope information from the Resource Server's perspective.
+        """
+        access_token = get_access_token()
+        if not access_token:
+            raise ValueError("Not authenticated")
+
+        return {
+            "authenticated": True,
+            "client_id": access_token.client_id,
+            "scopes": access_token.scopes,
+            "token_expires_at": access_token.expires_at,
+            "token_type": "Bearer",
+            "resource_server": str(settings.server_url),
+            "authorization_server": str(settings.auth_server_url),
+        }
 
     return app
 
 
 @click.command()
-@click.option("--port", default=8000, help="Port to listen on")
-@click.option("--host", default="localhost", help="Host to bind to")
+@click.option("--port", default=8001, help="Port to listen on")
+@click.option("--auth-server", default="http://localhost:9000", help="Authorization Server URL")
 @click.option(
     "--transport",
-    default="sse",
+    default="streamable-http",
     type=click.Choice(["sse", "streamable-http"]),
     help="Transport protocol to use ('sse' or 'streamable-http')",
 )
-def main(port: int, host: str, transport: Literal["sse", "streamable-http"]) -> int:
-    """Run the simple GitHub MCP server."""
+@click.option(
+    "--oauth-strict",
+    is_flag=True,
+    help="Enable RFC 8707 resource validation",
+)
+def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http"], oauth_strict: bool) -> int:
+    """
+    Run the MCP Resource Server.
+
+    This server:
+    - Provides RFC 9728 Protected Resource Metadata
+    - Validates tokens via Authorization Server introspection
+    - Serves MCP tools requiring authentication
+
+    Must be used with a running Authorization Server.
+    """
     logging.basicConfig(level=logging.INFO)
 
     try:
-        # No hardcoded credentials - all from environment variables
-        settings = ServerSettings(host=host, port=port)
+        # Parse auth server URL
+        auth_server_url = AnyHttpUrl(auth_server)
+
+        # Create settings
+        host = "localhost"
+        server_url = f"http://{host}:{port}"
+        settings = ResourceServerSettings(
+            host=host,
+            port=port,
+            server_url=AnyHttpUrl(server_url),
+            auth_server_url=auth_server_url,
+            auth_server_introspection_endpoint=f"{auth_server}/introspect",
+            auth_server_github_user_endpoint=f"{auth_server}/github/user",
+            oauth_strict=oauth_strict,
+        )
     except ValueError as e:
-        logger.error("Failed to load settings. Make sure environment variables are set:")
-        logger.error("  MCP_GITHUB_GITHUB_CLIENT_ID=<your-client-id>")
-        logger.error("  MCP_GITHUB_GITHUB_CLIENT_SECRET=<your-client-secret>")
-        logger.error(f"Error: {e}")
+        logger.error(f"Configuration error: {e}")
+        logger.error("Make sure to provide a valid Authorization Server URL")
         return 1
 
-    mcp_server = create_simple_mcp_server(settings)
-    logger.info(f"Starting server with {transport} transport")
-    mcp_server.run(transport=transport)
-    return 0
+    try:
+        mcp_server = create_resource_server(settings)
+
+        logger.info("=" * 80)
+        logger.info("📦 MCP RESOURCE SERVER")
+        logger.info("=" * 80)
+        logger.info(f"🌐 Server URL: {settings.server_url}")
+        logger.info(f"🔑 Authorization Server: {settings.auth_server_url}")
+        logger.info("📋 Endpoints:")
+        logger.info(f"   ┌─ Protected Resource Metadata: {settings.server_url}/.well-known/oauth-protected-resource")
+        mcp_path = "sse" if transport == "sse" else "mcp"
+        logger.info(f"   ├─ MCP Protocol: {settings.server_url}/{mcp_path}")
+        logger.info(f"   └─ Token Introspection: {settings.auth_server_introspection_endpoint}")
+        logger.info("")
+        logger.info("🛠️  Available Tools:")
+        logger.info("   ├─ get_user_profile() - Get GitHub user profile")
+        logger.info("   └─ get_user_info() - Get authentication status")
+        logger.info("")
+        logger.info("🔍 Tokens validated via Authorization Server introspection")
+        logger.info("📱 Clients discover Authorization Server via Protected Resource Metadata")
+        logger.info("=" * 80)
+
+        # Run the server - this should block and keep running
+        mcp_server.run(transport=transport)
+        logger.info("Server stopped")
+        return 0
+    except Exception as e:
+        logger.error(f"Server error: {e}")
+        logger.exception("Exception details:")
+        return 1
+
+
+if __name__ == "__main__":
+    main()  # type: ignore[call-arg]
