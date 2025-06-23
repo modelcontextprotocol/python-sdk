@@ -49,7 +49,7 @@ class ToolManager:
         title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
-        structured_output: bool = False,
+        structured_output: bool | None = None,
     ) -> Tool:
         """Add a tool to the server."""
         tool = Tool.from_function(
@@ -73,24 +73,11 @@ class ToolManager:
         name: str,
         arguments: dict[str, Any],
         context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
+        convert_result: bool = False,
     ) -> Any:
         """Call a tool by name with arguments."""
         tool = self.get_tool(name)
         if not tool:
             raise ToolError(f"Unknown tool: {name}")
 
-        return await tool.run(arguments, context=context)
-
-    async def call_tool_and_convert_result(
-        self,
-        name: str,
-        arguments: dict[str, Any],
-        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
-    ) -> Any:
-        """Call a tool by name with arguments and convert the result if structured output is enabled."""
-        tool = self.get_tool(name)
-        if not tool:
-            raise ToolError(f"Unknown tool: {name}")
-
-        result = await tool.run(arguments, context=context)
-        return tool.convert_result(result)
+        return await tool.run(arguments, context=context, convert_result=convert_result)

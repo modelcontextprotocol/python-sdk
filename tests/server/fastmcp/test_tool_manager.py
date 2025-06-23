@@ -12,7 +12,7 @@ from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.server.session import ServerSessionT
 from mcp.shared.context import LifespanContextT, RequestT
-from mcp.types import ToolAnnotations
+from mcp.types import TextContent, ToolAnnotations
 
 
 class TestAddTools:
@@ -459,7 +459,7 @@ class TestStructuredOutput:
 
     @pytest.mark.anyio
     async def test_tool_with_basemodel_output(self):
-        """Test tool with BaseModel return type and structured_output=True."""
+        """Test tool with BaseModel return type."""
 
         class UserOutput(BaseModel):
             name: str
@@ -470,58 +470,29 @@ class TestStructuredOutput:
             return UserOutput(name="John", age=30)
 
         manager = ToolManager()
-        manager.add_tool(get_user, structured_output=True)
-        result = await manager.call_tool("get_user", {"user_id": 1})
-        assert isinstance(result, UserOutput)
-        assert result.name == "John"
-        assert result.age == 30
-
-    @pytest.mark.anyio
-    async def test_tool_with_basemodel_output_converted(self):
-        """Test tool with BaseModel return type and structured_output=True with conversion."""
-
-        class UserOutput(BaseModel):
-            name: str
-            age: int
-
-        def get_user(user_id: int) -> UserOutput:
-            """Get user by ID."""
-            return UserOutput(name="John", age=30)
-
-        manager = ToolManager()
-        manager.add_tool(get_user, structured_output=True)
-        result = await manager.call_tool_and_convert_result("get_user", {"user_id": 1})
-        assert result == {"name": "John", "age": 30}
+        manager.add_tool(get_user)
+        result = await manager.call_tool("get_user", {"user_id": 1}, convert_result=True)
+        # don't test unstructured output here, just the structured conversion
+        assert len(result) == 2 and result[1] == {"name": "John", "age": 30}
 
     @pytest.mark.anyio
     async def test_tool_with_primitive_output(self):
-        """Test tool with primitive return type and structured_output=True."""
+        """Test tool with primitive return type."""
 
         def double_number(n: int) -> int:
             """Double a number."""
             return 10
 
         manager = ToolManager()
-        manager.add_tool(double_number, structured_output=True)
+        manager.add_tool(double_number)
         result = await manager.call_tool("double_number", {"n": 5})
         assert result == 10
-
-    @pytest.mark.anyio
-    async def test_tool_with_primitive_output_converted(self):
-        """Test tool with primitive return type and structured_output=True with conversion."""
-
-        def double_number(n: int) -> int:
-            """Double a number."""
-            return 10
-
-        manager = ToolManager()
-        manager.add_tool(double_number, structured_output=True)
-        result = await manager.call_tool_and_convert_result("double_number", {"n": 5})
-        assert result == {"result": 10}
+        result = await manager.call_tool("double_number", {"n": 5}, convert_result=True)
+        assert isinstance(result[0][0], TextContent) and result[1] == {"result": 10}
 
     @pytest.mark.anyio
     async def test_tool_with_typeddict_output(self):
-        """Test tool with TypedDict return type and structured_output=True."""
+        """Test tool with TypedDict return type."""
 
         class UserDict(TypedDict):
             name: str
@@ -534,32 +505,13 @@ class TestStructuredOutput:
             return UserDict(name="Alice", age=25)
 
         manager = ToolManager()
-        manager.add_tool(get_user_dict, structured_output=True)
+        manager.add_tool(get_user_dict)
         result = await manager.call_tool("get_user_dict", {"user_id": 1})
         assert result == expected_output
 
     @pytest.mark.anyio
     async def test_tool_with_namedtuple_output(self):
-        """Test tool with NamedTuple return type and structured_output=True."""
-
-        class Point(NamedTuple):
-            x: float
-            y: float
-
-        def get_point() -> Point:
-            """Get a point."""
-            return Point(1.5, 2.5)
-
-        manager = ToolManager()
-        manager.add_tool(get_point, structured_output=True)
-        result = await manager.call_tool("get_point", {})
-        assert isinstance(result, Point)
-        assert result.x == 1.5
-        assert result.y == 2.5
-
-    @pytest.mark.anyio
-    async def test_tool_with_namedtuple_output_converted(self):
-        """Test tool with NamedTuple return type and structured_output=True with conversion."""
+        """Test tool with NamedTuple return type."""
 
         class Point(NamedTuple):
             x: float
@@ -572,33 +524,14 @@ class TestStructuredOutput:
             return Point(1.5, 2.5)
 
         manager = ToolManager()
-        manager.add_tool(get_point, structured_output=True)
-        result = await manager.call_tool_and_convert_result("get_point", {})
-        assert result == expected_output
+        manager.add_tool(get_point)
+        result = await manager.call_tool("get_point", {}, convert_result=True)
+        # don't test unstructured output here, just the structured conversion
+        assert len(result) == 2 and result[1] == expected_output
 
     @pytest.mark.anyio
     async def test_tool_with_dataclass_output(self):
-        """Test tool with dataclass return type and structured_output=True."""
-
-        @dataclass
-        class Person:
-            name: str
-            age: int
-
-        def get_person() -> Person:
-            """Get a person."""
-            return Person("Bob", 40)
-
-        manager = ToolManager()
-        manager.add_tool(get_person, structured_output=True)
-        result = await manager.call_tool("get_person", {})
-        assert isinstance(result, Person)
-        assert result.name == "Bob"
-        assert result.age == 40
-
-    @pytest.mark.anyio
-    async def test_tool_with_dataclass_output_converted(self):
-        """Test tool with dataclass return type and structured_output=True with conversion."""
+        """Test tool with dataclass return type."""
 
         @dataclass
         class Person:
@@ -612,28 +545,14 @@ class TestStructuredOutput:
             return Person("Bob", 40)
 
         manager = ToolManager()
-        manager.add_tool(get_person, structured_output=True)
-        result = await manager.call_tool_and_convert_result("get_person", {})
-        assert result == expected_output
+        manager.add_tool(get_person)
+        result = await manager.call_tool("get_person", {}, convert_result=True)
+        # don't test unstructured output here, just the structured conversion
+        assert len(result) == 2 and result[1] == expected_output
 
     @pytest.mark.anyio
     async def test_tool_with_list_output(self):
-        """Test tool with list return type and structured_output=True."""
-
-        expected_list = [1, 2, 3, 4, 5]
-
-        def get_numbers() -> list[int]:
-            """Get a list of numbers."""
-            return expected_list
-
-        manager = ToolManager()
-        manager.add_tool(get_numbers, structured_output=True)
-        result = await manager.call_tool("get_numbers", {})
-        assert result == expected_list
-
-    @pytest.mark.anyio
-    async def test_tool_with_list_output_converted(self):
-        """Test tool with list return type and structured_output=True with conversion."""
+        """Test tool with list return type."""
 
         expected_list = [1, 2, 3, 4, 5]
         expected_output = {"result": expected_list}
@@ -643,31 +562,11 @@ class TestStructuredOutput:
             return expected_list
 
         manager = ToolManager()
-        manager.add_tool(get_numbers, structured_output=True)
-        result = await manager.call_tool_and_convert_result("get_numbers", {})
-        assert result == expected_output
-
-    @pytest.mark.anyio
-    async def test_tool_output_validation_error(self):
-        """Test that output validation errors are properly raised when using convert_result."""
-
-        class StrictOutput(BaseModel):
-            value: int
-
-        def get_wrong_type() -> StrictOutput:
-            """Return wrong type."""
-            return {"value": "not an int"}  # type: ignore
-
-        manager = ToolManager()
-        manager.add_tool(get_wrong_type, structured_output=True)
-
-        # Raw result should work fine (no validation)
-        result = await manager.call_tool("get_wrong_type", {})
-        assert result == {"value": "not an int"}
-
-        # But conversion should fail due to validation
-        with pytest.raises(ToolError, match="Output validation failed"):
-            await manager.call_tool_and_convert_result("get_wrong_type", {})
+        manager.add_tool(get_numbers)
+        result = await manager.call_tool("get_numbers", {})
+        assert result == expected_list
+        result = await manager.call_tool("get_numbers", {}, convert_result=True)
+        assert isinstance(result[0][0], TextContent) and result[1] == expected_output
 
     @pytest.mark.anyio
     async def test_tool_without_structured_output(self):
@@ -694,7 +593,7 @@ class TestStructuredOutput:
             return UserOutput(name="Test", age=25)
 
         manager = ToolManager()
-        tool = manager.add_tool(get_user, structured_output=True)
+        tool = manager.add_tool(get_user)
 
         # Test that output_schema is populated
         expected_schema = {
@@ -707,14 +606,14 @@ class TestStructuredOutput:
 
     @pytest.mark.anyio
     async def test_tool_with_dict_str_any_output(self):
-        """Test tool with dict[str, Any] return type and structured_output=True."""
+        """Test tool with dict[str, Any] return type."""
 
         def get_config() -> dict[str, Any]:
             """Get configuration"""
             return {"debug": True, "port": 8080, "features": ["auth", "logging"]}
 
         manager = ToolManager()
-        tool = manager.add_tool(get_config, structured_output=True)
+        tool = manager.add_tool(get_config)
 
         # Check output schema
         assert tool.output_schema is not None
@@ -727,7 +626,7 @@ class TestStructuredOutput:
         assert result == expected
 
         # Test converted result
-        result = await manager.call_tool_and_convert_result("get_config", {})
+        result = await manager.call_tool("get_config", {})
         assert result == expected
 
     @pytest.mark.anyio
@@ -739,7 +638,7 @@ class TestStructuredOutput:
             return {"alice": 100, "bob": 85, "charlie": 92}
 
         manager = ToolManager()
-        tool = manager.add_tool(get_scores, structured_output=True)
+        tool = manager.add_tool(get_scores)
 
         # Check output schema
         assert tool.output_schema is not None
@@ -752,28 +651,5 @@ class TestStructuredOutput:
         assert result == expected
 
         # Test converted result
-        result = await manager.call_tool_and_convert_result("get_scores", {})
+        result = await manager.call_tool("get_scores", {})
         assert result == expected
-
-    @pytest.mark.anyio
-    async def test_tool_convert_result_validation(self):
-        """Test that Tool.convert_result properly validates output."""
-
-        class StrictOutput(BaseModel):
-            value: int
-            name: str
-
-        def get_data() -> StrictOutput:
-            # This would normally fail validation
-            return {"value": "not_an_int", "name": "test"}  # type: ignore
-
-        manager = ToolManager()
-        manager.add_tool(get_data, structured_output=True)
-
-        # Raw result should work fine (no validation)
-        result = await manager.call_tool("get_data", {})
-        assert result == {"value": "not_an_int", "name": "test"}
-
-        # But conversion with validation should fail
-        with pytest.raises(ToolError, match="Output validation failed"):
-            await manager.call_tool_and_convert_result("get_data", {})

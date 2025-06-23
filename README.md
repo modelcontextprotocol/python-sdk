@@ -252,7 +252,31 @@ async def fetch_weather(city: str) -> str:
 
 #### Structured Output
 
-Tools can return structured data with automatic validation using the `structured_output=True` parameter. This ensures your tools return well-typed, validated data that clients can easily process:
+Tools will return structured results by default, if their return type
+annotation is compatible. Otherwise, they will return unstructured results. 
+
+Structured output supports these return types:
+- Pydantic models (BaseModel subclasses)
+- TypedDicts
+- Dataclasses
+- NamedTuples
+- `dict[str, T]`
+- Primitive types (str, int, float, bool) - wrapped in `{"result": value}`
+- Generic types (list, tuple, set) - wrapped in `{"result": value}`
+- Union types and Optional - wrapped in `{"result": value}`
+
+Structured results are automatically validated against the output schema 
+generated from the annotation. This ensures the tool returns well-typed, 
+validated data that clients can easily process:
+
+**Note:** For backward compatibility, unstructured results are also
+returned. Unstructured results are provided strictly for compatibility 
+with previous versions of FastMCP.
+
+**Note:** In cases where a tool function's return type annotation 
+causes the tool to be classified as structured _and this is undesirable_, 
+the  classification can be suppressed by passing `structured_output=False`
+to the `@tool` decorator.
 
 ```python
 from mcp.server.fastmcp import FastMCP
@@ -270,7 +294,7 @@ class WeatherData(BaseModel):
     wind_speed: float
 
 
-@mcp.tool(structured_output=True)
+@mcp.tool()
 def get_weather(city: str) -> WeatherData:
     """Get structured weather data"""
     return WeatherData(
@@ -285,42 +309,33 @@ class LocationInfo(TypedDict):
     name: str
 
 
-@mcp.tool(structured_output=True)
+@mcp.tool()
 def get_location(address: str) -> LocationInfo:
     """Get location coordinates"""
     return LocationInfo(latitude=51.5074, longitude=-0.1278, name="London, UK")
 
 
 # Using dict[str, Any] for flexible schemas
-@mcp.tool(structured_output=True)
+@mcp.tool()
 def get_statistics(data_type: str) -> dict[str, float]:
     """Get various statistics"""
     return {"mean": 42.5, "median": 40.0, "std_dev": 5.2}
 
 
 # Lists and other types are wrapped automatically
-@mcp.tool(structured_output=True)
+@mcp.tool()
 def list_cities() -> list[str]:
     """Get a list of cities"""
     return ["London", "Paris", "Tokyo"]
     # Returns: {"result": ["London", "Paris", "Tokyo"]}
 
 
-@mcp.tool(structured_output=True)
+@mcp.tool()
 def get_temperature(city: str) -> float:
     """Get temperature as a simple float"""
     return 22.5
     # Returns: {"result": 22.5}
 ```
-
-Structured output supports:
-- Pydantic models (BaseModel subclasses) - used directly
-- TypedDict for dictionary structures - used directly
-- Dataclasses and NamedTuples - converted to dictionaries
-- `dict[str, T]` for flexible key-value pairs - used directly
-- Primitive types (str, int, float, bool) - wrapped in `{"result": value}`
-- Generic types (list, tuple, set) - wrapped in `{"result": value}`
-- Union types and Optional - wrapped in `{"result": value}`
 
 ### Prompts
 

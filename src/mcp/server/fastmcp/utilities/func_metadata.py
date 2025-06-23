@@ -1,16 +1,9 @@
 import inspect
 import json
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import asdict, is_dataclass
-from typing import (
-    Annotated,
-    Any,
-    ForwardRef,
-    Literal,
-    get_args,
-    get_origin,
-    get_type_hints,
-)
+from types import GenericAlias
+from typing import Annotated, Any, ForwardRef, Literal, get_args, get_origin, get_type_hints
 
 from pydantic import (
     BaseModel,
@@ -24,12 +17,13 @@ from pydantic._internal._typing_extra import eval_type_backport
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
-from mcp.server.fastmcp.exceptions import InvalidSignature, ToolError
+from mcp.server.fastmcp.exceptions import InvalidSignature
 from mcp.server.fastmcp.utilities.logging import get_logger
+from mcp.types import ContentBlock
 
 logger = get_logger(__name__)
 
-OutputConversion = Literal["none", "wrapped", "namedtuple", "class"]
+OutputConversion = Literal["none", "basemodel", "wrapped", "namedtuple", "class"]
 
 
 class ArgModelBase(BaseModel):
@@ -54,13 +48,10 @@ class FuncMetadata(BaseModel):
     arg_model: Annotated[type[ArgModelBase], WithJsonSchema(None)]
     output_model: Annotated[type[BaseModel], WithJsonSchema(None)] | None = None
     output_conversion: OutputConversion = "none"
-    # We can add things in the future like
-    #  - Maybe some args are excluded from attempting to parse from JSON
-    #  - Maybe some args are special (like context) for dependency injection
 
     async def call_fn_with_arg_validation(
         self,
-        fn: Callable[..., Any] | Awaitable[Any],
+        fn: Callable[..., Any | Awaitable[Any]],
         fn_is_async: bool,
         arguments_to_validate: dict[str, Any],
         arguments_to_pass_directly: dict[str, Any] | None,
@@ -77,34 +68,51 @@ class FuncMetadata(BaseModel):
         arguments_parsed_dict |= arguments_to_pass_directly or {}
 
         if fn_is_async:
-            if isinstance(fn, Awaitable):
-                return await fn
             return await fn(**arguments_parsed_dict)
-        if isinstance(fn, Callable):
+        else:
             return fn(**arguments_parsed_dict)
-        raise TypeError("fn must be either Callable or Awaitable")
 
-    def to_validated_dict(self, result: Any) -> dict[str, Any]:
-        """Validate and convert the result to a dict after validation."""
+    def convert_result(self, result: Any) -> Any:
+        """
+        Convert the result of a function call to the appropriate format for
+         the lowlevel server tool call handler:
+
+        - If output_model is None, return the unstructured content directly.
+        - If output_model is not None, convert the result to structured output format
+            (dict[str, Any]) and return both unstructured and structured content.
+
+        Note: we return unstructured content here **even though the lowlevel server
+        tool call handler provides generic backwards compatibility serialization of
+        structured content**. This is for FastMCP backwards compatibility: we need to
+        retain FastMCP's ad hoc conversion logic for constructing unstructured output
+        from function return values (see _convert_to_content in mcp.server.fastmcp.server),
+        whereas the lowlevel server simply serializes the structured output.
+
+        This backwards compatibility provision will be removed in a future version of FastMCP.
+        """
+        from mcp.server.fastmcp.server import _convert_to_content  # type: ignore
+
+        unstructured_content = _convert_to_content(result)
+
         if self.output_model is None:
-            raise ValueError("No output model to validate against")
+            return unstructured_content
+        else:
+            match self.output_conversion:
+                case "none":
+                    structured_content = result
+                case "basemodel":
+                    structured_content = result.model_dump()
+                case "wrapped":
+                    structured_content = {"result": result}
+                case "namedtuple":
+                    structured_content = result._asdict()
+                case "class":
+                    if is_dataclass(result) and not isinstance(result, type):
+                        structured_content = asdict(result)
+                    else:
+                        structured_content = dict(vars(result))
 
-        match self.output_conversion:
-            case "wrapped":
-                converted = _convert_wrapped_result(result)
-            case "namedtuple":
-                converted = _convert_namedtuple_result(result)
-            case "class":
-                converted = _convert_class_result(result)
-            case "none":
-                converted = result
-
-        try:
-            validated = self.output_model.model_validate(converted)
-        except Exception as e:
-            raise ToolError(f"Output validation failed: {e}") from e
-
-        return validated.model_dump()
+            return (unstructured_content, structured_content)
 
     def pre_parse_json(self, data: dict[str, Any]) -> dict[str, Any]:
         """Pre-parse data from JSON.
@@ -143,7 +151,7 @@ class FuncMetadata(BaseModel):
 def func_metadata(
     func: Callable[..., Any],
     skip_names: Sequence[str] = (),
-    structured_output: bool = False,
+    structured_output: bool | None = None,
 ) -> FuncMetadata:
     """Given a function, return metadata including a pydantic model representing its
     signature.
@@ -162,21 +170,26 @@ def func_metadata(
         func: The function to convert to a pydantic model
         skip_names: A list of parameter names to skip. These will not be included in
             the model.
-        structured_output: If True, creates a Pydantic model for the function's return
-            type. The function must have a return type annotation when this is True.
-            Supports various return types:
+        structured_output: Controls whether the tool's output is structured or unstructured
+            - If None, auto-detects based on the function's return type annotation
+            - If True, unconditionally creates a structured tool (return type annotation permitting)
+            - If False, unconditionally creates an unstructured tool
+
+        If structured, creates a Pydantic model for the function's result based on its annotation.
+        Supports various return types:
             - BaseModel subclasses (used directly)
             - Primitive types (str, int, float, bool, bytes, None) - wrapped in a
-              model with a 'result' field
+                model with a 'result' field
             - TypedDict - converted to a Pydantic model with same fields
             - NamedTuple - converted to a Pydantic model with same fields
             - Dataclasses and other annotated classes - converted to Pydantic models
             - Generic types (list, dict, Union, etc.) - wrapped in a model with a 'result' field
-            Raises InvalidSignature if the return type has no annotations.
+
     Returns:
         A FuncMetadata object containing:
         - arg_model: A pydantic model representing the function's arguments
-        - output_model: A pydantic model for the return type (if structured_output=True)
+        - output_model: A pydantic model for the return type if output is structured
+        - output_conversion: Records how function output should be converted before returning.
     """
     sig = _get_typed_signature(func)
     params = sig.parameters
@@ -220,23 +233,29 @@ def func_metadata(
 
     output_model = None
     output_conversion = "none"
-    if structured_output:
-        if sig.return_annotation is inspect.Parameter.empty:
-            raise InvalidSignature(f"Function {func.__name__}: return annotation required for structured output")
 
+    if sig.return_annotation is inspect.Parameter.empty:
+        if structured_output is True:
+            raise InvalidSignature(f"Function {func.__name__}: return annotation required for structured output")
+        else:
+            structured_output = False
+
+    if structured_output is not False:
         output_info = FieldInfo.from_annotation(_get_typed_annotation(sig.return_annotation, globalns))
         annotation = output_info.annotation
 
-        if _needs_wrapper(annotation):
+        if _is_unstructured_result_type(annotation):
+            structured_output = False
+        elif _needs_wrapper(annotation):
             output_model = _create_wrapped_model(func.__name__, annotation, output_info)
             output_conversion = "wrapped"
         elif _is_dict_str_any(annotation):
             output_model = _create_dict_model(func.__name__, annotation)
             output_conversion = "none"
         elif isinstance(annotation, type):
-            if issubclass(annotation, BaseModel):
+            if _is_basemodel(annotation):
                 output_model = annotation
-                output_conversion = "none"
+                output_conversion = "basemodel"
             elif _is_typeddict(annotation):
                 output_model = _create_model_from_typeddict(annotation, globalns)
                 output_conversion = "none"
@@ -244,14 +263,53 @@ def func_metadata(
                 output_model = _create_model_from_namedtuple(annotation, globalns)
                 output_conversion = "namedtuple"
             else:
-                output_model = _create_model_from_class(annotation, globalns)
-                output_conversion = "class"
+                output_model = _maybe_create_model_from_class(annotation)
+                output_conversion = "class" if output_model is not None else "none"
         else:
-            raise InvalidSignature(
-                f"Function {func.__name__}: return type {annotation} is not supported for structured output. "
-            )
+            if structured_output:
+                raise InvalidSignature(
+                    f"Function {func.__name__}: return type {annotation} is not supported for structured output. "
+                )
+
+    import sys
+
+    print(f"HEY Function {func.__name__} metadata: {output_model=} {output_conversion=}", file=sys.stderr)
 
     return FuncMetadata(arg_model=arguments_model, output_model=output_model, output_conversion=output_conversion)
+
+
+def _is_unstructured_result_type(annotation: Any) -> bool:
+    origin = get_origin(annotation)
+    if origin is not None and issubclass(origin, Iterable):
+        # iterable of...
+        args = get_args(annotation)
+        if args[0] is ContentBlock:
+            # ContentBlock
+            return True
+        if args[0] in ContentBlock.__args__:
+            # any of the ContentBlock types
+            return True
+        if hasattr(args[0], "__args__") and (
+            set(args[0].__args__) & set(ContentBlock.__args__) == set(args[0].__args__)
+        ):
+            # subset of ContentBlock types
+            return True
+    return False
+
+
+def _is_primitive_type(annotation: Any) -> bool:
+    return annotation in (str, int, float, bool, bytes, type(None)) or annotation is None
+
+
+def _is_dict_str_any(annotation: Any) -> bool:
+    if get_origin(annotation) is dict:
+        args = get_args(annotation)
+        return len(args) == 2 and args[0] is str
+    return False
+
+
+def _is_basemodel(annotation: type[Any]) -> bool:
+    return not isinstance(annotation, GenericAlias) and issubclass(annotation, BaseModel)
 
 
 def _is_typeddict(annotation: type[Any]) -> bool:
@@ -262,18 +320,6 @@ def _is_namedtuple(annotation: type[Any]) -> bool:
     return hasattr(annotation, "_fields") and issubclass(annotation, tuple)
 
 
-def _is_primitive_type(annotation: Any) -> bool:
-    return annotation in (str, int, float, bool, bytes, type(None)) or annotation is None
-
-
-def _is_dict_str_any(annotation: Any) -> bool:
-    """Check if annotation is dict[str, T] for any T."""
-    if get_origin(annotation) is dict:
-        args = get_args(annotation)
-        return len(args) == 2 and args[0] is str
-    return False
-
-
 def _needs_wrapper(annotation: Any) -> bool:
     """Check if a return type annotation needs to be wrapped in a result model.
 
@@ -281,13 +327,6 @@ def _needs_wrapper(annotation: Any) -> bool:
     - Primitive types (str, int, float, bool, bytes, None)
     - Generic types (list[T], dict[K,V], etc.) EXCEPT dict[str, T]
     - Non-type instances (Union, Optional, Literal, Any, etc.)
-
-    Returns False for:
-    - BaseModel subclasses
-    - TypedDict types
-    - NamedTuple types
-    - Ordinary classes with annotations
-    - dict[str, T] for any T (can be used directly as a model)
     """
     if _is_dict_str_any(annotation):
         # dict[str, T] doesn't need wrapping
@@ -309,8 +348,8 @@ def _needs_wrapper(annotation: Any) -> bool:
     return False
 
 
-def _create_model_from_class(cls: type[Any], globalns: dict[str, Any]) -> type[BaseModel]:
-    """Create a Pydantic model from an ordinary class.
+def _maybe_create_model_from_class(cls: type[Any]) -> type[BaseModel] | None:
+    """Create a Pydantic model from an ordinary class, if it carries type hints.
 
     The created model will:
     - Have the same name as the class
@@ -318,13 +357,8 @@ def _create_model_from_class(cls: type[Any], globalns: dict[str, Any]) -> type[B
     - Include all fields whose type does not include None in the set of required fields
     """
     type_hints = get_type_hints(cls)
-
-    if not type_hints:
-        raise InvalidSignature(
-            f"Cannot infer a schema for return type {cls.__name__}. "
-            f"The class has no type annotations. Consider using a Pydantic BaseModel, "
-            f"dataclass, or TypedDict instead."
-        )
+    if type_hints == {}:
+        return None
 
     model_fields: dict[str, Any] = {}
     for field_name, field_type in type_hints.items():
@@ -336,13 +370,6 @@ def _create_model_from_class(cls: type[Any], globalns: dict[str, Any]) -> type[B
         model_fields[field_name] = (field_info.annotation, field_info)
 
     return create_model(cls.__name__, **model_fields, __base__=BaseModel)
-
-
-def _convert_class_result(result: Any) -> dict[str, Any]:
-    if is_dataclass(result) and not isinstance(result, type):
-        return asdict(result)
-
-    return dict(vars(result))
 
 
 def _create_model_from_typeddict(td_type: type[Any], globalns: dict[str, Any]) -> type[BaseModel]:
@@ -387,10 +414,6 @@ def _create_model_from_namedtuple(nt_type: type[Any], globalns: dict[str, Any]) 
     return create_model(nt_type.__name__, **model_fields, __base__=BaseModel)
 
 
-def _convert_namedtuple_result(result: Any) -> dict[str, Any]:
-    return result._asdict()
-
-
 def _create_wrapped_model(func_name: str, annotation: Any, field_info: FieldInfo) -> type[BaseModel]:
     """Create a model that wraps a type in a 'result' field.
 
@@ -403,10 +426,6 @@ def _create_wrapped_model(func_name: str, annotation: Any, field_info: FieldInfo
         annotation = type(None)
 
     return create_model(model_name, result=(annotation, field_info), __base__=BaseModel)
-
-
-def _convert_wrapped_result(result: Any) -> dict[str, Any]:
-    return {"result": result}
 
 
 def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:

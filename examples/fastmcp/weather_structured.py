@@ -33,7 +33,7 @@ class WeatherData(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now, description="Observation time")
 
 
-@mcp.tool(structured_output=True)
+@mcp.tool()
 def get_weather(city: str) -> WeatherData:
     """Get current weather for a city with full structured data"""
     # In a real implementation, this would fetch from a weather API
@@ -49,14 +49,14 @@ class WeatherSummary(TypedDict):
     description: str
 
 
-@mcp.tool(structured_output=True)
+@mcp.tool()
 def get_weather_summary(city: str) -> WeatherSummary:
     """Get a brief weather summary for a city"""
     return WeatherSummary(city=city, temp_c=22.5, description="Partly cloudy with light breeze")
 
 
 # Example 3: Using dict[str, Any] for flexible schemas
-@mcp.tool(structured_output=True)
+@mcp.tool()
 def get_weather_metrics(cities: list[str]) -> dict[str, dict[str, float]]:
     """Get weather metrics for multiple cities
 
@@ -81,7 +81,7 @@ class WeatherAlert:
     valid_until: datetime
 
 
-@mcp.tool(structured_output=True)
+@mcp.tool()
 def get_weather_alerts(region: str) -> list[WeatherAlert]:
     """Get active weather alerts for a region"""
     # In production, this would fetch real alerts
@@ -106,11 +106,11 @@ def get_weather_alerts(region: str) -> list[WeatherAlert]:
 
 
 # Example 5: Returning primitives with structured output
-@mcp.tool(structured_output=True)
+@mcp.tool()
 def get_temperature(city: str, unit: str = "celsius") -> float:
     """Get just the temperature for a city
 
-    When returning primitives with structured_output=True,
+    When returning primitives as structured output,
     the result is wrapped in {"result": value}
     """
     base_temp = 22.5
@@ -138,7 +138,7 @@ class WeatherStats(BaseModel):
     precipitation_mm: float = Field(description="Total precipitation in millimeters")
 
 
-@mcp.tool(structured_output=True)
+@mcp.tool()
 def get_weather_stats(city: str, days: int = 7) -> WeatherStats:
     """Get weather statistics for the past N days"""
     return WeatherStats(
