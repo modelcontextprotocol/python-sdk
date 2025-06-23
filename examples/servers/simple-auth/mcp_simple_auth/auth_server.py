@@ -121,6 +121,7 @@ def create_authorization_server(server_settings: AuthServerSettings, github_sett
                 "exp": access_token.expires_at,
                 "iat": int(time.time()),
                 "token_type": "Bearer",
+                "aud": access_token.resource,  # RFC 8707 audience claim
             }
         )
 
