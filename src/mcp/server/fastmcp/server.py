@@ -761,7 +761,7 @@ class FastMCP:
             routes.append(
                 Mount(
                     normalized_message_endpoint,
-                    app=RequireAuthMiddleware(sse.handle_post_message, required_scopes,resource_metadata_url),
+                    app=RequireAuthMiddleware(sse.handle_post_message, required_scopes, resource_metadata_url),
                 )
             )
         else:
