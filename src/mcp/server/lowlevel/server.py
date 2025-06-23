@@ -75,6 +75,7 @@ from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontext
 from typing import Any, Generic
 
 import anyio
+import jsonschema
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 from typing_extensions import TypeVar
@@ -143,6 +144,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self.notification_options = NotificationOptions()
+        self._tool_cache: dict[str, types.Tool] = {}
         logger.debug("Initializing server %r", name)
 
     def create_initialization_options(
@@ -373,12 +375,41 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(_: Any):
                 tools = await func()
+                # Refresh the tool cache
+                self._tool_cache.clear()
+                for tool in tools:
+                    self._tool_cache[tool.name] = tool
                 return types.ServerResult(types.ListToolsResult(tools=tools))
 
             self.request_handlers[types.ListToolsRequest] = handler
             return func
 
         return decorator
+
+    async def _validate_tool_arguments(self, tool_name: str, arguments: dict[str, Any]) -> str | None:
+        """Validate tool arguments against inputSchema.
+
+        Returns None if validation passes, or an error message if validation fails.
+        """
+        # Check if tool is in cache
+        if tool_name not in self._tool_cache:
+            # Try to refresh the cache by calling list_tools
+            if types.ListToolsRequest in self.request_handlers:
+                logger.debug("Tool cache miss for %s, refreshing cache", tool_name)
+                await self.request_handlers[types.ListToolsRequest](None)
+
+        # Check again after potential refresh
+        if tool_name in self._tool_cache:
+            tool = self._tool_cache[tool_name]
+            try:
+                # Validate arguments against inputSchema
+                jsonschema.validate(instance=arguments, schema=tool.inputSchema)
+                return None
+            except jsonschema.ValidationError as e:
+                return f"Input validation error: {e.message}"
+        else:
+            logger.warning("Tool '%s' not found in cache, validation will not be performed", tool_name)
+            return None
 
     def call_tool(self):
         def decorator(
@@ -391,7 +422,20 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(req: types.CallToolRequest):
                 try:
-                    results = await func(req.params.name, (req.params.arguments or {}))
+                    tool_name = req.params.name
+                    arguments = req.params.arguments or {}
+
+                    # Validate arguments
+                    validation_error = await self._validate_tool_arguments(tool_name, arguments)
+                    if validation_error:
+                        return types.ServerResult(
+                            types.CallToolResult(
+                                content=[types.TextContent(type="text", text=validation_error)],
+                                isError=True,
+                            )
+                        )
+
+                    results = await func(tool_name, arguments)
                     return types.ServerResult(types.CallToolResult(content=list(results), isError=False))
                 except Exception as e:
                     return types.ServerResult(
