@@ -50,20 +50,14 @@ async def test_stdio_client():
                     break
 
         assert len(read_messages) == 2
-        assert read_messages[0] == JSONRPCMessage(
-            root=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
-        )
-        assert read_messages[1] == JSONRPCMessage(
-            root=JSONRPCResponse(jsonrpc="2.0", id=2, result={})
-        )
+        assert read_messages[0] == JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping"))
+        assert read_messages[1] == JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=2, result={}))
 
 
 @pytest.mark.anyio
 async def test_stdio_client_bad_path():
     """Check that the connection doesn't hang if process errors."""
-    server_params = StdioServerParameters(
-        command="python", args=["-c", "non-existent-file.py"]
-    )
+    server_params = StdioServerParameters(command="python", args=["-c", "non-existent-file.py"])
     async with stdio_client(server_params) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             # The session should raise an error when the connection closes

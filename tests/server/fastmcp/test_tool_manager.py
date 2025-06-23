@@ -44,6 +44,7 @@ class TestAddTools:
 
         original_tool = Tool(
             name="add",
+            title="Add Tool",
             description="Add two numbers.",
             fn=add,
             fn_metadata=fn_metadata,
@@ -147,9 +148,7 @@ class TestAddTools:
 
     def test_add_lambda_with_no_name(self):
         manager = ToolManager()
-        with pytest.raises(
-            ValueError, match="You must provide a name for lambda functions"
-        ):
+        with pytest.raises(ValueError, match="You must provide a name for lambda functions"):
             manager.add_tool(lambda x: x)
 
     def test_warn_on_duplicate_tools(self, caplog):
@@ -346,9 +345,7 @@ class TestContextHandling:
         tool = manager.add_tool(tool_without_context)
         assert tool.context_kwarg is None
 
-        def tool_with_parametrized_context(
-            x: int, ctx: Context[ServerSessionT, LifespanContextT, RequestT]
-        ) -> str:
+        def tool_with_parametrized_context(x: int, ctx: Context[ServerSessionT, LifespanContextT, RequestT]) -> str:
             return str(x)
 
         tool = manager.add_tool(tool_with_parametrized_context)

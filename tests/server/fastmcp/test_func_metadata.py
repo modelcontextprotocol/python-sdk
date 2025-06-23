@@ -28,9 +28,7 @@ def complex_arguments_fn(
     # list[str] | str is an interesting case because if it comes in as JSON like
     # "[\"a\", \"b\"]" then it will be naively parsed as a string.
     list_str_or_str: list[str] | str,
-    an_int_annotated_with_field: Annotated[
-        int, Field(description="An int with a field")
-    ],
+    an_int_annotated_with_field: Annotated[int, Field(description="An int with a field")],
     an_int_annotated_with_field_and_others: Annotated[
         int,
         str,  # Should be ignored, really
@@ -42,9 +40,7 @@ def complex_arguments_fn(
         "123",
         456,
     ],
-    field_with_default_via_field_annotation_before_nondefault_arg: Annotated[
-        int, Field(1)
-    ],
+    field_with_default_via_field_annotation_before_nondefault_arg: Annotated[int, Field(1)],
     unannotated,
     my_model_a: SomeInputModelA,
     my_model_a_forward_ref: "SomeInputModelA",
@@ -179,9 +175,7 @@ def test_str_vs_list_str():
 def test_skip_names():
     """Test that skipped parameters are not included in the model"""
 
-    def func_with_many_params(
-        keep_this: int, skip_this: str, also_keep: float, also_skip: bool
-    ):
+    def func_with_many_params(keep_this: int, skip_this: str, also_keep: float, also_skip: bool):
         return keep_this, skip_this, also_keep, also_skip
 
     # Skip some parameters

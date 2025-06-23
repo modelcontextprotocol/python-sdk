@@ -123,7 +123,7 @@ class Server:
         for item in tools_response:
             if isinstance(item, tuple) and item[0] == "tools":
                 tools.extend(
-                    Tool(tool.name, tool.description, tool.inputSchema)
+                    Tool(tool.name, tool.description, tool.inputSchema, tool.title)
                     for tool in item[1]
                 )
 
@@ -189,9 +189,14 @@ class Tool:
     """Represents a tool with its properties and formatting."""
 
     def __init__(
-        self, name: str, description: str, input_schema: dict[str, Any]
+        self,
+        name: str,
+        description: str,
+        input_schema: dict[str, Any],
+        title: str | None = None,
     ) -> None:
         self.name: str = name
+        self.title: str | None = title
         self.description: str = description
         self.input_schema: dict[str, Any] = input_schema
 
@@ -211,12 +216,19 @@ class Tool:
                     arg_desc += " (required)"
                 args_desc.append(arg_desc)
 
-        return f"""
-Tool: {self.name}
-Description: {self.description}
+        # Build the formatted output with title as a separate field
+        output = f"Tool: {self.name}\n"
+
+        # Add human-readable title if available
+        if self.title:
+            output += f"User-readable title: {self.title}\n"
+
+        output += f"""Description: {self.description}
 Arguments:
 {chr(10).join(args_desc)}
 """
+
+        return output
 
 
 class LLMClient:

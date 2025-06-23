@@ -30,6 +30,9 @@
     - [Prompts](#prompts)
     - [Images](#images)
     - [Context](#context)
+    - [Completions](#completions)
+    - [Elicitation](#elicitation)
+    - [Authentication](#authentication)
   - [Running Your Server](#running-your-server)
     - [Development Mode](#development-mode)
     - [Claude Desktop Integration](#claude-desktop-integration)
@@ -73,7 +76,7 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 
 ### Adding MCP to your python project
 
-We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python projects. 
+We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python projects.
 
 If you haven't created a uv-managed project yet, create one:
 
@@ -209,13 +212,13 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("My App")
 
 
-@mcp.resource("config://app")
+@mcp.resource("config://app", title="Application Configuration")
 def get_config() -> str:
     """Static configuration data"""
     return "App configuration here"
 
 
-@mcp.resource("users://{user_id}/profile")
+@mcp.resource("users://{user_id}/profile", title="User Profile")
 def get_user_profile(user_id: str) -> str:
     """Dynamic user data"""
     return f"Profile data for user {user_id}"
@@ -232,13 +235,13 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("My App")
 
 
-@mcp.tool()
+@mcp.tool(title="BMI Calculator")
 def calculate_bmi(weight_kg: float, height_m: float) -> float:
     """Calculate BMI given weight in kg and height in meters"""
     return weight_kg / (height_m**2)
 
 
-@mcp.tool()
+@mcp.tool(title="Weather Fetcher")
 async def fetch_weather(city: str) -> str:
     """Fetch current weather for a city"""
     async with httpx.AsyncClient() as client:
@@ -257,12 +260,12 @@ from mcp.server.fastmcp.prompts import base
 mcp = FastMCP("My App")
 
 
-@mcp.prompt()
+@mcp.prompt(title="Code Review")
 def review_code(code: str) -> str:
     return f"Please review this code:\n\n{code}"
 
 
-@mcp.prompt()
+@mcp.prompt(title="Debug Assistant")
 def debug_error(error: str) -> list[base.Message]:
     return [
         base.UserMessage("I'm seeing this error:"),
@@ -310,47 +313,152 @@ async def long_task(files: list[str], ctx: Context) -> str:
     return "Processing complete"
 ```
 
+### Completions
+
+MCP supports providing completion suggestions for prompt arguments and resource template parameters. With the context parameter, servers can provide completions based on previously resolved values:
+
+Client usage:
+```python
+from mcp.client.session import ClientSession
+from mcp.types import ResourceTemplateReference
+
+
+async def use_completion(session: ClientSession):
+    # Complete without context
+    result = await session.complete(
+        ref=ResourceTemplateReference(
+            type="ref/resource", uri="github://repos/{owner}/{repo}"
+        ),
+        argument={"name": "owner", "value": "model"},
+    )
+
+    # Complete with context - repo suggestions based on owner
+    result = await session.complete(
+        ref=ResourceTemplateReference(
+            type="ref/resource", uri="github://repos/{owner}/{repo}"
+        ),
+        argument={"name": "repo", "value": "test"},
+        context_arguments={"owner": "modelcontextprotocol"},
+    )
+```
+
+Server implementation:
+```python
+from mcp.server import Server
+from mcp.types import (
+    Completion,
+    CompletionArgument,
+    CompletionContext,
+    PromptReference,
+    ResourceTemplateReference,
+)
+
+server = Server("example-server")
+
+
+@server.completion()
+async def handle_completion(
+    ref: PromptReference | ResourceTemplateReference,
+    argument: CompletionArgument,
+    context: CompletionContext | None,
+) -> Completion | None:
+    if isinstance(ref, ResourceTemplateReference):
+        if ref.uri == "github://repos/{owner}/{repo}" and argument.name == "repo":
+            # Use context to provide owner-specific repos
+            if context and context.arguments:
+                owner = context.arguments.get("owner")
+                if owner == "modelcontextprotocol":
+                    repos = ["python-sdk", "typescript-sdk", "specification"]
+                    # Filter based on partial input
+                    filtered = [r for r in repos if r.startswith(argument.value)]
+                    return Completion(values=filtered)
+    return None
+```
+### Elicitation
+
+Request additional information from users during tool execution:
+
+```python
+from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.elicitation import (
+    AcceptedElicitation,
+    DeclinedElicitation,
+    CancelledElicitation,
+)
+from pydantic import BaseModel, Field
+
+mcp = FastMCP("Booking System")
+
+
+@mcp.tool()
+async def book_table(date: str, party_size: int, ctx: Context) -> str:
+    """Book a table with confirmation"""
+
+    # Schema must only contain primitive types (str, int, float, bool)
+    class ConfirmBooking(BaseModel):
+        confirm: bool = Field(description="Confirm booking?")
+        notes: str = Field(default="", description="Special requests")
+
+    result = await ctx.elicit(
+        message=f"Confirm booking for {party_size} on {date}?", schema=ConfirmBooking
+    )
+
+    match result:
+        case AcceptedElicitation(data=data):
+            if data.confirm:
+                return f"Booked! Notes: {data.notes or 'None'}"
+            return "Booking cancelled"
+        case DeclinedElicitation():
+            return "Booking declined"
+        case CancelledElicitation():
+            return "Booking cancelled"
+```
+
+The `elicit()` method returns an `ElicitationResult` with:
+- `action`: "accept", "decline", or "cancel"
+- `data`: The validated response (only when accepted)
+- `validation_error`: Any validation error message
+
 ### Authentication
 
 Authentication can be used by servers that want to expose tools accessing protected resources.
 
-`mcp.server.auth` implements an OAuth 2.0 server interface, which servers can use by
-providing an implementation of the `OAuthAuthorizationServerProvider` protocol.
+`mcp.server.auth` implements OAuth 2.1 resource server functionality, where MCP servers act as Resource Servers (RS) that validate tokens issued by separate Authorization Servers (AS). This follows the [MCP authorization specification](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) and implements RFC 9728 (Protected Resource Metadata) for AS discovery.
+
+MCP servers can use authentication by providing an implementation of the `TokenVerifier` protocol:
 
 ```python
 from mcp import FastMCP
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider
-from mcp.server.auth.settings import (
-    AuthSettings,
-    ClientRegistrationOptions,
-    RevocationOptions,
-)
+from mcp.server.auth.provider import TokenVerifier, TokenInfo
+from mcp.server.auth.settings import AuthSettings
 
 
-class MyOAuthServerProvider(OAuthAuthorizationServerProvider):
-    # See an example on how to implement at `examples/servers/simple-auth`
-    ...
+class MyTokenVerifier(TokenVerifier):
+    # Implement token validation logic (typically via token introspection)
+    async def verify_token(self, token: str) -> TokenInfo:
+        # Verify with your authorization server
+        ...
 
 
 mcp = FastMCP(
     "My App",
-    auth_server_provider=MyOAuthServerProvider(),
+    token_verifier=MyTokenVerifier(),
     auth=AuthSettings(
-        issuer_url="https://myapp.com",
-        revocation_options=RevocationOptions(
-            enabled=True,
-        ),
-        client_registration_options=ClientRegistrationOptions(
-            enabled=True,
-            valid_scopes=["myscope", "myotherscope"],
-            default_scopes=["myscope"],
-        ),
-        required_scopes=["myscope"],
+        issuer_url="https://auth.example.com",
+        resource_server_url="http://localhost:3001",
+        required_scopes=["mcp:read", "mcp:write"],
     ),
 )
 ```
 
-See [OAuthAuthorizationServerProvider](src/mcp/server/auth/provider.py) for more details.
+For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](examples/servers/simple-auth/).
+
+**Architecture:**
+- **Authorization Server (AS)**: Handles OAuth flows, user authentication, and token issuance
+- **Resource Server (RS)**: Your MCP server that validates tokens and serves protected resources
+- **Client**: Discovers AS through RFC 9728, obtains tokens, and uses them with the MCP server
+
+See [TokenVerifier](src/mcp/server/auth/provider.py) for more details on implementing token validation.
 
 ## Running Your Server
 
@@ -808,6 +916,42 @@ async def main():
             # Call a tool
             tool_result = await session.call_tool("echo", {"message": "hello"})
 ```
+
+### Client Display Utilities
+
+When building MCP clients, the SDK provides utilities to help display human-readable names for tools, resources, and prompts:
+
+```python
+from mcp.shared.metadata_utils import get_display_name
+from mcp.client.session import ClientSession
+
+
+async def display_tools(session: ClientSession):
+    """Display available tools with human-readable names"""
+    tools_response = await session.list_tools()
+
+    for tool in tools_response.tools:
+        # get_display_name() returns the title if available, otherwise the name
+        display_name = get_display_name(tool)
+        print(f"Tool: {display_name}")
+        if tool.description:
+            print(f"   {tool.description}")
+
+
+async def display_resources(session: ClientSession):
+    """Display available resources with human-readable names"""
+    resources_response = await session.list_resources()
+
+    for resource in resources_response.resources:
+        display_name = get_display_name(resource)
+        print(f"Resource: {display_name} ({resource.uri})")
+```
+
+The `get_display_name()` function implements the proper precedence rules for displaying names:
+- For tools: `title` > `annotations.title` > `name`
+- For other objects: `title` > `name`
+
+This ensures your client UI shows the most user-friendly names that servers provide.
 
 ### OAuth Authentication for Clients
 
