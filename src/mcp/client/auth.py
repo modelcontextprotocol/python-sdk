@@ -258,7 +258,6 @@ class OAuthClientProvider(httpx.Auth):
         if "client_credentials" in self.context.client_info.grant_types:
             token_request = await self._exchange_token_client_credentials()
             return token_request
-            pass
         else:
             auth_code, code_verifier = await self._perform_authorization_code_grant()
             token_request = await self._exchange_token_authorization_code(auth_code, code_verifier)
@@ -266,6 +265,8 @@ class OAuthClientProvider(httpx.Auth):
 
     async def _perform_authorization_code_grant(self) -> tuple[str, str]:
         """Perform the authorization redirect and get auth code."""
+        if self.context.client_metadata.redirect_uris is None:
+            raise OAuthFlowError("No redirect URIs provided for authorization code grant")
         if not self.context.redirect_handler:
             raise OAuthFlowError("No redirect handler provided for authorization code grant")
         if not self.context.callback_handler:
@@ -314,6 +315,8 @@ class OAuthClientProvider(httpx.Auth):
 
     async def _exchange_token_authorization_code(self, auth_code: str, code_verifier: str) -> httpx.Request:
         """Build token exchange request for authorization_code flow."""
+        if self.context.client_metadata.redirect_uris is None:
+            raise OAuthFlowError("No redirect URIs provided for authorization code grant")
         if not self.context.client_info:
             raise OAuthFlowError("Missing client info")
 
@@ -355,19 +358,33 @@ class OAuthClientProvider(httpx.Auth):
             "resource": self.context.get_resource_url(),  # RFC 8707
         }
 
-        if self.context.client_info.client_id:
-            token_data["client_id"] = self.context.client_info.client_id
-        if self.context.client_info.client_secret:
-            token_data["client_secret"] = self.context.client_info.client_secret
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
 
-        return httpx.Request(
-            "POST", token_url, data=token_data, headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
+        if self.context.client_metadata.scope:
+            token_data["scope"] = self.context.client_metadata.scope
+
+        if self.context.client_metadata.token_endpoint_auth_method == "client_secret_post":
+            # Include in request body
+            if self.context.client_info.client_id:
+                token_data["client_id"] = self.context.client_info.client_id
+            if self.context.client_info.client_secret:
+                token_data["client_secret"] = self.context.client_info.client_secret
+        elif self.context.client_metadata.token_endpoint_auth_method == "client_secret_basic":
+            # Include as Basic auth header
+            if not self.context.client_info.client_id:
+                raise OAuthTokenError("Missing client_id in Basic auth flow")
+            if not self.context.client_info.client_secret:
+                raise OAuthTokenError("Missing client_secret in Basic auth flow")
+            headers["Authorization"] = f"Basic {base64.b64encode(f'{self.context.client_info.client_id}:{self.context.client_info.client_secret}'.encode()).decode()}"
+
+        return httpx.Request("POST", token_url, data=token_data, headers=headers)
 
     async def _handle_token_response(self, response: httpx.Response) -> None:
         """Handle token exchange response."""
         if response.status_code != 200:
-            raise OAuthTokenError(f"Token exchange failed: {response.status_code}")
+            body = await response.aread()
+            body = body.decode("utf-8")
+            raise OAuthTokenError(f"Token exchange failed ({response.status_code}): {body}")
 
         try:
             content = await response.aread()

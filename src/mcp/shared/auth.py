@@ -41,7 +41,7 @@ class OAuthClientMetadata(BaseModel):
     for the full specification.
     """
 
-    redirect_uris: list[AnyUrl] = Field(..., min_length=1)
+    redirect_uris: list[AnyUrl] | None = Field(..., min_length=1)
     # supported auth methods for the token endpoint
     token_endpoint_auth_method: Literal["none", "client_secret_basic", "client_secret_post"] = "client_secret_post"
     # supported grant_types of this implementation
@@ -80,10 +80,10 @@ class OAuthClientMetadata(BaseModel):
     def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
         if redirect_uri is not None:
             # Validate redirect_uri against client's registered redirect URIs
-            if redirect_uri not in self.redirect_uris:
+            if self.redirect_uris is None or redirect_uri not in self.redirect_uris:
                 raise InvalidRedirectUriError(f"Redirect URI '{redirect_uri}' not registered for client")
             return redirect_uri
-        elif len(self.redirect_uris) == 1:
+        elif self.redirect_uris is not None and len(self.redirect_uris) == 1:
             return self.redirect_uris[0]
         else:
             raise InvalidRedirectUriError("redirect_uri must be specified when client " "has multiple registered URIs")
