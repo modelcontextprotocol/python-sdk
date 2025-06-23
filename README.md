@@ -444,7 +444,7 @@ mcp = FastMCP(
     "My App",
     token_verifier=MyTokenVerifier(),
     auth=AuthSettings(
-        issuer_url="https://auth.example.com"
+        issuer_url="https://auth.example.com",
         resource_server_url="http://localhost:3001",
         required_scopes=["mcp:read", "mcp:write"],
     ),
