@@ -255,40 +255,50 @@ class StreamableHTTPTransport:
         headers = self._prepare_request_headers(ctx.headers)
         message = ctx.session_message.message
         is_initialization = self._is_initialization_request(message)
+        try:
+            async with ctx.client.stream(
+                "POST",
+                self.url,
+                json=message.model_dump(by_alias=True, mode="json", exclude_none=True),
+                headers=headers,
+            ) as response:
+                if response.status_code == 202:
+                    logger.debug("Received 202 Accepted")
+                    return
 
-        async with ctx.client.stream(
-            "POST",
-            self.url,
-            json=message.model_dump(by_alias=True, mode="json", exclude_none=True),
-            headers=headers,
-        ) as response:
-            if response.status_code == 202:
-                logger.debug("Received 202 Accepted")
-                return
+                if response.status_code == 404:
+                    if isinstance(message.root, JSONRPCRequest):
+                        await self._send_session_terminated_error(
+                            ctx.read_stream_writer,
+                            message.root.id,
+                        )
+                    return
 
-            if response.status_code == 404:
-                if isinstance(message.root, JSONRPCRequest):
-                    await self._send_session_terminated_error(
+                response.raise_for_status()
+                if is_initialization:
+                    self._maybe_extract_session_id_from_response(response)
+
+                content_type = response.headers.get(CONTENT_TYPE, "").lower()
+
+                if content_type.startswith(JSON):
+                    await self._handle_json_response(response, ctx.read_stream_writer, is_initialization)
+                elif content_type.startswith(SSE):
+                    await self._handle_sse_response(response, ctx, is_initialization)
+                else:
+                    await self._handle_unexpected_content_type(
+                        content_type,
                         ctx.read_stream_writer,
-                        message.root.id,
                     )
-                return
-
-            response.raise_for_status()
-            if is_initialization:
-                self._maybe_extract_session_id_from_response(response)
-
-            content_type = response.headers.get(CONTENT_TYPE, "").lower()
-
-            if content_type.startswith(JSON):
-                await self._handle_json_response(response, ctx.read_stream_writer, is_initialization)
-            elif content_type.startswith(SSE):
-                await self._handle_sse_response(response, ctx, is_initialization)
-            else:
-                await self._handle_unexpected_content_type(
-                    content_type,
-                    ctx.read_stream_writer,
-                )
+        except Exception as exc:
+            logger.error(f"Error in _handle_post_request: {exc}")
+            request_id = "Unknown"
+            if isinstance(message.root, JSONRPCRequest):
+                request_id = message.root.id
+            error_response = JSONRPCError(
+                jsonrpc="2.0", id=request_id, error=ErrorData(code=-32603, message=f"Transport error: {str(exc)}")
+            )
+            error_session_message = SessionMessage(JSONRPCMessage(error_response))
+            await ctx.read_stream_writer.send(error_session_message)
 
     async def _handle_json_response(
         self,
