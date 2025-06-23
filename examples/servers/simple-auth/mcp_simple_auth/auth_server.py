@@ -68,7 +68,7 @@ def create_authorization_server(server_settings: AuthServerSettings, github_sett
             default_scopes=[github_settings.mcp_scope],
         ),
         required_scopes=[github_settings.mcp_scope],
-        authorization_servers=None,
+        resource_server_url=None,
     )
 
     # Create OAuth routes
@@ -113,20 +113,16 @@ def create_authorization_server(server_settings: AuthServerSettings, github_sett
             return JSONResponse({"active": False})
 
         # Return token info for Resource Server
-        response_data = {
-            "active": True,
-            "client_id": access_token.client_id,
-            "scope": " ".join(access_token.scopes),
-            "exp": access_token.expires_at,
-            "iat": int(time.time()),
-            "token_type": "Bearer",
-        }
-
-        # Include audience claim for RFC 8707 resource validation
-        if access_token.resource:
-            response_data["aud"] = access_token.resource
-
-        return JSONResponse(response_data)
+        return JSONResponse(
+            {
+                "active": True,
+                "client_id": access_token.client_id,
+                "scope": " ".join(access_token.scopes),
+                "exp": access_token.expires_at,
+                "iat": int(time.time()),
+                "token_type": "Bearer",
+            }
+        )
 
     routes.append(
         Route(

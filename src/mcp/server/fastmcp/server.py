@@ -743,11 +743,11 @@ class FastMCP:
         if self._token_verifier:
             # Determine resource metadata URL
             resource_metadata_url = None
-            if self.settings.auth and self.settings.auth.authorization_servers:
+            if self.settings.auth and self.settings.auth.resource_server_url:
                 from pydantic import AnyHttpUrl
 
                 resource_metadata_url = AnyHttpUrl(
-                    str(self.settings.auth.issuer_url).rstrip("/") + "/.well-known/oauth-protected-resource"
+                    str(self.settings.auth.resource_server_url).rstrip("/") + "/.well-known/oauth-protected-resource"
                 )
 
             # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
@@ -785,13 +785,13 @@ class FastMCP:
                 )
             )
         # Add protected resource metadata endpoint if configured as RS
-        if self.settings.auth and self.settings.auth.authorization_servers:
+        if self.settings.auth and self.settings.auth.resource_server_url:
             from mcp.server.auth.routes import create_protected_resource_routes
 
             routes.extend(
                 create_protected_resource_routes(
-                    resource_url=self.settings.auth.issuer_url,
-                    authorization_servers=self.settings.auth.authorization_servers,
+                    resource_url=self.settings.auth.resource_server_url,
+                    authorization_servers=[self.settings.auth.issuer_url],
                     scopes_supported=self.settings.auth.required_scopes,
                 )
             )
@@ -858,11 +858,11 @@ class FastMCP:
         if self._token_verifier:
             # Determine resource metadata URL
             resource_metadata_url = None
-            if self.settings.auth and self.settings.auth.authorization_servers:
+            if self.settings.auth and self.settings.auth.resource_server_url:
                 from pydantic import AnyHttpUrl
 
                 resource_metadata_url = AnyHttpUrl(
-                    str(self.settings.auth.issuer_url).rstrip("/") + "/.well-known/oauth-protected-resource"
+                    str(self.settings.auth.resource_server_url).rstrip("/") + "/.well-known/oauth-protected-resource"
                 )
 
             routes.append(
@@ -881,14 +881,14 @@ class FastMCP:
             )
 
         # Add protected resource metadata endpoint if configured as RS
-        if self.settings.auth and self.settings.auth.authorization_servers:
+        if self.settings.auth and self.settings.auth.resource_server_url:
             from mcp.server.auth.handlers.metadata import ProtectedResourceMetadataHandler
             from mcp.server.auth.routes import cors_middleware
             from mcp.shared.auth import ProtectedResourceMetadata
 
             protected_resource_metadata = ProtectedResourceMetadata(
-                resource=self.settings.auth.issuer_url,
-                authorization_servers=self.settings.auth.authorization_servers,
+                resource=self.settings.auth.resource_server_url,
+                authorization_servers=[self.settings.auth.issuer_url],
                 scopes_supported=self.settings.auth.required_scopes,
             )
             routes.append(
