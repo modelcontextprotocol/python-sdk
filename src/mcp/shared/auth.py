@@ -42,13 +42,12 @@ class OAuthClientMetadata(BaseModel):
     """
 
     redirect_uris: list[AnyUrl] = Field(..., min_length=1)
-    # token_endpoint_auth_method: this implementation only supports none &
-    # client_secret_post;
-    # ie: we do not support client_secret_basic
-    token_endpoint_auth_method: Literal["none", "client_secret_post"] = "client_secret_post"
-    # grant_types: this implementation only supports authorization_code & refresh_token
-    grant_types: list[Literal["authorization_code", "refresh_token"]] = [
+    # supported auth methods for the token endpoint
+    token_endpoint_auth_method: Literal["none", "client_secret_basic", "client_secret_post"] = "client_secret_post"
+    # supported grant_types of this implementation
+    grant_types: list[Literal["authorization_code", "client_credentials", "refresh_token"]] = [
         "authorization_code",
+        "client_credentials",
         "refresh_token",
     ]
     # this implementation only supports code; ie: it does not support implicit grants
@@ -96,7 +95,7 @@ class OAuthClientInformationFull(OAuthClientMetadata):
     (client information plus metadata).
     """
 
-    client_id: str
+    client_id: str | None = None
     client_secret: str | None = None
     client_id_issued_at: int | None = None
     client_secret_expires_at: int | None = None
