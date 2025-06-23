@@ -353,6 +353,7 @@ class BaseSession(
                                     on_complete=lambda r: self._in_flight.pop(r.request_id, None),
                                     message_metadata=message.metadata,
                                 )
+
                                 async def _handle_received_request() -> None:
                                     await self._received_request(responder)
                                     if not responder._completed:  # type: ignore[reportPrivateUsage]
@@ -360,7 +361,6 @@ class BaseSession(
 
                                 self._in_flight[responder.request_id] = responder
                                 tg.start_soon(_handle_received_request)
-
 
                                 if not responder._completed:  # type: ignore[reportPrivateUsage]
                                     await self._handle_incoming(responder)

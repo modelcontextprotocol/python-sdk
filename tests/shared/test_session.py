@@ -229,17 +229,13 @@ async def test_async_request_handling_with_taskgroup():
 
         return server
 
-    async with create_connected_server_and_client_session(
-        make_server()
-    ) as client_session:
+    async with create_connected_server_and_client_session(make_server()) as client_session:
         # Test basic async handling with a single request
         result = await client_session.send_request(
             ClientRequest(
                 types.CallToolRequest(
                     method="tools/call",
-                    params=types.CallToolRequestParams(
-                        name="timed_tool_0.1", arguments={}
-                    ),
+                    params=types.CallToolRequestParams(name="timed_tool_0.1", arguments={}),
                 )
             ),
             types.CallToolResult,

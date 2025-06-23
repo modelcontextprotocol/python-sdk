@@ -56,10 +56,7 @@ async def test_sampling_callback():
         result = await client_session.call_tool("test_sampling", {"message": "Test message for sampling"})
         assert result.isError is True
         assert isinstance(result.content[0], TextContent)
-        assert (
-            result.content[0].text
-            == "Error executing tool test_sampling: Sampling not supported"
-        )
+        assert result.content[0].text == "Error executing tool test_sampling: Sampling not supported"
 
 
 @pytest.mark.anyio
@@ -122,9 +119,7 @@ async def test_concurrent_sampling_callback():
             # Start operations with out-of-order timing
             tg.start_soon(make_sampling_call, "slow_call", 0.6)  # Should finish last
             tg.start_soon(make_sampling_call, "fast_call", 0.2)  # Should finish first
-            tg.start_soon(
-                make_sampling_call, "medium_call", 0.4
-            )  # Should finish middle
+            tg.start_soon(make_sampling_call, "medium_call", 0.4)  # Should finish middle
 
         # Combine results to show all completed
         combined_response = " | ".join(
@@ -138,9 +133,7 @@ async def test_concurrent_sampling_callback():
         return combined_response
 
     # Test concurrent sampling calls with time-sort verification
-    async with create_session(
-        server._mcp_server, sampling_callback=sampling_callback
-    ) as client_session:
+    async with create_session(server._mcp_server, sampling_callback=sampling_callback) as client_session:
         # Make a request that triggers multiple concurrent sampling calls
         result = await client_session.call_tool("concurrent_sampling_tool", {})
 
@@ -148,9 +141,7 @@ async def test_concurrent_sampling_callback():
         assert isinstance(result.content[0], TextContent)
 
         # Verify all sampling calls completed with expected responses
-        expected_result = (
-            "Response after 0.6s | Response after 0.2s | Response after 0.4s"
-        )
+        expected_result = "Response after 0.6s | Response after 0.2s | Response after 0.4s"
         assert result.content[0].text == expected_result
 
         # Key test: verify concurrent execution using time-sort
