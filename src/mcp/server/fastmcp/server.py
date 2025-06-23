@@ -30,10 +30,8 @@ from mcp.server.auth.middleware.bearer_auth import (
     BearerAuthBackend,
     RequireAuthMiddleware,
 )
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider
-from mcp.server.auth.settings import (
-    AuthSettings,
-)
+from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, elicit_with_validation
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
@@ -141,6 +139,7 @@ class FastMCP:
         name: str | None = None,
         instructions: str | None = None,
         auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
+        token_verifier: TokenVerifier | None = None,
         event_store: EventStore | None = None,
         *,
         tools: list[Tool] | None = None,
@@ -156,14 +155,22 @@ class FastMCP:
         self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
         self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
-        if (self.settings.auth is not None) != (auth_server_provider is not None):
-            # TODO: after we support separate authorization servers (see
-            # https://github.com/modelcontextprotocol/modelcontextprotocol/pull/284)
-            # we should validate that if auth is enabled, we have either an
-            # auth_server_provider to host our own authorization server,
-            # OR the URL of a 3rd party authorization server.
-            raise ValueError("settings.auth must be specified if and only if auth_server_provider " "is specified")
+        # Validate auth configuration
+        if self.settings.auth is not None:
+            if auth_server_provider and token_verifier:
+                raise ValueError("Cannot specify both auth_server_provider and token_verifier")
+            if not auth_server_provider and not token_verifier:
+                raise ValueError("Must specify either auth_server_provider or token_verifier when auth is enabled")
+        else:
+            if auth_server_provider or token_verifier:
+                raise ValueError("Cannot specify auth_server_provider or token_verifier without auth settings")
+
         self._auth_server_provider = auth_server_provider
+        self._token_verifier = token_verifier
+
+        # Create token verifier from provider if needed (backwards compatibility)
+        if auth_server_provider and not token_verifier:
+            self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._event_store = event_store
         self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
@@ -701,49 +708,60 @@ class FastMCP:
         middleware: list[Middleware] = []
         required_scopes = []
 
-        # Add auth endpoints if auth provider is configured
-        if self._auth_server_provider:
-            assert self.settings.auth
-            from mcp.server.auth.routes import create_auth_routes
-
+        # Set up auth if configured
+        if self.settings.auth:
             required_scopes = self.settings.auth.required_scopes or []
 
-            middleware = [
-                # extract auth info from request (but do not require it)
-                Middleware(
-                    AuthenticationMiddleware,
-                    backend=BearerAuthBackend(
-                        provider=self._auth_server_provider,
+            # Add auth middleware if token verifier is available
+            if self._token_verifier:
+                middleware = [
+                    # extract auth info from request (but do not require it)
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=BearerAuthBackend(self._token_verifier),
                     ),
-                ),
-                # Add the auth context middleware to store
-                # authenticated user in a contextvar
-                Middleware(AuthContextMiddleware),
-            ]
-            routes.extend(
-                create_auth_routes(
-                    provider=self._auth_server_provider,
-                    issuer_url=self.settings.auth.issuer_url,
-                    service_documentation_url=self.settings.auth.service_documentation_url,
-                    client_registration_options=self.settings.auth.client_registration_options,
-                    revocation_options=self.settings.auth.revocation_options,
-                )
-            )
+                    # Add the auth context middleware to store
+                    # authenticated user in a contextvar
+                    Middleware(AuthContextMiddleware),
+                ]
 
-        # When auth is not configured, we shouldn't require auth
-        if self._auth_server_provider:
+            # Add auth endpoints if auth server provider is configured
+            if self._auth_server_provider:
+                from mcp.server.auth.routes import create_auth_routes
+
+                routes.extend(
+                    create_auth_routes(
+                        provider=self._auth_server_provider,
+                        issuer_url=self.settings.auth.issuer_url,
+                        service_documentation_url=self.settings.auth.service_documentation_url,
+                        client_registration_options=self.settings.auth.client_registration_options,
+                        revocation_options=self.settings.auth.revocation_options,
+                    )
+                )
+
+        # When auth is configured, require authentication
+        if self._token_verifier:
+            # Determine resource metadata URL
+            resource_metadata_url = None
+            if self.settings.auth and self.settings.auth.resource_server_url:
+                from pydantic import AnyHttpUrl
+
+                resource_metadata_url = AnyHttpUrl(
+                    str(self.settings.auth.resource_server_url).rstrip("/") + "/.well-known/oauth-protected-resource"
+                )
+
             # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
             routes.append(
                 Route(
                     self.settings.sse_path,
-                    endpoint=RequireAuthMiddleware(handle_sse, required_scopes),
+                    endpoint=RequireAuthMiddleware(handle_sse, required_scopes, resource_metadata_url),
                     methods=["GET"],
                 )
             )
             routes.append(
                 Mount(
                     normalized_message_endpoint,
-                    app=RequireAuthMiddleware(sse.handle_post_message, required_scopes),
+                    app=RequireAuthMiddleware(sse.handle_post_message, required_scopes,resource_metadata_url),
                 )
             )
         else:
@@ -766,6 +784,18 @@ class FastMCP:
                     app=sse.handle_post_message,
                 )
             )
+        # Add protected resource metadata endpoint if configured as RS
+        if self.settings.auth and self.settings.auth.resource_server_url:
+            from mcp.server.auth.routes import create_protected_resource_routes
+
+            routes.extend(
+                create_protected_resource_routes(
+                    resource_url=self.settings.auth.resource_server_url,
+                    authorization_servers=[self.settings.auth.issuer_url],
+                    scopes_supported=self.settings.auth.required_scopes,
+                )
+            )
+
         # mount these routes last, so they have the lowest route matching precedence
         routes.extend(self._custom_starlette_routes)
 
@@ -796,35 +826,49 @@ class FastMCP:
         middleware: list[Middleware] = []
         required_scopes = []
 
-        # Add auth endpoints if auth provider is configured
-        if self._auth_server_provider:
-            assert self.settings.auth
-            from mcp.server.auth.routes import create_auth_routes
-
+        # Set up auth if configured
+        if self.settings.auth:
             required_scopes = self.settings.auth.required_scopes or []
 
-            middleware = [
-                Middleware(
-                    AuthenticationMiddleware,
-                    backend=BearerAuthBackend(
-                        provider=self._auth_server_provider,
+            # Add auth middleware if token verifier is available
+            if self._token_verifier:
+                middleware = [
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=BearerAuthBackend(self._token_verifier),
                     ),
-                ),
-                Middleware(AuthContextMiddleware),
-            ]
-            routes.extend(
-                create_auth_routes(
-                    provider=self._auth_server_provider,
-                    issuer_url=self.settings.auth.issuer_url,
-                    service_documentation_url=self.settings.auth.service_documentation_url,
-                    client_registration_options=self.settings.auth.client_registration_options,
-                    revocation_options=self.settings.auth.revocation_options,
+                    Middleware(AuthContextMiddleware),
+                ]
+
+            # Add auth endpoints if auth server provider is configured
+            if self._auth_server_provider:
+                from mcp.server.auth.routes import create_auth_routes
+
+                routes.extend(
+                    create_auth_routes(
+                        provider=self._auth_server_provider,
+                        issuer_url=self.settings.auth.issuer_url,
+                        service_documentation_url=self.settings.auth.service_documentation_url,
+                        client_registration_options=self.settings.auth.client_registration_options,
+                        revocation_options=self.settings.auth.revocation_options,
+                    )
                 )
-            )
+
+        # Set up routes with or without auth
+        if self._token_verifier:
+            # Determine resource metadata URL
+            resource_metadata_url = None
+            if self.settings.auth and self.settings.auth.resource_server_url:
+                from pydantic import AnyHttpUrl
+
+                resource_metadata_url = AnyHttpUrl(
+                    str(self.settings.auth.resource_server_url).rstrip("/") + "/.well-known/oauth-protected-resource"
+                )
+
             routes.append(
                 Mount(
                     self.settings.streamable_http_path,
-                    app=RequireAuthMiddleware(handle_streamable_http, required_scopes),
+                    app=RequireAuthMiddleware(handle_streamable_http, required_scopes, resource_metadata_url),
                 )
             )
         else:
@@ -833,6 +877,28 @@ class FastMCP:
                 Mount(
                     self.settings.streamable_http_path,
                     app=handle_streamable_http,
+                )
+            )
+
+        # Add protected resource metadata endpoint if configured as RS
+        if self.settings.auth and self.settings.auth.resource_server_url:
+            from mcp.server.auth.handlers.metadata import ProtectedResourceMetadataHandler
+            from mcp.server.auth.routes import cors_middleware
+            from mcp.shared.auth import ProtectedResourceMetadata
+
+            protected_resource_metadata = ProtectedResourceMetadata(
+                resource=self.settings.auth.resource_server_url,
+                authorization_servers=[self.settings.auth.issuer_url],
+                scopes_supported=self.settings.auth.required_scopes,
+            )
+            routes.append(
+                Route(
+                    "/.well-known/oauth-protected-resource",
+                    endpoint=cors_middleware(
+                        ProtectedResourceMetadataHandler(protected_resource_metadata).handle,
+                        ["GET", "OPTIONS"],
+                    ),
+                    methods=["GET", "OPTIONS"],
                 )
             )
 
