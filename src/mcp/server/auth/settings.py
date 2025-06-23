@@ -25,5 +25,6 @@ class AuthSettings(BaseModel):
     # Resource Server settings (when operating as RS only)
     resource_server_url: AnyHttpUrl | None = Field(
         ...,
-        description="OAuth authorization server URL that issues tokens for this resource server.",
+        description="The URL of the MCP server to be used as the resource identifier "
+        "and base route to look up OAuth Protected Resource Metadata.",
     )
