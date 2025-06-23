@@ -306,6 +306,5 @@ async def test_tool_not_in_list_logs_warning(caplog):
 
     # Verify warning was logged
     assert any(
-        "Tool 'unknown_tool' not found in cache, validation will not be performed" in record.message
-        for record in caplog.records
+        "Tool 'unknown_tool' not listed, no validation will be performed" in record.message for record in caplog.records
     )

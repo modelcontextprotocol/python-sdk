@@ -68,11 +68,12 @@ messages from the client.
 from __future__ import annotations as _annotations
 
 import contextvars
+import json
 import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from typing import Any, Generic
+from typing import Any, Generic, cast
 
 import anyio
 import jsonschema
@@ -386,36 +387,48 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return decorator
 
-    async def _validate_tool_arguments(self, tool_name: str, arguments: dict[str, Any]) -> str | None:
-        """Validate tool arguments against inputSchema.
+    def _make_error_result(self, error_message: str) -> types.ServerResult:
+        """Create a ServerResult with an error CallToolResult."""
+        return types.ServerResult(
+            types.CallToolResult(
+                content=[types.TextContent(type="text", text=error_message)],
+                isError=True,
+            )
+        )
 
-        Returns None if validation passes, or an error message if validation fails.
+    async def _get_cached_tool_definition(self, tool_name: str) -> types.Tool | None:
+        """Get tool definition from cache, refreshing if necessary.
+
+        Returns the Tool object if found, None otherwise.
         """
-        # Check if tool is in cache
         if tool_name not in self._tool_cache:
-            # Try to refresh the cache by calling list_tools
             if types.ListToolsRequest in self.request_handlers:
                 logger.debug("Tool cache miss for %s, refreshing cache", tool_name)
                 await self.request_handlers[types.ListToolsRequest](None)
 
-        # Check again after potential refresh
-        if tool_name in self._tool_cache:
-            tool = self._tool_cache[tool_name]
-            try:
-                # Validate arguments against inputSchema
-                jsonschema.validate(instance=arguments, schema=tool.inputSchema)
-                return None
-            except jsonschema.ValidationError as e:
-                return f"Input validation error: {e.message}"
-        else:
-            logger.warning("Tool '%s' not found in cache, validation will not be performed", tool_name)
-            return None
+        tool = self._tool_cache.get(tool_name)
+        if tool is None:
+            logger.warning("Tool '%s' not listed, no validation will be performed", tool_name)
+
+        return tool
 
     def call_tool(self):
+        """Register a tool call handler.
+
+        The handler validates input against inputSchema, calls the tool function, and processes results:
+        - Content only: returns as-is
+        - Dict only: serializes to JSON text and returns as content with structuredContent
+        - Both: returns content and structuredContent
+
+        If outputSchema is defined, validates structuredContent or errors if missing.
+        """
+
         def decorator(
             func: Callable[
                 ...,
-                Awaitable[Iterable[types.ContentBlock]],
+                Awaitable[
+                    Iterable[types.ContentBlock] | dict[str, Any] | tuple[Iterable[types.ContentBlock], dict[str, Any]]
+                ],
             ],
         ):
             logger.debug("Registering handler for CallToolRequest")
@@ -424,26 +437,53 @@ class Server(Generic[LifespanResultT, RequestT]):
                 try:
                     tool_name = req.params.name
                     arguments = req.params.arguments or {}
+                    tool = await self._get_cached_tool_definition(tool_name)
 
-                    # Validate arguments
-                    validation_error = await self._validate_tool_arguments(tool_name, arguments)
-                    if validation_error:
-                        return types.ServerResult(
-                            types.CallToolResult(
-                                content=[types.TextContent(type="text", text=validation_error)],
-                                isError=True,
-                            )
-                        )
+                    # input validation
+                    if tool:
+                        try:
+                            jsonschema.validate(instance=arguments, schema=tool.inputSchema)
+                        except jsonschema.ValidationError as e:
+                            return self._make_error_result(f"Input validation error: {e.message}")
 
+                    # tool call
                     results = await func(tool_name, arguments)
-                    return types.ServerResult(types.CallToolResult(content=list(results), isError=False))
-                except Exception as e:
+
+                    # output normalization
+                    content: list[types.ContentBlock]
+                    structured_content: dict[str, Any] | None
+
+                    if isinstance(results, tuple) and len(results) == 2:
+                        # tool returned both content and structured content
+                        structured_content = cast(dict[str, Any], results[1])
+                        content = list(cast(Iterable[types.ContentBlock], results[0]))
+                    elif isinstance(results, dict):
+                        # tool returned structured content only
+                        structured_content = cast(dict[str, Any], results)
+                        content = [types.TextContent(type="text", text=json.dumps(results, indent=2))]
+                    else:
+                        # tool returned content only
+                        structured_content = None
+                        content = list(cast(Iterable[types.ContentBlock], results))
+
+                    # output validation
+                    if tool and tool.outputSchema is not None:
+                        if structured_content is None:
+                            return self._make_error_result(
+                                "Output validation error: outputSchema defined but no structured output returned"
+                            )
+                        else:
+                            try:
+                                jsonschema.validate(instance=structured_content, schema=tool.outputSchema)
+                            except jsonschema.ValidationError as e:
+                                return self._make_error_result(f"Output validation error: {e.message}")
+
+                    # result
                     return types.ServerResult(
-                        types.CallToolResult(
-                            content=[types.TextContent(type="text", text=str(e))],
-                            isError=True,
-                        )
+                        types.CallToolResult(content=content, structuredContent=structured_content, isError=False)
                     )
+                except Exception as e:
+                    return self._make_error_result(str(e))
 
             self.request_handlers[types.CallToolRequest] = handler
             return func
