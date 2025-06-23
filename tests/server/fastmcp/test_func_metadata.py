@@ -31,9 +31,7 @@ def complex_arguments_fn(
     # list[str] | str is an interesting case because if it comes in as JSON like
     # "[\"a\", \"b\"]" then it will be naively parsed as a string.
     list_str_or_str: list[str] | str,
-    an_int_annotated_with_field: Annotated[
-        int, Field(description="An int with a field")
-    ],
+    an_int_annotated_with_field: Annotated[int, Field(description="An int with a field")],
     an_int_annotated_with_field_and_others: Annotated[
         int,
         str,  # Should be ignored, really
@@ -45,9 +43,7 @@ def complex_arguments_fn(
         "123",
         456,
     ],
-    field_with_default_via_field_annotation_before_nondefault_arg: Annotated[
-        int, Field(1)
-    ],
+    field_with_default_via_field_annotation_before_nondefault_arg: Annotated[int, Field(1)],
     unannotated,
     my_model_a: SomeInputModelA,
     my_model_a_forward_ref: "SomeInputModelA",
@@ -182,9 +178,7 @@ def test_str_vs_list_str():
 def test_skip_names():
     """Test that skipped parameters are not included in the model"""
 
-    def func_with_many_params(
-        keep_this: int, skip_this: str, also_keep: float, also_skip: bool
-    ):
+    def func_with_many_params(keep_this: int, skip_this: str, also_keep: float, also_skip: bool):
         return keep_this, skip_this, also_keep, also_skip
 
     # Skip some parameters
@@ -422,15 +416,11 @@ def test_str_vs_int():
 # Test functions for use_defaults_on_optional_validation_error decorator
 
 
-def sync_func_for_decorator(
-    req_param: str, opt_int: int = 10, opt_bool: bool = False
-) -> dict:
+def sync_func_for_decorator(req_param: str, opt_int: int = 10, opt_bool: bool = False) -> dict:
     return {"req_param": req_param, "opt_int": opt_int, "opt_bool": opt_bool}
 
 
-async def async_func_for_decorator(
-    req_param: str, opt_int: int = 20, opt_str: str = "default"
-) -> dict:
+async def async_func_for_decorator(req_param: str, opt_int: int = 20, opt_str: str = "default") -> dict:
     return {"req_param": req_param, "opt_int": opt_int, "opt_str": opt_str}
 
 
@@ -438,16 +428,12 @@ class TestUseDefaultsOnOptionalValidationErrorDecorator:
     @pytest.fixture
     def decorated_sync_func(self):
         # Apply validate_call first, then our decorator
-        return use_defaults_on_optional_validation_error(
-            validate_call(sync_func_for_decorator)
-        )
+        return use_defaults_on_optional_validation_error(validate_call(sync_func_for_decorator))
 
     @pytest.fixture
     def decorated_async_func(self):
         # Apply validate_call first, then our decorator
-        return use_defaults_on_optional_validation_error(
-            validate_call(async_func_for_decorator)
-        )
+        return use_defaults_on_optional_validation_error(validate_call(async_func_for_decorator))
 
     def test_sync_all_valid(self, decorated_sync_func):
         result = decorated_sync_func(req_param="test", opt_int=100, opt_bool=True)
@@ -486,17 +472,13 @@ class TestUseDefaultsOnOptionalValidationErrorDecorator:
         def temp_sync_func(req_int_param: int, opt_str: str = "s") -> dict:
             return {"req_int_param": req_int_param, "opt_str": opt_str}
 
-        decorated_temp_func = use_defaults_on_optional_validation_error(
-            validate_call(temp_sync_func)
-        )
+        decorated_temp_func = use_defaults_on_optional_validation_error(validate_call(temp_sync_func))
         with pytest.raises(ValidationError):
             decorated_temp_func(req_int_param="notanint")
 
     @pytest.mark.anyio
     async def test_async_all_valid(self, decorated_async_func):
-        result = await decorated_async_func(
-            req_param="async_test", opt_int=200, opt_str="custom"
-        )
+        result = await decorated_async_func(req_param="async_test", opt_int=200, opt_str="custom")
         assert result == {
             "req_param": "async_test",
             "opt_int": 200,

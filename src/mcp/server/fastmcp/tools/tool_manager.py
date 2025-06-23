@@ -46,13 +46,12 @@ class ToolManager:
         self,
         fn: Callable[..., Any],
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
     ) -> Tool:
         """Add a tool to the server."""
-        tool = Tool.from_function(
-            fn, name=name, description=description, annotations=annotations
-        )
+        tool = Tool.from_function(fn, name=name, title=title, description=description, annotations=annotations)
         existing = self._tools.get(tool.name)
         if existing:
             if self.warn_on_duplicate_tools:

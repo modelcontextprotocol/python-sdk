@@ -49,9 +49,7 @@ async def test_logging_callback():
 
     # Create a message handler to catch exceptions
     async def message_handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult]
-        | types.ServerNotification
-        | Exception,
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
             raise message

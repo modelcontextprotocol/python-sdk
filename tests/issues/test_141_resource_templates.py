@@ -26,16 +26,13 @@ async def test_resource_template_edge_cases():
     # Test case 2: Template with valid optional parameters
     # using form-style query expansion
     @mcp.resource("resource://users/{user_id}/profile{?format,fields}")
-    def get_user_profile(
-        user_id: str, format: str = "json", fields: str = "basic"
-    ) -> str:
+    def get_user_profile(user_id: str, format: str = "json", fields: str = "basic") -> str:
         return f"Profile for user {user_id} in {format} format with fields: {fields}"
 
     # Test case 3: Template with mismatched parameters
     with pytest.raises(
         ValueError,
-        match="Mismatch between URI path parameters .* and "
-        "required function parameters .*",
+        match="Mismatch between URI path parameters .* and " "required function parameters .*",
     ):
 
         @mcp.resource("resource://users/{user_id}/profile")
@@ -45,8 +42,7 @@ async def test_resource_template_edge_cases():
     # Test case 4: Template with extra required function parameters
     with pytest.raises(
         ValueError,
-        match="Mismatch between URI path parameters .* and "
-        "required function parameters .*",
+        match="Mismatch between URI path parameters .* and " "required function parameters .*",
     ):
 
         @mcp.resource("resource://users/{user_id}/profile")
@@ -56,8 +52,7 @@ async def test_resource_template_edge_cases():
     # Test case 5: Template with missing function parameters
     with pytest.raises(
         ValueError,
-        match="Mismatch between URI path parameters .* and "
-        "required function parameters .*",
+        match="Mismatch between URI path parameters .* and " "required function parameters .*",
     ):
 
         @mcp.resource("resource://users/{user_id}/profile/{section}")
@@ -67,8 +62,7 @@ async def test_resource_template_edge_cases():
     # Test case 6: Invalid query parameter in template (not optional in function)
     with pytest.raises(
         ValueError,
-        match="Mismatch between URI path parameters .* and "
-        "required function parameters .*",
+        match="Mismatch between URI path parameters .* and " "required function parameters .*",
     ):
 
         @mcp.resource("resource://users/{user_id}/profile{?required_param}")
@@ -79,28 +73,15 @@ async def test_resource_template_edge_cases():
     async with client_session(mcp._mcp_server) as client:
         result = await client.read_resource(AnyUrl("resource://users/123/profile"))
         assert isinstance(result.contents[0], TextResourceContents)
-        assert (
-            result.contents[0].text
-            == "Profile for user 123 in json format with fields: basic"
-        )
+        assert result.contents[0].text == "Profile for user 123 in json format with fields: basic"
 
-        result = await client.read_resource(
-            AnyUrl("resource://users/123/profile?format=xml")
-        )
+        result = await client.read_resource(AnyUrl("resource://users/123/profile?format=xml"))
         assert isinstance(result.contents[0], TextResourceContents)
-        assert (
-            result.contents[0].text
-            == "Profile for user 123 in xml format with fields: basic"
-        )
+        assert result.contents[0].text == "Profile for user 123 in xml format with fields: basic"
 
-        result = await client.read_resource(
-            AnyUrl("resource://users/123/profile?format=xml&fields=detailed")
-        )
+        result = await client.read_resource(AnyUrl("resource://users/123/profile?format=xml&fields=detailed"))
         assert isinstance(result.contents[0], TextResourceContents)
-        assert (
-            result.contents[0].text
-            == "Profile for user 123 in xml format with fields: detailed"
-        )
+        assert result.contents[0].text == "Profile for user 123 in xml format with fields: detailed"
 
     # Verify valid template works
     result = await mcp.read_resource("resource://users/123/posts/456")
@@ -114,9 +95,7 @@ async def test_resource_template_edge_cases():
         await mcp.read_resource("resource://users/123/posts")  # Missing post_id
 
     with pytest.raises(ValueError, match="Unknown resource"):
-        await mcp.read_resource(
-            "resource://users/123/posts/456/extra"
-        )  # Extra path component
+        await mcp.read_resource("resource://users/123/posts/456/extra")  # Extra path component
 
 
 @pytest.mark.anyio
@@ -163,14 +142,10 @@ async def test_resource_template_client_interaction():
 
         # Verify invalid resource URIs raise appropriate errors
         with pytest.raises(Exception):  # Specific exception type may vary
-            await session.read_resource(
-                AnyUrl("resource://users/123/posts")
-            )  # Missing post_id
+            await session.read_resource(AnyUrl("resource://users/123/posts"))  # Missing post_id
 
         with pytest.raises(Exception):  # Specific exception type may vary
-            await session.read_resource(
-                AnyUrl("resource://users/123/invalid")
-            )  # Invalid template
+            await session.read_resource(AnyUrl("resource://users/123/invalid"))  # Invalid template
 
 
 @pytest.mark.anyio
@@ -208,9 +183,7 @@ async def test_resource_template_optional_param_default_fallback_e2e():
         }
 
         # 2. Valid optional params (theme is URL encoded, timeout is valid int string)
-        uri2 = (
-            "resource://config/ui?theme=light%20blue&timeout=60&is_feature_enabled=true"
-        )
+        uri2 = "resource://config/ui?theme=light%20blue&timeout=60&is_feature_enabled=true"
         res2 = await client.read_resource(AnyUrl(uri2))
         assert res2.contents and isinstance(res2.contents[0], TextResourceContents)
         data2 = json.loads(res2.contents[0].text)

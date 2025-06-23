@@ -99,8 +99,7 @@ class TestResourceTemplate:
 
         with pytest.raises(
             ValueError,
-            match="Mismatch between URI path parameters .* and "
-            "required function parameters .*",
+            match="Mismatch between URI path parameters .* and " "required function parameters .*",
         ):
             ResourceTemplate.from_function(
                 fn=invalid_func,
@@ -271,9 +270,7 @@ class TestResourceTemplate:
 
         # Create with all params
         params = {"key": "foo", "sort": "desc", "limit": "20"}
-        resource = await template.create_resource(
-            "test://foo?sort=desc&limit=20", params
-        )
+        resource = await template.create_resource("test://foo?sort=desc&limit=20", params)
         result = await resource.read()
         assert isinstance(result, str)
         assert json.loads(result) == {"key": "foo", "sort": "desc", "limit": 20}
@@ -311,9 +308,7 @@ class TestResourceTemplate:
         assert params == {"category": "electronics", "id": "1234"}
 
         # Match with all query params
-        params = template.matches(
-            "test://electronics/1234?filter=new&sort=price&limit=20"
-        )
+        params = template.matches("test://electronics/1234?filter=new&sort=price&limit=20")
         assert params == {
             "category": "electronics",
             "id": "1234",
@@ -339,9 +334,7 @@ class TestResourceTemplate:
         """Test validation of form-style query parameters."""
 
         # Valid: query params are subset of optional params
-        def valid_func(
-            key: str, opt1: str = "default", opt2: int = 10, opt3: bool = False
-        ) -> str:
+        def valid_func(key: str, opt1: str = "default", opt2: int = 10, opt3: bool = False) -> str:
             return f"{key}-{opt1}-{opt2}-{opt3}"
 
         template = ResourceTemplate.from_function(
@@ -358,8 +351,7 @@ class TestResourceTemplate:
 
         with pytest.raises(
             ValueError,
-            match="Mismatch between URI path parameters .* and "
-            "required function parameters .*",
+            match="Mismatch between URI path parameters .* and " "required function parameters .*",
         ):
             ResourceTemplate.from_function(
                 fn=invalid_func,
@@ -433,9 +425,7 @@ class TestResourceTemplate:
         use_defaults_on_optional_validation_error decorator.
         """
 
-        def func_with_optional_typed_params(
-            key: str, opt_int: int = 42, opt_bool: bool = True
-        ) -> dict:
+        def func_with_optional_typed_params(key: str, opt_int: int = 42, opt_bool: bool = True) -> dict:
             return {"key": key, "opt_int": opt_int, "opt_bool": opt_bool}
 
         template = ResourceTemplate.from_function(
@@ -447,9 +437,7 @@ class TestResourceTemplate:
         # Case 1: opt_int is invalid, opt_bool is not provided
         # URI like "test://mykey?opt_int=notanint"
         params_invalid_int = {"key": "mykey", "opt_int": "notanint"}
-        resource1 = await template.create_resource(
-            "test://mykey?opt_int=notanint", params_invalid_int
-        )
+        resource1 = await template.create_resource("test://mykey?opt_int=notanint", params_invalid_int)
         result1_str = await resource1.read()
         result1 = json.loads(result1_str)
         assert result1["key"] == "mykey"
@@ -463,9 +451,7 @@ class TestResourceTemplate:
             "opt_int": "100",  # Valid string for int
             "opt_bool": "notabool",
         }
-        resource2 = await template.create_resource(
-            "test://mykey?opt_int=100&opt_bool=notabool", params_invalid_bool
-        )
+        resource2 = await template.create_resource("test://mykey?opt_int=100&opt_bool=notabool", params_invalid_bool)
         result2_str = await resource2.read()
         result2 = json.loads(result2_str)
         assert result2["key"] == "mykey"
@@ -479,9 +465,7 @@ class TestResourceTemplate:
             "opt_int": "bad",
             "opt_bool": "bad",
         }
-        resource3 = await template.create_resource(
-            "test://mykey?opt_int=bad&opt_bool=bad", params_both_invalid
-        )
+        resource3 = await template.create_resource("test://mykey?opt_int=bad&opt_bool=bad", params_both_invalid)
         result3_str = await resource3.read()
         result3 = json.loads(result3_str)
         assert result3["key"] == "mykey"
@@ -491,9 +475,7 @@ class TestResourceTemplate:
         # Case 4: Empty value for opt_int (should fall back to default)
         # URI like "test://mykey?opt_int="
         params_empty_int = {"key": "mykey"}
-        resource4 = await template.create_resource(
-            "test://mykey?opt_int=", params_empty_int
-        )
+        resource4 = await template.create_resource("test://mykey?opt_int=", params_empty_int)
         result4_str = await resource4.read()
         result4 = json.loads(result4_str)
         assert result4["key"] == "mykey"
@@ -503,9 +485,7 @@ class TestResourceTemplate:
         # Case 5: Empty value for opt_bool (should fall back to default)
         # URI like "test://mykey?opt_bool="
         params_empty_bool = {"key": "mykey"}
-        resource5 = await template.create_resource(
-            "test://mykey?opt_bool=", params_empty_bool
-        )
+        resource5 = await template.create_resource("test://mykey?opt_bool=", params_empty_bool)
         result5_str = await resource5.read()
         result5 = json.loads(result5_str)
         assert result5["key"] == "mykey"
@@ -520,15 +500,11 @@ class TestResourceTemplate:
             fn=func_opt_str, uri_template="test://{key}{?opt_s}", name="test_opt_str"
         )
         params_empty_str = {"key": "mykey"}
-        resource6 = await template_str.create_resource(
-            "test://mykey?opt_s=", params_empty_str
-        )
+        resource6 = await template_str.create_resource("test://mykey?opt_s=", params_empty_str)
         result6_str = await resource6.read()
         result6 = json.loads(result6_str)
         assert result6["key"] == "mykey"
-        assert (
-            result6["opt_s"] == "default_val"
-        )  # Pydantic allows empty string for str type
+        assert result6["opt_s"] == "default_val"  # Pydantic allows empty string for str type
 
     @pytest.mark.anyio
     async def test_create_resource_required_param_validation_error(self):

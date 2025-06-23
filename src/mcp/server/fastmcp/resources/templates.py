@@ -19,18 +19,13 @@ from mcp.server.fastmcp.utilities.func_metadata import (
 class ResourceTemplate(BaseModel):
     """A template for dynamically creating resources."""
 
-    uri_template: str = Field(
-        description="URI template with parameters (e.g. weather://{city}/current{?units,format})"
-    )
+    uri_template: str = Field(description="URI template with parameters (e.g. weather://{city}/current{?units,format})")
     name: str = Field(description="Name of the resource")
+    title: str | None = Field(description="Human-readable title of the resource", default=None)
     description: str | None = Field(description="Description of what the resource does")
-    mime_type: str = Field(
-        default="text/plain", description="MIME type of the resource content"
-    )
+    mime_type: str = Field(default="text/plain", description="MIME type of the resource content")
     fn: Callable[..., Any] = Field(exclude=True)
-    parameters: dict[str, Any] = Field(
-        description="JSON schema for function parameters"
-    )
+    parameters: dict[str, Any] = Field(description="JSON schema for function parameters")
     required_params: set[str] = Field(
         default_factory=set,
         description="Set of required parameters from the path component",
@@ -46,6 +41,7 @@ class ResourceTemplate(BaseModel):
         fn: Callable[..., Any],
         uri_template: str,
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
     ) -> ResourceTemplate:
@@ -68,9 +64,7 @@ class ResourceTemplate(BaseModel):
         required_params, optional_params = cls._analyze_function_params(original_fn)
 
         # Extract path parameters from URI template
-        path_params: set[str] = set(
-            re.findall(r"{(\w+)}", re.sub(r"{(\?.+?)}", "", uri_template))
-        )
+        path_params: set[str] = set(re.findall(r"{(\w+)}", re.sub(r"{(\?.+?)}", "", uri_template)))
 
         # Extract query parameters from the URI template if present
         query_param_match = re.search(r"{(\?(?:\w+,)*\w+)}", uri_template)
@@ -78,9 +72,7 @@ class ResourceTemplate(BaseModel):
         if query_param_match:
             # Extract query parameters from {?param1,param2,...} syntax
             query_str = query_param_match.group(1)
-            query_params = set(
-                query_str[1:].split(",")
-            )  # Remove the leading '?' and split
+            query_params = set(query_str[1:].split(","))  # Remove the leading '?' and split
 
         # Validate path parameters match required function parameters
         if path_params != required_params:
@@ -93,13 +85,13 @@ class ResourceTemplate(BaseModel):
         if not query_params.issubset(optional_params):
             invalid_params: set[str] = query_params - optional_params
             raise ValueError(
-                f"Query parameters {invalid_params} do not match optional "
-                f"function parameters {optional_params}"
+                f"Query parameters {invalid_params} do not match optional " f"function parameters {optional_params}"
             )
 
         return cls(
             uri_template=uri_template,
             name=func_name,
+            title=title,
             description=description or original_fn.__doc__ or "",
             mime_type=mime_type or "text/plain",
             fn=final_fn,
@@ -182,6 +174,7 @@ class ResourceTemplate(BaseModel):
             return FunctionResource(
                 uri=uri,  # type: ignore
                 name=self.name,
+                title=self.title,
                 description=self.description,
                 mime_type=self.mime_type,
                 fn=lambda: result,  # Capture result in closure

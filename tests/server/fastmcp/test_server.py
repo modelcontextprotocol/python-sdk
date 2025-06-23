@@ -9,7 +9,7 @@ from pydantic import AnyUrl
 from starlette.routing import Mount, Route
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.fastmcp.prompts.base import EmbeddedResource, Message, UserMessage
+from mcp.server.fastmcp.prompts.base import Message, UserMessage
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
 from mcp.server.fastmcp.utilities.types import Image
 from mcp.shared.exceptions import McpError
@@ -17,7 +17,10 @@ from mcp.shared.memory import (
     create_connected_server_and_client_session as client_session,
 )
 from mcp.types import (
+    AudioContent,
     BlobResourceContents,
+    ContentBlock,
+    EmbeddedResource,
     ImageContent,
     TextContent,
     TextResourceContents,
@@ -59,9 +62,7 @@ class TestServer:
         """Test SSE app creation with different mount paths."""
         # Test with default mount path
         mcp = FastMCP()
-        with patch.object(
-            mcp, "_normalize_path", return_value="/messages/"
-        ) as mock_normalize:
+        with patch.object(mcp, "_normalize_path", return_value="/messages/") as mock_normalize:
             mcp.sse_app()
             # Verify _normalize_path was called with correct args
             mock_normalize.assert_called_once_with("/", "/messages/")
@@ -69,18 +70,14 @@ class TestServer:
         # Test with custom mount path in settings
         mcp = FastMCP()
         mcp.settings.mount_path = "/custom"
-        with patch.object(
-            mcp, "_normalize_path", return_value="/custom/messages/"
-        ) as mock_normalize:
+        with patch.object(mcp, "_normalize_path", return_value="/custom/messages/") as mock_normalize:
             mcp.sse_app()
             # Verify _normalize_path was called with correct args
             mock_normalize.assert_called_once_with("/custom", "/messages/")
 
         # Test with mount_path parameter
         mcp = FastMCP()
-        with patch.object(
-            mcp, "_normalize_path", return_value="/param/messages/"
-        ) as mock_normalize:
+        with patch.object(mcp, "_normalize_path", return_value="/param/messages/") as mock_normalize:
             mcp.sse_app(mount_path="/param")
             # Verify _normalize_path was called with correct args
             mock_normalize.assert_called_once_with("/param", "/messages/")
@@ -103,9 +100,7 @@ class TestServer:
 
         # Verify path values
         assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
-        assert (
-            mount_routes[0].path == "/messages"
-        ), "Mount route path should be /messages"
+        assert mount_routes[0].path == "/messages", "Mount route path should be /messages"
 
         # Test with mount path as parameter
         mcp = FastMCP()
@@ -121,20 +116,14 @@ class TestServer:
 
         # Verify path values
         assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
-        assert (
-            mount_routes[0].path == "/messages"
-        ), "Mount route path should be /messages"
+        assert mount_routes[0].path == "/messages", "Mount route path should be /messages"
 
     @pytest.mark.anyio
     async def test_non_ascii_description(self):
         """Test that FastMCP handles non-ASCII characters in descriptions correctly"""
         mcp = FastMCP()
 
-        @mcp.tool(
-            description=(
-                "🌟 This tool uses emojis and UTF-8 characters: á é í ó ú ñ 漢字 🎉"
-            )
-        )
+        @mcp.tool(description=("🌟 This tool uses emojis and UTF-8 characters: á é í ó ú ñ 漢字 🎉"))
         def hello_world(name: str = "世界") -> str:
             return f"¡Hola, {name}! 👋"
 
@@ -187,9 +176,7 @@ class TestServer:
     async def test_add_resource_decorator_incorrect_usage(self):
         mcp = FastMCP()
 
-        with pytest.raises(
-            TypeError, match="The @resource decorator was used incorrectly"
-        ):
+        with pytest.raises(TypeError, match="The @resource decorator was used incorrectly"):
 
             @mcp.resource  # Missing parentheses #type: ignore
             def get_data(x: str) -> str:
@@ -208,10 +195,11 @@ def image_tool_fn(path: str) -> Image:
     return Image(path)
 
 
-def mixed_content_tool_fn() -> list[TextContent | ImageContent]:
+def mixed_content_tool_fn() -> list[ContentBlock]:
     return [
         TextContent(type="text", text="Hello"),
         ImageContent(type="image", data="abc", mimeType="image/png"),
+        AudioContent(type="audio", data="def", mimeType="audio/wav"),
     ]
 
 
@@ -313,14 +301,16 @@ class TestServerTools:
         mcp.add_tool(mixed_content_tool_fn)
         async with client_session(mcp._mcp_server) as client:
             result = await client.call_tool("mixed_content_tool_fn", {})
-            assert len(result.content) == 2
-            content1 = result.content[0]
-            content2 = result.content[1]
+            assert len(result.content) == 3
+            content1, content2, content3 = result.content
             assert isinstance(content1, TextContent)
             assert content1.text == "Hello"
             assert isinstance(content2, ImageContent)
             assert content2.mimeType == "image/png"
             assert content2.data == "abc"
+            assert isinstance(content3, AudioContent)
+            assert content3.mimeType == "audio/wav"
+            assert content3.data == "def"
 
     @pytest.mark.anyio
     async def test_tool_mixed_list_with_image(self, tmp_path: Path):
@@ -370,9 +360,7 @@ class TestServerResources:
         def get_text():
             return "Hello, world!"
 
-        resource = FunctionResource(
-            uri=AnyUrl("resource://test"), name="test", fn=get_text
-        )
+        resource = FunctionResource(uri=AnyUrl("resource://test"), name="test", fn=get_text)
         mcp.add_resource(resource)
 
         async with client_session(mcp._mcp_server) as client:
@@ -408,9 +396,7 @@ class TestServerResources:
         text_file = tmp_path / "test.txt"
         text_file.write_text("Hello from file!")
 
-        resource = FileResource(
-            uri=AnyUrl("file://test.txt"), name="test.txt", path=text_file
-        )
+        resource = FileResource(uri=AnyUrl("file://test.txt"), name="test.txt", path=text_file)
         mcp.add_resource(resource)
 
         async with client_session(mcp._mcp_server) as client:
@@ -437,10 +423,7 @@ class TestServerResources:
         async with client_session(mcp._mcp_server) as client:
             result = await client.read_resource(AnyUrl("file://test.bin"))
             assert isinstance(result.contents[0], BlobResourceContents)
-            assert (
-                result.contents[0].blob
-                == base64.b64encode(b"Binary file data").decode()
-            )
+            assert result.contents[0].blob == base64.b64encode(b"Binary file data").decode()
 
     @pytest.mark.anyio
     async def test_resource_with_form_style_query(self):
@@ -455,40 +438,29 @@ class TestServerResources:
             sort: str = "name",
             limit: int = 10,
         ) -> str:
-            return (
-                f"Item {id} in {category}, filtered by {filter}, sorted by {sort}, "
-                f"limited to {limit}"
-            )
+            return f"Item {id} in {category}, filtered by {filter}, sorted by {sort}, " f"limited to {limit}"
 
         async with client_session(mcp._mcp_server) as client:
             # Test with default values
             result = await client.read_resource(AnyUrl("resource://electronics/1234"))
             assert isinstance(result.contents[0], TextResourceContents)
             assert (
-                result.contents[0].text
-                == "Item 1234 in electronics, filtered by all, sorted by name, "
-                "limited to 10"
+                result.contents[0].text == "Item 1234 in electronics, filtered by all, sorted by name, " "limited to 10"
             )
 
             # Test with query parameters
-            result = await client.read_resource(
-                AnyUrl("resource://electronics/1234?filter=new&sort=price&limit=20")
-            )
+            result = await client.read_resource(AnyUrl("resource://electronics/1234?filter=new&sort=price&limit=20"))
             assert isinstance(result.contents[0], TextResourceContents)
             assert (
-                result.contents[0].text
-                == "Item 1234 in electronics, filtered by new, sorted by price, "
+                result.contents[0].text == "Item 1234 in electronics, filtered by new, sorted by price, "
                 "limited to 20"
             )
 
             # Test with partial query parameters
-            result = await client.read_resource(
-                AnyUrl("resource://electronics/1234?filter=used")
-            )
+            result = await client.read_resource(AnyUrl("resource://electronics/1234?filter=used"))
             assert isinstance(result.contents[0], TextResourceContents)
             assert (
-                result.contents[0].text
-                == "Item 1234 in electronics, filtered by used, sorted by name, "
+                result.contents[0].text == "Item 1234 in electronics, filtered by used, sorted by name, "
                 "limited to 10"
             )
 
@@ -520,8 +492,7 @@ class TestServerResourceTemplates:
 
         with pytest.raises(
             ValueError,
-            match="Mismatch between URI path parameters .* and "
-            "required function parameters .*",
+            match="Mismatch between URI path parameters .* and " "required function parameters .*",
         ):
 
             @mcp.resource("resource://data")
@@ -535,8 +506,7 @@ class TestServerResourceTemplates:
 
         with pytest.raises(
             ValueError,
-            match="Mismatch between URI path parameters .* and "
-            "required function parameters .*",
+            match="Mismatch between URI path parameters .* and " "required function parameters .*",
         ):
 
             @mcp.resource("resource://{param}")
@@ -572,36 +542,24 @@ class TestServerResourceTemplates:
         mcp = FastMCP()
 
         @mcp.resource("resource://{name}/data")
-        def get_data_with_options(
-            name: str, format: str = "text", limit: int = 10
-        ) -> str:
+        def get_data_with_options(name: str, format: str = "text", limit: int = 10) -> str:
             return f"Data for {name} in {format} format with limit {limit}"
 
         async with client_session(mcp._mcp_server) as client:
             # Test with default values
             result = await client.read_resource(AnyUrl("resource://test/data"))
             assert isinstance(result.contents[0], TextResourceContents)
-            assert (
-                result.contents[0].text == "Data for test in text format with limit 10"
-            )
+            assert result.contents[0].text == "Data for test in text format with limit 10"
 
             # Test with query parameters
-            result = await client.read_resource(
-                AnyUrl("resource://test/data?format=json&limit=20")
-            )
+            result = await client.read_resource(AnyUrl("resource://test/data?format=json&limit=20"))
             assert isinstance(result.contents[0], TextResourceContents)
-            assert (
-                result.contents[0].text == "Data for test in json format with limit 20"
-            )
+            assert result.contents[0].text == "Data for test in json format with limit 20"
 
             # Test with partial query parameters
-            result = await client.read_resource(
-                AnyUrl("resource://test/data?format=xml")
-            )
+            result = await client.read_resource(AnyUrl("resource://test/data?format=xml"))
             assert isinstance(result.contents[0], TextResourceContents)
-            assert (
-                result.contents[0].text == "Data for test in xml format with limit 10"
-            )
+            assert result.contents[0].text == "Data for test in xml format with limit 10"
 
     @pytest.mark.anyio
     async def test_resource_mismatched_params(self):
@@ -610,8 +568,7 @@ class TestServerResourceTemplates:
 
         with pytest.raises(
             ValueError,
-            match="Mismatch between URI path parameters .* and "
-            "required function parameters .*",
+            match="Mismatch between URI path parameters .* and " "required function parameters .*",
         ):
 
             @mcp.resource("resource://{name}/data")
@@ -628,9 +585,7 @@ class TestServerResourceTemplates:
             return f"Data for {org}/{repo}"
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(
-                AnyUrl("resource://cursor/fastmcp/data")
-            )
+            result = await client.read_resource(AnyUrl("resource://cursor/fastmcp/data"))
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Data for cursor/fastmcp"
 
@@ -641,8 +596,7 @@ class TestServerResourceTemplates:
 
         with pytest.raises(
             ValueError,
-            match="Mismatch between URI path parameters .* and "
-            "required function parameters .*",
+            match="Mismatch between URI path parameters .* and " "required function parameters .*",
         ):
 
             @mcp.resource("resource://{org}/{repo}/data")
@@ -705,9 +659,7 @@ class TestServerResourceTemplates:
             # 1. All defaults
             res1_uri = "resource://test_item/item001"
             res1_content_result = await client.read_resource(AnyUrl(res1_uri))
-            assert res1_content_result.contents and isinstance(
-                res1_content_result.contents[0], TextResourceContents
-            )
+            assert res1_content_result.contents and isinstance(res1_content_result.contents[0], TextResourceContents)
             data1 = json.loads(res1_content_result.contents[0].text)
             assert data1 == {
                 "item_id": "item001",
@@ -717,13 +669,9 @@ class TestServerResourceTemplates:
             }
 
             # 2. Valid optional params (name is URL encoded)
-            res2_uri = (
-                "resource://test_item/item002?name=My%20Product&count=10&active=true"
-            )
+            res2_uri = "resource://test_item/item002?name=My%20Product&count=10&active=true"
             res2_content_result = await client.read_resource(AnyUrl(res2_uri))
-            assert res2_content_result.contents and isinstance(
-                res2_content_result.contents[0], TextResourceContents
-            )
+            assert res2_content_result.contents and isinstance(res2_content_result.contents[0], TextResourceContents)
             data2 = json.loads(res2_content_result.contents[0].text)
             assert data2 == {
                 "item_id": "item002",
@@ -736,9 +684,7 @@ class TestServerResourceTemplates:
             # count=notanint should make it use default_count = 0
             res3_uri = "resource://test_item/item003?name=Another%20Item&count=notanint"
             res3_content_result = await client.read_resource(AnyUrl(res3_uri))
-            assert res3_content_result.contents and isinstance(
-                res3_content_result.contents[0], TextResourceContents
-            )
+            assert res3_content_result.contents and isinstance(res3_content_result.contents[0], TextResourceContents)
             data3 = json.loads(res3_content_result.contents[0].text)
             assert data3 == {
                 "item_id": "item003",
@@ -751,9 +697,7 @@ class TestServerResourceTemplates:
             # active=notabool should make it use default_active = False
             res4_uri = "resource://test_item/item004?count=50&active=notabool"
             res4_content_result = await client.read_resource(AnyUrl(res4_uri))
-            assert res4_content_result.contents and isinstance(
-                res4_content_result.contents[0], TextResourceContents
-            )
+            assert res4_content_result.contents and isinstance(res4_content_result.contents[0], TextResourceContents)
             data4 = json.loads(res4_content_result.contents[0].text)
             assert data4 == {
                 "item_id": "item004",
@@ -766,9 +710,7 @@ class TestServerResourceTemplates:
             # name= (empty value) should fall back to default
             res5_uri = "resource://test_item/item005?name="
             res5_content_result = await client.read_resource(AnyUrl(res5_uri))
-            assert res5_content_result.contents and isinstance(
-                res5_content_result.contents[0], TextResourceContents
-            )
+            assert res5_content_result.contents and isinstance(res5_content_result.contents[0], TextResourceContents)
             data5 = json.loads(res5_content_result.contents[0].text)
             assert data5 == {
                 "item_id": "item005",
@@ -781,9 +723,7 @@ class TestServerResourceTemplates:
             # count= (empty value) should fall back to default
             res6_uri = "resource://test_item/item006?count="
             res6_content_result = await client.read_resource(AnyUrl(res6_uri))
-            assert res6_content_result.contents and isinstance(
-                res6_content_result.contents[0], TextResourceContents
-            )
+            assert res6_content_result.contents and isinstance(res6_content_result.contents[0], TextResourceContents)
             data6 = json.loads(res6_content_result.contents[0].text)
             assert data6 == {
                 "item_id": "item006",
