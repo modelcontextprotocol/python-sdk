@@ -70,9 +70,9 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
         # Auth configuration for RS mode
         token_verifier=token_verifier,
         auth=AuthSettings(
-            issuer_url=settings.server_url,
+            issuer_url=settings.auth_server_url,
             required_scopes=[settings.mcp_scope],
-            authorization_servers=[settings.auth_server_url],
+            resource_server_url=settings.server_url,
         ),
     )
 

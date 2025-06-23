@@ -68,7 +68,7 @@ def create_authorization_server(server_settings: AuthServerSettings, github_sett
             default_scopes=[github_settings.mcp_scope],
         ),
         required_scopes=[github_settings.mcp_scope],
-        authorization_servers=None,
+        resource_server_url=None,
     )
 
     # Create OAuth routes

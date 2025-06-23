@@ -59,8 +59,8 @@ def create_simple_mcp_server(server_settings: ServerSettings, github_settings: G
             default_scopes=[github_settings.mcp_scope],
         ),
         required_scopes=[github_settings.mcp_scope],
-        # No authorization_servers parameter in legacy mode
-        authorization_servers=None,
+        # No resource_server_url parameter in legacy mode
+        resource_server_url=None,
     )
 
     app = FastMCP(

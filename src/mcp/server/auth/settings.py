@@ -15,7 +15,7 @@ class RevocationOptions(BaseModel):
 class AuthSettings(BaseModel):
     issuer_url: AnyHttpUrl = Field(
         ...,
-        description="Base URL where this server is reachable. For AS: OAuth issuer URL. For RS: Resource server URL.",
+        description="OAuth authorization server URL that issues tokens for this resource server.",
     )
     service_documentation_url: AnyHttpUrl | None = None
     client_registration_options: ClientRegistrationOptions | None = None
@@ -23,7 +23,7 @@ class AuthSettings(BaseModel):
     required_scopes: list[str] | None = None
 
     # Resource Server settings (when operating as RS only)
-    authorization_servers: list[AnyHttpUrl] | None = Field(
-        None,
-        description="Authorization servers that can issue tokens for this resource (RS mode)",
+    resource_server_url: AnyHttpUrl | None = Field(
+        ...,
+        description="OAuth authorization server URL that issues tokens for this resource server.",
     )
