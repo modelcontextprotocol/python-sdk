@@ -2,14 +2,18 @@ from __future__ import annotations as _annotations
 
 import functools
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from functools import cached_property
+from itertools import chain
 from typing import TYPE_CHECKING, Any, get_origin
 
+import pydantic_core
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
-from mcp.types import ToolAnnotations
+from mcp.server.fastmcp.utilities.types import Image
+from mcp.types import ContentBlock, TextContent, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -32,6 +36,12 @@ class Tool(BaseModel):
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
     annotations: ToolAnnotations | None = Field(None, description="Optional annotations for the tool")
 
+    @cached_property
+    def output_schema(self) -> dict[str, Any] | None:
+        if self.fn_metadata.output_model:
+            return self.fn_metadata.output_model.model_json_schema()
+        return None
+
     @classmethod
     def from_function(
         cls,
@@ -41,6 +51,7 @@ class Tool(BaseModel):
         description: str | None = None,
         context_kwarg: str | None = None,
         annotations: ToolAnnotations | None = None,
+        structured_output: bool = False,
     ) -> Tool:
         """Create a Tool from a function."""
         from mcp.server.fastmcp.server import Context
@@ -62,11 +73,15 @@ class Tool(BaseModel):
                     context_kwarg = param_name
                     break
 
-        func_arg_metadata = func_metadata(
+        fn_metadata = func_metadata(
             fn,
             skip_names=[context_kwarg] if context_kwarg is not None else [],
+            structured_output=structured_output,
         )
-        parameters = func_arg_metadata.arg_model.model_json_schema()
+        parameters = fn_metadata.arg_model.model_json_schema()
+
+        if structured_output:
+            assert fn_metadata.output_model is not None
 
         return cls(
             fn=fn,
@@ -74,7 +89,7 @@ class Tool(BaseModel):
             title=title,
             description=func_doc,
             parameters=parameters,
-            fn_metadata=func_arg_metadata,
+            fn_metadata=fn_metadata,
             is_async=is_async,
             context_kwarg=context_kwarg,
             annotations=annotations,
@@ -95,6 +110,30 @@ class Tool(BaseModel):
             )
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e
+
+    def convert_result(self, result: Any) -> Sequence[ContentBlock] | dict[str, Any]:
+        """Validate tool result and convert to appropriate output format."""
+        output_model = self.fn_metadata.output_model
+        if output_model:
+            # This will raise a ToolError if validation fails
+            return self.fn_metadata.to_validated_dict(result)
+        else:
+            if result is None:
+                return []
+
+            if isinstance(result, ContentBlock):
+                return [result]
+
+            if isinstance(result, Image):
+                return [result.to_image_content()]
+
+            if isinstance(result, list | tuple):
+                return list(chain.from_iterable(self.convert_result(item) for item in result))  # type: ignore[reportUnknownVariableType]
+
+            if not isinstance(result, str):
+                result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
+
+            return [TextContent(type="text", text=result)]
 
 
 def _is_async_callable(obj: Any) -> bool:
