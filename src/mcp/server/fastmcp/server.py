@@ -91,7 +91,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     mount_path: str = "/"  # Mount path (e.g. "/github", defaults to root path)
     sse_path: str = "/sse"
     message_path: str = "/messages/"
-    streamable_http_path: str = "/mcp"
+    streamable_http_path: str = "/"  # Mounting MCP under "/" (instead of "/mcp") to avoid nested "/mcp/mcp"
 
     # StreamableHTTP settings
     json_response: bool = False
