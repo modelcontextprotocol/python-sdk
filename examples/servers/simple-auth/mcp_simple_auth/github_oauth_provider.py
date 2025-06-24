@@ -245,6 +245,28 @@ class GitHubOAuthProvider(OAuthAuthorizationServerProvider):
         if token in self.tokens:
             del self.tokens[token]
 
+    async def exchange_client_credentials(
+        self,
+        client: OAuthClientInformationFull,
+        scopes: list[str],
+    ) -> OAuthToken:
+        """Client credentials flow is not supported in this example."""
+        raise NotImplementedError("client_credentials not supported")
+
+    async def exchange_token(
+        self,
+        client: OAuthClientInformationFull,
+        subject_token: str,
+        subject_token_type: str,
+        actor_token: str | None,
+        actor_token_type: str | None,
+        scope: list[str] | None,
+        audience: str | None,
+        resource: str | None,
+    ) -> OAuthToken:
+        """Token exchange is not supported in this example."""
+        raise NotImplementedError("token_exchange not supported")
+
     async def get_github_user_info(self, mcp_token: str) -> dict[str, Any]:
         """Get GitHub user info using MCP token."""
         github_token = self.token_mapping.get(mcp_token)

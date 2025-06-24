@@ -119,7 +119,7 @@ class OAuthContext:
             self.token_expiry_time = None
 
     def is_token_valid(self) -> bool:
-        """Check if current token is valid."""
+        """Check if the current token is valid."""
         return bool(
             self.current_tokens
             and self.current_tokens.access_token
@@ -127,7 +127,7 @@ class OAuthContext:
         )
 
     def can_refresh_token(self) -> bool:
-        """Check if token can be refreshed."""
+        """Check if the token can be refreshed."""
         return bool(self.current_tokens and self.current_tokens.refresh_token and self.client_info)
 
     def clear_tokens(self) -> None:
@@ -496,12 +496,14 @@ class ClientCredentialsProvider(httpx.Auth):
         server_url: str,
         client_metadata: OAuthClientMetadata,
         storage: TokenStorage,
+        resource: str | None = None,
         timeout: float = 300.0,
     ):
         self.server_url = server_url
         self.client_metadata = client_metadata
         self.storage = storage
         self.timeout = timeout
+        self.resource = resource or resource_url_from_server_url(server_url)
 
         self._current_tokens: OAuthToken | None = None
         self._metadata: OAuthMetadata | None = None
@@ -626,6 +628,7 @@ class ClientCredentialsProvider(httpx.Auth):
         token_data = {
             "grant_type": "client_credentials",
             "client_id": client_info.client_id,
+            "resource": self.resource,
         }
 
         if client_info.client_secret:
@@ -692,7 +695,7 @@ class TokenExchangeProvider(ClientCredentialsProvider):
         resource: str | None = None,
         timeout: float = 300.0,
     ):
-        super().__init__(server_url, client_metadata, storage, timeout)
+        super().__init__(server_url, client_metadata, storage, resource, timeout)
         self.subject_token_supplier = subject_token_supplier
         self.subject_token_type = subject_token_type
         self.actor_token_supplier = actor_token_supplier

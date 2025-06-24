@@ -132,7 +132,7 @@ def oauth_client_info():
 def oauth_token():
     return OAuthToken(
         access_token="test_access_token",
-        token_type="bearer",
+        token_type="Bearer",
         expires_in=3600,
         refresh_token="test_refresh_token",
         scope="read write",
@@ -419,6 +419,8 @@ class TestClientCredentialsProvider:
             await client_credentials_provider.ensure_token()
 
             mock_client.post.assert_called_once()
+            args, kwargs = mock_client.post.call_args
+            assert kwargs["data"]["resource"] == "https://api.example.com/v1/mcp"
             assert client_credentials_provider._current_tokens.access_token == oauth_token.access_token
 
     @pytest.mark.anyio
@@ -466,4 +468,6 @@ class TestTokenExchangeProvider:
             await token_exchange_provider.ensure_token()
 
             mock_client.post.assert_called_once()
+            args, kwargs = mock_client.post.call_args
+            assert kwargs["data"]["resource"] == "https://api.example.com/v1/mcp"
             assert token_exchange_provider._current_tokens.access_token == oauth_token.access_token
