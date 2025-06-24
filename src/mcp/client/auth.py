@@ -200,11 +200,19 @@ class OAuthClientProvider(httpx.Auth):
     async def _discover_oauth_metadata(self) -> httpx.Request:
         """Build OAuth metadata discovery request."""
         if self.context.auth_server_url:
-            base_url = self.context.get_authorization_base_url(self.context.auth_server_url)
+            auth_server_url = self.context.auth_server_url
         else:
-            base_url = self.context.get_authorization_base_url(self.context.server_url)
+            auth_server_url = self.context.server_url
 
-        url = urljoin(base_url, "/.well-known/oauth-authorization-server")
+        # Per RFC 8414, preserve the path component when constructing discovery URL
+        parsed = urlparse(auth_server_url)
+        well_known_path = f"/.well-known/oauth-authorization-server{parsed.path}"
+        if parsed.path.endswith("/"):
+            # Strip trailing slash from pathname
+            well_known_path = well_known_path[:-1]
+
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        url = urljoin(base_url, well_known_path)
         return httpx.Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
 
     async def _handle_oauth_metadata_response(self, response: httpx.Response) -> None:

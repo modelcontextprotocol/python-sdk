@@ -209,7 +209,55 @@ class TestOAuthFlow:
         request = await oauth_provider._discover_oauth_metadata()
 
         assert request.method == "GET"
+        assert str(request.url) == "https://api.example.com/.well-known/oauth-authorization-server/v1/mcp"
+        assert "mcp-protocol-version" in request.headers
+
+    @pytest.mark.anyio
+    async def test_discover_oauth_metadata_request_no_path(self, client_metadata, mock_storage):
+        """Test OAuth metadata discovery request building when server has no path."""
+
+        async def redirect_handler(url: str) -> None:
+            pass
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        request = await provider._discover_oauth_metadata()
+
+        assert request.method == "GET"
         assert str(request.url) == "https://api.example.com/.well-known/oauth-authorization-server"
+        assert "mcp-protocol-version" in request.headers
+
+    @pytest.mark.anyio
+    async def test_discover_oauth_metadata_request_trailing_slash(self, client_metadata, mock_storage):
+        """Test OAuth metadata discovery request building when server path has trailing slash."""
+
+        async def redirect_handler(url: str) -> None:
+            pass
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp/",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        request = await provider._discover_oauth_metadata()
+
+        assert request.method == "GET"
+        assert str(request.url) == "https://api.example.com/.well-known/oauth-authorization-server/v1/mcp"
         assert "mcp-protocol-version" in request.headers
 
     @pytest.mark.anyio
