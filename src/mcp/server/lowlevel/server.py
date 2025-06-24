@@ -417,10 +417,13 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return tool
 
-    def call_tool(self):
+    def call_tool(self, *, validate_input: bool = True):
         """Register a tool call handler.
 
-        The handler validates input against inputSchema, calls the tool function,
+        Args:
+            validate_input: If True, validates input against inputSchema. Default is True.
+
+        The handler validates input against inputSchema (if validate_input=True), calls the tool function,
         and builds a CallToolResult with the results:
         - Unstructured content (iterable of ContentBlock): returned in content
         - Structured content (dict): returned in structuredContent, serialized JSON text returned in content
@@ -444,7 +447,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     tool = await self._get_cached_tool_definition(tool_name)
 
                     # input validation
-                    if tool:
+                    if validate_input and tool:
                         try:
                             jsonschema.validate(instance=arguments, schema=tool.inputSchema)
                         except jsonschema.ValidationError as e:
