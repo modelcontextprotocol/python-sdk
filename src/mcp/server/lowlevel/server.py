@@ -73,7 +73,7 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from typing import Any, Generic, cast
+from typing import Any, Generic, TypeAlias, cast
 
 import anyio
 import jsonschema
@@ -95,6 +95,11 @@ logger = logging.getLogger(__name__)
 
 LifespanResultT = TypeVar("LifespanResultT")
 RequestT = TypeVar("RequestT", default=Any)
+
+# type aliases for tool call results
+StructuredContent: TypeAlias = dict[str, Any]
+UnstructuredContent: TypeAlias = Iterable[types.ContentBlock]
+CombinationContent: TypeAlias = tuple[UnstructuredContent, StructuredContent]
 
 # This will be properly typed in each Server instance's context
 request_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any, Any]] = contextvars.ContextVar("request_ctx")
@@ -415,10 +420,11 @@ class Server(Generic[LifespanResultT, RequestT]):
     def call_tool(self):
         """Register a tool call handler.
 
-        The handler validates input against inputSchema, calls the tool function, and processes results:
-        - Content only: returns as-is
-        - Dict only: serializes to JSON text and returns as content with structuredContent
-        - Both: returns content and structuredContent
+        The handler validates input against inputSchema, calls the tool function,
+        and builds a CallToolResult with the results:
+        - Unstructured content (iterable of ContentBlock): returned in content
+        - Structured content (dict): returned in structuredContent, serialized JSON text returned in content
+        - Both: returned in content and structuredContent
 
         If outputSchema is defined, validates structuredContent or errors if missing.
         """
@@ -426,9 +432,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(
             func: Callable[
                 ...,
-                Awaitable[
-                    Iterable[types.ContentBlock] | dict[str, Any] | tuple[Iterable[types.ContentBlock], dict[str, Any]]
-                ],
+                Awaitable[UnstructuredContent | StructuredContent | CombinationContent],
             ],
         ):
             logger.debug("Registering handler for CallToolRequest")
@@ -450,37 +454,41 @@ class Server(Generic[LifespanResultT, RequestT]):
                     results = await func(tool_name, arguments)
 
                     # output normalization
-                    content: list[types.ContentBlock]
-                    structured_content: dict[str, Any] | None
-
+                    unstructured_content: UnstructuredContent
+                    maybe_structured_content: StructuredContent | None
                     if isinstance(results, tuple) and len(results) == 2:
-                        # tool returned both content and structured content
-                        structured_content = cast(dict[str, Any], results[1])
-                        content = list(cast(Iterable[types.ContentBlock], results[0]))
+                        # tool returned both structured and unstructured content
+                        unstructured_content, maybe_structured_content = cast(CombinationContent, results)
                     elif isinstance(results, dict):
                         # tool returned structured content only
-                        structured_content = cast(dict[str, Any], results)
-                        content = [types.TextContent(type="text", text=json.dumps(results, indent=2))]
+                        maybe_structured_content = cast(StructuredContent, results)
+                        unstructured_content = [types.TextContent(type="text", text=json.dumps(results, indent=2))]
+                    elif hasattr(results, "__iter__"):
+                        # tool returned unstructured content only
+                        unstructured_content = cast(UnstructuredContent, results)
+                        maybe_structured_content = None
                     else:
-                        # tool returned content only
-                        structured_content = None
-                        content = list(cast(Iterable[types.ContentBlock], results))
+                        return self._make_error_result(f"Unexpected return type from tool: {type(results).__name__}")
 
                     # output validation
                     if tool and tool.outputSchema is not None:
-                        if structured_content is None:
+                        if maybe_structured_content is None:
                             return self._make_error_result(
                                 "Output validation error: outputSchema defined but no structured output returned"
                             )
                         else:
                             try:
-                                jsonschema.validate(instance=structured_content, schema=tool.outputSchema)
+                                jsonschema.validate(instance=maybe_structured_content, schema=tool.outputSchema)
                             except jsonschema.ValidationError as e:
                                 return self._make_error_result(f"Output validation error: {e.message}")
 
                     # result
                     return types.ServerResult(
-                        types.CallToolResult(content=content, structuredContent=structured_content, isError=False)
+                        types.CallToolResult(
+                            content=list(unstructured_content),
+                            structuredContent=maybe_structured_content,
+                            isError=False,
+                        )
                     )
                 except Exception as e:
                     return self._make_error_result(str(e))
