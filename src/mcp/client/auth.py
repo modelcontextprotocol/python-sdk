@@ -692,7 +692,6 @@ class TokenExchangeProvider(ClientCredentialsProvider):
         actor_token_supplier: Callable[[], Awaitable[str]] | None = None,
         actor_token_type: str | None = None,
         audience: str | None = None,
-        resource: str | None = None,
         timeout: float = 300.0,
     ):
         super().__init__(server_url, client_metadata, storage, resource, timeout)
