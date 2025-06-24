@@ -1,4 +1,4 @@
-"""Example token verifier implementation using OAuth 2.0 Token Introspection (RFC 7662)."""
+"""Example token verifier implementation."""
 
 import logging
 from datetime import datetime
@@ -9,8 +9,13 @@ from mcp.shared.auth_utils import resource_url_from_server_url
 logger = logging.getLogger(__name__)
 
 
-class IntrospectionTokenVerifier(TokenVerifier):
-    """Example token verifier that uses OAuth 2.0 Token Introspection (RFC 7662)."""
+class PartialIntrospectionTokenVerifier(TokenVerifier):
+    """
+    Example token verifier.
+
+    Discord doesn't actually support token introspection, but this is required by FastMCP, so
+    we shim a non-strict verifier on top of it that leverages the "current application" endpoint.
+    """
 
     def __init__(
         self,

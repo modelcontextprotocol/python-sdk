@@ -102,12 +102,3 @@ curl -v http://localhost:8001/.well-known/oauth-protected-resource
 # Test Authorization Server metadata
 curl -v http://localhost:9000/.well-known/oauth-authorization-server
 ```
-
-### Test Token Introspection
-
-```bash
-# After getting a token through OAuth flow:
-curl -X POST http://localhost:9000/introspect \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "token=your_access_token"
-```

@@ -1,28 +1,29 @@
 # Simple Auth Client Example
 
-A demonstration of how to use the MCP Python SDK with OAuth authentication over streamable HTTP or SSE transport.
+A demonstration of how to use the MCP Python SDK with OAuth authentication using client credentials over streamable HTTP or SSE transport.
+This example demonstrates integration with an authorization server that does not implement Dynamic Client Registration.
 
 ## Features
 
-- OAuth 2.0 authentication with PKCE
+- OAuth 2.0 authentication with the `client_credentials` flow
 - Support for both StreamableHTTP and SSE transports
 - Interactive command-line interface
 
 ## Installation
 
 ```bash
-cd examples/clients/simple-auth-client
-uv sync --reinstall 
+cd examples/clients/simple-auth-client-client-credentials
+uv sync --reinstall
 ```
 
 ## Usage
 
-### 1. Start an MCP server with OAuth support
+### 1. Start an MCP server with OAuth support using client credentials
 
 ```bash
-# Example with mcp-simple-auth
-cd path/to/mcp-simple-auth
-uv run mcp-simple-auth --transport streamable-http --port 3001
+# Example with mcp-simple-auth-client-credentials
+cd path/to/mcp-simple-auth-client-credentials
+uv run mcp-simple-auth-client-credentials --transport streamable-http --port 3001
 ```
 
 ### 2. Run the client
@@ -39,22 +40,32 @@ MCP_TRANSPORT_TYPE=sse uv run mcp-simple-auth-client
 
 ### 3. Complete OAuth flow
 
-The client will open your browser for authentication. After completing OAuth, you can use commands:
+The client will automatically authenticate using dummy client credentials for the demo authorization server. After completing OAuth, you can use commands:
 
 - `list` - List available tools
-- `call <tool_name> [args]` - Call a tool with optional JSON arguments  
+- `call <tool_name> [args]` - Call a tool with optional JSON arguments
 - `quit` - Exit
 
 ## Example
 
 ```
-🔐 Simple MCP Auth Client
-Connecting to: http://localhost:3001
+🚀 Simple MCP Auth Client
+Connecting to: http://localhost:8001/mcp
+Transport type: streamable_http
+🔗 Attempting to connect to http://localhost:8001/mcp...
+📡 Opening StreamableHTTP transport connection with auth...
+🤝 Initializing MCP session...
+⚡ Starting session initialization...
+✨ Session initialization complete!
 
-Please visit the following URL to authorize the application:
-http://localhost:3001/authorize?response_type=code&client_id=...
+✅ Connected to MCP server at http://localhost:8001/mcp
+Session ID: ...
 
-✅ Connected to MCP server at http://localhost:3001
+🎯 Interactive MCP Client
+Commands:
+  list - List available tools
+  call <tool_name> [args] - Call a tool
+  quit - Exit the client
 
 mcp> list
 📋 Available tools:

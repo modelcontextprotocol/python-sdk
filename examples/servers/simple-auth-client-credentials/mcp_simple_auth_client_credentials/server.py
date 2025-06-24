@@ -17,7 +17,7 @@ from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp.server import FastMCP
 
-from .token_verifier import IntrospectionTokenVerifier
+from .token_verifier import PartialIntrospectionTokenVerifier
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +52,8 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
     Create MCP Resource Server.
     """
 
-    # Create token verifier for introspection with RFC 8707 resource validation
-    token_verifier = IntrospectionTokenVerifier(
+    # Create partial token verifier
+    token_verifier = PartialIntrospectionTokenVerifier(
         introspection_endpoint=settings.auth_server_introspection_endpoint,
         server_url=str(settings.server_url),
     )
