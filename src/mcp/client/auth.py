@@ -699,7 +699,7 @@ class TokenExchangeProvider(ClientCredentialsProvider):
 
         Parameters are forwarded to ClientCredentialsProvider for
         client authentication. The resource parameter binds issued tokens to
-        the target resource as defined by RFC 8707.
+        the target resource, as defined by RFC 8707.
         """
 
         super().__init__(server_url, client_metadata, storage, resource, timeout)
