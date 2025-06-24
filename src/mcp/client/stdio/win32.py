@@ -78,6 +78,18 @@ class DummyProcess:
         """Terminate and wait on process exit inside a thread."""
         self.popen.terminate()
         await to_thread.run_sync(self.popen.wait)
+        
+        # Close the file handles to prevent ResourceWarning
+        if self.stdin:
+            await self.stdin.aclose()
+        if self.stdout:
+            await self.stdout.aclose()
+        if self.stdin_raw:
+            self.stdin_raw.close()
+        if self.stdout_raw:
+            self.stdout_raw.close()
+        if self.stderr:
+            self.stderr.close()
 
     async def wait(self):
         """Async wait for process completion."""
