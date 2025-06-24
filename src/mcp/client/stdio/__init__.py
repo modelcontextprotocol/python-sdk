@@ -179,18 +179,18 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             yield read_stream, write_stream
         finally:
             # Clean up process to prevent any dangling orphaned processes
-            if sys.platform == "win32":
-                await terminate_windows_process(process)
-            else:
-                # On Linux, terminating a process that has already exited raises ProcessLookupError.
-                # This can happen if the command failed to launch properly (as in this test case).
-                try:
+            try:
+                if sys.platform == "win32":
+                    await terminate_windows_process(process)
+                else:
                     process.terminate()
-                except ProcessLookupError:
-                    # Process already exited — safe to ignore
-                    pass
+            except ProcessLookupError:
+                # Process already exited, which is fine
+                pass
             await read_stream.aclose()
             await write_stream.aclose()
+            await read_stream_writer.aclose()
+            await write_stream_reader.aclose()
 
 
 def _get_executable_command(command: str) -> str:
