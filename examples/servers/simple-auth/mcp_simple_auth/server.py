@@ -4,19 +4,18 @@ MCP Resource Server with Token Introspection.
 This server validates tokens via Authorization Server introspection and serves MCP resources.
 Demonstrates RFC 9728 Protected Resource Metadata for AS/RS separation.
 
-Usage:
-    python -m mcp_simple_auth.server --port=8001 --auth-server=http://localhost:9000
+NOTE: this is a simplified example for demonstration purposes.
+This is not a production-ready implementation.
 """
 
+import datetime
 import logging
 from typing import Any, Literal
 
 import click
-import httpx
 from pydantic import AnyHttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp.server import FastMCP
 
@@ -38,7 +37,7 @@ class ResourceServerSettings(BaseSettings):
     # Authorization Server settings
     auth_server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:9000")
     auth_server_introspection_endpoint: str = "http://localhost:9000/introspect"
-    auth_server_github_user_endpoint: str = "http://localhost:9000/github/user"
+    # No user endpoint needed - we get user data from token introspection
 
     # MCP settings
     mcp_scope: str = "user"
@@ -83,60 +82,22 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
         ),
     )
 
-    async def get_github_user_data() -> dict[str, Any]:
-        """
-        Get GitHub user data via Authorization Server proxy endpoint.
-
-        This avoids exposing GitHub tokens to the Resource Server.
-        The Authorization Server handles the GitHub API call and returns the data.
-        """
-        access_token = get_access_token()
-        if not access_token:
-            raise ValueError("Not authenticated")
-
-        # Call Authorization Server's GitHub proxy endpoint
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                settings.auth_server_github_user_endpoint,
-                headers={
-                    "Authorization": f"Bearer {access_token.token}",
-                },
-            )
-
-            if response.status_code != 200:
-                raise ValueError(f"GitHub user data fetch failed: {response.status_code} - {response.text}")
-
-            return response.json()
-
     @app.tool()
-    async def get_user_profile() -> dict[str, Any]:
+    async def get_time() -> dict[str, Any]:
         """
-        Get the authenticated user's GitHub profile information.
+        Get the current server time.
 
-        This tool requires the 'user' scope and demonstrates how Resource Servers
-        can access user data without directly handling GitHub tokens.
+        This tool demonstrates that system information can be protected
+        by OAuth authentication. User must be authenticated to access it.
         """
-        return await get_github_user_data()
 
-    @app.tool()
-    async def get_user_info() -> dict[str, Any]:
-        """
-        Get information about the currently authenticated user.
-
-        Returns token and scope information from the Resource Server's perspective.
-        """
-        access_token = get_access_token()
-        if not access_token:
-            raise ValueError("Not authenticated")
+        now = datetime.datetime.now()
 
         return {
-            "authenticated": True,
-            "client_id": access_token.client_id,
-            "scopes": access_token.scopes,
-            "token_expires_at": access_token.expires_at,
-            "token_type": "Bearer",
-            "resource_server": str(settings.server_url),
-            "authorization_server": str(settings.auth_server_url),
+            "current_time": now.isoformat(),
+            "timezone": "UTC",  # Simplified for demo
+            "timestamp": now.timestamp(),
+            "formatted": now.strftime("%Y-%m-%d %H:%M:%S"),
         }
 
     return app
@@ -182,7 +143,6 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
             server_url=AnyHttpUrl(server_url),
             auth_server_url=auth_server_url,
             auth_server_introspection_endpoint=f"{auth_server}/introspect",
-            auth_server_github_user_endpoint=f"{auth_server}/github/user",
             oauth_strict=oauth_strict,
         )
     except ValueError as e:
@@ -193,24 +153,8 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
     try:
         mcp_server = create_resource_server(settings)
 
-        logger.info("=" * 80)
-        logger.info("📦 MCP RESOURCE SERVER")
-        logger.info("=" * 80)
-        logger.info(f"🌐 Server URL: {settings.server_url}")
-        logger.info(f"🔑 Authorization Server: {settings.auth_server_url}")
-        logger.info("📋 Endpoints:")
-        logger.info(f"   ┌─ Protected Resource Metadata: {settings.server_url}/.well-known/oauth-protected-resource")
-        mcp_path = "sse" if transport == "sse" else "mcp"
-        logger.info(f"   ├─ MCP Protocol: {settings.server_url}/{mcp_path}")
-        logger.info(f"   └─ Token Introspection: {settings.auth_server_introspection_endpoint}")
-        logger.info("")
-        logger.info("🛠️  Available Tools:")
-        logger.info("   ├─ get_user_profile() - Get GitHub user profile")
-        logger.info("   └─ get_user_info() - Get authentication status")
-        logger.info("")
-        logger.info("🔍 Tokens validated via Authorization Server introspection")
-        logger.info("📱 Clients discover Authorization Server via Protected Resource Metadata")
-        logger.info("=" * 80)
+        logger.info(f"🚀 MCP Resource Server running on {settings.server_url}")
+        logger.info(f"🔑 Using Authorization Server: {settings.auth_server_url}")
 
         # Run the server - this should block and keep running
         mcp_server.run(transport=transport)
