@@ -692,6 +692,7 @@ class TokenExchangeProvider(ClientCredentialsProvider):
         actor_token_supplier: Callable[[], Awaitable[str]] | None = None,
         actor_token_type: str | None = None,
         audience: str | None = None,
+        resource: str | None = None,
         timeout: float = 300.0,
     ):
         super().__init__(server_url, client_metadata, storage, resource, timeout)
@@ -700,7 +701,6 @@ class TokenExchangeProvider(ClientCredentialsProvider):
         self.actor_token_supplier = actor_token_supplier
         self.actor_token_type = actor_token_type
         self.audience = audience
-        self.resource = resource
 
     async def _request_token(self) -> None:
         if not self._metadata:
