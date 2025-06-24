@@ -160,8 +160,7 @@ class SimpleAuthClient:
         print(f"🔗 Attempting to connect to {self.server_url}...")
 
         try:
-            # Set up callback server
-            callback_server = CallbackServer(port=3000)
+            callback_server = CallbackServer(port=3030)
             callback_server.start()
 
             async def callback_handler() -> tuple[str, str | None]:
@@ -175,7 +174,7 @@ class SimpleAuthClient:
 
             client_metadata_dict = {
                 "client_name": "Simple Auth Client",
-                "redirect_uris": ["http://localhost:3000/callback"],
+                "redirect_uris": ["http://localhost:3030/callback"],
                 "grant_types": ["authorization_code", "refresh_token"],
                 "response_types": ["code"],
                 "token_endpoint_auth_method": "client_secret_post",
