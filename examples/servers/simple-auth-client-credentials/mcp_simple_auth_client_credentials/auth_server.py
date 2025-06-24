@@ -15,6 +15,7 @@ import asyncio
 import logging
 import secrets
 from base64 import b64decode, b64encode
+from typing import Literal
 
 import click
 from pydantic import AnyHttpUrl, BaseModel
@@ -45,6 +46,8 @@ class DiscordOAuthSettings(BaseSettings):
     # Discord OAuth settings - MUST be provided via environment variables
     discord_client_id: str | None = None
     discord_client_secret: str | None = None
+
+    token_endpoint_auth_method: Literal["client_secret_basic", "client_secret_post"] = "client_secret_basic"
 
     # Discord OAuth URL
     discord_token_url: str = f"{API_ENDPOINT}/oauth2/token"
@@ -96,13 +99,21 @@ class TokenEndpoint(HTTPEndpoint):
         }
 
     async def post(self, request: Request) -> Response:
-        # Get client_id and client_secret from Basic auth header
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Basic "):
-            return JSONResponse({"error": "Invalid authorization header"}, status_code=401)
-        auth_header_encoded = auth_header.split(" ")[1]
-        auth_header_raw = b64decode(auth_header_encoded).decode("utf-8")
-        client_id, client_secret = auth_header_raw.split(":")
+        # Get request data (application/x-www-form-urlencoded)
+        data = await request.form()
+
+        if self.discord_settings.token_endpoint_auth_method == "client_secret_basic":
+            # Get client_id and client_secret from Basic auth header
+            auth_header = request.headers.get("Authorization", "")
+            if not auth_header.startswith("Basic "):
+                return JSONResponse({"error": "Invalid authorization header"}, status_code=401)
+            auth_header_encoded = auth_header.split(" ")[1]
+            auth_header_raw = b64decode(auth_header_encoded).decode("utf-8")
+            client_id, client_secret = auth_header_raw.split(":")
+        else:
+            # Get from body
+            client_id = str(data.get("client_id"))
+            client_secret = str(data.get("client_secret"))
 
         # Validate MCP client
         if client_id not in self.client_map:
@@ -114,9 +125,6 @@ class TokenEndpoint(HTTPEndpoint):
         # Get mapped credentials
         discord_client_id = self.client_map[client_id]
         discord_client_secret = self.discord_client_credentials[discord_client_id]
-
-        # Get request data (application/x-www-form-urlencoded)
-        data = await request.form()
 
         # Validate scopes
         scopes = str(data.get("scope", "")).split(" ")
@@ -208,7 +216,7 @@ def create_authorization_server(
                         issuer=server_settings.server_url,
                         authorization_endpoint=AnyHttpUrl(f"{server_settings.server_url}authorize"),
                         token_endpoint=AnyHttpUrl(f"{server_settings.server_url}token"),
-                        token_endpoint_auth_methods_supported=["client_secret_basic"],
+                        token_endpoint_auth_methods_supported=["client_secret_post"],
                         response_types_supported=["code"],
                         grant_types_supported=["client_credentials"],
                         scopes_supported=[discord_settings.discord_scope],
