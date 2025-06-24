@@ -78,7 +78,7 @@ class DummyProcess:
         """Terminate and wait on process exit inside a thread."""
         self.popen.terminate()
         await to_thread.run_sync(self.popen.wait)
-        
+
         # Close the file handles to prevent ResourceWarning
         if self.stdin:
             await self.stdin.aclose()
