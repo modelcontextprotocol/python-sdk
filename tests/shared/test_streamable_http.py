@@ -236,6 +236,7 @@ def create_app(is_json_response_enabled=False, event_store: EventStore | None = 
         event_store=event_store,
         json_response=is_json_response_enabled,
         security_settings=security_settings,
+        maximum_message_size=1024,
     )
 
     # Create an ASGI application that uses the session manager
@@ -489,6 +490,27 @@ def test_method_not_allowed(basic_server, basic_server_url):
     )
     assert response.status_code == 405
     assert "Method Not Allowed" in response.text
+
+
+def test_maximum_message_size_validation(basic_server, basic_server_url):
+    """Test maximum allowed input size validation."""
+
+    # Test with input greater than 1024 bytes
+    large_input = "A" * 1300  # string of size 1300 bytes
+    response = requests.post(
+        f"{basic_server_url}/mcp",
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        },
+        json={
+            "jsonrpc": "2.0",
+            "method": "call_tool",
+            "body": {"name": "test_tool_with_standalone_notification", "args": {"text": large_input}},
+        },
+    )
+    assert response.status_code == 413
+    assert "Payload Too Large" in response.text
 
 
 def test_session_validation(basic_server, basic_server_url):

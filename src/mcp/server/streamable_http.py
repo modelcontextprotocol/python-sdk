@@ -135,6 +135,7 @@ class StreamableHTTPServerTransport:
     _write_stream: MemoryObjectSendStream[SessionMessage] | None = None
     _write_stream_reader: MemoryObjectReceiveStream[SessionMessage] | None = None
     _security: TransportSecurityMiddleware
+    _maximum_message_size: int = MAXIMUM_MESSAGE_SIZE
 
     def __init__(
         self,
@@ -142,6 +143,7 @@ class StreamableHTTPServerTransport:
         is_json_response_enabled: bool = False,
         event_store: EventStore | None = None,
         security_settings: TransportSecuritySettings | None = None,
+        maximum_message_size: int | None = None,
     ) -> None:
         """
         Initialize a new StreamableHTTP server transport.
@@ -155,6 +157,8 @@ class StreamableHTTPServerTransport:
                         resumability will be enabled, allowing clients to
                         reconnect and resume messages.
             security_settings: Optional security settings for DNS rebinding protection.
+            maximum_message_size: Optional configurable maximum message size specified
+                                in bytes
 
         Raises:
             ValueError: If the session ID contains invalid characters.
@@ -166,6 +170,7 @@ class StreamableHTTPServerTransport:
         self.is_json_response_enabled = is_json_response_enabled
         self._event_store = event_store
         self._security = TransportSecurityMiddleware(security_settings)
+        self._maximum_message_size = maximum_message_size if maximum_message_size else MAXIMUM_MESSAGE_SIZE
         self._request_streams: dict[
             RequestId,
             tuple[
@@ -329,7 +334,7 @@ class StreamableHTTPServerTransport:
 
             # Parse the body - only read it once
             body = await request.body()
-            if len(body) > MAXIMUM_MESSAGE_SIZE:
+            if len(body) > self._maximum_message_size:
                 response = self._create_error_response(
                     "Payload Too Large: Message exceeds maximum size",
                     HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
