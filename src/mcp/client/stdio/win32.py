@@ -46,7 +46,7 @@ def get_windows_executable_command(command: str) -> str:
         return command
 
 
-class DummyProcess:
+class FallbackProcess:
     """
     A fallback process wrapper for Windows to handle async I/O
     when using subprocess.Popen, which provides sync-only FileIO objects.
@@ -115,7 +115,7 @@ async def create_windows_process(
     env: dict[str, str] | None = None,
     errlog: TextIO | None = sys.stderr,
     cwd: Path | str | None = None,
-) -> DummyProcess:
+) -> FallbackProcess:
     """
     Creates a subprocess in a Windows-compatible way.
 
@@ -131,7 +131,7 @@ async def create_windows_process(
         cwd (Path | str | None): Working directory for the subprocess
 
     Returns:
-        DummyProcess: Async-compatible subprocess with stdin and stdout streams
+        FallbackProcess: Async-compatible subprocess with stdin and stdout streams
     """
     try:
         # Try launching with creationflags to avoid opening a new console window
@@ -145,7 +145,7 @@ async def create_windows_process(
             bufsize=0,  # Unbuffered output
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        return DummyProcess(popen_obj)
+        return FallbackProcess(popen_obj)
 
     except Exception:
         # If creationflags failed, fallback without them
@@ -158,10 +158,10 @@ async def create_windows_process(
             cwd=cwd,
             bufsize=0,
         )
-        return DummyProcess(popen_obj)
+        return FallbackProcess(popen_obj)
 
 
-async def terminate_windows_process(process: Process | DummyProcess):
+async def terminate_windows_process(process: Process | FallbackProcess):
     """
     Terminate a Windows process.
 
