@@ -486,6 +486,8 @@ class OAuthClientProvider(httpx.Auth):
                     # Retry with new tokens
                     self._add_auth_header(request)
                     yield request
+
+
 class ClientCredentialsProvider(httpx.Auth):
     """HTTPX auth using the OAuth2 client credentials grant."""
 
@@ -508,6 +510,35 @@ class ClientCredentialsProvider(httpx.Auth):
 
         self._token_lock = anyio.Lock()
 
+    def _get_authorization_base_url(self, server_url: str) -> str:
+        """Return base authorization server URL without path."""
+        parsed = urlparse(server_url)
+        return f"{parsed.scheme}://{parsed.netloc}"
+
+    async def _discover_oauth_metadata(self, server_url: str) -> OAuthMetadata | None:
+        """Discover OAuth server metadata for client credentials."""
+        auth_base_url = self._get_authorization_base_url(server_url)
+        url = urljoin(auth_base_url, "/.well-known/oauth-authorization-server")
+        headers = {"MCP-Protocol-Version": LATEST_PROTOCOL_VERSION}
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, headers=headers)
+                if response.status_code == 404:
+                    return None
+                response.raise_for_status()
+                return OAuthMetadata.model_validate(response.json())
+            except Exception:
+                try:
+                    response = await client.get(url)
+                    if response.status_code == 404:
+                        return None
+                    response.raise_for_status()
+                    return OAuthMetadata.model_validate(response.json())
+                except Exception:
+                    logger.exception("Failed to discover OAuth metadata")
+                    return None
+
     async def _register_oauth_client(
         self,
         server_url: str,
@@ -515,12 +546,12 @@ class ClientCredentialsProvider(httpx.Auth):
         metadata: OAuthMetadata | None = None,
     ) -> OAuthClientInformationFull:
         if not metadata:
-            metadata = await _discover_oauth_metadata(server_url)
+            metadata = await self._discover_oauth_metadata(server_url)
 
         if metadata and metadata.registration_endpoint:
             registration_url = str(metadata.registration_endpoint)
         else:
-            auth_base_url = _get_authorization_base_url(server_url)
+            auth_base_url = self._get_authorization_base_url(server_url)
             registration_url = urljoin(auth_base_url, "/register")
 
         if client_metadata.scope is None and metadata and metadata.scopes_supported is not None:
@@ -582,14 +613,14 @@ class ClientCredentialsProvider(httpx.Auth):
 
     async def _request_token(self) -> None:
         if not self._metadata:
-            self._metadata = await _discover_oauth_metadata(self.server_url)
+            self._metadata = await self._discover_oauth_metadata(self.server_url)
 
         client_info = await self._get_or_register_client()
 
         if self._metadata and self._metadata.token_endpoint:
             token_url = str(self._metadata.token_endpoint)
         else:
-            auth_base_url = _get_authorization_base_url(self.server_url)
+            auth_base_url = self._get_authorization_base_url(self.server_url)
             token_url = urljoin(auth_base_url, "/token")
 
         token_data = {
@@ -671,14 +702,14 @@ class TokenExchangeProvider(ClientCredentialsProvider):
 
     async def _request_token(self) -> None:
         if not self._metadata:
-            self._metadata = await _discover_oauth_metadata(self.server_url)
+            self._metadata = await self._discover_oauth_metadata(self.server_url)
 
         client_info = await self._get_or_register_client()
 
         if self._metadata and self._metadata.token_endpoint:
             token_url = str(self._metadata.token_endpoint)
         else:
-            auth_base_url = _get_authorization_base_url(self.server_url)
+            auth_base_url = self._get_authorization_base_url(self.server_url)
             token_url = urljoin(auth_base_url, "/token")
 
         subject_token = await self.subject_token_supplier()
