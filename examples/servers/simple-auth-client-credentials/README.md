@@ -24,17 +24,34 @@ export MCP_DISCORD_CLIENT_SECRET="your_client_secret_here"
 
 ## Running the Servers
 
-### Step 1: Start Resource Server (MCP Server)
+### Step 1: Start Authorization Server
 
 ```bash
-# Navigate to the simple-auth-client-credentials directory
-cd examples/servers/simple-auth-client-credentials
+# Navigate to the simple-auth directory
+cd examples/servers/simple-auth
 
-# Start Resource Server on port 8001
-uv run mcp-simple-auth-rs --port=8001 --transport=streamable-http
+# Start Authorization Server on port 9000
+uv run mcp-simple-auth-as --port=9000
 ```
 
-### Step 2: Test with Client
+**What it provides:**
+
+- OAuth 2.0 flows (registration, authorization, token exchange)
+- Discord OAuth integration for user authentication
+
+---
+
+### Step 2: Start Resource Server (MCP Server)
+
+```bash
+# In another terminal, navigate to the simple-auth directory
+cd examples/servers/simple-auth
+
+# Start Resource Server on port 8001, connected to Authorization Server
+uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000 --transport=streamable-http
+```
+
+### Step 3: Test with Client
 
 ```bash
 cd examples/clients/simple-auth-client-client-credentials
@@ -55,21 +72,21 @@ curl http://localhost:8001/.well-known/oauth-protected-resource
 ```json
 {
   "resource": "http://localhost:8001",
-  "authorization_servers": ["http://localhost:8001"]
+  "authorization_servers": ["http://localhost:9000"]
 }
 ```
 
 **Client → Authorization Server:**
 
 ```bash
-curl http://localhost:8001/.well-known/oauth-authorization-server
+curl http://localhost:9000/.well-known/oauth-authorization-server
 ```
 
 ```json
 {
-  "issuer": "http://localhost:8001",
-  "authorization_endpoint": "https://discord.com/api/v10/oauth2/authorize",
-  "token_endpoint": "https://discord.com/api/v10/oauth2/token"
+  "issuer": "http://localhost:9000",
+  "authorization_endpoint": "http://localhost:9000/authorize",
+  "token_endpoint": "http://localhost:9000/token"
 }
 ```
 
@@ -82,5 +99,14 @@ curl http://localhost:8001/.well-known/oauth-authorization-server
 curl -v http://localhost:8001/.well-known/oauth-protected-resource
 
 # Test Authorization Server metadata
-curl -v http://localhost:8001/.well-known/oauth-authorization-server
+curl -v http://localhost:9000/.well-known/oauth-authorization-server
+```
+
+### Test Token Introspection
+
+```bash
+# After getting a token through OAuth flow:
+curl -X POST http://localhost:9000/introspect \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "token=your_access_token"
 ```

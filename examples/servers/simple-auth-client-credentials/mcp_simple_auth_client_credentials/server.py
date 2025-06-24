@@ -5,7 +5,6 @@ Usage:
     python -m mcp_simple_auth.server --port=8001
 """
 
-import asyncio
 import logging
 from typing import Any, Literal
 
@@ -13,16 +12,10 @@ import click
 import httpx
 from pydantic import AnyHttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from starlette.applications import Starlette
-from starlette.routing import Mount, Route
-from uvicorn import Config, Server
 
-from mcp.server.auth.handlers.metadata import MetadataHandler
 from mcp.server.auth.middleware.auth_context import get_access_token
-from mcp.server.auth.routes import cors_middleware
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp.server import FastMCP
-from mcp.shared.auth import OAuthMetadata
 
 from .token_verifier import IntrospectionTokenVerifier
 
@@ -40,10 +33,9 @@ class ResourceServerSettings(BaseSettings):
     host: str = "localhost"
     port: int = 8001
     server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8001")
-    transport: Literal["sse", "streamable-http"] = "streamable-http"
 
     # Authorization Server settings
-    auth_server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8001")
+    auth_server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:9000")
     auth_server_introspection_endpoint: str = f"{API_ENDPOINT}/oauth2/@me"
     auth_server_discord_user_endpoint: str = f"{API_ENDPOINT}/users/@me"
 
@@ -55,7 +47,7 @@ class ResourceServerSettings(BaseSettings):
         super().__init__(**data)
 
 
-def create_resource_server(settings: ResourceServerSettings) -> Starlette:
+def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
     """
     Create MCP Resource Server.
     """
@@ -67,8 +59,10 @@ def create_resource_server(settings: ResourceServerSettings) -> Starlette:
     )
 
     # Create FastMCP server as a Resource Server
-    resource_server = FastMCP(
+    app = FastMCP(
         name="MCP Resource Server",
+        host=settings.host,
+        port=settings.port,
         debug=True,
         token_verifier=token_verifier,
         auth=AuthSettings(
@@ -99,14 +93,14 @@ def create_resource_server(settings: ResourceServerSettings) -> Starlette:
 
             return response.json()
 
-    @resource_server.tool()
+    @app.tool()
     async def get_user_profile() -> dict[str, Any]:
         """
         Get the authenticated user's Discord profile information.
         """
         return await get_discord_user_data()
 
-    @resource_server.tool()
+    @app.tool()
     async def get_user_info() -> dict[str, Any]:
         """
         Get information about the currently authenticated user.
@@ -127,53 +121,12 @@ def create_resource_server(settings: ResourceServerSettings) -> Starlette:
             "authorization_server": str(settings.auth_server_url),
         }
 
-    # Create Starlette app to mount the MCP server and host RFC8414
-    # metadata to jump to Discord's authorization server
-    app = Starlette(
-        debug=True,
-        routes=[
-            Route(
-                "/.well-known/oauth-authorization-server",
-                endpoint=cors_middleware(
-                    MetadataHandler(metadata=OAuthMetadata(
-                        issuer=settings.server_url,
-                        authorization_endpoint=AnyHttpUrl(f"{API_ENDPOINT}/oauth2/authorize"),
-                        token_endpoint=AnyHttpUrl(f"{API_ENDPOINT}/oauth2/token"),
-                        token_endpoint_auth_methods_supported=["client_secret_basic"],
-                        response_types_supported=["code"],
-                        grant_types_supported=["client_credentials"],
-                        scopes_supported=["identify"]
-                    )).handle,
-                    ["GET", "OPTIONS"],
-                ),
-                methods=["GET", "OPTIONS"],
-            ),
-            Mount(
-                "/",
-                app=resource_server.streamable_http_app() if settings.transport == "streamable-http" else resource_server.sse_app()
-            ),
-        ],
-        lifespan=lambda app: resource_server.session_manager.run(),
-    )
-
     return app
-
-
-async def run_server(settings: ResourceServerSettings):
-    mcp_server = create_resource_server(settings)
-    config = Config(
-        mcp_server,
-        host=settings.host,
-        port=settings.port,
-        log_level="info",
-    )
-    server = Server(config)
-    await server.serve()
 
 
 @click.command()
 @click.option("--port", default=8001, help="Port to listen on")
-@click.option("--auth-server", default="http://localhost:8001", help="Authorization Server URL")
+@click.option("--auth-server", default="http://localhost:9000", help="Authorization Server URL")
 @click.option(
     "--transport",
     default="streamable-http",
@@ -200,7 +153,6 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
             auth_server_url=auth_server_url,
             auth_server_introspection_endpoint=f"{API_ENDPOINT}/oauth2/@me",
             auth_server_discord_user_endpoint=f"{API_ENDPOINT}/users/@me",
-            transport=transport,
         )
     except ValueError as e:
         logger.error(f"Configuration error: {e}")
@@ -208,6 +160,8 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
         return 1
 
     try:
+        mcp_server = create_resource_server(settings)
+
         logger.info("=" * 80)
         logger.info("📦 MCP RESOURCE SERVER")
         logger.info("=" * 80)
@@ -228,7 +182,7 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
         logger.info("=" * 80)
 
         # Run the server - this should block and keep running
-        asyncio.run(run_server(settings))
+        mcp_server.run(transport=transport)
         logger.info("Server stopped")
         return 0
     except Exception as e:

@@ -19,6 +19,7 @@ dependencies = [
 
 [project.scripts]
 mcp-simple-auth-rs = "mcp_simple_auth_client_credentials.server:main"
+mcp-simple-auth-as = "mcp_simple_auth_client_credentials.auth_server:main"
 
 [build-system]
 requires = ["hatchling"]
