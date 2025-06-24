@@ -62,12 +62,8 @@ class DummyProcess:
         self.stdout_raw = popen_obj.stdout  # type: ignore[assignment]
         self.stderr = popen_obj.stderr  # type: ignore[assignment]
 
-        self.stdin = (
-            FileWriteStream(cast(BinaryIO, self.stdin_raw)) if self.stdin_raw else None
-        )
-        self.stdout = (
-            FileReadStream(cast(BinaryIO, self.stdout_raw)) if self.stdout_raw else None
-        )
+        self.stdin = FileWriteStream(cast(BinaryIO, self.stdin_raw)) if self.stdin_raw else None
+        self.stdout = FileReadStream(cast(BinaryIO, self.stdout_raw)) if self.stdout_raw else None
 
     async def __aenter__(self):
         """Support async context manager entry."""
@@ -90,6 +86,10 @@ class DummyProcess:
     def terminate(self):
         """Terminate the subprocess immediately."""
         return self.popen.terminate()
+
+    def kill(self) -> None:
+        """Kill the subprocess immediately (alias for terminate)."""
+        self.terminate()
 
 
 # ------------------------
@@ -131,7 +131,7 @@ async def create_windows_process(
             env=env,
             cwd=cwd,
             bufsize=0,  # Unbuffered output
-            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         return DummyProcess(popen_obj)
 
@@ -148,7 +148,8 @@ async def create_windows_process(
         )
         return DummyProcess(popen_obj)
 
-async def terminate_windows_process(process: Process):
+
+async def terminate_windows_process(process: Process | DummyProcess):
     """
     Terminate a Windows process.
 

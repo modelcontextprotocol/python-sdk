@@ -2,11 +2,17 @@ import shutil
 
 import pytest
 
-from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.client.session import ClientSession
+from mcp.client.stdio import (
+    StdioServerParameters,
+    stdio_client,
+)
+from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
+from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 tee: str = shutil.which("tee")  # type: ignore
+python: str = shutil.which("python")  # type: ignore
 
 
 @pytest.mark.anyio

@@ -108,7 +108,8 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-    command = _get_executable_command(server.command)
+    try:
+        command = _get_executable_command(server.command)
 
         # Open process with stderr piped for capture
         process = await _create_platform_compatible_process(
