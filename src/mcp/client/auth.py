@@ -12,7 +12,7 @@ import string
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Optional, Protocol
+from typing import Protocol
 from urllib.parse import urlencode, urljoin, urlparse
 
 import anyio
@@ -87,8 +87,8 @@ class OAuthContext:
     server_url: str
     client_metadata: OAuthClientMetadata
     storage: TokenStorage
-    redirect_handler: Optional[Callable[[str], Awaitable[None]]]
-    callback_handler: Optional[Callable[[], Awaitable[tuple[str, str | None]]]]
+    redirect_handler: Callable[[str], Awaitable[None]] | None
+    callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None
     timeout: float = 300.0
 
     # Discovered metadata
@@ -164,8 +164,8 @@ class OAuthClientProvider(httpx.Auth):
         server_url: str,
         client_metadata: OAuthClientMetadata,
         storage: TokenStorage,
-        redirect_handler: Optional[Callable[[str], Awaitable[None]]] = None,
-        callback_handler: Optional[Callable[[], Awaitable[tuple[str, str | None]]]] = None,
+        redirect_handler: Callable[[str], Awaitable[None]] | None = None,
+        callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None = None,
         timeout: float = 300.0,
     ):
         """Initialize OAuth2 authentication."""
@@ -375,7 +375,8 @@ class OAuthClientProvider(httpx.Auth):
                 raise OAuthTokenError("Missing client_id in Basic auth flow")
             if not self.context.client_info.client_secret:
                 raise OAuthTokenError("Missing client_secret in Basic auth flow")
-            headers["Authorization"] = f"Basic {base64.b64encode(f'{self.context.client_info.client_id}:{self.context.client_info.client_secret}'.encode()).decode()}"
+            raw_auth = f"{self.context.client_info.client_id}:{self.context.client_info.client_secret}"
+            headers["Authorization"] = f"Basic {base64.b64encode(raw_auth.encode()).decode()}"
 
         return httpx.Request("POST", token_url, data=token_data, headers=headers)
 

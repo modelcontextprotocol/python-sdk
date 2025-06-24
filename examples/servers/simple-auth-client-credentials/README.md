@@ -1,6 +1,7 @@
 # MCP OAuth Authentication Demo
 
-This example demonstrates OAuth 2.0 authentication with the Model Context Protocol as an OAuth 2.0 Resource Server using the `client_credentials` token exchange.
+This example demonstrates OAuth 2.0 authentication with the Model Context Protocol as an OAuth 2.0 Resource Server using the `client_credentials` token exchange, with
+an Authorization Server that does not support Dynamic Client Registration.
 
 ---
 
@@ -27,8 +28,8 @@ export MCP_DISCORD_CLIENT_SECRET="your_client_secret_here"
 ### Step 1: Start Authorization Server
 
 ```bash
-# Navigate to the simple-auth directory
-cd examples/servers/simple-auth
+# Navigate to the simple-auth-client-credentials directory
+cd examples/servers/simple-auth-client-credentials
 
 # Start Authorization Server on port 9000
 uv run mcp-simple-auth-as --port=9000
@@ -44,8 +45,8 @@ uv run mcp-simple-auth-as --port=9000
 ### Step 2: Start Resource Server (MCP Server)
 
 ```bash
-# In another terminal, navigate to the simple-auth directory
-cd examples/servers/simple-auth
+# In another terminal, navigate to the simple-auth-client-credentials directory
+cd examples/servers/simple-auth-client-credentials
 
 # Start Resource Server on port 8001, connected to Authorization Server
 uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000 --transport=streamable-http

@@ -75,6 +75,7 @@ class GitHubOAuthProvider(OAuthAuthorizationServerProvider):
 
     async def register_client(self, client_info: OAuthClientInformationFull):
         """Register a new OAuth client."""
+        assert client_info.client_id is not None
         self.clients[client_info.client_id] = client_info
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
@@ -178,6 +179,8 @@ class GitHubOAuthProvider(OAuthAuthorizationServerProvider):
         """Exchange authorization code for tokens."""
         if authorization_code.code not in self.auth_codes:
             raise ValueError("Invalid authorization code")
+        if client.client_id is None:
+            raise ValueError("No client_id provided")
 
         # Generate MCP access token
         mcp_token = f"mcp_{secrets.token_hex(32)}"

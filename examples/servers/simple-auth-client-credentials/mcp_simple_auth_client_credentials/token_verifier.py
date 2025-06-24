@@ -1,7 +1,7 @@
 """Example token verifier implementation using OAuth 2.0 Token Introspection (RFC 7662)."""
 
-from datetime import datetime
 import logging
+from datetime import datetime
 
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.shared.auth_utils import resource_url_from_server_url
@@ -10,8 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class IntrospectionTokenVerifier(TokenVerifier):
-    """Example token verifier that uses OAuth 2.0 Token Introspection (RFC 7662).
-    """
+    """Example token verifier that uses OAuth 2.0 Token Introspection (RFC 7662)."""
 
     def __init__(
         self,

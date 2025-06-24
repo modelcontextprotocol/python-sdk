@@ -8,19 +8,19 @@ This client connects to an MCP server using streamable HTTP transport with OAuth
 
 import asyncio
 import os
-import threading
-import time
-import webbrowser
 from datetime import timedelta
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+
+# Hardcoded credentials assuming a preconfigured client, to demonstrate
+# working with an AS that does not have DCR support
+MCP_CLIENT_ID = "0000000000000000000"
+MCP_CLIENT_SECRET = "aaaaaaaaaaaaaaaaaaa"
 
 
 class InMemoryTokenStorage(TokenStorage):
@@ -66,18 +66,16 @@ class SimpleAuthClient:
                 "grant_types": ["client_credentials"],
                 "response_types": ["code"],
                 "token_endpoint_auth_method": "client_secret_basic",
-                "scope": "identify"
+                "scope": "identify",
             }
 
             # Create OAuth authentication handler using the new interface
             oauth_auth = OAuthClientProvider(
                 server_url=self.server_url.replace("/mcp", ""),
-                client_metadata=OAuthClientMetadata.model_validate(
-                    client_metadata_dict
-                ),
+                client_metadata=OAuthClientMetadata.model_validate(client_metadata_dict),
                 storage=InMemoryTokenStorage(
-                    client_id=os.environ.get("MCP_DISCORD_CLIENT_ID"),
-                    client_secret=os.environ.get("MCP_DISCORD_CLIENT_SECRET"),
+                    client_id=MCP_CLIENT_ID,
+                    client_secret=MCP_CLIENT_SECRET,
                 ),
             )
             oauth_auth.context.client_info = OAuthClientInformationFull(
@@ -210,9 +208,7 @@ class SimpleAuthClient:
                     await self.call_tool(tool_name, arguments)
 
                 else:
-                    print(
-                        "❌ Unknown command. Try 'list', 'call <tool_name>', or 'quit'"
-                    )
+                    print("❌ Unknown command. Try 'list', 'call <tool_name>', or 'quit'")
 
             except KeyboardInterrupt:
                 print("\n\n👋 Goodbye!")

@@ -19,10 +19,10 @@ from mcp.server.fastmcp.server import FastMCP
 
 from .token_verifier import IntrospectionTokenVerifier
 
-
 logger = logging.getLogger(__name__)
 
 API_ENDPOINT = "https://discord.com/api/v10"
+
 
 class ResourceServerSettings(BaseSettings):
     """Settings for the MCP Resource Server."""
@@ -36,8 +36,8 @@ class ResourceServerSettings(BaseSettings):
 
     # Authorization Server settings
     auth_server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:9000")
-    auth_server_introspection_endpoint: str = f"{API_ENDPOINT}/oauth2/@me"
-    auth_server_discord_user_endpoint: str = f"{API_ENDPOINT}/users/@me"
+    auth_server_introspection_endpoint: str = "http://localhost:9000/discord/oauth2/@me"
+    auth_server_discord_user_endpoint: str = "http://localhost:9000/discord/users/@me"
 
     # MCP settings
     mcp_scope: str = "identify"
@@ -151,8 +151,8 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
             port=port,
             server_url=AnyHttpUrl(server_url),
             auth_server_url=auth_server_url,
-            auth_server_introspection_endpoint=f"{API_ENDPOINT}/oauth2/@me",
-            auth_server_discord_user_endpoint=f"{API_ENDPOINT}/users/@me",
+            auth_server_introspection_endpoint=f"{auth_server_url}discord/oauth2/@me",
+            auth_server_discord_user_endpoint=f"{auth_server_url}discord/users/@me",
         )
     except ValueError as e:
         logger.error(f"Configuration error: {e}")
@@ -168,9 +168,9 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
         logger.info(f"🌐 Server URL: {settings.server_url}")
         logger.info(f"🔑 Authorization Server: {settings.auth_server_url}")
         logger.info("📋 Endpoints:")
-        logger.info(f"   ┌─ Protected Resource Metadata: {settings.server_url}/.well-known/oauth-protected-resource")
+        logger.info(f"   ┌─ Protected Resource Metadata: {settings.server_url}.well-known/oauth-protected-resource")
         mcp_path = "sse" if transport == "sse" else "mcp"
-        logger.info(f"   ├─ MCP Protocol: {settings.server_url}/{mcp_path}")
+        logger.info(f"   ├─ MCP Protocol: {settings.server_url}{mcp_path}")
         logger.info(f"   └─ Token Introspection: {settings.auth_server_introspection_endpoint}")
         logger.info("")
         logger.info("🛠️  Available Tools:")
