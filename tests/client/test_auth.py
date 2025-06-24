@@ -246,7 +246,7 @@ class TestOAuthFlow:
             redirect_uris=[AnyUrl("http://localhost:3030/callback")],
         )
 
-        request = await oauth_provider._exchange_token("test_auth_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_auth_code", "test_verifier")
 
         assert request.method == "POST"
         assert str(request.url) == "https://api.example.com/token"
