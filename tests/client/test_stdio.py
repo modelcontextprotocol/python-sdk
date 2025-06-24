@@ -57,7 +57,12 @@ async def test_stdio_client():
 @pytest.mark.anyio
 async def test_stdio_client_bad_path():
     """Check that the connection doesn't hang if process errors."""
-    server_params = StdioServerParameters(command="python", args=["-c", "non-existent-file.py"])
+
+    # Removed `-c` to simulate a real "file not found" error instead of
+    # executing a bad inline script.
+    # This ensures the subprocess fails to launch, which better matches
+    # the test's intent.
+    server_params = StdioServerParameters(command="python", args=["non-existent-file.py"])
     async with stdio_client(server_params) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             # The session should raise an error when the connection closes
