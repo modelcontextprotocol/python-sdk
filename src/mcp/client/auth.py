@@ -695,6 +695,13 @@ class TokenExchangeProvider(ClientCredentialsProvider):
         resource: str | None = None,
         timeout: float = 300.0,
     ):
+        """Create a new token exchange provider.
+
+        Parameters are forwarded to ClientCredentialsProvider for
+        client authentication. The resource parameter binds issued tokens to
+        the target resource as defined by RFC 8707.
+        """
+
         super().__init__(server_url, client_metadata, storage, resource, timeout)
         self.subject_token_supplier = subject_token_supplier
         self.subject_token_type = subject_token_type
