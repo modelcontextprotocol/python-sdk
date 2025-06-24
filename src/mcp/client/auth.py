@@ -95,6 +95,7 @@ class OAuthContext:
     protected_resource_metadata: ProtectedResourceMetadata | None = None
     oauth_metadata: OAuthMetadata | None = None
     auth_server_url: str | None = None
+    protocol_version: str | None = None
 
     # Client registration
     client_info: OAuthClientInformationFull | None = None
@@ -153,6 +154,25 @@ class OAuthContext:
                 resource = prm_resource
 
         return resource
+
+    def should_include_resource_param(self, protocol_version: str | None = None) -> bool:
+        """Determine if the resource parameter should be included in OAuth requests.
+
+        Returns True if:
+        - Protected resource metadata is available, OR
+        - MCP-Protocol-Version header is 2025-06-18 or later
+        """
+        # If we have protected resource metadata, include the resource param
+        if self.protected_resource_metadata is not None:
+            return True
+
+        # If no protocol version provided, don't include resource param
+        if not protocol_version:
+            return False
+
+        # Check if protocol version is 2025-06-18 or later
+        # Version format is YYYY-MM-DD, so string comparison works
+        return protocol_version >= "2025-06-18"
 
 
 class OAuthClientProvider(httpx.Auth):
@@ -320,8 +340,11 @@ class OAuthClientProvider(httpx.Auth):
             "state": state,
             "code_challenge": pkce_params.code_challenge,
             "code_challenge_method": "S256",
-            "resource": self.context.get_resource_url(),  # RFC 8707
         }
+
+        # Only include resource param if conditions are met
+        if self.context.should_include_resource_param(self.context.protocol_version):
+            auth_params["resource"] = self.context.get_resource_url()  # RFC 8707
 
         if self.context.client_metadata.scope:
             auth_params["scope"] = self.context.client_metadata.scope
@@ -358,8 +381,11 @@ class OAuthClientProvider(httpx.Auth):
             "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
             "client_id": self.context.client_info.client_id,
             "code_verifier": code_verifier,
-            "resource": self.context.get_resource_url(),  # RFC 8707
         }
+
+        # Only include resource param if conditions are met
+        if self.context.should_include_resource_param(self.context.protocol_version):
+            token_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
         if self.context.client_info.client_secret:
             token_data["client_secret"] = self.context.client_info.client_secret
@@ -409,8 +435,11 @@ class OAuthClientProvider(httpx.Auth):
             "grant_type": "refresh_token",
             "refresh_token": self.context.current_tokens.refresh_token,
             "client_id": self.context.client_info.client_id,
-            "resource": self.context.get_resource_url(),  # RFC 8707
         }
+
+        # Only include resource param if conditions are met
+        if self.context.should_include_resource_param(self.context.protocol_version):
+            refresh_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
         if self.context.client_info.client_secret:
             refresh_data["client_secret"] = self.context.client_info.client_secret
@@ -456,6 +485,9 @@ class OAuthClientProvider(httpx.Auth):
         async with self.context.lock:
             if not self._initialized:
                 await self._initialize()
+
+            # Capture protocol version from request headers
+            self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION)
 
             # Perform OAuth flow if not authenticated
             if not self.context.is_token_valid():
