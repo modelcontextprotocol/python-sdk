@@ -43,7 +43,7 @@ class AuthServerSettings(BaseModel):
     port: int = 9000
     server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:9000")
 
-def create_authorization_server() -> Starlette:
+def create_authorization_server(server_settings: AuthServerSettings) -> Starlette:
     """Create the Authorization Server application."""
 
     routes = [
@@ -52,7 +52,7 @@ def create_authorization_server() -> Starlette:
             "/.well-known/oauth-authorization-server",
             endpoint=cors_middleware(
                 MetadataHandler(metadata=OAuthMetadata(
-                    issuer=AnyHttpUrl(API_BASE),
+                    issuer=server_settings.server_url,
                     authorization_endpoint=AnyHttpUrl(f"{API_ENDPOINT}/oauth2/authorize"),
                     token_endpoint=AnyHttpUrl(f"{API_ENDPOINT}/oauth2/token"),
                     token_endpoint_auth_methods_supported=["client_secret_basic"],
@@ -71,7 +71,7 @@ def create_authorization_server() -> Starlette:
 
 async def run_server(server_settings: AuthServerSettings):
     """Run the Authorization Server."""
-    auth_server = create_authorization_server()
+    auth_server = create_authorization_server(server_settings)
 
     config = Config(
         auth_server,
