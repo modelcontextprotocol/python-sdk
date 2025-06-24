@@ -260,6 +260,107 @@ class TestOAuthFlow:
         assert str(request.url) == "https://api.example.com/.well-known/oauth-authorization-server/v1/mcp"
         assert "mcp-protocol-version" in request.headers
 
+
+class TestOAuthFallback:
+    """Test OAuth discovery fallback behavior for legacy (act as AS not RS) servers."""
+
+    @pytest.mark.anyio
+    async def test_fallback_discovery_request(self, client_metadata, mock_storage):
+        """Test fallback discovery request building."""
+
+        async def redirect_handler(url: str) -> None:
+            pass
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        # Set up discovery state manually as if path-aware discovery was attempted
+        provider.context.discovery_base_url = "https://api.example.com"
+        provider.context.discovery_pathname = "/v1/mcp"
+
+        # Test fallback request building
+        request = await provider._discover_oauth_metadata_fallback()
+
+        assert request.method == "GET"
+        assert str(request.url) == "https://api.example.com/.well-known/oauth-authorization-server"
+        assert "mcp-protocol-version" in request.headers
+
+    @pytest.mark.anyio
+    async def test_should_attempt_fallback(self, oauth_provider):
+        """Test fallback decision logic."""
+        # Should attempt fallback on 404 with non-root path
+        assert oauth_provider._should_attempt_fallback(404, "/v1/mcp")
+
+        # Should NOT attempt fallback on 404 with root path
+        assert not oauth_provider._should_attempt_fallback(404, "/")
+
+        # Should NOT attempt fallback on other status codes
+        assert not oauth_provider._should_attempt_fallback(200, "/v1/mcp")
+        assert not oauth_provider._should_attempt_fallback(500, "/v1/mcp")
+
+    @pytest.mark.anyio
+    async def test_handle_metadata_response_success(self, oauth_provider):
+        """Test successful metadata response handling."""
+        # Create minimal valid OAuth metadata
+        content = b"""{
+            "issuer": "https://auth.example.com",
+            "authorization_endpoint": "https://auth.example.com/authorize", 
+            "token_endpoint": "https://auth.example.com/token"
+        }"""
+        response = httpx.Response(200, content=content)
+
+        # Should return True (success) and set metadata
+        result = await oauth_provider._handle_oauth_metadata_response(response, is_fallback=False)
+        assert result is True
+        assert oauth_provider.context.oauth_metadata is not None
+        assert str(oauth_provider.context.oauth_metadata.issuer) == "https://auth.example.com/"
+
+    @pytest.mark.anyio
+    async def test_handle_metadata_response_404_needs_fallback(self, oauth_provider):
+        """Test 404 response handling that should trigger fallback."""
+        # Set up discovery state for non-root path
+        oauth_provider.context.discovery_base_url = "https://api.example.com"
+        oauth_provider.context.discovery_pathname = "/v1/mcp"
+
+        # Mock 404 response
+        response = httpx.Response(404)
+
+        # Should return False (needs fallback)
+        result = await oauth_provider._handle_oauth_metadata_response(response, is_fallback=False)
+        assert result is False
+
+    @pytest.mark.anyio
+    async def test_handle_metadata_response_404_no_fallback_needed(self, oauth_provider):
+        """Test 404 response handling when no fallback is needed."""
+        # Set up discovery state for root path
+        oauth_provider.context.discovery_base_url = "https://api.example.com"
+        oauth_provider.context.discovery_pathname = "/"
+
+        # Mock 404 response
+        response = httpx.Response(404)
+
+        # Should return True (no fallback needed)
+        result = await oauth_provider._handle_oauth_metadata_response(response, is_fallback=False)
+        assert result is True
+
+    @pytest.mark.anyio
+    async def test_handle_metadata_response_404_fallback_attempt(self, oauth_provider):
+        """Test 404 response handling during fallback attempt."""
+        # Mock 404 response during fallback
+        response = httpx.Response(404)
+
+        # Should return True (fallback attempt complete, no further action needed)
+        result = await oauth_provider._handle_oauth_metadata_response(response, is_fallback=True)
+        assert result is True
+
     @pytest.mark.anyio
     async def test_register_client_request(self, oauth_provider):
         """Test client registration request building."""
