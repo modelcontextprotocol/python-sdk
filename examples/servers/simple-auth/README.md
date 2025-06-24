@@ -4,20 +4,6 @@ This example demonstrates OAuth 2.0 authentication with the Model Context Protoc
 
 ---
 
-## Setup Requirements
-
-**Create a GitHub OAuth App:**
-- Go to GitHub Settings > Developer settings > OAuth Apps > New OAuth App
-- **Authorization callback URL:** `http://localhost:9000/github/callback`
-- Note down your **Client ID** and **Client Secret**
-
-**Set environment variables:**
-```bash
-export MCP_GITHUB_CLIENT_ID="your_client_id_here"
-export MCP_GITHUB_CLIENT_SECRET="your_client_secret_here"
-```
-
----
 
 ## Running the Servers
 
@@ -33,9 +19,8 @@ uv run mcp-simple-auth-as --port=9000
 
 **What it provides:**
 - OAuth 2.0 flows (registration, authorization, token exchange)
-- GitHub OAuth integration for user authentication
+- Simple credential-based authentication (no external provider needed)  
 - Token introspection endpoint for Resource Servers (`/introspect`)
-- User data proxy endpoint (`/github/user`)
 
 ---
 
@@ -89,6 +74,7 @@ curl http://localhost:9000/.well-known/oauth-authorization-server
   "token_endpoint": "http://localhost:9000/token"
 }
 ```
+
 
 ## Legacy MCP Server as Authorization Server (Backwards Compatibility)
 
