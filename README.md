@@ -33,6 +33,7 @@
     - [Completions](#completions)
     - [Elicitation](#elicitation)
     - [Authentication](#authentication)
+    - [Token Introspection](#token-introspection)
   - [Running Your Server](#running-your-server)
     - [Development Mode](#development-mode)
     - [Claude Desktop Integration](#claude-desktop-integration)
@@ -44,6 +45,8 @@
   - [Advanced Usage](#advanced-usage)
     - [Low-Level Server](#low-level-server)
     - [Writing MCP Clients](#writing-mcp-clients)
+    - [OAuth Authentication for Clients](#oauth-authentication-for-clients)
+      - [Client Credentials Grant](#client-credentials-grant)
     - [MCP Primitives](#mcp-primitives)
     - [Server Capabilities](#server-capabilities)
   - [Documentation](#documentation)
@@ -459,6 +462,39 @@ For a complete example with separate Authorization Server and Resource Server im
 - **Client**: Discovers AS through RFC 9728, obtains tokens, and uses them with the MCP server
 
 See [TokenVerifier](src/mcp/server/auth/provider.py) for more details on implementing token validation.
+
+### Token Introspection
+
+The SDK provides `IntrospectionTokenVerifier` for servers that validate
+tokens via an OAuth 2.0 introspection endpoint. This verifier performs
+an HTTP POST to the configured endpoint and checks the returned token
+metadata. When combined with the `--oauth-strict` flag in the example
+server, it also enforces RFC&nbsp;8707 resource validation.
+
+```python
+from examples.servers.simple_auth.token_verifier import IntrospectionTokenVerifier
+from mcp.server.fastmcp import FastMCP
+from mcp.server.auth.settings import AuthSettings
+
+verifier = IntrospectionTokenVerifier(
+    introspection_endpoint="http://localhost:9000/introspect",
+    server_url="http://localhost:8001",
+    validate_resource=True,  # same as --oauth-strict
+)
+
+app = FastMCP(
+    "MCP Resource Server",
+    token_verifier=verifier,
+    auth=AuthSettings(
+        issuer_url="http://localhost:9000",
+        resource_server_url="http://localhost:8001",
+        required_scopes=["mcp:read"],
+    ),
+)
+```
+
+See [`examples/servers/simple-auth/`](examples/servers/simple-auth/) for a full
+demonstration.
 
 ## Running Your Server
 
@@ -1088,6 +1124,29 @@ async def main():
 ```
 
 For a complete working example, see [`examples/clients/simple-auth-client/`](examples/clients/simple-auth-client/).
+
+### Client Credentials Grant
+
+Machine clients that do not require a user interaction can authenticate using
+the OAuth2 *client credentials* grant. Use `ClientCredentialsProvider` to
+obtain and refresh access tokens automatically.
+
+```python
+from mcp.client.auth import ClientCredentialsProvider, OAuthClientMetadata
+
+auth = ClientCredentialsProvider(
+    server_url="https://api.example.com",
+    client_metadata=OAuthClientMetadata(
+        client_name="My Machine Client",
+        grant_types=["client_credentials"],
+    ),
+    storage=CustomTokenStorage(),
+)
+```
+
+`TokenExchangeProvider` builds on this to implement the RFC&nbsp;8693
+`token_exchange` grant when you need to exchange an existing user token for an
+MCP token.
 
 
 ### MCP Primitives
