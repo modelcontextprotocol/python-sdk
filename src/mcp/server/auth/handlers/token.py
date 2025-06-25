@@ -24,6 +24,8 @@ class AuthorizationCodeRequest(BaseModel):
     client_secret: str | None = None
     # See https://datatracker.ietf.org/doc/html/rfc7636#section-4.5
     code_verifier: str = Field(..., description="PKCE code verifier")
+    # RFC 8707 resource indicator
+    resource: str | None = Field(None, description="Resource indicator for the token")
 
 
 class RefreshTokenRequest(BaseModel):
@@ -34,6 +36,8 @@ class RefreshTokenRequest(BaseModel):
     client_id: str
     # we use the client_secret param, per https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
     client_secret: str | None = None
+    # RFC 8707 resource indicator
+    resource: str | None = Field(None, description="Resource indicator for the token")
 
 
 class TokenRequest(
@@ -151,7 +155,14 @@ class TokenHandler:
                     authorize_request_redirect_uri = auth_code.redirect_uri
                 else:
                     authorize_request_redirect_uri = None
-                if token_request.redirect_uri != authorize_request_redirect_uri:
+
+                # Convert both sides to strings for comparison to handle AnyUrl vs string issues
+                token_redirect_str = str(token_request.redirect_uri) if token_request.redirect_uri is not None else None
+                auth_redirect_str = (
+                    str(authorize_request_redirect_uri) if authorize_request_redirect_uri is not None else None
+                )
+
+                if token_redirect_str != auth_redirect_str:
                     return self.response(
                         TokenErrorResponse(
                             error="invalid_request",

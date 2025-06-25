@@ -423,43 +423,42 @@ The `elicit()` method returns an `ElicitationResult` with:
 
 Authentication can be used by servers that want to expose tools accessing protected resources.
 
-`mcp.server.auth` implements an OAuth 2.0 server interface, which servers can use by
-providing an implementation of the `OAuthAuthorizationServerProvider` protocol.
+`mcp.server.auth` implements OAuth 2.1 resource server functionality, where MCP servers act as Resource Servers (RS) that validate tokens issued by separate Authorization Servers (AS). This follows the [MCP authorization specification](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) and implements RFC 9728 (Protected Resource Metadata) for AS discovery.
+
+MCP servers can use authentication by providing an implementation of the `TokenVerifier` protocol:
 
 ```python
 from mcp import FastMCP
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider
-from mcp.server.auth.settings import (
-    AuthSettings,
-    ClientRegistrationOptions,
-    RevocationOptions,
-)
+from mcp.server.auth.provider import TokenVerifier, TokenInfo
+from mcp.server.auth.settings import AuthSettings
 
 
-class MyOAuthServerProvider(OAuthAuthorizationServerProvider):
-    # See an example on how to implement at `examples/servers/simple-auth`
-    ...
+class MyTokenVerifier(TokenVerifier):
+    # Implement token validation logic (typically via token introspection)
+    async def verify_token(self, token: str) -> TokenInfo:
+        # Verify with your authorization server
+        ...
 
 
 mcp = FastMCP(
     "My App",
-    auth_server_provider=MyOAuthServerProvider(),
+    token_verifier=MyTokenVerifier(),
     auth=AuthSettings(
-        issuer_url="https://myapp.com",
-        revocation_options=RevocationOptions(
-            enabled=True,
-        ),
-        client_registration_options=ClientRegistrationOptions(
-            enabled=True,
-            valid_scopes=["myscope", "myotherscope"],
-            default_scopes=["myscope"],
-        ),
-        required_scopes=["myscope"],
+        issuer_url="https://auth.example.com",
+        resource_server_url="http://localhost:3001",
+        required_scopes=["mcp:read", "mcp:write"],
     ),
 )
 ```
 
-See [OAuthAuthorizationServerProvider](src/mcp/server/auth/provider.py) for more details.
+For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](examples/servers/simple-auth/).
+
+**Architecture:**
+- **Authorization Server (AS)**: Handles OAuth flows, user authentication, and token issuance
+- **Resource Server (RS)**: Your MCP server that validates tokens and serves protected resources
+- **Client**: Discovers AS through RFC 9728, obtains tokens, and uses them with the MCP server
+
+See [TokenVerifier](src/mcp/server/auth/provider.py) for more details on implementing token validation.
 
 ## Running Your Server
 
@@ -829,6 +828,67 @@ if __name__ == "__main__":
 ```
 
 Caution: The `mcp run` and `mcp dev` tool doesn't support low-level server.
+
+#### Structured Output Support
+
+The low-level server supports structured output for tools, allowing you to return both human-readable content and machine-readable structured data. Tools can define an `outputSchema` to validate their structured output:
+
+```python
+from types import Any
+
+import mcp.types as types
+from mcp.server.lowlevel import Server
+
+server = Server("example-server")
+
+
+@server.list_tools()
+async def list_tools() -> list[types.Tool]:
+    return [
+        types.Tool(
+            name="calculate",
+            description="Perform mathematical calculations",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "expression": {"type": "string", "description": "Math expression"}
+                },
+                "required": ["expression"],
+            },
+            outputSchema={
+                "type": "object",
+                "properties": {
+                    "result": {"type": "number"},
+                    "expression": {"type": "string"},
+                },
+                "required": ["result", "expression"],
+            },
+        )
+    ]
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if name == "calculate":
+        expression = arguments["expression"]
+        try:
+            result = eval(expression)  # Use a safe math parser
+            structured = {"result": result, "expression": expression}
+
+            # low-level server will validate structured output against the tool's
+            # output schema, and automatically serialize it into a TextContent block
+            # for backwards compatibility with pre-2025-06-18 clients.
+            return structured
+        except Exception as e:
+            raise ValueError(f"Calculation error: {str(e)}")
+```
+
+Tools can return data in three ways:
+1. **Content only**: Return a list of content blocks (default behavior before spec revision 2025-06-18)
+2. **Structured data only**: Return a dictionary that will be serialized to JSON (Introduced in spec revision 2025-06-18)
+3. **Both**: Return a tuple of (content, structured_data) preferred option to use for backwards compatibility
+
+When an `outputSchema` is defined, the server automatically validates the structured output against the schema. This ensures type safety and helps catch errors early.
 
 ### Writing MCP Clients
 
