@@ -839,6 +839,11 @@ class Tool(BaseMetadata):
     """A human-readable description of the tool."""
     inputSchema: dict[str, Any]
     """A JSON Schema object defining the expected parameters for the tool."""
+    outputSchema: dict[str, Any] | None = None
+    """
+    An optional JSON Schema object defining the structure of the tool's output 
+    returned in the structuredContent field of a CallToolResult.
+    """
     annotations: ToolAnnotations | None = None
     """Optional additional tool information."""
     meta: dict[str, Any] | None = Field(alias="_meta", default=None)
@@ -874,6 +879,8 @@ class CallToolResult(Result):
     """The server's response to a tool call."""
 
     content: list[ContentBlock]
+    structuredContent: dict[str, Any] | None = None
+    """An optional JSON object that represents the structured result of the tool call."""
     isError: bool = False
 
 
