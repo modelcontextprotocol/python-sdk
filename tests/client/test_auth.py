@@ -2,7 +2,10 @@
 Tests for refactored OAuth client authentication implementation.
 """
 
+import base64
 import time
+import urllib
+import urllib.parse
 
 import httpx
 import pytest
@@ -386,7 +389,7 @@ class TestOAuthFallback:
         assert request is None
 
     @pytest.mark.anyio
-    async def test_token_exchange_request(self, oauth_provider):
+    async def test_token_exchange_request_authorization_code(self, oauth_provider):
         """Test token exchange request building."""
         # Set up required context
         oauth_provider.context.client_info = OAuthClientInformationFull(
@@ -406,6 +409,65 @@ class TestOAuthFallback:
         assert "grant_type=authorization_code" in content
         assert "code=test_auth_code" in content
         assert "code_verifier=test_verifier" in content
+        assert "client_id=test_client" in content
+        assert "client_secret=test_secret" in content
+
+    @pytest.mark.anyio
+    async def test_token_exchange_request_client_credentials_basic(self, oauth_provider):
+        """Test token exchange request building."""
+        # Set up required context
+        oauth_provider.context.client_info = oauth_provider.context.client_metadata = OAuthClientInformationFull(
+            grant_types=["client_credentials"],
+            token_endpoint_auth_method="client_secret_basic",
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=None,
+            scope="read write",
+        )
+
+        request = await oauth_provider._exchange_token_client_credentials()
+
+        assert request.method == "POST"
+        assert str(request.url) == "https://api.example.com/token"
+        assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
+
+        # Check form data
+        content = urllib.parse.unquote_plus(request.content.decode())
+        assert "grant_type=client_credentials" in content
+        assert "scope=read write" in content
+        assert "resource=https://api.example.com/v1/mcp" in content
+        assert "client_id=test_client" not in content
+        assert "client_secret=test_secret" not in content
+
+        # Check auth header
+        assert "Authorization" in request.headers
+        assert request.headers["Authorization"].startswith("Basic ")
+        assert base64.b64decode(request.headers["Authorization"].split(" ")[1]).decode() == "test_client:test_secret"
+
+    @pytest.mark.anyio
+    async def test_token_exchange_request_client_credentials_post(self, oauth_provider):
+        """Test token exchange request building."""
+        # Set up required context
+        oauth_provider.context.client_info = oauth_provider.context.client_metadata = OAuthClientInformationFull(
+            grant_types=["client_credentials"],
+            token_endpoint_auth_method="client_secret_post",
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=None,
+            scope="read write",
+        )
+
+        request = await oauth_provider._exchange_token_client_credentials()
+
+        assert request.method == "POST"
+        assert str(request.url) == "https://api.example.com/token"
+        assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
+
+        # Check form data
+        content = urllib.parse.unquote_plus(request.content.decode())
+        assert "grant_type=client_credentials" in content
+        assert "scope=read write" in content
+        assert "resource=https://api.example.com/v1/mcp" in content
         assert "client_id=test_client" in content
         assert "client_secret=test_secret" in content
 
