@@ -40,6 +40,7 @@ async def sse_client(
         headers: Optional headers to include in requests.
         timeout: HTTP timeout for regular operations.
         sse_read_timeout: Timeout for SSE read operations.
+        httpx_client_factory: McpHttpClientFactory.
         auth: Optional HTTPX authentication handler.
     """
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]

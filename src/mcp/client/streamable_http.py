@@ -460,6 +460,15 @@ async def streamablehttp_client(
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
 
+    Args:
+        url: The SSE endpoint URL.
+        headers: Optional headers to include in requests.
+        timeout: HTTP timeout for regular operations.
+        sse_read_timeout: Timeout for SSE read operations.
+        terminate_on_close: Terminate session when stream closes.
+        httpx_client_factory: McpHttpClientFactory.
+        auth: Optional HTTPX authentication handler.
+
     Yields:
         Tuple containing:
             - read_stream: Stream for reading messages from the server

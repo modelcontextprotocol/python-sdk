@@ -272,12 +272,12 @@ class TestClientSessionGroup:
                 SseServerParameters(url="http://test.com/sse", timeout=10),
                 "sse",
                 "mcp.client.session_group.sse_client",
-            ),  # url, headers, timeout, sse_read_timeout
+            ),  # url, headers, timeout, sse_read_timeout, auth
             (
                 StreamableHttpParameters(url="http://test.com/stream", terminate_on_close=False),
                 "streamablehttp",
                 "mcp.client.session_group.streamablehttp_client",
-            ),  # url, headers, timeout, sse_read_timeout, terminate_on_close
+            ),  # url, headers, timeout, sse_read_timeout, terminate_on_close, auth
         ],
     )
     async def test_establish_session_parameterized(
