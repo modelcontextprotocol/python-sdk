@@ -19,7 +19,7 @@ class Authorizer:
     def permit_get_tool(self, name: str) -> bool:
         """Check if the specified tool can be retrieved from the associated mcp server"""
         return False
-    
+
     @abc.abstractmethod
     def permit_list_tool(self, name: str) -> bool:
         """Check if the specified tool can be listed from the associated mcp server"""
@@ -54,26 +54,27 @@ class Authorizer:
     def permit_list_template(self, resource: AnyUrl | str) -> bool:
         """Check if the specified template can be listed from the associated mcp server"""
         return False
-    
+
     @abc.abstractmethod
     def permit_get_prompt(self, name: str) -> bool:
         """Check if the specified prompt can be retrieved from the associated mcp server"""
         return False
-        
+
     @abc.abstractmethod
     def permit_list_prompt(self, name: str) -> bool:
         """Check if the specified prompt can be listed from the associated mcp server"""
         return False
-    
+
     @abc.abstractmethod
-    def permit_render_prompt(self, name: str,  arguments: dict[str, Any] | None = None) -> bool:
+    def permit_render_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> bool:
         """Check if the specified prompt can be rendered from the associated mcp server"""
         return False
-    
+
+
 class AllAllAuthorizer(Authorizer):
     def permit_get_tool(self, name: str) -> bool:
         return True
-    
+
     def permit_list_tool(self, name: str) -> bool:
         return True
 
@@ -90,19 +91,18 @@ class AllAllAuthorizer(Authorizer):
 
     def permit_create_resource(self, uri: str, params: dict[str, Any]) -> bool:
         return True
-    
+
     def permit_list_resource(self, resource: AnyUrl | str) -> bool:
         return True
 
     def permit_list_template(self, resource: AnyUrl | str) -> bool:
         return True
-    
+
     def permit_get_prompt(self, name: str) -> bool:
         return True
-    
+
     def permit_list_prompt(self, name: str) -> bool:
         return True
 
-    def permit_render_prompt(self, name: str,  arguments: dict[str, Any] | None = None) -> bool:
+    def permit_render_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> bool:
         return True
-
