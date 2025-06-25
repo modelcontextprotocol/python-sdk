@@ -222,6 +222,15 @@ def get_config() -> str:
 def get_user_profile(user_id: str) -> str:
     """Dynamic user data"""
     return f"Profile data for user {user_id}"
+
+
+# Example with form-style query expansion (RFC 6570) using multiple parameters
+@mcp.resource("articles://{article_id}/view{?format,lang}")
+def view_article(article_id: str, format: str = "html", lang: str = "english") -> str:
+    """View an article, with optional format and language selection.
+    Example URI: articles://123/view?format=pdf&lang=english"""
+    content = f"Content for article {article_id} in {format} format Viewing in {lang}."
+    return content
 ```
 
 ### Tools
@@ -675,6 +684,23 @@ def echo_resource(message: str) -> str:
     return f"Resource echo: {message}"
 
 
+# Example with form-style query expansion for customizing echo output
+@mcp.resource("echo://custom/{message}{?case,reverse}")
+def custom_echo_resource(
+    message: str, case: str = "lower", reverse: bool = False
+) -> str:
+    """Echo a message with optional case transformation and reversal.
+    Example URI: echo://custom/Hello?case=upper&reverse=true"""
+    processed_message = message
+    if case == "upper":
+        processed_message = processed_message.upper()
+    elif case == "lower":
+        processed_message = processed_message.lower()
+    if reverse:
+        processed_message = processed_message[::-1]
+    return f"Custom resource echo: {processed_message}"
+
+
 @mcp.tool()
 def echo_tool(message: str) -> str:
     """Echo a message as a tool"""
@@ -705,6 +731,34 @@ def get_schema() -> str:
     conn = sqlite3.connect("database.db")
     schema = conn.execute("SELECT sql FROM sqlite_master WHERE type='table'").fetchall()
     return "\n".join(sql[0] for sql in schema if sql[0])
+
+
+# Example with form-style query expansion for table-specific schema
+@mcp.resource("schema://{table_name}{?include_indexes}")
+def get_table_schema(table_name: str, include_indexes: bool = False) -> str:
+    """Provide the schema for a specific table, optionally including indexes.
+    Example URI: schema://users?include_indexes=true"""
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+    try:
+        base_query = "SELECT sql FROM sqlite_master WHERE type='table' AND name=?"
+        params: list[str] = [table_name]
+        if include_indexes:
+            cursor.execute(base_query, params)
+            schema_parts = cursor.fetchall()
+
+            index_query = (
+                "SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name=?"
+            )
+            cursor.execute(index_query, params)
+            schema_parts.extend(cursor.fetchall())
+        else:
+            cursor.execute(base_query, params)
+            schema_parts = cursor.fetchall()
+
+        return "\n".join(sql[0] for sql in schema_parts if sql and sql[0])
+    finally:
+        conn.close()
 
 
 @mcp.tool()
