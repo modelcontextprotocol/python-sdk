@@ -332,15 +332,21 @@ class StreamableHTTPServerTransport:
                 await response(scope, receive, send)
                 return
 
-            # Parse the body - only read it once
-            body = await request.body()
-            if len(body) > self._maximum_message_size:
-                response = self._create_error_response(
-                    "Payload Too Large: Message exceeds maximum size",
-                    HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
-                )
-                await response(scope, receive, send)
-                return
+            # Parse the body by streaming and joining chunks
+            chunks: list[bytes] = []
+            total_message_size = 0
+            async for chunk in request.stream():
+                total_message_size += len(chunk)
+                # Validate that body is smaller than maximum allowed message size
+                if total_message_size > self._maximum_message_size:
+                    response = self._create_error_response(
+                        "Payload Too Large: Message exceeds maximum size",
+                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    )
+                    await response(scope, receive, send)
+                    return
+                chunks.append(chunk)
+            body = b"".join(chunks)
 
             try:
                 raw_message = json.loads(body)
