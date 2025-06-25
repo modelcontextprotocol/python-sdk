@@ -13,6 +13,7 @@ from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
     OAuthToken,
+    ProtectedResourceMetadata,
 )
 
 
@@ -432,6 +433,87 @@ class TestOAuthFallback:
         assert "refresh_token=test_refresh_token" in content
         assert "client_id=test_client" in content
         assert "client_secret=test_secret" in content
+
+
+class TestProtectedResourceMetadata:
+    """Test protected resource handling."""
+
+    @pytest.mark.anyio
+    async def test_resource_param_included_with_recent_protocol_version(self, oauth_provider: OAuthClientProvider):
+        """Test resource parameter is included for protocol version >= 2025-06-18."""
+        # Set protocol version to 2025-06-18
+        oauth_provider.context.protocol_version = "2025-06-18"
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        # Test in token exchange
+        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        content = request.content.decode()
+        assert "resource=" in content
+        # Check URL-encoded resource parameter
+        from urllib.parse import quote
+
+        expected_resource = quote(oauth_provider.context.get_resource_url(), safe="")
+        assert f"resource={expected_resource}" in content
+
+        # Test in refresh token
+        oauth_provider.context.current_tokens = OAuthToken(
+            access_token="test_access",
+            token_type="Bearer",
+            refresh_token="test_refresh",
+        )
+        refresh_request = await oauth_provider._refresh_token()
+        refresh_content = refresh_request.content.decode()
+        assert "resource=" in refresh_content
+
+    @pytest.mark.anyio
+    async def test_resource_param_excluded_with_old_protocol_version(self, oauth_provider: OAuthClientProvider):
+        """Test resource parameter is excluded for protocol version < 2025-06-18."""
+        # Set protocol version to older version
+        oauth_provider.context.protocol_version = "2025-03-26"
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        # Test in token exchange
+        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        content = request.content.decode()
+        assert "resource=" not in content
+
+        # Test in refresh token
+        oauth_provider.context.current_tokens = OAuthToken(
+            access_token="test_access",
+            token_type="Bearer",
+            refresh_token="test_refresh",
+        )
+        refresh_request = await oauth_provider._refresh_token()
+        refresh_content = refresh_request.content.decode()
+        assert "resource=" not in refresh_content
+
+    @pytest.mark.anyio
+    async def test_resource_param_included_with_protected_resource_metadata(self, oauth_provider: OAuthClientProvider):
+        """Test resource parameter is always included when protected resource metadata exists."""
+        # Set old protocol version but with protected resource metadata
+        oauth_provider.context.protocol_version = "2025-03-26"
+        oauth_provider.context.protected_resource_metadata = ProtectedResourceMetadata(
+            resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+            authorization_servers=[AnyHttpUrl("https://api.example.com")],
+        )
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        # Test in token exchange
+        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        content = request.content.decode()
+        assert "resource=" in content
 
 
 class TestAuthFlow:
