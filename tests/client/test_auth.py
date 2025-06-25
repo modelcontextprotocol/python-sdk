@@ -512,7 +512,7 @@ class TestProtectedResourceMetadata:
         )
 
         # Test in token exchange
-        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" in content
         # Check URL-encoded resource parameter
@@ -543,7 +543,7 @@ class TestProtectedResourceMetadata:
         )
 
         # Test in token exchange
-        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" not in content
 
@@ -573,7 +573,7 @@ class TestProtectedResourceMetadata:
         )
 
         # Test in token exchange
-        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" in content
 
