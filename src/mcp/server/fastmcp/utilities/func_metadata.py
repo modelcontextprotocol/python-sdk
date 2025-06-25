@@ -2,9 +2,11 @@ import inspect
 import json
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import asdict, is_dataclass
+from itertools import chain
 from types import GenericAlias
 from typing import Annotated, Any, ForwardRef, Literal, get_args, get_origin, get_type_hints
 
+import pydantic_core
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -19,7 +21,8 @@ from pydantic_core import PydanticUndefined
 
 from mcp.server.fastmcp.exceptions import InvalidSignature
 from mcp.server.fastmcp.utilities.logging import get_logger
-from mcp.types import ContentBlock
+from mcp.server.fastmcp.utilities.types import Image
+from mcp.types import ContentBlock, TextContent
 
 logger = get_logger(__name__)
 
@@ -85,13 +88,11 @@ class FuncMetadata(BaseModel):
         tool call handler provides generic backwards compatibility serialization of
         structured content**. This is for FastMCP backwards compatibility: we need to
         retain FastMCP's ad hoc conversion logic for constructing unstructured output
-        from function return values (see _convert_to_content in mcp.server.fastmcp.server),
-        whereas the lowlevel server simply serializes the structured output.
+        from function return values, whereas the lowlevel server simply serializes
+        the structured output.
 
         This backwards compatibility provision will be removed in a future version of FastMCP.
         """
-        from mcp.server.fastmcp.server import _convert_to_content  # type: ignore
-
         unstructured_content = _convert_to_content(result)
 
         if self.output_model is None:
@@ -270,10 +271,6 @@ def func_metadata(
                 raise InvalidSignature(
                     f"Function {func.__name__}: return type {annotation} is not supported for structured output. "
                 )
-
-    import sys
-
-    print(f"HEY Function {func.__name__} metadata: {output_model=} {output_conversion=}", file=sys.stderr)
 
     return FuncMetadata(arg_model=arguments_model, output_model=output_model, output_conversion=output_conversion)
 
@@ -476,3 +473,36 @@ def _get_typed_signature(call: Callable[..., Any]) -> inspect.Signature:
     typed_return = _get_typed_annotation(signature.return_annotation, globalns)
     typed_signature = inspect.Signature(typed_params, return_annotation=typed_return)
     return typed_signature
+
+
+def _convert_to_content(
+    result: Any,
+) -> Sequence[ContentBlock]:
+    """
+    Convert a result to a sequence of content objects.
+
+    Note: This conversion logic comes from previous versions of FastMCP and is being
+    retained for purposes of backwards compatibility. It produces different unstructured
+    output than the lowlevel server tool call handler, which serializes structured content.
+    """
+    if result is None:
+        return []
+
+    if isinstance(result, ContentBlock):
+        return [result]
+
+    if isinstance(result, Image):
+        return [result.to_image_content()]
+
+    if isinstance(result, list | tuple):
+        return list(
+            chain.from_iterable(
+                _convert_to_content(item)
+                for item in result  # type: ignore
+            )
+        )
+
+    if not isinstance(result, str):
+        result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
+
+    return [TextContent(type="text", text=result)]
