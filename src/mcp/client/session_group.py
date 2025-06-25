@@ -16,7 +16,8 @@ from types import TracebackType
 from typing import Any, TypeAlias
 
 import anyio
-from pydantic import BaseModel
+import httpx
+from pydantic import BaseModel, ConfigDict
 from typing_extensions import Self
 
 import mcp
@@ -30,6 +31,8 @@ from mcp.shared.exceptions import McpError
 class SseServerParameters(BaseModel):
     """Parameters for intializing a sse_client."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     # The endpoint URL.
     url: str
 
@@ -42,9 +45,14 @@ class SseServerParameters(BaseModel):
     # Timeout for SSE read operations.
     sse_read_timeout: float = 60 * 5
 
+    # Optional HTTPX authentication handler.
+    auth: httpx.Auth | None = None
+
 
 class StreamableHttpParameters(BaseModel):
     """Parameters for intializing a streamablehttp_client."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # The endpoint URL.
     url: str
@@ -60,6 +68,9 @@ class StreamableHttpParameters(BaseModel):
 
     # Close the client session when the transport closes.
     terminate_on_close: bool = True
+
+    # Optional HTTPX authentication handler.
+    auth: httpx.Auth | None = None
 
 
 ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | StreamableHttpParameters
