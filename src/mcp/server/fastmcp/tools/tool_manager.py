@@ -3,6 +3,7 @@ from __future__ import annotations as _annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from mcp.server.fastmcp.authorizer import AllAllAuthorizer, Authorizer
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools.base import Tool
 from mcp.server.fastmcp.utilities.logging import get_logger
@@ -24,6 +25,7 @@ class ToolManager:
         warn_on_duplicate_tools: bool = True,
         *,
         tools: list[Tool] | None = None,
+        authorizer: Authorizer = AllAllAuthorizer(),
     ):
         self._tools: dict[str, Tool] = {}
         if tools is not None:
@@ -32,15 +34,19 @@ class ToolManager:
                     logger.warning(f"Tool already exists: {tool.name}")
                 self._tools[tool.name] = tool
 
-        self.warn_on_duplicate_tools = warn_on_duplicate_tools
+        self.warn_on_duplicate_tools = (warn_on_duplicate_tools,)
+        self._authorizer = authorizer
 
     def get_tool(self, name: str) -> Tool | None:
         """Get tool by name."""
-        return self._tools.get(name)
+        if self._authorizer.permit_get_tool(name):
+            return self._tools.get(name)
+        else:
+            return None
 
     def list_tools(self) -> list[Tool]:
         """List all registered tools."""
-        return list(self._tools.values())
+        return [tool for name, tool in self._tools.items() if self._authorizer.permit_list_tool(name)]
 
     def add_tool(
         self,
@@ -67,8 +73,8 @@ class ToolManager:
         context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
     ) -> Any:
         """Call a tool by name with arguments."""
-        tool = self.get_tool(name)
-        if not tool:
+        tool = self._tools.get(name)
+        if not tool or not self._authorizer.permit_call_tool(name, arguments, context):
             raise ToolError(f"Unknown tool: {name}")
 
         return await tool.run(arguments, context=context)

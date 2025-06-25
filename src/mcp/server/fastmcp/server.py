@@ -33,6 +33,7 @@ from mcp.server.auth.middleware.bearer_auth import (
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, elicit_with_validation
+from mcp.server.fastmcp.authorizer import AllAllAuthorizer, Authorizer
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
@@ -120,6 +121,8 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # Transport security settings (DNS rebinding protection)
     transport_security: TransportSecuritySettings | None = None
 
+    authorizer: Authorizer = AllAllAuthorizer()
+
 
 def lifespan_wrapper(
     app: FastMCP,
@@ -152,9 +155,19 @@ class FastMCP:
             instructions=instructions,
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),
         )
-        self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
-        self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
-        self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
+        self._tool_manager = ToolManager(
+            tools=tools,
+            warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools,
+            authorizer=self.settings.authorizer,
+        )
+        self._resource_manager = ResourceManager(
+            warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources,
+            authorizer=self.settings.authorizer,
+        )
+        self._prompt_manager = PromptManager(
+            warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts,
+            authorizer=self.settings.authorizer,
+        )
         # Validate auth configuration
         if self.settings.auth is not None:
             if auth_server_provider and token_verifier:

@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import AnyUrl
 
+from mcp.server.fastmcp.authorizer import AllAllAuthorizer, Authorizer
 from mcp.server.fastmcp.resources.base import Resource
 from mcp.server.fastmcp.resources.templates import ResourceTemplate
 from mcp.server.fastmcp.utilities.logging import get_logger
@@ -15,10 +16,15 @@ logger = get_logger(__name__)
 class ResourceManager:
     """Manages FastMCP resources."""
 
-    def __init__(self, warn_on_duplicate_resources: bool = True):
+    def __init__(
+        self,
+        warn_on_duplicate_resources: bool = True,
+        authorizer: Authorizer = AllAllAuthorizer(),
+    ):
         self._resources: dict[str, Resource] = {}
         self._templates: dict[str, ResourceTemplate] = {}
         self.warn_on_duplicate_resources = warn_on_duplicate_resources
+        self._authorizer = authorizer
 
     def add_resource(self, resource: Resource) -> Resource:
         """Add a resource to the manager.
@@ -74,13 +80,19 @@ class ResourceManager:
 
         # First check concrete resources
         if resource := self._resources.get(uri_str):
-            return resource
+            if self._authorizer.permit_get_resource(uri_str):
+                return resource
+            else:
+                raise ValueError(f"Unknown resource: {uri}")
 
         # Then check templates
         for template in self._templates.values():
             if params := template.matches(uri_str):
                 try:
-                    return await template.create_resource(uri_str, params)
+                    if self._authorizer.permit_create_resource(uri_str, params):
+                        return await template.create_resource(uri_str, params)
+                    else:
+                        raise ValueError(f"Unknown resource: {uri}")
                 except Exception as e:
                     raise ValueError(f"Error creating resource from template: {e}")
 
@@ -89,9 +101,9 @@ class ResourceManager:
     def list_resources(self) -> list[Resource]:
         """List all registered resources."""
         logger.debug("Listing resources", extra={"count": len(self._resources)})
-        return list(self._resources.values())
+        return [resource for uri, resource in self._resources.items() if self._authorizer.permit_list_resource(uri)]
 
     def list_templates(self) -> list[ResourceTemplate]:
         """List all registered templates."""
         logger.debug("Listing templates", extra={"count": len(self._templates)})
-        return list(self._templates.values())
+        return [template for uri, template in self._templates.items() if self._authorizer.permit_list_template(uri)]

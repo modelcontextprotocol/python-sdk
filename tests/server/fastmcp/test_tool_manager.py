@@ -5,6 +5,7 @@ import pytest
 from pydantic import BaseModel
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp.authorizer import Authorizer
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase, FuncMetadata
@@ -171,7 +172,7 @@ class TestAddTools:
 
         manager = ToolManager()
         manager.add_tool(f)
-        manager.warn_on_duplicate_tools = False
+        manager.warn_on_duplicate_tools = False  # type: ignore
         with caplog.at_level(logging.WARNING):
             manager.add_tool(f)
             assert "Tool already exists: f" not in caplog.text
@@ -310,6 +311,30 @@ class TestCallTools:
             {"tank": '{"x": null, "shrimp": [{"name": "rex"}, {"name": "gertrude"}]}'},
         )
         assert result == ["rex", "gertrude"]
+
+    @pytest.mark.anyio
+    async def test_call_tool_not_permitted(self):
+        async def double(n: int) -> int:
+            """Double a number."""
+            return n * 2
+
+        class TestAuthorizer(Authorizer):
+            allow: bool = True
+
+            def permit_list_tool(self, name):
+                return self.allow
+
+            def permit_call_tool(self, name, arguments, context=None):
+                return self.allow
+
+        authorizer = TestAuthorizer()
+        manager = ToolManager(authorizer=authorizer)
+        manager.add_tool(double)
+        result = await manager.call_tool("double", {"n": 5})
+        assert result == 10
+        authorizer.allow = False
+        with pytest.raises(ToolError, match="Unknown tool: double"):
+            await manager.call_tool("double", {"n": 5})
 
 
 class TestToolSchema:
