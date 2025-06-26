@@ -320,10 +320,7 @@ class OAuthClientProvider(httpx.Auth):
 
     async def _perform_authorization(self) -> httpx.Request:
         """Perform the authorization flow."""
-        if not self.context.client_info:
-            raise OAuthFlowError("No client info available for authorization")
-
-        if "client_credentials" in self.context.client_info.grant_types:
+        if "client_credentials" in self.context.client_metadata.grant_types:
             token_request = await self._exchange_token_client_credentials()
             return token_request
         else:
