@@ -100,7 +100,7 @@ class ClientSession(
         types.ClientNotification,  # SendNotificationT
         types.ClientResult,  # SendResultT
         types.ServerRequest,  # ReceiveRequestT
-        Any,  # ReceiveResultT，兼容所有服务端返回结果类型
+        Any,  # ReceiveResultT，Any Type
         types.ServerNotification,  # ReceiveNotificationT
     ]
 ):
