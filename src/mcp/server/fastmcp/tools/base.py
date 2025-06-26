@@ -35,13 +35,7 @@ class Tool(BaseModel):
 
     @cached_property
     def output_schema(self) -> dict[str, Any] | None:
-        if self.fn_metadata.output_model is not None:
-            return self.fn_metadata.output_model.model_json_schema()
-        return None
-
-    @property
-    def is_structured(self) -> bool:
-        return self.fn_metadata.output_model is not None
+        return self.fn_metadata.output_schema
 
     @classmethod
     def from_function(

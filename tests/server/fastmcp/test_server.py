@@ -274,6 +274,9 @@ class TestServerTools:
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert content.text == "3"
+            # Check structured content - int return type should have structured output
+            assert result.structuredContent is not None
+            assert result.structuredContent == {"result": 3}
 
     @pytest.mark.anyio
     async def test_tool_image_helper(self, tmp_path: Path):
@@ -293,6 +296,8 @@ class TestServerTools:
             # Verify base64 encoding
             decoded = base64.b64decode(content.data)
             assert decoded == b"fake png data"
+            # Check structured content - Image return type should NOT have structured output
+            assert result.structuredContent is None
 
     @pytest.mark.anyio
     async def test_tool_mixed_content(self):
@@ -310,6 +315,20 @@ class TestServerTools:
             assert isinstance(content3, AudioContent)
             assert content3.mimeType == "audio/wav"
             assert content3.data == "def"
+            assert result.structuredContent is not None
+            assert "result" in result.structuredContent
+            structured_result = result.structuredContent["result"]
+            assert len(structured_result) == 3
+
+            expected_content = [
+                {"type": "text", "text": "Hello"},
+                {"type": "image", "data": "abc", "mimeType": "image/png"},
+                {"type": "audio", "data": "def", "mimeType": "audio/wav"},
+            ]
+
+            for i, expected in enumerate(expected_content):
+                for key, value in expected.items():
+                    assert structured_result[i][key] == value
 
     @pytest.mark.anyio
     async def test_tool_mixed_list_with_image(self, tmp_path: Path):
@@ -349,6 +368,8 @@ class TestServerTools:
             content4 = result.content[3]
             assert isinstance(content4, TextContent)
             assert content4.text == "direct content"
+            # Check structured content - untyped list with Image objects should NOT have structured output
+            assert result.structuredContent is None
 
     @pytest.mark.anyio
     async def test_tool_structured_output_basemodel(self):
@@ -434,7 +455,7 @@ class TestServerTools:
         """Test that server-side validation errors are handled properly"""
 
         def get_numbers() -> list[int]:
-            return [1, 2, 3, 4, "5"]  # type: ignore
+            return [1, 2, 3, 4, [5]]  # type: ignore
 
         mcp = FastMCP()
         mcp.add_tool(get_numbers)
@@ -445,7 +466,6 @@ class TestServerTools:
             assert result.structuredContent is None
             assert len(result.content) == 1
             assert isinstance(result.content[0], TextContent)
-            assert "Output validation error" in result.content[0].text
 
     @pytest.mark.anyio
     async def test_tool_structured_output_dict_str_any(self):

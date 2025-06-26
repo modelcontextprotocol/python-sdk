@@ -258,20 +258,23 @@ annotation is compatible. Otherwise, they will return unstructured results.
 Structured output supports these return types:
 - Pydantic models (BaseModel subclasses)
 - TypedDicts
-- Dataclasses
-- NamedTuples
-- `dict[str, T]`
-- Primitive types (str, int, float, bool) - wrapped in `{"result": value}`
-- Generic types (list, tuple, set) - wrapped in `{"result": value}`
-- Union types and Optional - wrapped in `{"result": value}`
+- Dataclasses and other classes with type hints
+- `dict[str, T]` (where T is any JSON-serializable type)
+- Primitive types (str, int, float, bool, bytes, None) - wrapped in `{"result": value}`
+- Generic types (list, tuple, Union, Optional, etc.) - wrapped in `{"result": value}`
+
+Classes without type hints cannot be serialized for structured output. Only
+classes with properly annotated attributes will be converted to Pydantic models
+for schema generation and validation.
 
 Structured results are automatically validated against the output schema 
 generated from the annotation. This ensures the tool returns well-typed, 
-validated data that clients can easily process:
+validated data that clients can easily process.
 
 **Note:** For backward compatibility, unstructured results are also
-returned. Unstructured results are provided strictly for compatibility 
-with previous versions of FastMCP.
+returned. Unstructured results are provided for backward compatibility 
+with previous versions of the MCP specification, and are quirks-compatible
+with previous versions of FastMCP in the current version of the SDK.
 
 **Note:** In cases where a tool function's return type annotation 
 causes the tool to be classified as structured _and this is undesirable_, 
@@ -320,6 +323,37 @@ def get_location(address: str) -> LocationInfo:
 def get_statistics(data_type: str) -> dict[str, float]:
     """Get various statistics"""
     return {"mean": 42.5, "median": 40.0, "std_dev": 5.2}
+
+
+# Ordinary classes with type hints work for structured output
+class UserProfile:
+    name: str
+    age: int
+    email: str | None = None
+
+    def __init__(self, name: str, age: int, email: str | None = None):
+        self.name = name
+        self.age = age
+        self.email = email
+
+
+@mcp.tool()
+def get_user(user_id: str) -> UserProfile:
+    """Get user profile - returns structured data"""
+    return UserProfile(name="Alice", age=30, email="alice@example.com")
+
+
+# Classes WITHOUT type hints cannot be used for structured output
+class UntypedConfig:
+    def __init__(self, setting1, setting2):
+        self.setting1 = setting1
+        self.setting2 = setting2
+
+
+@mcp.tool()
+def get_config() -> UntypedConfig:
+    """This returns unstructured output - no schema generated"""
+    return UntypedConfig("value1", "value2")
 
 
 # Lists and other types are wrapped automatically

@@ -1,10 +1,9 @@
 import inspect
 import json
-from collections.abc import Awaitable, Callable, Iterable, Sequence
-from dataclasses import asdict, is_dataclass
+from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
 from types import GenericAlias
-from typing import Annotated, Any, ForwardRef, Literal, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, ForwardRef, cast, get_args, get_origin, get_type_hints
 
 import pydantic_core
 from pydantic import (
@@ -17,6 +16,7 @@ from pydantic import (
 )
 from pydantic._internal._typing_extra import eval_type_backport
 from pydantic.fields import FieldInfo
+from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
 from pydantic_core import PydanticUndefined
 
 from mcp.server.fastmcp.exceptions import InvalidSignature
@@ -26,7 +26,16 @@ from mcp.types import ContentBlock, TextContent
 
 logger = get_logger(__name__)
 
-OutputConversion = Literal["none", "basemodel", "wrapped", "namedtuple", "class"]
+
+class StrictJsonSchema(GenerateJsonSchema):
+    """A JSON schema generator that raises exceptions instead of emitting warnings.
+
+    This is used to detect non-serializable types during schema generation.
+    """
+
+    def emit_warning(self, kind: JsonSchemaWarningKind, detail: str) -> None:
+        # Raise an exception instead of emitting a warning
+        raise ValueError(f"JSON schema warning: {kind} - {detail}")
 
 
 class ArgModelBase(BaseModel):
@@ -49,8 +58,9 @@ class ArgModelBase(BaseModel):
 
 class FuncMetadata(BaseModel):
     arg_model: Annotated[type[ArgModelBase], WithJsonSchema(None)]
+    output_schema: dict[str, Any] | None = None
     output_model: Annotated[type[BaseModel], WithJsonSchema(None)] | None = None
-    output_conversion: OutputConversion = "none"
+    wrap_output: bool = False
 
     async def call_fn_with_arg_validation(
         self,
@@ -90,28 +100,18 @@ class FuncMetadata(BaseModel):
         retain FastMCP's ad hoc conversion logic for constructing unstructured output
         from function return values, whereas the lowlevel server simply serializes
         the structured output.
-
-        This backwards compatibility provision will be removed in a future version of FastMCP.
         """
         unstructured_content = _convert_to_content(result)
 
-        if self.output_model is None:
+        if self.output_schema is None:
             return unstructured_content
         else:
-            match self.output_conversion:
-                case "none":
-                    structured_content = result
-                case "basemodel":
-                    structured_content = result.model_dump()
-                case "wrapped":
-                    structured_content = {"result": result}
-                case "namedtuple":
-                    structured_content = result._asdict()
-                case "class":
-                    if is_dataclass(result) and not isinstance(result, type):
-                        structured_content = asdict(result)
-                    else:
-                        structured_content = dict(vars(result))
+            if self.wrap_output:
+                result = {"result": result}
+
+            assert self.output_model is not None, "Output model must be set if output schema is defined"
+            validated = self.output_model.model_validate(result)
+            structured_content = validated.model_dump(mode="json")
 
             return (unstructured_content, structured_content)
 
@@ -182,7 +182,6 @@ def func_metadata(
             - Primitive types (str, int, float, bool, bytes, None) - wrapped in a
                 model with a 'result' field
             - TypedDict - converted to a Pydantic model with same fields
-            - NamedTuple - converted to a Pydantic model with same fields
             - Dataclasses and other annotated classes - converted to Pydantic models
             - Generic types (list, dict, Union, etc.) - wrapped in a model with a 'result' field
 
@@ -232,130 +231,131 @@ def func_metadata(
         __base__=ArgModelBase,
     )
 
-    output_model = None
-    output_conversion = "none"
+    if structured_output is False:
+        return FuncMetadata(arg_model=arguments_model)
 
-    if sig.return_annotation is inspect.Parameter.empty:
-        if structured_output is True:
-            raise InvalidSignature(f"Function {func.__name__}: return annotation required for structured output")
-        else:
-            structured_output = False
+    # set up structured output support based on return type annotation
 
-    if structured_output is not False:
-        output_info = FieldInfo.from_annotation(_get_typed_annotation(sig.return_annotation, globalns))
-        annotation = output_info.annotation
+    if sig.return_annotation is inspect.Parameter.empty and structured_output is True:
+        raise InvalidSignature(f"Function {func.__name__}: return annotation required for structured output")
 
-        if _is_unstructured_result_type(annotation):
-            structured_output = False
-        elif _needs_wrapper(annotation):
-            output_model = _create_wrapped_model(func.__name__, annotation, output_info)
-            output_conversion = "wrapped"
-        elif _is_dict_str_any(annotation):
-            output_model = _create_dict_model(func.__name__, annotation)
-            output_conversion = "none"
-        elif isinstance(annotation, type):
-            if _is_basemodel(annotation):
-                output_model = annotation
-                output_conversion = "basemodel"
-            elif _is_typeddict(annotation):
-                output_model = _create_model_from_typeddict(annotation, globalns)
-                output_conversion = "none"
-            elif _is_namedtuple(annotation):
-                output_model = _create_model_from_namedtuple(annotation, globalns)
-                output_conversion = "namedtuple"
-            else:
-                output_model = _maybe_create_model_from_class(annotation)
-                output_conversion = "class" if output_model is not None else "none"
-        else:
-            if structured_output:
-                raise InvalidSignature(
-                    f"Function {func.__name__}: return type {annotation} is not supported for structured output. "
-                )
+    output_info = FieldInfo.from_annotation(_get_typed_annotation(sig.return_annotation, globalns))
+    annotation = output_info.annotation
 
-    return FuncMetadata(arg_model=arguments_model, output_model=output_model, output_conversion=output_conversion)
+    output_model, output_schema, wrap_output = _try_create_model_and_schema(annotation, func.__name__, output_info)
+
+    if output_model is None and structured_output is True:
+        # Model creation failed or produced warnings - no structured output
+        raise InvalidSignature(
+            f"Function {func.__name__}: return type {annotation} is not serializable for structured output"
+        )
+
+    return FuncMetadata(
+        arg_model=arguments_model,
+        output_schema=output_schema,
+        output_model=output_model,
+        wrap_output=wrap_output,
+    )
 
 
-def _is_unstructured_result_type(annotation: Any) -> bool:
-    origin = get_origin(annotation)
-    if origin is not None and issubclass(origin, Iterable):
-        # iterable of...
-        args = get_args(annotation)
-        if args[0] is ContentBlock:
-            # ContentBlock
-            return True
-        if args[0] in ContentBlock.__args__:
-            # any of the ContentBlock types
-            return True
-        if hasattr(args[0], "__args__") and (
-            set(args[0].__args__) & set(ContentBlock.__args__) == set(args[0].__args__)
-        ):
-            # subset of ContentBlock types
-            return True
-    return False
+def _try_create_model_and_schema(
+    annotation: Any, func_name: str, field_info: FieldInfo
+) -> tuple[type[BaseModel] | None, dict[str, Any] | None, bool]:
+    """Try to create a model and schema for the given annotation without warnings.
 
-
-def _is_primitive_type(annotation: Any) -> bool:
-    return annotation in (str, int, float, bool, bytes, type(None)) or annotation is None
-
-
-def _is_dict_str_any(annotation: Any) -> bool:
-    if get_origin(annotation) is dict:
-        args = get_args(annotation)
-        return len(args) == 2 and args[0] is str
-    return False
-
-
-def _is_basemodel(annotation: type[Any]) -> bool:
-    return not isinstance(annotation, GenericAlias) and issubclass(annotation, BaseModel)
-
-
-def _is_typeddict(annotation: type[Any]) -> bool:
-    return hasattr(annotation, "__annotations__") and issubclass(annotation, dict)
-
-
-def _is_namedtuple(annotation: type[Any]) -> bool:
-    return hasattr(annotation, "_fields") and issubclass(annotation, tuple)
-
-
-def _needs_wrapper(annotation: Any) -> bool:
-    """Check if a return type annotation needs to be wrapped in a result model.
-
-    Returns True for:
-    - Primitive types (str, int, float, bool, bytes, None)
-    - Generic types (list[T], dict[K,V], etc.) EXCEPT dict[str, T]
-    - Non-type instances (Union, Optional, Literal, Any, etc.)
+    Returns:
+        tuple of (model or None, schema or None, wrap_output)
+        Model and schema are None if warnings occur or creation fails.
+        wrap_output is True if the result needs to be wrapped in {"result": ...}
     """
-    if _is_dict_str_any(annotation):
-        # dict[str, T] doesn't need wrapping
-        return False
+    model = None
+    wrap_output = False
 
-    if not isinstance(annotation, type):
-        # Non-type instances (Union, Optional, Literal, Any, etc.)
-        return True
+    # First handle special case: None
+    if annotation is None:
+        model = _create_wrapped_model(func_name, annotation, field_info)
+        wrap_output = True
 
-    if get_origin(annotation) is not None:
-        # Generic types (list[T], dict[K,V], etc.)
-        return True
+    # Handle GenericAlias types (list[str], dict[str, int], Union[str, int], etc.)
+    elif isinstance(annotation, GenericAlias):
+        origin = get_origin(annotation)
 
-    if _is_primitive_type(annotation):
-        # Primitive types (str, int, float, bool, bytes, None)
-        return True
+        # Special case: dict with string keys can use RootModel
+        if origin is dict:
+            args = get_args(annotation)
+            if len(args) == 2 and args[0] is str:
+                model = _create_dict_model(func_name, annotation)
+            else:
+                # dict with non-str keys needs wrapping
+                model = _create_wrapped_model(func_name, annotation, field_info)
+                wrap_output = True
+        else:
+            # All other generic types need wrapping (list, tuple, Union, Optional, etc.)
+            model = _create_wrapped_model(func_name, annotation, field_info)
+            wrap_output = True
 
-    # Everything else (classes, BaseModel, TypedDict, etc.) doesn't need wrapping
-    return False
+    # Handle regular type objects
+    elif isinstance(annotation, type):
+        type_annotation: type[Any] = cast(type[Any], annotation)
+
+        # Case 1: BaseModel subclasses (can be used directly)
+        if issubclass(annotation, BaseModel):
+            model = annotation
+
+        # Case 2: TypedDict (special dict subclass with __annotations__)
+        elif hasattr(type_annotation, "__annotations__") and issubclass(annotation, dict):
+            model = _create_model_from_typeddict(type_annotation)
+
+        # Case 3: Primitive types that need wrapping
+        elif annotation in (str, int, float, bool, bytes, type(None)):
+            model = _create_wrapped_model(func_name, annotation, field_info)
+            wrap_output = True
+
+        # Case 4: Other class types (dataclasses, regular classes with annotations)
+        else:
+            type_hints = get_type_hints(type_annotation)
+            if type_hints:
+                # Classes with type hints can be converted to Pydantic models
+                model = _create_model_from_class(type_annotation)
+            # Classes without type hints are not serializable - model remains None
+
+    # Handle any other types not covered above
+    else:
+        # This includes typing constructs that aren't GenericAlias in Python 3.10
+        # (e.g., Union, Optional in some Python versions)
+        model = _create_wrapped_model(func_name, annotation, field_info)
+        wrap_output = True
+
+    if model:
+        # If we successfully created a model, try to get its schema
+        # Use StrictJsonSchema to raise exceptions instead of warnings
+        try:
+            schema = model.model_json_schema(schema_generator=StrictJsonSchema)
+        except (TypeError, ValueError, pydantic_core.SchemaError, pydantic_core.ValidationError) as e:
+            # These are expected errors when a type can't be converted to a Pydantic schema
+            # TypeError: When Pydantic can't handle the type
+            # ValueError: When there are issues with the type definition (including our custom warnings)
+            # SchemaError: When Pydantic can't build a schema
+            # ValidationError: When validation fails
+            logger.info(f"Cannot create schema for type {annotation} in {func_name}: {type(e).__name__}: {e}")
+            return None, None, False
+
+        return model, schema, wrap_output
+
+    return None, None, False
 
 
-def _maybe_create_model_from_class(cls: type[Any]) -> type[BaseModel] | None:
-    """Create a Pydantic model from an ordinary class, if it carries type hints.
+def _create_model_from_class(cls: type[Any]) -> type[BaseModel]:
+    """Create a Pydantic model from an ordinary class.
 
     The created model will:
     - Have the same name as the class
     - Have fields with the same names and types as the class's fields
     - Include all fields whose type does not include None in the set of required fields
+
+    Precondition: cls must have type hints (i.e., get_type_hints(cls) is non-empty)
     """
     type_hints = get_type_hints(cls)
-    if type_hints == {}:
-        return None
 
     model_fields: dict[str, Any] = {}
     for field_name, field_type in type_hints.items():
@@ -366,10 +366,14 @@ def _maybe_create_model_from_class(cls: type[Any]) -> type[BaseModel] | None:
         field_info = FieldInfo.from_annotated_attribute(field_type, default)
         model_fields[field_name] = (field_info.annotation, field_info)
 
-    return create_model(cls.__name__, **model_fields, __base__=BaseModel)
+    # Create a base class with the config
+    class BaseWithConfig(BaseModel):
+        model_config = ConfigDict(from_attributes=True)
+
+    return create_model(cls.__name__, **model_fields, __base__=BaseWithConfig)
 
 
-def _create_model_from_typeddict(td_type: type[Any], globalns: dict[str, Any]) -> type[BaseModel]:
+def _create_model_from_typeddict(td_type: type[Any]) -> type[BaseModel]:
     """Create a Pydantic model from a TypedDict.
 
     The created model will have the same name and fields as the TypedDict.
@@ -390,25 +394,6 @@ def _create_model_from_typeddict(td_type: type[Any], globalns: dict[str, Any]) -
         model_fields[field_name] = (field_info.annotation, field_info)
 
     return create_model(td_type.__name__, **model_fields, __base__=BaseModel)
-
-
-def _create_model_from_namedtuple(nt_type: type[Any], globalns: dict[str, Any]) -> type[BaseModel]:
-    """Create a Pydantic model from a NamedTuple.
-
-    The created model will have the same name and fields as the NamedTuple.
-    """
-    type_hints = get_type_hints(nt_type)
-
-    model_fields: dict[str, Any] = {}
-    for field_name, field_type in type_hints.items():
-        # Skip private fields that NamedTuple adds
-        if field_name.startswith("_"):
-            continue
-
-        field_info = FieldInfo.from_annotation(field_type)
-        model_fields[field_name] = (field_info.annotation, field_info)
-
-    return create_model(nt_type.__name__, **model_fields, __base__=BaseModel)
 
 
 def _create_wrapped_model(func_name: str, annotation: Any, field_info: FieldInfo) -> type[BaseModel]:
@@ -483,7 +468,8 @@ def _convert_to_content(
 
     Note: This conversion logic comes from previous versions of FastMCP and is being
     retained for purposes of backwards compatibility. It produces different unstructured
-    output than the lowlevel server tool call handler, which serializes structured content.
+    output than the lowlevel server tool call handler, which just serializes structured
+    content verbatim.
     """
     if result is None:
         return []

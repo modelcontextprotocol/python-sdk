@@ -1,7 +1,7 @@
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, NamedTuple, TypedDict
+from typing import Any, TypedDict
 
 import pytest
 from pydantic import BaseModel
@@ -508,26 +508,6 @@ class TestStructuredOutput:
         manager.add_tool(get_user_dict)
         result = await manager.call_tool("get_user_dict", {"user_id": 1})
         assert result == expected_output
-
-    @pytest.mark.anyio
-    async def test_tool_with_namedtuple_output(self):
-        """Test tool with NamedTuple return type."""
-
-        class Point(NamedTuple):
-            x: float
-            y: float
-
-        expected_output = {"x": 1.5, "y": 2.5}
-
-        def get_point() -> Point:
-            """Get a point."""
-            return Point(1.5, 2.5)
-
-        manager = ToolManager()
-        manager.add_tool(get_point)
-        result = await manager.call_tool("get_point", {}, convert_result=True)
-        # don't test unstructured output here, just the structured conversion
-        assert len(result) == 2 and result[1] == expected_output
 
     @pytest.mark.anyio
     async def test_tool_with_dataclass_output(self):
