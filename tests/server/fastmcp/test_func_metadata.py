@@ -1,4 +1,5 @@
-from typing import Annotated
+from dataclasses import dataclass
+from typing import Annotated, Any, TypedDict
 
 import annotated_types
 import pytest
@@ -191,6 +192,50 @@ def test_skip_names():
     model: BaseModel = meta.arg_model.model_validate({"keep_this": 1, "also_keep": 2.5})  # type: ignore
     assert model.keep_this == 1  # type: ignore
     assert model.also_keep == 2.5  # type: ignore
+
+
+def test_structured_output_dict_str_types():
+    """Test that dict[str, T] types are handled without wrapping."""
+
+    # Test dict[str, Any]
+    def func_dict_any() -> dict[str, Any]:
+        return {"a": 1, "b": "hello", "c": [1, 2, 3]}
+
+    meta = func_metadata(func_dict_any)
+    assert meta.output_schema == {
+        "type": "object",
+        "title": "func_dict_anyDictOutput",
+    }
+
+    # Test dict[str, str]
+    def func_dict_str() -> dict[str, str]:
+        return {"name": "John", "city": "NYC"}
+
+    meta = func_metadata(func_dict_str)
+    assert meta.output_schema == {
+        "type": "object",
+        "additionalProperties": {"type": "string"},
+        "title": "func_dict_strDictOutput",
+    }
+
+    # Test dict[str, list[int]]
+    def func_dict_list() -> dict[str, list[int]]:
+        return {"nums": [1, 2, 3], "more": [4, 5, 6]}
+
+    meta = func_metadata(func_dict_list)
+    assert meta.output_schema == {
+        "type": "object",
+        "additionalProperties": {"type": "array", "items": {"type": "integer"}},
+        "title": "func_dict_listDictOutput",
+    }
+
+    # Test dict[int, str] - should be wrapped since key is not str
+    def func_dict_int_key() -> dict[int, str]:
+        return {1: "a", 2: "b"}
+
+    meta = func_metadata(func_dict_int_key)
+    assert meta.output_schema is not None
+    assert "result" in meta.output_schema["properties"]
 
 
 @pytest.mark.anyio
@@ -408,3 +453,390 @@ def test_str_vs_int():
     result = meta.pre_parse_json({"a": "123", "b": 123})
     assert result["a"] == "123"
     assert result["b"] == 123
+
+
+# Tests for structured output functionality
+
+
+def test_structured_output_requires_return_annotation():
+    """Test that structured_output=True requires a return annotation"""
+    from mcp.server.fastmcp.exceptions import InvalidSignature
+
+    def func_no_annotation():
+        return "hello"
+
+    def func_none_annotation() -> None:
+        return None
+
+    with pytest.raises(InvalidSignature) as exc_info:
+        func_metadata(func_no_annotation, structured_output=True)
+    assert "return annotation required" in str(exc_info.value)
+
+    # None annotation should work
+    meta = func_metadata(func_none_annotation)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "type": "null"}},
+        "required": ["result"],
+        "title": "func_none_annotationOutput",
+    }
+
+
+def test_structured_output_basemodel():
+    """Test structured output with BaseModel return types"""
+
+    class PersonModel(BaseModel):
+        name: str
+        age: int
+        email: str | None = None
+
+    def func_returning_person() -> PersonModel:
+        return PersonModel(name="Alice", age=30)
+
+    meta = func_metadata(func_returning_person)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "name": {"title": "Name", "type": "string"},
+            "age": {"title": "Age", "type": "integer"},
+            "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None, "title": "Email"},
+        },
+        "required": ["name", "age"],
+        "title": "PersonModel",
+    }
+
+
+def test_structured_output_primitives():
+    """Test structured output with primitive return types"""
+
+    def func_str() -> str:
+        return "hello"
+
+    def func_int() -> int:
+        return 42
+
+    def func_float() -> float:
+        return 3.14
+
+    def func_bool() -> bool:
+        return True
+
+    def func_bytes() -> bytes:
+        return b"data"
+
+    # Test string
+    meta = func_metadata(func_str)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "type": "string"}},
+        "required": ["result"],
+        "title": "func_strOutput",
+    }
+
+    # Test int
+    meta = func_metadata(func_int)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "type": "integer"}},
+        "required": ["result"],
+        "title": "func_intOutput",
+    }
+
+    # Test float
+    meta = func_metadata(func_float)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "type": "number"}},
+        "required": ["result"],
+        "title": "func_floatOutput",
+    }
+
+    # Test bool
+    meta = func_metadata(func_bool)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "type": "boolean"}},
+        "required": ["result"],
+        "title": "func_boolOutput",
+    }
+
+    # Test bytes
+    meta = func_metadata(func_bytes)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "type": "string", "format": "binary"}},
+        "required": ["result"],
+        "title": "func_bytesOutput",
+    }
+
+
+def test_structured_output_generic_types():
+    """Test structured output with generic types (list, dict, Union, etc.)"""
+
+    def func_list_str() -> list[str]:
+        return ["a", "b", "c"]
+
+    def func_dict_str_int() -> dict[str, int]:
+        return {"a": 1, "b": 2}
+
+    def func_union() -> str | int:
+        return "hello"
+
+    def func_optional() -> str | None:
+        return None
+
+    # Test list
+    meta = func_metadata(func_list_str)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "type": "array", "items": {"type": "string"}}},
+        "required": ["result"],
+        "title": "func_list_strOutput",
+    }
+
+    # Test dict[str, int] - should NOT be wrapped
+    meta = func_metadata(func_dict_str_int)
+    assert meta.output_schema == {
+        "type": "object",
+        "additionalProperties": {"type": "integer"},
+        "title": "func_dict_str_intDictOutput",
+    }
+
+    # Test Union
+    meta = func_metadata(func_union)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "anyOf": [{"type": "string"}, {"type": "integer"}]}},
+        "required": ["result"],
+        "title": "func_unionOutput",
+    }
+
+    # Test Optional
+    meta = func_metadata(func_optional)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "anyOf": [{"type": "string"}, {"type": "null"}]}},
+        "required": ["result"],
+        "title": "func_optionalOutput",
+    }
+
+
+def test_structured_output_dataclass():
+    """Test structured output with dataclass return types"""
+
+    @dataclass
+    class PersonDataClass:
+        name: str
+        age: int
+        email: str | None = None
+        tags: list[str] | None = None
+
+    def func_returning_dataclass() -> PersonDataClass:
+        return PersonDataClass(name="Bob", age=25)
+
+    meta = func_metadata(func_returning_dataclass)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "name": {"title": "Name", "type": "string"},
+            "age": {"title": "Age", "type": "integer"},
+            "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None, "title": "Email"},
+            "tags": {
+                "anyOf": [{"items": {"type": "string"}, "type": "array"}, {"type": "null"}],
+                "default": None,
+                "title": "Tags",
+            },
+        },
+        "required": ["name", "age"],
+        "title": "PersonDataClass",
+    }
+
+
+def test_structured_output_typeddict():
+    """Test structured output with TypedDict return types"""
+
+    class PersonTypedDictOptional(TypedDict, total=False):
+        name: str
+        age: int
+
+    def func_returning_typeddict_optional() -> PersonTypedDictOptional:
+        return {"name": "Dave"}  # Only returning one field to test partial dict
+
+    meta = func_metadata(func_returning_typeddict_optional)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "name": {"title": "Name", "type": "string", "default": None},
+            "age": {"title": "Age", "type": "integer", "default": None},
+        },
+        "title": "PersonTypedDictOptional",
+    }
+
+    # Test with total=True (all required)
+    class PersonTypedDictRequired(TypedDict):
+        name: str
+        age: int
+        email: str | None
+
+    def func_returning_typeddict_required() -> PersonTypedDictRequired:
+        return {"name": "Eve", "age": 40, "email": None}  # Testing None value
+
+    meta = func_metadata(func_returning_typeddict_required)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "name": {"title": "Name", "type": "string"},
+            "age": {"title": "Age", "type": "integer"},
+            "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Email"},
+        },
+        "required": ["name", "age", "email"],
+        "title": "PersonTypedDictRequired",
+    }
+
+
+def test_structured_output_ordinary_class():
+    """Test structured output with ordinary annotated classes"""
+
+    class PersonClass:
+        name: str
+        age: int
+        email: str | None
+
+        def __init__(self, name: str, age: int, email: str | None = None):
+            self.name = name
+            self.age = age
+            self.email = email
+
+    def func_returning_class() -> PersonClass:
+        return PersonClass("Helen", 55)
+
+    meta = func_metadata(func_returning_class)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "name": {"title": "Name", "type": "string"},
+            "age": {"title": "Age", "type": "integer"},
+            "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Email"},
+        },
+        "required": ["name", "age", "email"],
+        "title": "PersonClass",
+    }
+
+
+def test_unstructured_output_unannotated_class():
+    # Test with class that has no annotations
+    class UnannotatedClass:
+        def __init__(self, x, y):
+            self.x = x
+            self.y = y
+
+    def func_returning_unannotated() -> UnannotatedClass:
+        return UnannotatedClass(1, 2)
+
+    meta = func_metadata(func_returning_unannotated)
+    assert meta.output_schema is None
+
+
+def test_structured_output_with_field_descriptions():
+    """Test that Field descriptions are preserved in structured output"""
+
+    class ModelWithDescriptions(BaseModel):
+        name: Annotated[str, Field(description="The person's full name")]
+        age: Annotated[int, Field(description="Age in years", ge=0, le=150)]
+
+    def func_with_descriptions() -> ModelWithDescriptions:
+        return ModelWithDescriptions(name="Ian", age=60)
+
+    meta = func_metadata(func_with_descriptions)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "name": {"title": "Name", "type": "string", "description": "The person's full name"},
+            "age": {"title": "Age", "type": "integer", "description": "Age in years", "minimum": 0, "maximum": 150},
+        },
+        "required": ["name", "age"],
+        "title": "ModelWithDescriptions",
+    }
+
+
+def test_structured_output_nested_models():
+    """Test structured output with nested models"""
+
+    class Address(BaseModel):
+        street: str
+        city: str
+        zipcode: str
+
+    class PersonWithAddress(BaseModel):
+        name: str
+        address: Address
+
+    def func_nested() -> PersonWithAddress:
+        return PersonWithAddress(name="Jack", address=Address(street="123 Main St", city="Anytown", zipcode="12345"))
+
+    meta = func_metadata(func_nested)
+    assert meta.output_schema == {
+        "type": "object",
+        "$defs": {
+            "Address": {
+                "type": "object",
+                "properties": {
+                    "street": {"title": "Street", "type": "string"},
+                    "city": {"title": "City", "type": "string"},
+                    "zipcode": {"title": "Zipcode", "type": "string"},
+                },
+                "required": ["street", "city", "zipcode"],
+                "title": "Address",
+            }
+        },
+        "properties": {
+            "name": {"title": "Name", "type": "string"},
+            "address": {"$ref": "#/$defs/Address"},
+        },
+        "required": ["name", "address"],
+        "title": "PersonWithAddress",
+    }
+
+
+def test_structured_output_unserializable_type_error():
+    """Test error when structured_output=True is used with unserializable types"""
+    from typing import NamedTuple
+
+    from mcp.server.fastmcp.exceptions import InvalidSignature
+
+    # Test with a class that has non-serializable default values
+    class ConfigWithCallable:
+        name: str
+        # Callable defaults are not JSON serializable and will trigger Pydantic warnings
+        callback: Any = lambda x: x * 2
+
+    def func_returning_config_with_callable() -> ConfigWithCallable:
+        return ConfigWithCallable()
+
+    # Should work without structured_output=True (returns None for output_schema)
+    meta = func_metadata(func_returning_config_with_callable)
+    assert meta.output_schema is None
+
+    # Should raise error with structured_output=True
+    with pytest.raises(InvalidSignature) as exc_info:
+        func_metadata(func_returning_config_with_callable, structured_output=True)
+    assert "is not serializable for structured output" in str(exc_info.value)
+    assert "ConfigWithCallable" in str(exc_info.value)
+
+    # Also test with NamedTuple for good measure
+    class Point(NamedTuple):
+        x: int
+        y: int
+
+    def func_returning_namedtuple() -> Point:
+        return Point(1, 2)
+
+    # Should work without structured_output=True (returns None for output_schema)
+    meta = func_metadata(func_returning_namedtuple)
+    assert meta.output_schema is None
+
+    # Should raise error with structured_output=True
+    with pytest.raises(InvalidSignature) as exc_info:
+        func_metadata(func_returning_namedtuple, structured_output=True)
+    assert "is not serializable for structured output" in str(exc_info.value)
+    assert "Point" in str(exc_info.value)
