@@ -96,12 +96,12 @@ ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(
 
 class ClientSession(
     BaseSession[
-        types.ClientRequest,           # SendRequestT
-        types.ClientNotification,       # SendNotificationT
-        types.ClientResult,             # SendResultT
-        types.ServerRequest,            # ReceiveRequestT
-        Any,                            # ReceiveResultT，兼容所有服务端返回结果类型
-        types.ServerNotification,       # ReceiveNotificationT
+        types.ClientRequest,  # SendRequestT
+        types.ClientNotification,  # SendNotificationT
+        types.ClientResult,  # SendResultT
+        types.ServerRequest,  # ReceiveRequestT
+        Any,  # ReceiveResultT，兼容所有服务端返回结果类型
+        types.ServerNotification,  # ReceiveNotificationT
     ]
 ):
     def __init__(

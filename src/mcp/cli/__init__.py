@@ -1,4 +1,5 @@
 """FastMCP CLI package."""
+# pyright: reportUnknownVariableType=false
 
 from .cli import app
 

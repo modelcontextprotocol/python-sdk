@@ -1,3 +1,8 @@
+# pyright: reportMissingImports=false
+# pyright: reportUnknownVariableType=false
+# pyright: reportUnknownArgumentType=false
+# pyright: reportUnknownMemberType=false
+
 import json
 import logging
 from collections.abc import AsyncGenerator
