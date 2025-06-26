@@ -2,7 +2,9 @@
 Windows-specific functionality for stdio client operations.
 """
 
+import os
 import shutil
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -76,8 +78,29 @@ class FallbackProcess:
         exc_tb: object | None,
     ) -> None:
         """Terminate and wait on process exit inside a thread."""
-        self.popen.terminate()
-        await to_thread.run_sync(self.popen.wait)
+        # Try graceful shutdown with CTRL_C_EVENT on Windows
+        if sys.platform == "win32" and hasattr(signal, "CTRL_C_EVENT"):
+            try:
+                # Send CTRL_C_EVENT for graceful shutdown
+                os.kill(self.popen.pid, getattr(signal, "CTRL_C_EVENT"))
+                # Wait for process to exit gracefully (2 second timeout)
+                await to_thread.run_sync(lambda: self.popen.wait(timeout=2))
+            except (subprocess.TimeoutExpired, ProcessLookupError, OSError):
+                # If graceful shutdown fails, fall back to terminate
+                try:
+                    self.popen.terminate()
+                    await to_thread.run_sync(self.popen.wait)
+                except ProcessLookupError:
+                    # Process already exited
+                    pass
+        else:
+            # Non-Windows or fallback behavior
+            try:
+                self.popen.terminate()
+                await to_thread.run_sync(self.popen.wait)
+            except ProcessLookupError:
+                # Process already exited
+                pass
 
         # Close the file handles to prevent ResourceWarning
         if self.stdin:
@@ -163,20 +186,36 @@ async def create_windows_process(
 
 async def terminate_windows_process(process: Process | FallbackProcess):
     """
-    Terminate a Windows process.
+    Terminate a Windows process gracefully.
 
-    Note: On Windows, terminating a process with process.terminate() doesn't
-    always guarantee immediate process termination.
-    So we give it 2s to exit, or we call process.kill()
-    which sends a SIGKILL equivalent signal.
+    First attempts graceful shutdown using CTRL_C_EVENT signal,
+    which allows the process to run cleanup code.
+    Falls back to terminate() and then kill() if graceful shutdown fails.
 
     Args:
         process: The process to terminate
     """
+    # Try graceful shutdown with CTRL_C_EVENT first
+    if isinstance(process, FallbackProcess) and hasattr(signal, "CTRL_C_EVENT"):
+        try:
+            # Send CTRL_C_EVENT for graceful shutdown
+            os.kill(process.popen.pid, getattr(signal, "CTRL_C_EVENT"))
+            with anyio.fail_after(2.0):
+                await process.wait()
+            return
+        except (TimeoutError, ProcessLookupError, OSError):
+            # If CTRL_C_EVENT failed or timed out, continue to forceful termination
+            pass
+
+    # Fall back to terminate
     try:
         process.terminate()
         with anyio.fail_after(2.0):
             await process.wait()
     except TimeoutError:
         # Force kill if it doesn't terminate
-        process.kill()
+        try:
+            process.kill()
+        except ProcessLookupError:
+            # Process already exited
+            pass
