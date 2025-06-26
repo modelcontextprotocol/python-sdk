@@ -125,6 +125,4 @@ filterwarnings = [
     "ignore::DeprecationWarning:websockets",
     "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
     "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel",
-    # This is to avoid test failures on Trio due to httpx's failure to explicitly close
-    # async generators
 ]
