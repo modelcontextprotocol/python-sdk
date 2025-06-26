@@ -16,7 +16,6 @@ from mcp.shared.message import SessionMessage
 from .win32 import (
     create_windows_process,
     get_windows_executable_command,
-    terminate_windows_process,
 )
 
 # Environment variables to inherit by default
@@ -179,11 +178,10 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             yield read_stream, write_stream
         finally:
             # Clean up process to prevent any dangling orphaned processes
+            # Unified cleanup across all platforms: simple terminate + stream cleanup
+            # Stream cleanup (PR #559) is the key to preventing hanging behavior
             try:
-                if sys.platform == "win32":
-                    await terminate_windows_process(process)
-                else:
-                    process.terminate()
+                process.terminate()
             except ProcessLookupError:
                 # Process already exited, which is fine
                 pass

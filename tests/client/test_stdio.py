@@ -1,4 +1,6 @@
 import shutil
+import sys
+import time
 
 import pytest
 
@@ -90,3 +92,93 @@ async def test_stdio_client_nonexistent_command():
         or "not found" in error_message.lower()
         or "cannot find the file" in error_message.lower()  # Windows error message
     )
+
+
+@pytest.mark.anyio
+async def test_stdio_client_universal_timeout():
+    """
+    Test that stdio_client completes cleanup within reasonable time
+    even when connected to processes that exit slowly.
+    """
+
+    # Use a simple sleep command that's available on all platforms
+    # This simulates a process that takes time to terminate
+    if sys.platform == "win32":
+        # Windows: use ping with timeout to simulate a running process
+        server_params = StdioServerParameters(
+            command="ping",
+            args=["127.0.0.1", "-n", "10"],  # Ping 10 times, takes ~10 seconds
+        )
+    else:
+        # Unix: use sleep command
+        server_params = StdioServerParameters(
+            command="sleep",
+            args=["10"],  # Sleep for 10 seconds
+        )
+
+    start_time = time.time()
+
+    try:
+        async with stdio_client(server_params) as (read_stream, write_stream):
+            # Immediately exit - this triggers cleanup while process is still running
+            pass
+
+        end_time = time.time()
+        elapsed = end_time - start_time
+
+        # Key assertion: Should complete quickly due to timeout mechanism
+        # Before PR #555, Unix systems might hang for the full 10 seconds
+        # After PR #555, all platforms should complete within ~2-3 seconds
+        assert elapsed < 5.0, (
+            f"stdio_client cleanup took {elapsed:.1f} seconds, expected < 5.0 seconds. "
+            f"This suggests the timeout mechanism may not be working properly."
+        )
+
+    except Exception as e:
+        end_time = time.time()
+        elapsed = end_time - start_time
+        print(f"❌ Test failed after {elapsed:.1f} seconds: {e}")
+        raise
+
+
+@pytest.mark.anyio
+async def test_stdio_client_immediate_completion():
+    """
+    Test that stdio_client doesn't introduce unnecessary delays
+    when processes exit normally and quickly.
+
+    This ensures PR #555's timeout mechanism doesn't slow down normal operation.
+    """
+
+    # Use a command that exits immediately
+    if sys.platform == "win32":
+        server_params = StdioServerParameters(
+            command="cmd",
+            args=["/c", "echo", "hello"],  # Windows: echo and exit
+        )
+    else:
+        server_params = StdioServerParameters(
+            command="echo",
+            args=["hello"],  # Unix: echo and exit
+        )
+
+    start_time = time.time()
+
+    try:
+        async with stdio_client(server_params) as (read_stream, write_stream):
+            pass
+
+        end_time = time.time()
+        elapsed = end_time - start_time
+
+        # Should complete very quickly when process exits normally
+        assert elapsed < 2.0, (
+            f"stdio_client took {elapsed:.1f} seconds for fast-exiting process, "
+            f"expected < 2.0 seconds. Timeout mechanism may be introducing delays."
+        )
+
+    except Exception as e:
+        end_time = time.time()
+        elapsed = end_time - start_time
+        print(f"❌ Test failed after {elapsed:.1f} seconds: {e}")
+        raise
