@@ -13,6 +13,7 @@ from mcp.shared.session import (
     SendNotificationT,
     SendRequestT,
     SendResultT,
+    ReceiveResultT,
 )
 from mcp.types import ProgressToken
 
@@ -23,8 +24,8 @@ class Progress(BaseModel):
 
 
 @dataclass
-class ProgressContext(Generic[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT]):
-    session: BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT]
+class ProgressContext(Generic[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT, ReceiveResultT]):
+    session: BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveResultT, ReceiveNotificationT]
     progress_token: ProgressToken
     total: float | None
     current: float = field(default=0.0, init=False)
@@ -40,12 +41,12 @@ class ProgressContext(Generic[SendRequestT, SendNotificationT, SendResultT, Rece
 @contextmanager
 def progress(
     ctx: RequestContext[
-        BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
+        BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveResultT, ReceiveNotificationT],
         LifespanContextT,
     ],
     total: float | None = None,
 ) -> Generator[
-    ProgressContext[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
+    ProgressContext[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT, ReceiveResultT],
     None,
 ]:
     if ctx.meta is None or ctx.meta.progressToken is None:
