@@ -75,7 +75,8 @@ def run_server_with_settings(port: int, security_settings: TransportSecuritySett
 
 def start_server_process(port: int, security_settings: TransportSecuritySettings | None = None):
     """Start server in a separate process."""
-    process = multiprocessing.Process(target=run_server_with_settings, args=(port, security_settings))
+    context = multiprocessing.get_context("spawn")
+    process = context.Process(target=run_server_with_settings, args=(port, security_settings))
     process.start()
     # Give server time to start
     time.sleep(1)
