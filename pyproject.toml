@@ -31,6 +31,7 @@ dependencies = [
     "sse-starlette>=1.6.1",
     "pydantic-settings>=2.5.2",
     "uvicorn>=0.23.1; sys_platform != 'emscripten'",
+    "jsonschema>=4.20.0",
 ]
 
 [project.optional-dependencies]

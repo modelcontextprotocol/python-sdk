@@ -13,6 +13,7 @@ from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
     OAuthToken,
+    ProtectedResourceMetadata,
 )
 
 
@@ -209,8 +210,157 @@ class TestOAuthFlow:
         request = await oauth_provider._discover_oauth_metadata()
 
         assert request.method == "GET"
+        assert str(request.url) == "https://api.example.com/.well-known/oauth-authorization-server/v1/mcp"
+        assert "mcp-protocol-version" in request.headers
+
+    @pytest.mark.anyio
+    async def test_discover_oauth_metadata_request_no_path(self, client_metadata, mock_storage):
+        """Test OAuth metadata discovery request building when server has no path."""
+
+        async def redirect_handler(url: str) -> None:
+            pass
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        request = await provider._discover_oauth_metadata()
+
+        assert request.method == "GET"
         assert str(request.url) == "https://api.example.com/.well-known/oauth-authorization-server"
         assert "mcp-protocol-version" in request.headers
+
+    @pytest.mark.anyio
+    async def test_discover_oauth_metadata_request_trailing_slash(self, client_metadata, mock_storage):
+        """Test OAuth metadata discovery request building when server path has trailing slash."""
+
+        async def redirect_handler(url: str) -> None:
+            pass
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp/",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        request = await provider._discover_oauth_metadata()
+
+        assert request.method == "GET"
+        assert str(request.url) == "https://api.example.com/.well-known/oauth-authorization-server/v1/mcp"
+        assert "mcp-protocol-version" in request.headers
+
+
+class TestOAuthFallback:
+    """Test OAuth discovery fallback behavior for legacy (act as AS not RS) servers."""
+
+    @pytest.mark.anyio
+    async def test_fallback_discovery_request(self, client_metadata, mock_storage):
+        """Test fallback discovery request building."""
+
+        async def redirect_handler(url: str) -> None:
+            pass
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        # Set up discovery state manually as if path-aware discovery was attempted
+        provider.context.discovery_base_url = "https://api.example.com"
+        provider.context.discovery_pathname = "/v1/mcp"
+
+        # Test fallback request building
+        request = await provider._discover_oauth_metadata_fallback()
+
+        assert request.method == "GET"
+        assert str(request.url) == "https://api.example.com/.well-known/oauth-authorization-server"
+        assert "mcp-protocol-version" in request.headers
+
+    @pytest.mark.anyio
+    async def test_should_attempt_fallback(self, oauth_provider):
+        """Test fallback decision logic."""
+        # Should attempt fallback on 404 with non-root path
+        assert oauth_provider._should_attempt_fallback(404, "/v1/mcp")
+
+        # Should NOT attempt fallback on 404 with root path
+        assert not oauth_provider._should_attempt_fallback(404, "/")
+
+        # Should NOT attempt fallback on other status codes
+        assert not oauth_provider._should_attempt_fallback(200, "/v1/mcp")
+        assert not oauth_provider._should_attempt_fallback(500, "/v1/mcp")
+
+    @pytest.mark.anyio
+    async def test_handle_metadata_response_success(self, oauth_provider):
+        """Test successful metadata response handling."""
+        # Create minimal valid OAuth metadata
+        content = b"""{
+            "issuer": "https://auth.example.com",
+            "authorization_endpoint": "https://auth.example.com/authorize", 
+            "token_endpoint": "https://auth.example.com/token"
+        }"""
+        response = httpx.Response(200, content=content)
+
+        # Should return True (success) and set metadata
+        result = await oauth_provider._handle_oauth_metadata_response(response, is_fallback=False)
+        assert result is True
+        assert oauth_provider.context.oauth_metadata is not None
+        assert str(oauth_provider.context.oauth_metadata.issuer) == "https://auth.example.com/"
+
+    @pytest.mark.anyio
+    async def test_handle_metadata_response_404_needs_fallback(self, oauth_provider):
+        """Test 404 response handling that should trigger fallback."""
+        # Set up discovery state for non-root path
+        oauth_provider.context.discovery_base_url = "https://api.example.com"
+        oauth_provider.context.discovery_pathname = "/v1/mcp"
+
+        # Mock 404 response
+        response = httpx.Response(404)
+
+        # Should return False (needs fallback)
+        result = await oauth_provider._handle_oauth_metadata_response(response, is_fallback=False)
+        assert result is False
+
+    @pytest.mark.anyio
+    async def test_handle_metadata_response_404_no_fallback_needed(self, oauth_provider):
+        """Test 404 response handling when no fallback is needed."""
+        # Set up discovery state for root path
+        oauth_provider.context.discovery_base_url = "https://api.example.com"
+        oauth_provider.context.discovery_pathname = "/"
+
+        # Mock 404 response
+        response = httpx.Response(404)
+
+        # Should return True (no fallback needed)
+        result = await oauth_provider._handle_oauth_metadata_response(response, is_fallback=False)
+        assert result is True
+
+    @pytest.mark.anyio
+    async def test_handle_metadata_response_404_fallback_attempt(self, oauth_provider):
+        """Test 404 response handling during fallback attempt."""
+        # Mock 404 response during fallback
+        response = httpx.Response(404)
+
+        # Should return True (fallback attempt complete, no further action needed)
+        result = await oauth_provider._handle_oauth_metadata_response(response, is_fallback=True)
+        assert result is True
 
     @pytest.mark.anyio
     async def test_register_client_request(self, oauth_provider):
@@ -283,6 +433,87 @@ class TestOAuthFlow:
         assert "refresh_token=test_refresh_token" in content
         assert "client_id=test_client" in content
         assert "client_secret=test_secret" in content
+
+
+class TestProtectedResourceMetadata:
+    """Test protected resource handling."""
+
+    @pytest.mark.anyio
+    async def test_resource_param_included_with_recent_protocol_version(self, oauth_provider: OAuthClientProvider):
+        """Test resource parameter is included for protocol version >= 2025-06-18."""
+        # Set protocol version to 2025-06-18
+        oauth_provider.context.protocol_version = "2025-06-18"
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        # Test in token exchange
+        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        content = request.content.decode()
+        assert "resource=" in content
+        # Check URL-encoded resource parameter
+        from urllib.parse import quote
+
+        expected_resource = quote(oauth_provider.context.get_resource_url(), safe="")
+        assert f"resource={expected_resource}" in content
+
+        # Test in refresh token
+        oauth_provider.context.current_tokens = OAuthToken(
+            access_token="test_access",
+            token_type="Bearer",
+            refresh_token="test_refresh",
+        )
+        refresh_request = await oauth_provider._refresh_token()
+        refresh_content = refresh_request.content.decode()
+        assert "resource=" in refresh_content
+
+    @pytest.mark.anyio
+    async def test_resource_param_excluded_with_old_protocol_version(self, oauth_provider: OAuthClientProvider):
+        """Test resource parameter is excluded for protocol version < 2025-06-18."""
+        # Set protocol version to older version
+        oauth_provider.context.protocol_version = "2025-03-26"
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        # Test in token exchange
+        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        content = request.content.decode()
+        assert "resource=" not in content
+
+        # Test in refresh token
+        oauth_provider.context.current_tokens = OAuthToken(
+            access_token="test_access",
+            token_type="Bearer",
+            refresh_token="test_refresh",
+        )
+        refresh_request = await oauth_provider._refresh_token()
+        refresh_content = refresh_request.content.decode()
+        assert "resource=" not in refresh_content
+
+    @pytest.mark.anyio
+    async def test_resource_param_included_with_protected_resource_metadata(self, oauth_provider: OAuthClientProvider):
+        """Test resource parameter is always included when protected resource metadata exists."""
+        # Set old protocol version but with protected resource metadata
+        oauth_provider.context.protocol_version = "2025-03-26"
+        oauth_provider.context.protected_resource_metadata = ProtectedResourceMetadata(
+            resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+            authorization_servers=[AnyHttpUrl("https://api.example.com")],
+        )
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        # Test in token exchange
+        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        content = request.content.decode()
+        assert "resource=" in content
 
 
 class TestAuthFlow:
