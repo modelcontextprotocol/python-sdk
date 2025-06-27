@@ -31,9 +31,7 @@ async def test_complex_inputs():
 
     async with client_session(mcp._mcp_server) as client:
         tank = {"shrimp": [{"name": "bob"}, {"name": "alice"}]}
-        result = await client.call_tool(
-            "name_shrimp", {"tank": tank, "extra_names": ["charlie"]}
-        )
+        result = await client.call_tool("name_shrimp", {"tank": tank, "extra_names": ["charlie"]})
         assert len(result.content) == 3
         assert isinstance(result.content[0], TextContent)
         assert isinstance(result.content[1], TextContent)
@@ -86,9 +84,7 @@ async def test_desktop(monkeypatch):
 def test_docs_examples(example: CodeExample, eval_example: EvalExample):
     ruff_ignore: list[str] = ["F841", "I001"]
 
-    eval_example.set_config(
-        ruff_ignore=ruff_ignore, target_version="py310", line_length=88
-    )
+    eval_example.set_config(ruff_ignore=ruff_ignore, target_version="py310", line_length=88)
 
     if eval_example.update_examples:  # pragma: no cover
         eval_example.format(example)

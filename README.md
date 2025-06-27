@@ -27,9 +27,13 @@
     - [Server](#server)
     - [Resources](#resources)
     - [Tools](#tools)
+      - [Structured Output](#structured-output)
     - [Prompts](#prompts)
     - [Images](#images)
     - [Context](#context)
+    - [Completions](#completions)
+    - [Elicitation](#elicitation)
+    - [Authentication](#authentication)
   - [Running Your Server](#running-your-server)
     - [Development Mode](#development-mode)
     - [Claude Desktop Integration](#claude-desktop-integration)
@@ -73,7 +77,7 @@ The Model Context Protocol allows applications to provide context for LLMs in a 
 
 ### Adding MCP to your python project
 
-We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python projects. 
+We recommend using [uv](https://docs.astral.sh/uv/) to manage your Python projects.
 
 If you haven't created a uv-managed project yet, create one:
 
@@ -160,7 +164,7 @@ from dataclasses import dataclass
 
 from fake_database import Database  # Replace with your actual DB type
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp import FastMCP
 
 # Create a named server
 mcp = FastMCP("My App")
@@ -192,9 +196,10 @@ mcp = FastMCP("My App", lifespan=app_lifespan)
 
 # Access type-safe lifespan context in tools
 @mcp.tool()
-def query_db(ctx: Context) -> str:
+def query_db() -> str:
     """Tool that uses initialized resources"""
-    db = ctx.request_context.lifespan_context.db
+    ctx = mcp.get_context()
+    db = ctx.request_context.lifespan_context["db"]
     return db.query()
 ```
 
@@ -208,13 +213,13 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("My App")
 
 
-@mcp.resource("config://app")
+@mcp.resource("config://app", title="Application Configuration")
 def get_config() -> str:
     """Static configuration data"""
     return "App configuration here"
 
 
-@mcp.resource("users://{user_id}/profile")
+@mcp.resource("users://{user_id}/profile", title="User Profile")
 def get_user_profile(user_id: str) -> str:
     """Dynamic user data"""
     return f"Profile data for user {user_id}"
@@ -231,18 +236,139 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("My App")
 
 
-@mcp.tool()
+@mcp.tool(title="BMI Calculator")
 def calculate_bmi(weight_kg: float, height_m: float) -> float:
     """Calculate BMI given weight in kg and height in meters"""
     return weight_kg / (height_m**2)
 
 
-@mcp.tool()
+@mcp.tool(title="Weather Fetcher")
 async def fetch_weather(city: str) -> str:
     """Fetch current weather for a city"""
     async with httpx.AsyncClient() as client:
         response = await client.get(f"https://api.weather.com/{city}")
         return response.text
+```
+
+#### Structured Output
+
+Tools will return structured results by default, if their return type
+annotation is compatible. Otherwise, they will return unstructured results. 
+
+Structured output supports these return types:
+- Pydantic models (BaseModel subclasses)
+- TypedDicts
+- Dataclasses and other classes with type hints
+- `dict[str, T]` (where T is any JSON-serializable type)
+- Primitive types (str, int, float, bool, bytes, None) - wrapped in `{"result": value}`
+- Generic types (list, tuple, Union, Optional, etc.) - wrapped in `{"result": value}`
+
+Classes without type hints cannot be serialized for structured output. Only
+classes with properly annotated attributes will be converted to Pydantic models
+for schema generation and validation.
+
+Structured results are automatically validated against the output schema 
+generated from the annotation. This ensures the tool returns well-typed, 
+validated data that clients can easily process.
+
+**Note:** For backward compatibility, unstructured results are also
+returned. Unstructured results are provided for backward compatibility 
+with previous versions of the MCP specification, and are quirks-compatible
+with previous versions of FastMCP in the current version of the SDK.
+
+**Note:** In cases where a tool function's return type annotation 
+causes the tool to be classified as structured _and this is undesirable_, 
+the  classification can be suppressed by passing `structured_output=False`
+to the `@tool` decorator.
+
+```python
+from mcp.server.fastmcp import FastMCP
+from pydantic import BaseModel, Field
+from typing import TypedDict
+
+mcp = FastMCP("Weather Service")
+
+
+# Using Pydantic models for rich structured data
+class WeatherData(BaseModel):
+    temperature: float = Field(description="Temperature in Celsius")
+    humidity: float = Field(description="Humidity percentage")
+    condition: str
+    wind_speed: float
+
+
+@mcp.tool()
+def get_weather(city: str) -> WeatherData:
+    """Get structured weather data"""
+    return WeatherData(
+        temperature=22.5, humidity=65.0, condition="partly cloudy", wind_speed=12.3
+    )
+
+
+# Using TypedDict for simpler structures
+class LocationInfo(TypedDict):
+    latitude: float
+    longitude: float
+    name: str
+
+
+@mcp.tool()
+def get_location(address: str) -> LocationInfo:
+    """Get location coordinates"""
+    return LocationInfo(latitude=51.5074, longitude=-0.1278, name="London, UK")
+
+
+# Using dict[str, Any] for flexible schemas
+@mcp.tool()
+def get_statistics(data_type: str) -> dict[str, float]:
+    """Get various statistics"""
+    return {"mean": 42.5, "median": 40.0, "std_dev": 5.2}
+
+
+# Ordinary classes with type hints work for structured output
+class UserProfile:
+    name: str
+    age: int
+    email: str | None = None
+
+    def __init__(self, name: str, age: int, email: str | None = None):
+        self.name = name
+        self.age = age
+        self.email = email
+
+
+@mcp.tool()
+def get_user(user_id: str) -> UserProfile:
+    """Get user profile - returns structured data"""
+    return UserProfile(name="Alice", age=30, email="alice@example.com")
+
+
+# Classes WITHOUT type hints cannot be used for structured output
+class UntypedConfig:
+    def __init__(self, setting1, setting2):
+        self.setting1 = setting1
+        self.setting2 = setting2
+
+
+@mcp.tool()
+def get_config() -> UntypedConfig:
+    """This returns unstructured output - no schema generated"""
+    return UntypedConfig("value1", "value2")
+
+
+# Lists and other types are wrapped automatically
+@mcp.tool()
+def list_cities() -> list[str]:
+    """Get a list of cities"""
+    return ["London", "Paris", "Tokyo"]
+    # Returns: {"result": ["London", "Paris", "Tokyo"]}
+
+
+@mcp.tool()
+def get_temperature(city: str) -> float:
+    """Get temperature as a simple float"""
+    return 22.5
+    # Returns: {"result": 22.5}
 ```
 
 ### Prompts
@@ -256,12 +382,12 @@ from mcp.server.fastmcp.prompts import base
 mcp = FastMCP("My App")
 
 
-@mcp.prompt()
+@mcp.prompt(title="Code Review")
 def review_code(code: str) -> str:
     return f"Please review this code:\n\n{code}"
 
 
-@mcp.prompt()
+@mcp.prompt(title="Debug Assistant")
 def debug_error(error: str) -> list[base.Message]:
     return [
         base.UserMessage("I'm seeing this error:"),
@@ -309,32 +435,152 @@ async def long_task(files: list[str], ctx: Context) -> str:
     return "Processing complete"
 ```
 
+### Completions
+
+MCP supports providing completion suggestions for prompt arguments and resource template parameters. With the context parameter, servers can provide completions based on previously resolved values:
+
+Client usage:
+```python
+from mcp.client.session import ClientSession
+from mcp.types import ResourceTemplateReference
+
+
+async def use_completion(session: ClientSession):
+    # Complete without context
+    result = await session.complete(
+        ref=ResourceTemplateReference(
+            type="ref/resource", uri="github://repos/{owner}/{repo}"
+        ),
+        argument={"name": "owner", "value": "model"},
+    )
+
+    # Complete with context - repo suggestions based on owner
+    result = await session.complete(
+        ref=ResourceTemplateReference(
+            type="ref/resource", uri="github://repos/{owner}/{repo}"
+        ),
+        argument={"name": "repo", "value": "test"},
+        context_arguments={"owner": "modelcontextprotocol"},
+    )
+```
+
+Server implementation:
+```python
+from mcp.server import Server
+from mcp.types import (
+    Completion,
+    CompletionArgument,
+    CompletionContext,
+    PromptReference,
+    ResourceTemplateReference,
+)
+
+server = Server("example-server")
+
+
+@server.completion()
+async def handle_completion(
+    ref: PromptReference | ResourceTemplateReference,
+    argument: CompletionArgument,
+    context: CompletionContext | None,
+) -> Completion | None:
+    if isinstance(ref, ResourceTemplateReference):
+        if ref.uri == "github://repos/{owner}/{repo}" and argument.name == "repo":
+            # Use context to provide owner-specific repos
+            if context and context.arguments:
+                owner = context.arguments.get("owner")
+                if owner == "modelcontextprotocol":
+                    repos = ["python-sdk", "typescript-sdk", "specification"]
+                    # Filter based on partial input
+                    filtered = [r for r in repos if r.startswith(argument.value)]
+                    return Completion(values=filtered)
+    return None
+```
+### Elicitation
+
+Request additional information from users during tool execution:
+
+```python
+from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.elicitation import (
+    AcceptedElicitation,
+    DeclinedElicitation,
+    CancelledElicitation,
+)
+from pydantic import BaseModel, Field
+
+mcp = FastMCP("Booking System")
+
+
+@mcp.tool()
+async def book_table(date: str, party_size: int, ctx: Context) -> str:
+    """Book a table with confirmation"""
+
+    # Schema must only contain primitive types (str, int, float, bool)
+    class ConfirmBooking(BaseModel):
+        confirm: bool = Field(description="Confirm booking?")
+        notes: str = Field(default="", description="Special requests")
+
+    result = await ctx.elicit(
+        message=f"Confirm booking for {party_size} on {date}?", schema=ConfirmBooking
+    )
+
+    match result:
+        case AcceptedElicitation(data=data):
+            if data.confirm:
+                return f"Booked! Notes: {data.notes or 'None'}"
+            return "Booking cancelled"
+        case DeclinedElicitation():
+            return "Booking declined"
+        case CancelledElicitation():
+            return "Booking cancelled"
+```
+
+The `elicit()` method returns an `ElicitationResult` with:
+- `action`: "accept", "decline", or "cancel"
+- `data`: The validated response (only when accepted)
+- `validation_error`: Any validation error message
+
 ### Authentication
 
 Authentication can be used by servers that want to expose tools accessing protected resources.
 
-`mcp.server.auth` implements an OAuth 2.0 server interface, which servers can use by
-providing an implementation of the `OAuthServerProvider` protocol.
+`mcp.server.auth` implements OAuth 2.1 resource server functionality, where MCP servers act as Resource Servers (RS) that validate tokens issued by separate Authorization Servers (AS). This follows the [MCP authorization specification](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) and implements RFC 9728 (Protected Resource Metadata) for AS discovery.
 
-```
-mcp = FastMCP("My App",
-        auth_server_provider=MyOAuthServerProvider(),
-        auth=AuthSettings(
-            issuer_url="https://myapp.com",
-            revocation_options=RevocationOptions(
-                enabled=True,
-            ),
-            client_registration_options=ClientRegistrationOptions(
-                enabled=True,
-                valid_scopes=["myscope", "myotherscope"],
-                default_scopes=["myscope"],
-            ),
-            required_scopes=["myscope"],
-        ),
+MCP servers can use authentication by providing an implementation of the `TokenVerifier` protocol:
+
+```python
+from mcp import FastMCP
+from mcp.server.auth.provider import TokenVerifier, TokenInfo
+from mcp.server.auth.settings import AuthSettings
+
+
+class MyTokenVerifier(TokenVerifier):
+    # Implement token validation logic (typically via token introspection)
+    async def verify_token(self, token: str) -> TokenInfo:
+        # Verify with your authorization server
+        ...
+
+
+mcp = FastMCP(
+    "My App",
+    token_verifier=MyTokenVerifier(),
+    auth=AuthSettings(
+        issuer_url="https://auth.example.com",
+        resource_server_url="http://localhost:3001",
+        required_scopes=["mcp:read", "mcp:write"],
+    ),
 )
 ```
 
-See [OAuthServerProvider](src/mcp/server/auth/provider.py) for more details.
+For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](examples/servers/simple-auth/).
+
+**Architecture:**
+- **Authorization Server (AS)**: Handles OAuth flows, user authentication, and token issuance
+- **Resource Server (RS)**: Your MCP server that validates tokens and serves protected resources
+- **Client**: Discovers AS through RFC 9728, obtains tokens, and uses them with the MCP server
+
+See [TokenVerifier](src/mcp/server/auth/provider.py) for more details on implementing token validation.
 
 ## Running Your Server
 
@@ -461,14 +707,11 @@ For low level server with Streamable HTTP implementations, see:
 - Stateful server: [`examples/servers/simple-streamablehttp/`](examples/servers/simple-streamablehttp/)
 - Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](examples/servers/simple-streamablehttp-stateless/)
 
-
-
 The streamable HTTP transport supports:
 - Stateful and stateless operation modes
 - Resumability with event stores
-- JSON or SSE response formats  
+- JSON or SSE response formats
 - Better scalability for multi-node deployments
-
 
 ### Mounting to an Existing ASGI Server
 
@@ -631,7 +874,7 @@ server = Server("example-server", lifespan=server_lifespan)
 # Access lifespan context in handlers
 @server.call_tool()
 async def query_db(name: str, arguments: dict) -> list:
-    ctx = server.get_context()
+    ctx = server.request_context
     db = ctx.lifespan_context["db"]
     return await db.query(arguments["query"])
 ```
@@ -707,6 +950,67 @@ if __name__ == "__main__":
 ```
 
 Caution: The `mcp run` and `mcp dev` tool doesn't support low-level server.
+
+#### Structured Output Support
+
+The low-level server supports structured output for tools, allowing you to return both human-readable content and machine-readable structured data. Tools can define an `outputSchema` to validate their structured output:
+
+```python
+from types import Any
+
+import mcp.types as types
+from mcp.server.lowlevel import Server
+
+server = Server("example-server")
+
+
+@server.list_tools()
+async def list_tools() -> list[types.Tool]:
+    return [
+        types.Tool(
+            name="calculate",
+            description="Perform mathematical calculations",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "expression": {"type": "string", "description": "Math expression"}
+                },
+                "required": ["expression"],
+            },
+            outputSchema={
+                "type": "object",
+                "properties": {
+                    "result": {"type": "number"},
+                    "expression": {"type": "string"},
+                },
+                "required": ["result", "expression"],
+            },
+        )
+    ]
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if name == "calculate":
+        expression = arguments["expression"]
+        try:
+            result = eval(expression)  # Use a safe math parser
+            structured = {"result": result, "expression": expression}
+
+            # low-level server will validate structured output against the tool's
+            # output schema, and automatically serialize it into a TextContent block
+            # for backwards compatibility with pre-2025-06-18 clients.
+            return structured
+        except Exception as e:
+            raise ValueError(f"Calculation error: {str(e)}")
+```
+
+Tools can return data in three ways:
+1. **Content only**: Return a list of content blocks (default behavior before spec revision 2025-06-18)
+2. **Structured data only**: Return a dictionary that will be serialized to JSON (Introduced in spec revision 2025-06-18)
+3. **Both**: Return a tuple of (content, structured_data) preferred option to use for backwards compatibility
+
+When an `outputSchema` is defined, the server automatically validates the structured output against the schema. This ensures type safety and helps catch errors early.
 
 ### Writing MCP Clients
 
@@ -795,6 +1099,42 @@ async def main():
             # Call a tool
             tool_result = await session.call_tool("echo", {"message": "hello"})
 ```
+
+### Client Display Utilities
+
+When building MCP clients, the SDK provides utilities to help display human-readable names for tools, resources, and prompts:
+
+```python
+from mcp.shared.metadata_utils import get_display_name
+from mcp.client.session import ClientSession
+
+
+async def display_tools(session: ClientSession):
+    """Display available tools with human-readable names"""
+    tools_response = await session.list_tools()
+
+    for tool in tools_response.tools:
+        # get_display_name() returns the title if available, otherwise the name
+        display_name = get_display_name(tool)
+        print(f"Tool: {display_name}")
+        if tool.description:
+            print(f"   {tool.description}")
+
+
+async def display_resources(session: ClientSession):
+    """Display available resources with human-readable names"""
+    resources_response = await session.list_resources()
+
+    for resource in resources_response.resources:
+        display_name = get_display_name(resource)
+        print(f"Resource: {display_name} ({resource.uri})")
+```
+
+The `get_display_name()` function implements the proper precedence rules for displaying names:
+- For tools: `title` > `annotations.title` > `name`
+- For other objects: `title` > `name`
+
+This ensures your client UI shows the most user-friendly names that servers provide.
 
 ### OAuth Authentication for Clients
 

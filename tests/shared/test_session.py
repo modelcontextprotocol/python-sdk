@@ -8,7 +8,10 @@ import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
-from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.shared.memory import (
+    create_client_server_memory_streams,
+    create_connected_server_and_client_session,
+)
 from mcp.types import (
     EmptyResult,
 )
@@ -97,9 +100,7 @@ async def test_request_cancellation():
             assert "Request cancelled" in str(e)
             ev_cancelled.set()
 
-    async with create_connected_server_and_client_session(
-        make_server()
-    ) as client_session:
+    async with create_connected_server_and_client_session(make_server()) as client_session:
         async with anyio.create_task_group() as tg:
             tg.start_soon(make_request, client_session)
 

@@ -24,9 +24,7 @@ logger = logging.getLogger("client")
 
 
 async def message_handler(
-    message: RequestResponder[types.ServerRequest, types.ClientResult]
-    | types.ServerNotification
-    | Exception,
+    message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
 ) -> None:
     if isinstance(message, Exception):
         logger.error("Error: %s", message)
@@ -60,9 +58,7 @@ async def main(command_or_url: str, args: list[str], env: list[tuple[str, str]])
             await run_session(*streams)
     else:
         # Use stdio client for commands
-        server_parameters = StdioServerParameters(
-            command=command_or_url, args=args, env=env_dict
-        )
+        server_parameters = StdioServerParameters(command=command_or_url, args=args, env=env_dict)
         async with stdio_client(server_parameters) as streams:
             await run_session(*streams)
 
