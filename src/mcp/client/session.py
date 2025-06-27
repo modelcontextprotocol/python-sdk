@@ -15,7 +15,6 @@ from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("client")
 
 

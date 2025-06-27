@@ -32,7 +32,11 @@ def validate_issuer_url(url: AnyHttpUrl):
     """
 
     # RFC 8414 requires HTTPS, but we allow localhost HTTP for testing
-    if url.scheme != "https" and url.host != "localhost" and not url.host.startswith("127.0.0.1"):
+    if (
+        url.scheme != "https"
+        and url.host != "localhost"
+        and (url.host is not None and not url.host.startswith("127.0.0.1"))
+    ):
         raise ValueError("Issuer URL must be HTTPS")
 
     # No fragments or query parameters allowed
