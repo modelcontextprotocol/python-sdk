@@ -1,5 +1,5 @@
 from collections.abc import Awaitable, Callable
-from typing import Any, cast
+from typing import Any
 
 from pydantic import AnyHttpUrl
 from starlette.middleware.cors import CORSMiddleware
@@ -32,8 +32,11 @@ def validate_issuer_url(url: AnyHttpUrl):
     """
 
     # RFC 8414 requires HTTPS, but we allow localhost HTTP for testing
-    host = cast(str, url.host)
-    if url.scheme != "https" and host != "localhost" and not host.startswith("127.0.0.1"):
+    if (
+        url.scheme != "https"
+        and url.host != "localhost"
+        and (url.host is not None and not url.host.startswith("127.0.0.1"))
+    ):
         raise ValueError("Issuer URL must be HTTPS")
 
     # No fragments or query parameters allowed
