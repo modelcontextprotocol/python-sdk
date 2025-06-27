@@ -13,7 +13,7 @@ def weather_system_prompt() -> mcp_messages.SystemMessage:
     """
 
     return mcp_messages.SystemMessage(
-         "You are a helpful agent. You answer questions clearly and simply. "
+         "You are a helpful weather agent. You answer questions clearly and simply. "
         "If you don’t know something, say you don’t have that information."
     )
 
