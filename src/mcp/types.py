@@ -35,7 +35,7 @@ DEFAULT_NEGOTIATED_VERSION = "2025-03-26"
 
 ProgressToken = str | int
 Cursor = str
-Role = Literal["user", "assistant"]
+Role = Literal["user", "assistant","system"]
 RequestId = Annotated[int | str, Field(union_mode="left_to_right")]
 AnyFunction: TypeAlias = Callable[..., Any]
 

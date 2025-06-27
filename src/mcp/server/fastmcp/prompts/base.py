@@ -13,7 +13,7 @@ from mcp.types import ContentBlock, TextContent
 class Message(BaseModel):
     """Base class for all prompt messages."""
 
-    role: Literal["user", "assistant"]
+    role: Literal["user", "assistant","system"]
     content: ContentBlock
 
     def __init__(self, content: str | ContentBlock, **kwargs: Any):
@@ -25,7 +25,7 @@ class Message(BaseModel):
 class UserMessage(Message):
     """A message from the user."""
 
-    role: Literal["user", "assistant"] = "user"
+    role: Literal["user", "assistant","system"] = "user"
 
     def __init__(self, content: str | ContentBlock, **kwargs: Any):
         super().__init__(content=content, **kwargs)
@@ -34,13 +34,20 @@ class UserMessage(Message):
 class AssistantMessage(Message):
     """A message from the assistant."""
 
-    role: Literal["user", "assistant"] = "assistant"
+    role: Literal["user", "assistant","system"] = "assistant"
 
     def __init__(self, content: str | ContentBlock, **kwargs: Any):
         super().__init__(content=content, **kwargs)
 
+class SystemMessage(Message):
+    """A message from the assistant."""
 
-message_validator = TypeAdapter[UserMessage | AssistantMessage](UserMessage | AssistantMessage)
+    role: Literal["user", "assistant","system"] = "system"
+
+    def __init__(self, content: str | ContentBlock, **kwargs: Any):
+        super().__init__(content=content, **kwargs)
+
+message_validator = TypeAdapter[UserMessage | AssistantMessage | SystemMessage](UserMessage | AssistantMessage | SystemMessage)
 
 SyncPromptResult = str | Message | dict[str, Any] | Sequence[str | Message | dict[str, Any]]
 PromptResult = SyncPromptResult | Awaitable[SyncPromptResult]
