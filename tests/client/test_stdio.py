@@ -1,5 +1,9 @@
 import shutil
+import sys
+import textwrap
+import time
 
+import anyio
 import pytest
 
 from mcp.client.session import ClientSession
@@ -90,3 +94,157 @@ async def test_stdio_client_nonexistent_command():
         or "not found" in error_message.lower()
         or "cannot find the file" in error_message.lower()  # Windows error message
     )
+
+
+@pytest.mark.anyio
+async def test_stdio_client_universal_cleanup():
+    """
+    Test that stdio_client completes cleanup within reasonable time
+    even when connected to processes that exit slowly.
+    """
+
+    # Use a simple sleep command that's available on all platforms
+    # This simulates a process that takes time to terminate
+    if sys.platform == "win32":
+        # Windows: use ping with timeout to simulate a running process
+        server_params = StdioServerParameters(
+            command="ping",
+            args=["127.0.0.1", "-n", "10"],  # Ping 10 times, takes ~10 seconds
+        )
+    else:
+        # Unix: use sleep command
+        server_params = StdioServerParameters(
+            command="sleep",
+            args=["10"],  # Sleep for 10 seconds
+        )
+
+    start_time = time.time()
+
+    # Use move_on_after which is more reliable for cleanup scenarios
+    with anyio.move_on_after(6.0) as cancel_scope:
+        async with stdio_client(server_params) as (read_stream, write_stream):
+            # Immediately exit - this triggers cleanup while process is still running
+            pass
+
+        end_time = time.time()
+        elapsed = end_time - start_time
+
+        # Key assertion: Should complete quickly due to timeout mechanism
+        assert elapsed < 5.0, (
+            f"stdio_client cleanup took {elapsed:.1f} seconds, expected < 5.0 seconds. "
+            f"This suggests the timeout mechanism may not be working properly."
+        )
+
+    # Check if we timed out
+    if cancel_scope.cancelled_caught:
+        pytest.fail(
+            "stdio_client cleanup timed out after 6.0 seconds. "
+            "This indicates the cleanup mechanism is hanging and needs fixing."
+        )
+
+
+@pytest.mark.anyio
+async def test_stdio_client_immediate_completion():
+    """
+    Test that stdio_client doesn't introduce unnecessary delays
+    when processes exit normally and quickly.
+    """
+
+    # Use a Python script that prints and exits after a brief moment
+    # This avoids race conditions on fast systems where the process
+    # exits before async tasks are fully initialized
+    script_content = "import time; print('hello'); time.sleep(0.1)"
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", script_content],
+    )
+
+    start_time = time.time()
+
+    # Use move_on_after which is more reliable for cleanup scenarios
+    with anyio.move_on_after(3.0) as cancel_scope:
+        async with stdio_client(server_params) as (read_stream, write_stream):
+            pass
+
+        end_time = time.time()
+        elapsed = end_time - start_time
+
+        # Should complete very quickly when process exits normally
+        assert elapsed < 2.0, (
+            f"stdio_client took {elapsed:.1f} seconds for fast-exiting process, "
+            f"expected < 2.0 seconds. Timeout mechanism may be introducing delays."
+        )
+
+    # Check if we timed out
+    if cancel_scope.cancelled_caught:
+        pytest.fail(
+            "stdio_client timed out after 3.0 seconds for fast-exiting process. "
+            "This indicates a serious hang in the cleanup mechanism."
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows signal handling is different")
+async def test_stdio_client_sigint_only_process():
+    """
+    Test cleanup with a process that ignores SIGTERM but responds to SIGINT.
+    """
+    # Create a Python script that ignores SIGTERM but handles SIGINT
+    script_content = textwrap.dedent(
+        """
+        import signal
+        import sys
+        import time
+
+        # Ignore SIGTERM (what process.terminate() sends)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+
+        # Handle SIGINT (Ctrl+C signal) by exiting cleanly
+        def sigint_handler(signum, frame):
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, sigint_handler)
+
+        # Keep running until SIGINT received
+        while True:
+            time.sleep(0.1)
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command="python",
+        args=["-c", script_content],
+    )
+
+    start_time = time.time()
+
+    try:
+        # Use anyio timeout to prevent test from hanging forever
+        with anyio.move_on_after(5.0) as cancel_scope:
+            async with stdio_client(server_params) as (read_stream, write_stream):
+                # Let the process start and begin ignoring SIGTERM
+                await anyio.sleep(0.5)
+                # Exit context triggers cleanup - this should not hang
+                pass
+
+        if cancel_scope.cancelled_caught:
+            raise TimeoutError("Test timed out")
+
+        end_time = time.time()
+        elapsed = end_time - start_time
+
+        # Should complete quickly even with SIGTERM-ignoring process
+        # This will fail if cleanup only uses process.terminate() without fallback
+        assert elapsed < 5.0, (
+            f"stdio_client cleanup took {elapsed:.1f} seconds with SIGTERM-ignoring process. "
+            f"Expected < 5.0 seconds. This suggests the cleanup needs SIGINT/SIGKILL fallback."
+        )
+    except (TimeoutError, Exception) as e:
+        if isinstance(e, TimeoutError) or "timed out" in str(e):
+            pytest.fail(
+                "stdio_client cleanup timed out after 5.0 seconds with SIGTERM-ignoring process. "
+                "This confirms the cleanup needs SIGINT/SIGKILL fallback for processes that ignore SIGTERM."
+            )
+        else:
+            raise
