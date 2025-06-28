@@ -290,18 +290,12 @@ class BaseSession(
                         if scope.cancel_called:
                             notification = CancelledNotification(
                                 method="notifications/cancelled",
-                                params=CancelledNotificationParams(
-                                    requestId=request_id, reason="cancelled"
-                                ),
+                                params=CancelledNotificationParams(requestId=request_id, reason="cancelled"),
                             )
                             await self._send_notification(  # type: ignore
                                 notification, request_id
                             )
-                            raise McpError(
-                                ErrorData(
-                                    code=REQUEST_CANCELLED, message="Request cancelled"
-                                )
-                            )
+                            raise McpError(ErrorData(code=REQUEST_CANCELLED, message="Request cancelled"))
 
                 except TimeoutError:
                     raise McpError(
