@@ -9,7 +9,6 @@ from mcp.client.session import ClientSession
 from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import (
-    create_client_server_memory_streams,
     create_connected_server_and_client_session,
 )
 from mcp.types import (
