@@ -12,6 +12,11 @@ Thank you for your interest in contributing to the MCP Python SDK! This document
 ```bash
 uv sync --frozen --all-extras --dev
 ```
+6. Set up pre-commit hooks:
+
+   ```bash
+   uv tool install pre-commit --with pre-commit-uv --force-install
+   ```
 
 ## Development Workflow
 
@@ -40,7 +45,13 @@ uv run ruff check .
 uv run ruff format .
 ```
 
-7. Submit a pull request to the same branch you branched from
+7. (Optional) Run pre-commit hooks on all files:
+
+```bash
+pre-commit run --all-files
+```
+
+8. Submit a pull request to the same branch you branched from
 
 ## Code Style
 
