@@ -23,7 +23,7 @@ for reference.
   not separate types in the schema.
 """
 
-LATEST_PROTOCOL_VERSION = "2025-03-26"
+LATEST_PROTOCOL_VERSION = "2025-06-18"
 
 """
 The default negotiated version of the Model Context Protocol when no version is specified.
