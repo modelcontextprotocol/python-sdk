@@ -257,7 +257,8 @@ class FastMCP:
 
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""
-        tools = self._tool_manager.list_tools()
+        context = self.get_context()
+        tools = self._tool_manager.list_tools(context)
         return [
             MCPTool(
                 name=info.name,
@@ -289,8 +290,8 @@ class FastMCP:
 
     async def list_resources(self) -> list[MCPResource]:
         """List all available resources."""
-
-        resources = self._resource_manager.list_resources()
+        context = self.get_context()
+        resources = self._resource_manager.list_resources(context)
         return [
             MCPResource(
                 uri=resource.uri,
@@ -303,7 +304,8 @@ class FastMCP:
         ]
 
     async def list_resource_templates(self) -> list[MCPResourceTemplate]:
-        templates = self._resource_manager.list_templates()
+        context = self.get_context()
+        templates = self._resource_manager.list_templates(context)
         return [
             MCPResourceTemplate(
                 uriTemplate=template.uri_template,
@@ -316,8 +318,8 @@ class FastMCP:
 
     async def read_resource(self, uri: AnyUrl | str) -> Iterable[ReadResourceContents]:
         """Read a resource by URI."""
-
-        resource = await self._resource_manager.get_resource(uri)
+        context = self.get_context()
+        resource = await self._resource_manager.get_resource(uri, context)
         if not resource:
             raise ResourceError(f"Unknown resource: {uri}")
 
@@ -924,9 +926,9 @@ class FastMCP:
             lifespan=lambda app: self.session_manager.run(),
         )
 
-    async def list_prompts(self) -> list[MCPPrompt]:
+    async def list_prompts(self, context: Context[ServerSession, object, Request] | None = None) -> list[MCPPrompt]:
         """List all available prompts."""
-        prompts = self._prompt_manager.list_prompts()
+        prompts = self._prompt_manager.list_prompts(context)
         return [
             MCPPrompt(
                 name=prompt.name,
@@ -944,10 +946,15 @@ class FastMCP:
             for prompt in prompts
         ]
 
-    async def get_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> GetPromptResult:
+    async def get_prompt(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        context: Context[ServerSession, object, Request] | None = None,
+    ) -> GetPromptResult:
         """Get a prompt by name with arguments."""
         try:
-            messages = await self._prompt_manager.render_prompt(name, arguments)
+            messages = await self._prompt_manager.render_prompt(name, arguments, context)
 
             return GetPromptResult(messages=pydantic_core.to_jsonable_python(messages))
         except Exception as e:

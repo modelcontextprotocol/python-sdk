@@ -1,14 +1,21 @@
 """Resource manager functionality."""
 
+from __future__ import annotations as _annotations
+
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import AnyUrl
+from starlette.requests import Request
 
 from mcp.server.fastmcp.authorizer import AllAllAuthorizer, Authorizer
 from mcp.server.fastmcp.resources.base import Resource
 from mcp.server.fastmcp.resources.templates import ResourceTemplate
 from mcp.server.fastmcp.utilities.logging import get_logger
+from mcp.server.session import ServerSession
+
+if TYPE_CHECKING:
+    from mcp.server.fastmcp.server import Context
 
 logger = get_logger(__name__)
 
@@ -73,14 +80,16 @@ class ResourceManager:
         self._templates[template.uri_template] = template
         return template
 
-    async def get_resource(self, uri: AnyUrl | str) -> Resource | None:
+    async def get_resource(
+        self, uri: AnyUrl | str, context: Context[ServerSession, object, Request] | None = None
+    ) -> Resource | None:
         """Get resource by URI, checking concrete resources first, then templates."""
         uri_str = str(uri)
         logger.debug("Getting resource", extra={"uri": uri_str})
 
         # First check concrete resources
         if resource := self._resources.get(uri_str):
-            if self._authorizer.permit_get_resource(uri_str):
+            if self._authorizer.permit_get_resource(uri_str, context):
                 return resource
             else:
                 raise ValueError(f"Unknown resource: {uri}")
@@ -98,12 +107,16 @@ class ResourceManager:
 
         raise ValueError(f"Unknown resource: {uri}")
 
-    def list_resources(self) -> list[Resource]:
+    def list_resources(self, context: Context[ServerSession, object, Request] | None = None) -> list[Resource]:
         """List all registered resources."""
         logger.debug("Listing resources", extra={"count": len(self._resources)})
-        return [resource for uri, resource in self._resources.items() if self._authorizer.permit_list_resource(uri)]
+        return [
+            resource for uri, resource in self._resources.items() if self._authorizer.permit_list_resource(uri, context)
+        ]
 
-    def list_templates(self) -> list[ResourceTemplate]:
+    def list_templates(self, context: Context[ServerSession, object, Request] | None = None) -> list[ResourceTemplate]:
         """List all registered templates."""
         logger.debug("Listing templates", extra={"count": len(self._templates)})
-        return [template for uri, template in self._templates.items() if self._authorizer.permit_list_template(uri)]
+        return [
+            template for uri, template in self._templates.items() if self._authorizer.permit_list_template(uri, context)
+        ]
