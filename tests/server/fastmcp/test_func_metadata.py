@@ -203,6 +203,7 @@ def test_structured_output_dict_str_types():
 
     meta = func_metadata(func_dict_any)
     assert meta.output_schema == {
+        "additionalProperties": True,
         "type": "object",
         "title": "func_dict_anyDictOutput",
     }
