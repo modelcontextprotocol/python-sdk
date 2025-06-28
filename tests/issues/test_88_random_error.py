@@ -8,6 +8,7 @@ import anyio
 import pytest
 from anyio.abc import TaskStatus
 
+from mcp import types
 from mcp.client.session import ClientSession
 from mcp.server.lowlevel import Server
 from mcp.shared.exceptions import McpError
@@ -29,6 +30,21 @@ async def test_notification_validation_error(tmp_path: Path):
     request_count = 0
     slow_request_started = anyio.Event()
     slow_request_complete = anyio.Event()
+
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [
+            types.Tool(
+                name="slow",
+                description="A slow tool",
+                inputSchema={"type": "object"},
+            ),
+            types.Tool(
+                name="fast",
+                description="A fast tool",
+                inputSchema={"type": "object"},
+            ),
+        ]
 
     @server.call_tool()
     async def slow_tool(name: str, arg) -> Sequence[ContentBlock]:

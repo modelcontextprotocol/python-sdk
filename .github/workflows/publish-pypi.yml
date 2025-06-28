@@ -22,7 +22,7 @@ jobs:
         run: uv python install 3.12
 
       - name: Build
-        run: uv build --frozen
+        run: uv build
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

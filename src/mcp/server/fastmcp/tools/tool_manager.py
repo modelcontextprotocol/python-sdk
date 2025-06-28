@@ -56,9 +56,17 @@ class ToolManager:
         title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        structured_output: bool | None = None,
     ) -> Tool:
         """Add a tool to the server."""
-        tool = Tool.from_function(fn, name=name, title=title, description=description, annotations=annotations)
+        tool = Tool.from_function(
+            fn,
+            name=name,
+            title=title,
+            description=description,
+            annotations=annotations,
+            structured_output=structured_output,
+        )
         existing = self._tools.get(tool.name)
         if existing:
             if self.warn_on_duplicate_tools:
@@ -72,10 +80,12 @@ class ToolManager:
         name: str,
         arguments: dict[str, Any],
         context: Context[ServerSession, object, Request] | None = None,
+        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
+        convert_result: bool = False,
     ) -> Any:
         """Call a tool by name with arguments."""
         tool = self._tools.get(name)
         if not tool or not self._authorizer.permit_call_tool(name, arguments, context):
             raise ToolError(f"Unknown tool: {name}")
 
-        return await tool.run(arguments, context=context)
+        return await tool.run(arguments, context=context, convert_result=convert_result)
