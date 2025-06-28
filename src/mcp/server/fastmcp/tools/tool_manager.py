@@ -80,7 +80,6 @@ class ToolManager:
         name: str,
         arguments: dict[str, Any],
         context: Context[ServerSession, object, Request] | None = None,
-        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
         convert_result: bool = False,
     ) -> Any:
         """Call a tool by name with arguments."""
