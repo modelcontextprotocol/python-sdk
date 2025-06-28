@@ -172,11 +172,13 @@ class ClientSessionGroup:
         """Returns the tools as a dictionary of names to tools."""
         return self._tools
 
-    async def call_tool(self, name: str, args: dict[str, Any]) -> types.CallToolResult:
+    async def call_tool(
+        self, name: str, args: dict[str, Any], _meta: dict[str, Any] | None = None
+    ) -> types.CallToolResult:
         """Executes a tool given its name and arguments."""
         session = self._tool_to_session[name]
         session_tool_name = self.tools[name].name
-        return await session.call_tool(session_tool_name, args)
+        return await session.call_tool(session_tool_name, args, _meta=_meta)
 
     async def disconnect_from_server(self, session: mcp.ClientSession) -> None:
         """Disconnects from a single MCP server."""
