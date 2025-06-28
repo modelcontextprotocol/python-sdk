@@ -88,7 +88,7 @@ class Authorizer:
         return False
 
 
-class AllAllAuthorizer(Authorizer):
+class AllowAllAuthorizer(Authorizer):
     def permit_get_tool(self, name: str, context: Context[ServerSession, object, Request] | None = None) -> bool:
         return True
 

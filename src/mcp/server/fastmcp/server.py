@@ -33,7 +33,7 @@ from mcp.server.auth.middleware.bearer_auth import (
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, elicit_with_validation
-from mcp.server.fastmcp.authorizer import AllAllAuthorizer, Authorizer
+from mcp.server.fastmcp.authorizer import AllowAllAuthorizer, Authorizer
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
@@ -121,7 +121,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # Transport security settings (DNS rebinding protection)
     transport_security: TransportSecuritySettings | None = None
 
-    authorizer: Authorizer = AllAllAuthorizer()
+    authorizer: Authorizer = AllowAllAuthorizer()
 
 
 def lifespan_wrapper(

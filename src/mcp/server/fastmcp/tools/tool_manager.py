@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from starlette.requests import Request
 
-from mcp.server.fastmcp.authorizer import AllAllAuthorizer, Authorizer
+from mcp.server.fastmcp.authorizer import AllowAllAuthorizer, Authorizer
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools.base import Tool
 from mcp.server.fastmcp.utilities.logging import get_logger
@@ -26,7 +26,7 @@ class ToolManager:
         warn_on_duplicate_tools: bool = True,
         *,
         tools: list[Tool] | None = None,
-        authorizer: Authorizer = AllAllAuthorizer(),
+        authorizer: Authorizer = AllowAllAuthorizer(),
     ):
         self._tools: dict[str, Tool] = {}
         if tools is not None:

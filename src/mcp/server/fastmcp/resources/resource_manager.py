@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import AnyUrl
 from starlette.requests import Request
 
-from mcp.server.fastmcp.authorizer import AllAllAuthorizer, Authorizer
+from mcp.server.fastmcp.authorizer import AllowAllAuthorizer, Authorizer
 from mcp.server.fastmcp.resources.base import Resource
 from mcp.server.fastmcp.resources.templates import ResourceTemplate
 from mcp.server.fastmcp.utilities.logging import get_logger
@@ -26,7 +26,7 @@ class ResourceManager:
     def __init__(
         self,
         warn_on_duplicate_resources: bool = True,
-        authorizer: Authorizer = AllAllAuthorizer(),
+        authorizer: Authorizer = AllowAllAuthorizer(),
     ):
         self._resources: dict[str, Resource] = {}
         self._templates: dict[str, ResourceTemplate] = {}

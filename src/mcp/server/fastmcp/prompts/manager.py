@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from starlette.requests import Request
 
-from mcp.server.fastmcp.authorizer import AllAllAuthorizer, Authorizer
+from mcp.server.fastmcp.authorizer import AllowAllAuthorizer, Authorizer
 from mcp.server.fastmcp.prompts.base import Message, Prompt
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.server.session import ServerSession
@@ -23,7 +23,7 @@ class PromptManager:
     def __init__(
         self,
         warn_on_duplicate_prompts: bool = True,
-        authorizer: Authorizer = AllAllAuthorizer(),
+        authorizer: Authorizer = AllowAllAuthorizer(),
     ):
         self._prompts: dict[str, Prompt] = {}
         self._authorizer = authorizer
