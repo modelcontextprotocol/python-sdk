@@ -422,9 +422,7 @@ The Context object gives your tools and resources access to MCP capabilities:
 <!-- snippet-source examples/servers/everything/src/everything/server.py#L37-L54 -->
 ```python
     # Tool with context for logging and progress
-    @mcp.tool(
-        description="A tool that demonstrates logging and progress", title="Progress Tool"
-    )
+    @mcp.tool(description="A tool that demonstrates logging and progress", title="Progress Tool")
     async def tool_with_progress(message: str, ctx: Context, steps: int = 3) -> str:
         await ctx.info(f"Starting processing of '{message}' with {steps} steps")
 
@@ -439,6 +437,8 @@ The Context object gives your tools and resources access to MCP capabilities:
             await ctx.debug(f"Completed step {i + 1}")
 
         return f"Processed '{message}' in {steps} steps"
+
+    # Simple tool for basic functionality
 ```
 _Full example: [examples/servers/everything/src/everything/server.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/servers/everything/src/everything/server.py#L37-L54)_
 <!-- /snippet-source -->
