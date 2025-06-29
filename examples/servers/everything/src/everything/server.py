@@ -35,9 +35,7 @@ def create_everything_server() -> FastMCP:
     mcp = FastMCP(name="EverythingServer", transport_security=transport_security)
 
     # Tool with context for logging and progress
-    @mcp.tool(
-        description="A tool that demonstrates logging and progress", title="Progress Tool"
-    )
+    @mcp.tool(description="A tool that demonstrates logging and progress", title="Progress Tool")
     async def tool_with_progress(message: str, ctx: Context, steps: int = 3) -> str:
         await ctx.info(f"Starting processing of '{message}' with {steps} steps")
 

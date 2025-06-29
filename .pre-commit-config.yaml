@@ -23,6 +23,7 @@ repos:
         types: [python]
         language: system
         pass_filenames: false
+        exclude: ^README\.md$
       - id: pyright
         name: pyright
         entry: uv run pyright
