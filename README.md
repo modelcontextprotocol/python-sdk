@@ -419,10 +419,12 @@ def create_thumbnail(image_path: str) -> Image:
 
 The Context object gives your tools and resources access to MCP capabilities:
 
-<!-- snippet-source examples/servers/everything/src/everything/server.py#L43-L58 -->
+<!-- snippet-source examples/servers/everything/src/everything/server.py#L37-L54 -->
 ```python
     # Tool with context for logging and progress
-    @mcp.tool(description="A tool that demonstrates logging and progress", title="Progress Tool")
+    @mcp.tool(
+        description="A tool that demonstrates logging and progress", title="Progress Tool"
+    )
     async def tool_with_progress(message: str, ctx: Context, steps: int = 3) -> str:
         await ctx.info(f"Starting processing of '{message}' with {steps} steps")
 
@@ -438,7 +440,7 @@ The Context object gives your tools and resources access to MCP capabilities:
 
         return f"Processed '{message}' in {steps} steps"
 ```
-_Full example: [examples/servers/everything/src/everything/server.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/servers/everything/src/everything/server.py#L43-L58)_
+_Full example: [examples/servers/everything/src/everything/server.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/servers/everything/src/everything/server.py#L37-L54)_
 <!-- /snippet-source -->
 
 ### Completions

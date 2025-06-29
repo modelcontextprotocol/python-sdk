@@ -118,8 +118,6 @@ def make_fastmcp_app():
     return mcp, app
 
 
-
-
 def make_everything_fastmcp_app():
     """Create a comprehensive FastMCP server with SSE transport."""
     mcp = create_everything_server()
