@@ -419,21 +419,27 @@ def create_thumbnail(image_path: str) -> Image:
 
 The Context object gives your tools and resources access to MCP capabilities:
 
+<!-- snippet-source examples/servers/everything/src/everything/server.py#L43-L58 -->
 ```python
-from mcp.server.fastmcp import FastMCP, Context
+    # Tool with context for logging and progress
+    @mcp.tool(description="A tool that demonstrates logging and progress", title="Progress Tool")
+    async def tool_with_progress(message: str, ctx: Context, steps: int = 3) -> str:
+        await ctx.info(f"Starting processing of '{message}' with {steps} steps")
 
-mcp = FastMCP("My App")
+        # Send progress notifications
+        for i in range(steps):
+            progress_value = (i + 1) / steps
+            await ctx.report_progress(
+                progress=progress_value,
+                total=1.0,
+                message=f"Processing step {i + 1} of {steps}",
+            )
+            await ctx.debug(f"Completed step {i + 1}")
 
-
-@mcp.tool()
-async def long_task(files: list[str], ctx: Context) -> str:
-    """Process multiple files with progress tracking"""
-    for i, file in enumerate(files):
-        ctx.info(f"Processing {file}")
-        await ctx.report_progress(i, len(files))
-        data, mime_type = await ctx.read_resource(f"file://{file}")
-    return "Processing complete"
+        return f"Processed '{message}' in {steps} steps"
 ```
+_Full example: [examples/servers/everything/src/everything/server.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/servers/everything/src/everything/server.py#L43-L58)_
+<!-- /snippet-source -->
 
 ### Completions
 
