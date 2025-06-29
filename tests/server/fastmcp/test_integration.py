@@ -12,6 +12,7 @@ import time
 from collections.abc import Generator
 from typing import Any
 
+import anyio
 import pytest
 import uvicorn
 from pydantic import AnyUrl, BaseModel, Field
@@ -812,6 +813,13 @@ async def call_all_mcp_features(session: ClientSession, collector: NotificationC
         params,
         progress_callback=progress_callback,
     )
+    # Progress notifications may arrive slightly after the tool result is
+    # received, so wait briefly to ensure all updates are processed.
+    if len(progress_updates) < steps:
+        for _ in range(5):
+            await anyio.sleep(0.05)
+            if len(progress_updates) == steps:
+                break
     assert len(tool_result.content) == 1
     assert isinstance(tool_result.content[0], TextContent)
     assert f"Processed '{test_message}' in {steps} steps" in tool_result.content[0].text
