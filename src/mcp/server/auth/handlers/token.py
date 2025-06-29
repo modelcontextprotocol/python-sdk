@@ -189,7 +189,7 @@ class TokenHandler:
                     return self.response(
                         TokenErrorResponse(
                             error="invalid_request",
-                            error_description=("redirect_uri did not match the one " "used when creating auth code"),
+                            error_description=("redirect_uri did not match the one used when creating auth code"),
                         )
                     )
 
