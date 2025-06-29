@@ -84,7 +84,7 @@ async def test_desktop(monkeypatch):
 def test_docs_examples(example: CodeExample, eval_example: EvalExample):
     ruff_ignore: list[str] = ["F841", "I001"]
 
-    eval_example.set_config(ruff_ignore=ruff_ignore, target_version="py310", line_length=88)
+    eval_example.set_config(ruff_ignore=ruff_ignore, target_version="py310", line_length=120)
 
     if eval_example.update_examples:  # pragma: no cover
         eval_example.format(example)
