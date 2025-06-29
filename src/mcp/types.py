@@ -837,7 +837,7 @@ class Tool(BaseMetadata):
 
     description: str | None = None
     """A human-readable description of the tool."""
-    inputSchema: dict[str, Any]
+    input_schema: dict[str, Any] = Field(..., alias='inputSchema')
     """A JSON Schema object defining the expected parameters for the tool."""
     outputSchema: dict[str, Any] | None = None
     """
