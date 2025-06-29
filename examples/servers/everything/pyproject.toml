@@ -1,7 +1,7 @@
 [project]
 name = "mcp-server-everything"
 version = "0.1.0"
-description = "Comprehensive MCP server demonstrating all protocol features"
+description = "Latest spec MCP server demonstrating all protocol features"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

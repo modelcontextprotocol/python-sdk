@@ -1,15 +1,9 @@
 """
-Everything Server - Comprehensive MCP FastMCP Server
-Shows all MCP features including tools, resources, prompts, sampling, and more.
-
+Everything Server
 This example demonstrates the 2025-06-18 protocol features including:
-- Tools with progress reporting, logging, and elicitation
+- Tools with progress reporting, logging, elicitation and sampling
 - Resource handling (static, dynamic, and templated)
-- Prompts with arguments
-- Completion support for resource templates and prompts
-- Request context propagation
-- Notifications and logging
-- Sampling capabilities
+- Prompts with arguments and completions
 """
 
 import json
