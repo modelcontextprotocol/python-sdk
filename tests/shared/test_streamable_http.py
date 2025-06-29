@@ -1156,6 +1156,12 @@ async def test_streamablehttp_client_resumption(event_server):
             assert result.content[0].type == "text"
             assert "Completed" in result.content[0].text
 
+            # Allow any pending notifications to be processed
+            for _ in range(50):
+                if captured_notifications:
+                    break
+                await anyio.sleep(0.1)
+
             # We should have received the remaining notifications
             assert len(captured_notifications) > 0
 
