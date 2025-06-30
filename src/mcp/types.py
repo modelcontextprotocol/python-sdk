@@ -639,7 +639,7 @@ class GetPromptRequestParams(RequestParams):
 
     name: str
     """The name of the prompt or prompt template."""
-    arguments: dict[str, str] | None = None
+    arguments: dict[str, Any] | None = None
     """Arguments to use for templating the prompt."""
     model_config = ConfigDict(extra="allow")
 

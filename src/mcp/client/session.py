@@ -344,7 +344,7 @@ class ClientSession(
             types.ListPromptsResult,
         )
 
-    async def get_prompt(self, name: str, arguments: dict[str, str] | None = None) -> types.GetPromptResult:
+    async def get_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> types.GetPromptResult:
         """Send a prompts/get request."""
         return await self.send_request(
             types.ClientRequest(
