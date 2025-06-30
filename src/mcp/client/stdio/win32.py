@@ -166,6 +166,10 @@ async def terminate_windows_process(process: Process | FallbackProcess):
     """
     Terminate a process and subprocesses.
     """
+    try:
+        parent = psutil.Process(process.pid)
+    except psutil.NoSuchProcess:
+        return
     parent = psutil.Process(process.pid)
     children = parent.children(recursive=True)
     await terminate_psutil_process(children)
