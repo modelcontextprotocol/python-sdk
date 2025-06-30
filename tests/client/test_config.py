@@ -44,9 +44,7 @@ def test_command_execution(mock_config_path: Path):
 
     test_args = [command] + args + ["--help"]
 
-    result = subprocess.run(
-        test_args, capture_output=True, text=True, timeout=5, check=False
-    )
+    result = subprocess.run(test_args, capture_output=True, text=True, timeout=5, check=False)
 
     assert result.returncode == 0
     assert "usage" in result.stdout.lower()

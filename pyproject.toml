@@ -31,7 +31,8 @@ dependencies = [
     "sse-starlette>=1.6.1",
     "pydantic-settings>=2.5.2",
     "uvicorn>=0.23.1; sys_platform != 'emscripten'",
-    "psutil>=5.9.0"
+    "psutil>=5.9.0,
+    "jsonschema>=4.20.0",
 ]
 
 [project.optional-dependencies]
@@ -97,7 +98,7 @@ select = ["C4", "E", "F", "I", "PERF", "UP"]
 ignore = ["PERF203"]
 
 [tool.ruff]
-line-length = 88
+line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint.per-file-ignores]

@@ -49,8 +49,7 @@ class StreamSpyCollection:
         return [
             req.message.root
             for req in self.client.sent_messages
-            if isinstance(req.message.root, JSONRPCRequest)
-            and (method is None or req.message.root.method == method)
+            if isinstance(req.message.root, JSONRPCRequest) and (method is None or req.message.root.method == method)
         ]
 
     def get_server_requests(self, method: str | None = None) -> list[JSONRPCRequest]:
@@ -58,13 +57,10 @@ class StreamSpyCollection:
         return [
             req.message.root
             for req in self.server.sent_messages
-            if isinstance(req.message.root, JSONRPCRequest)
-            and (method is None or req.message.root.method == method)
+            if isinstance(req.message.root, JSONRPCRequest) and (method is None or req.message.root.method == method)
         ]
 
-    def get_client_notifications(
-        self, method: str | None = None
-    ) -> list[JSONRPCNotification]:
+    def get_client_notifications(self, method: str | None = None) -> list[JSONRPCNotification]:
         """Get client-sent notifications, optionally filtered by method."""
         return [
             notif.message.root
@@ -73,9 +69,7 @@ class StreamSpyCollection:
             and (method is None or notif.message.root.method == method)
         ]
 
-    def get_server_notifications(
-        self, method: str | None = None
-    ) -> list[JSONRPCNotification]:
+    def get_server_notifications(self, method: str | None = None) -> list[JSONRPCNotification]:
         """Get server-sent notifications, optionally filtered by method."""
         return [
             notif.message.root
@@ -133,9 +127,7 @@ def stream_spy():
             yield (client_read, spy_client_write), (server_read, spy_server_write)
 
     # Apply the patch for the duration of the test
-    with patch(
-        "mcp.shared.memory.create_client_server_memory_streams", patched_create_streams
-    ):
+    with patch("mcp.shared.memory.create_client_server_memory_streams", patched_create_streams):
         # Return a collection with helper methods
         def get_spy_collection() -> StreamSpyCollection:
             assert client_spy is not None, "client_spy was not initialized"

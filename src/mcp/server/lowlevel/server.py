@@ -68,13 +68,15 @@ messages from the client.
 from __future__ import annotations as _annotations
 
 import contextvars
+import json
 import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from typing import Any, Generic
+from typing import Any, Generic, TypeAlias, cast
 
 import anyio
+import jsonschema
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 from typing_extensions import TypeVar
@@ -94,10 +96,13 @@ logger = logging.getLogger(__name__)
 LifespanResultT = TypeVar("LifespanResultT")
 RequestT = TypeVar("RequestT", default=Any)
 
+# type aliases for tool call results
+StructuredContent: TypeAlias = dict[str, Any]
+UnstructuredContent: TypeAlias = Iterable[types.ContentBlock]
+CombinationContent: TypeAlias = tuple[UnstructuredContent, StructuredContent]
+
 # This will be properly typed in each Server instance's context
-request_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any, Any]] = (
-    contextvars.ContextVar("request_ctx")
-)
+request_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any, Any]] = contextvars.ContextVar("request_ctx")
 
 
 class NotificationOptions:
@@ -140,13 +145,12 @@ class Server(Generic[LifespanResultT, RequestT]):
         self.version = version
         self.instructions = instructions
         self.lifespan = lifespan
-        self.request_handlers: dict[
-            type, Callable[..., Awaitable[types.ServerResult]]
-        ] = {
+        self.request_handlers: dict[type, Callable[..., Awaitable[types.ServerResult]]] = {
             types.PingRequest: _ping_handler,
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self.notification_options = NotificationOptions()
+        self._tool_cache: dict[str, types.Tool] = {}
         logger.debug("Initializing server %r", name)
 
     def create_initialization_options(
@@ -189,9 +193,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         # Set prompt capabilities if handler exists
         if types.ListPromptsRequest in self.request_handlers:
-            prompts_capability = types.PromptsCapability(
-                listChanged=notification_options.prompts_changed
-            )
+            prompts_capability = types.PromptsCapability(listChanged=notification_options.prompts_changed)
 
         # Set resource capabilities if handler exists
         if types.ListResourcesRequest in self.request_handlers:
@@ -201,9 +203,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         # Set tool capabilities if handler exists
         if types.ListToolsRequest in self.request_handlers:
-            tools_capability = types.ToolsCapability(
-                listChanged=notification_options.tools_changed
-            )
+            tools_capability = types.ToolsCapability(listChanged=notification_options.tools_changed)
 
         # Set logging capabilities if handler exists
         if types.SetLevelRequest in self.request_handlers:
@@ -239,9 +239,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
     def get_prompt(self):
         def decorator(
-            func: Callable[
-                [str, dict[str, str] | None], Awaitable[types.GetPromptResult]
-            ],
+            func: Callable[[str, dict[str, str] | None], Awaitable[types.GetPromptResult]],
         ):
             logger.debug("Registering handler for GetPromptRequest")
 
@@ -260,9 +258,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(_: Any):
                 resources = await func()
-                return types.ServerResult(
-                    types.ListResourcesResult(resources=resources)
-                )
+                return types.ServerResult(types.ListResourcesResult(resources=resources))
 
             self.request_handlers[types.ListResourcesRequest] = handler
             return func
@@ -275,9 +271,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(_: Any):
                 templates = await func()
-                return types.ServerResult(
-                    types.ListResourceTemplatesResult(resourceTemplates=templates)
-                )
+                return types.ServerResult(types.ListResourceTemplatesResult(resourceTemplates=templates))
 
             self.request_handlers[types.ListResourceTemplatesRequest] = handler
             return func
@@ -286,9 +280,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
     def read_resource(self):
         def decorator(
-            func: Callable[
-                [AnyUrl], Awaitable[str | bytes | Iterable[ReadResourceContents]]
-            ],
+            func: Callable[[AnyUrl], Awaitable[str | bytes | Iterable[ReadResourceContents]]],
         ):
             logger.debug("Registering handler for ReadResourceRequest")
 
@@ -323,8 +315,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                         content = create_content(data, None)
                     case Iterable() as contents:
                         contents_list = [
-                            create_content(content_item.content, content_item.mime_type)
-                            for content_item in contents
+                            create_content(content_item.content, content_item.mime_type) for content_item in contents
                         ]
                         return types.ServerResult(
                             types.ReadResourceResult(
@@ -332,9 +323,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                             )
                         )
                     case _:
-                        raise ValueError(
-                            f"Unexpected return type from read_resource: {type(result)}"
-                        )
+                        raise ValueError(f"Unexpected return type from read_resource: {type(result)}")
 
                 return types.ServerResult(
                     types.ReadResourceResult(
@@ -392,6 +381,10 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(_: Any):
                 tools = await func()
+                # Refresh the tool cache
+                self._tool_cache.clear()
+                for tool in tools:
+                    self._tool_cache[tool.name] = tool
                 return types.ServerResult(types.ListToolsResult(tools=tools))
 
             self.request_handlers[types.ListToolsRequest] = handler
@@ -399,32 +392,109 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return decorator
 
-    def call_tool(self):
+    def _make_error_result(self, error_message: str) -> types.ServerResult:
+        """Create a ServerResult with an error CallToolResult."""
+        return types.ServerResult(
+            types.CallToolResult(
+                content=[types.TextContent(type="text", text=error_message)],
+                isError=True,
+            )
+        )
+
+    async def _get_cached_tool_definition(self, tool_name: str) -> types.Tool | None:
+        """Get tool definition from cache, refreshing if necessary.
+
+        Returns the Tool object if found, None otherwise.
+        """
+        if tool_name not in self._tool_cache:
+            if types.ListToolsRequest in self.request_handlers:
+                logger.debug("Tool cache miss for %s, refreshing cache", tool_name)
+                await self.request_handlers[types.ListToolsRequest](None)
+
+        tool = self._tool_cache.get(tool_name)
+        if tool is None:
+            logger.warning("Tool '%s' not listed, no validation will be performed", tool_name)
+
+        return tool
+
+    def call_tool(self, *, validate_input: bool = True):
+        """Register a tool call handler.
+
+        Args:
+            validate_input: If True, validates input against inputSchema. Default is True.
+
+        The handler validates input against inputSchema (if validate_input=True), calls the tool function,
+        and builds a CallToolResult with the results:
+        - Unstructured content (iterable of ContentBlock): returned in content
+        - Structured content (dict): returned in structuredContent, serialized JSON text returned in content
+        - Both: returned in content and structuredContent
+
+        If outputSchema is defined, validates structuredContent or errors if missing.
+        """
+
         def decorator(
             func: Callable[
                 ...,
-                Awaitable[
-                    Iterable[
-                        types.TextContent | types.ImageContent | types.EmbeddedResource
-                    ]
-                ],
+                Awaitable[UnstructuredContent | StructuredContent | CombinationContent],
             ],
         ):
             logger.debug("Registering handler for CallToolRequest")
 
             async def handler(req: types.CallToolRequest):
                 try:
-                    results = await func(req.params.name, (req.params.arguments or {}))
-                    return types.ServerResult(
-                        types.CallToolResult(content=list(results), isError=False)
-                    )
-                except Exception as e:
+                    tool_name = req.params.name
+                    arguments = req.params.arguments or {}
+                    tool = await self._get_cached_tool_definition(tool_name)
+
+                    # input validation
+                    if validate_input and tool:
+                        try:
+                            jsonschema.validate(instance=arguments, schema=tool.inputSchema)
+                        except jsonschema.ValidationError as e:
+                            return self._make_error_result(f"Input validation error: {e.message}")
+
+                    # tool call
+                    results = await func(tool_name, arguments)
+
+                    # output normalization
+                    unstructured_content: UnstructuredContent
+                    maybe_structured_content: StructuredContent | None
+                    if isinstance(results, tuple) and len(results) == 2:
+                        # tool returned both structured and unstructured content
+                        unstructured_content, maybe_structured_content = cast(CombinationContent, results)
+                    elif isinstance(results, dict):
+                        # tool returned structured content only
+                        maybe_structured_content = cast(StructuredContent, results)
+                        unstructured_content = [types.TextContent(type="text", text=json.dumps(results, indent=2))]
+                    elif hasattr(results, "__iter__"):
+                        # tool returned unstructured content only
+                        unstructured_content = cast(UnstructuredContent, results)
+                        maybe_structured_content = None
+                    else:
+                        return self._make_error_result(f"Unexpected return type from tool: {type(results).__name__}")
+
+                    # output validation
+                    if tool and tool.outputSchema is not None:
+                        if maybe_structured_content is None:
+                            return self._make_error_result(
+                                "Output validation error: outputSchema defined but no structured output returned"
+                            )
+                        else:
+                            try:
+                                jsonschema.validate(instance=maybe_structured_content, schema=tool.outputSchema)
+                            except jsonschema.ValidationError as e:
+                                return self._make_error_result(f"Output validation error: {e.message}")
+
+                    # result
                     return types.ServerResult(
                         types.CallToolResult(
-                            content=[types.TextContent(type="text", text=str(e))],
-                            isError=True,
+                            content=list(unstructured_content),
+                            structuredContent=maybe_structured_content,
+                            isError=False,
                         )
                     )
+                except Exception as e:
+                    return self._make_error_result(str(e))
 
             self.request_handlers[types.CallToolRequest] = handler
             return func
@@ -433,9 +503,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
     def progress_notification(self):
         def decorator(
-            func: Callable[
-                [str | int, float, float | None, str | None], Awaitable[None]
-            ],
+            func: Callable[[str | int, float, float | None, str | None], Awaitable[None]],
         ):
             logger.debug("Registering handler for ProgressNotification")
 
@@ -458,8 +526,9 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(
             func: Callable[
                 [
-                    types.PromptReference | types.ResourceReference,
+                    types.PromptReference | types.ResourceTemplateReference,
                     types.CompletionArgument,
+                    types.CompletionContext | None,
                 ],
                 Awaitable[types.Completion | None],
             ],
@@ -467,7 +536,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             logger.debug("Registering handler for CompleteRequest")
 
             async def handler(req: types.CompleteRequest):
-                completion = await func(req.params.ref, req.params.argument)
+                completion = await func(req.params.ref, req.params.argument, req.params.context)
                 return types.ServerResult(
                     types.CompleteResult(
                         completion=completion
@@ -522,9 +591,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
     async def _handle_message(
         self,
-        message: RequestResponder[types.ClientRequest, types.ServerResult]
-        | types.ClientNotification
-        | Exception,
+        message: RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception,
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool = False,
@@ -532,20 +599,14 @@ class Server(Generic[LifespanResultT, RequestT]):
         with warnings.catch_warnings(record=True) as w:
             # TODO(Marcelo): We should be checking if message is Exception here.
             match message:  # type: ignore[reportMatchNotExhaustive]
-                case (
-                    RequestResponder(request=types.ClientRequest(root=req)) as responder
-                ):
+                case RequestResponder(request=types.ClientRequest(root=req)) as responder:
                     with responder:
-                        await self._handle_request(
-                            message, req, session, lifespan_context, raise_exceptions
-                        )
+                        await self._handle_request(message, req, session, lifespan_context, raise_exceptions)
                 case types.ClientNotification(root=notify):
                     await self._handle_notification(notify)
 
             for warning in w:
-                logger.info(
-                    "Warning: %s: %s", warning.category.__name__, warning.message
-                )
+                logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
 
     async def _handle_request(
         self,
@@ -563,9 +624,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             try:
                 # Extract request context from message metadata
                 request_data = None
-                if message.message_metadata is not None and isinstance(
-                    message.message_metadata, ServerMessageMetadata
-                ):
+                if message.message_metadata is not None and isinstance(message.message_metadata, ServerMessageMetadata):
                     request_data = message.message_metadata.request_context
 
                 # Set our global state that can be retrieved via
