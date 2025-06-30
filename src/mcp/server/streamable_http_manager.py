@@ -52,7 +52,8 @@ class StreamableHTTPSessionManager:
         json_response: Whether to use JSON responses instead of SSE streams
         stateless: If True, creates a completely fresh transport for each request
                    with no session tracking or state persistence between requests.
-
+        maximum_message_size: Optional configurable maximum message size specified
+                              in bytes
     """
 
     def __init__(
@@ -62,12 +63,14 @@ class StreamableHTTPSessionManager:
         json_response: bool = False,
         stateless: bool = False,
         security_settings: TransportSecuritySettings | None = None,
+        maximum_message_size: int | None = None,
     ):
         self.app = app
         self.event_store = event_store
         self.json_response = json_response
         self.stateless = stateless
         self.security_settings = security_settings
+        self.maximum_message_size = maximum_message_size
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
@@ -166,6 +169,7 @@ class StreamableHTTPSessionManager:
             is_json_response_enabled=self.json_response,
             event_store=None,  # No event store in stateless mode
             security_settings=self.security_settings,
+            maximum_message_size=self.maximum_message_size,
         )
 
         # Start server in a new task
@@ -222,6 +226,7 @@ class StreamableHTTPSessionManager:
                     is_json_response_enabled=self.json_response,
                     event_store=self.event_store,  # May be None (no resumability)
                     security_settings=self.security_settings,
+                    maximum_message_size=self.maximum_message_size,
                 )
 
                 assert http_transport.mcp_session_id is not None

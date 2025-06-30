@@ -93,6 +93,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # StreamableHTTP settings
     json_response: bool = False
     stateless_http: bool = False  # If True, uses true stateless mode (new transport per request)
+    maximum_message_size: int | None = None  # Specified in bytes
 
     # resource settings
     warn_on_duplicate_resources: bool = True
@@ -838,6 +839,7 @@ class FastMCP:
                 json_response=self.settings.json_response,
                 stateless=self.settings.stateless_http,  # Use the stateless setting
                 security_settings=self.settings.transport_security,
+                maximum_message_size=self.settings.maximum_message_size,
             )
 
         # Create the ASGI handler
