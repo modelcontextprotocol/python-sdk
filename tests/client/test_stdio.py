@@ -525,3 +525,119 @@ class TestChildProcessCleanup:
                 os.unlink(marker_file)
             except OSError:
                 pass
+
+
+@pytest.mark.anyio
+async def test_stdio_client_graceful_stdin_exit():
+    """
+    Test that a process exits gracefully when stdin is closed,
+    without needing SIGTERM or SIGKILL.
+    """
+    # Create a Python script that exits when stdin is closed
+    script_content = textwrap.dedent(
+        """
+        import sys
+        
+        # Read from stdin until it's closed
+        try:
+            while True:
+                line = sys.stdin.readline()
+                if not line:  # EOF/stdin closed
+                    break
+        except:
+            pass
+        
+        # Exit gracefully
+        sys.exit(0)
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", script_content],
+    )
+
+    start_time = time.time()
+
+    # Use anyio timeout to prevent test from hanging forever
+    with anyio.move_on_after(5.0) as cancel_scope:
+        async with stdio_client(server_params) as (read_stream, write_stream):
+            # Let the process start and begin reading stdin
+            await anyio.sleep(0.2)
+            # Exit context triggers cleanup - process should exit from stdin closure
+            pass
+
+    if cancel_scope.cancelled_caught:
+        pytest.fail(
+            "stdio_client cleanup timed out after 5.0 seconds. "
+            "Process should have exited gracefully when stdin was closed."
+        )
+
+    end_time = time.time()
+    elapsed = end_time - start_time
+
+    # Should complete quickly with just stdin closure (no signals needed)
+    assert elapsed < 3.0, (
+        f"stdio_client cleanup took {elapsed:.1f} seconds for stdin-aware process. "
+        f"Expected < 3.0 seconds since process should exit on stdin closure."
+    )
+
+
+@pytest.mark.anyio
+async def test_stdio_client_stdin_close_ignored():
+    """
+    Test that when a process ignores stdin closure, the shutdown sequence
+    properly escalates to SIGTERM.
+    """
+    # Create a Python script that ignores stdin closure but responds to SIGTERM
+    script_content = textwrap.dedent(
+        """
+        import signal
+        import sys
+        import time
+        
+        # Set up SIGTERM handler to exit cleanly
+        def sigterm_handler(signum, frame):
+            sys.exit(0)
+        
+        signal.signal(signal.SIGTERM, sigterm_handler)
+        
+        # Close stdin immediately to simulate ignoring it
+        sys.stdin.close()
+        
+        # Keep running until SIGTERM
+        while True:
+            time.sleep(0.1)
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", script_content],
+    )
+
+    start_time = time.time()
+
+    # Use anyio timeout to prevent test from hanging forever
+    with anyio.move_on_after(7.0) as cancel_scope:
+        async with stdio_client(server_params) as (read_stream, write_stream):
+            # Let the process start
+            await anyio.sleep(0.2)
+            # Exit context triggers cleanup
+            pass
+
+    if cancel_scope.cancelled_caught:
+        pytest.fail(
+            "stdio_client cleanup timed out after 7.0 seconds. "
+            "Process should have been terminated via SIGTERM escalation."
+        )
+
+    end_time = time.time()
+    elapsed = end_time - start_time
+
+    # Should take ~2 seconds (stdin close timeout) before SIGTERM is sent
+    # Total time should be between 2-4 seconds
+    assert 1.5 < elapsed < 4.5, (
+        f"stdio_client cleanup took {elapsed:.1f} seconds for stdin-ignoring process. "
+        f"Expected between 2-4 seconds (2s stdin timeout + termination time)."
+    )
