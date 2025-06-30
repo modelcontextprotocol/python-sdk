@@ -161,6 +161,7 @@ async def create_windows_process(
         )
         return FallbackProcess(popen_obj)
 
+
 async def terminate_windows_process(process: Process | FallbackProcess):
     """
     Terminate a process and subprocesses.
@@ -175,7 +176,7 @@ async def terminate_windows_process(process: Process | FallbackProcess):
     children = parent.children(recursive=True)
     await terminate_psutil_process(children)
     await terminate_psutil_process([parent])
-    
+
 
 async def terminate_psutil_process(processes: list[psutil.Process]):
     """
@@ -205,6 +206,3 @@ async def terminate_psutil_process(processes: list[psutil.Process]):
             pass  # Already gone
         except Exception:
             pass
-
-
-
