@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from typing import BinaryIO, TextIO, cast
 
-import anyio
 import psutil
 from anyio import to_thread
 from anyio.abc import Process
