@@ -498,7 +498,7 @@ async def handle_completion(
 ```
 ### Elicitation
 
-Request additional information from users during tool execution:
+Request additional information from users. This example shows an Elicitation during a Tool Call:
 
 ```python
 from mcp.server.fastmcp import FastMCP, Context
