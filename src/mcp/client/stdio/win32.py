@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import BinaryIO, TextIO, cast
 
-from anyio import to_thread
+import anyio
 from anyio.streams.file import FileReadStream, FileWriteStream
 
 
@@ -73,9 +73,18 @@ class FallbackProcess:
         exc_val: BaseException | None,
         exc_tb: object | None,
     ) -> None:
-        """Terminate and wait on process exit inside a thread."""
-        self.popen.terminate()
-        await to_thread.run_sync(self.popen.wait)
+        """Clean up process and streams.
+
+        Attempts to terminate the process, but doesn't fail if termination
+        is not possible (e.g., process already dead or being handled elsewhere).
+        """
+        try:
+            self.popen.terminate()
+            with anyio.move_on_after(0.5):
+                await self.wait()
+        except (ProcessLookupError, OSError):
+            # Process already dead or being handled elsewhere
+            pass
 
         # Close the file handles to prevent ResourceWarning
         if self.stdin:
@@ -90,8 +99,13 @@ class FallbackProcess:
             self.stderr.close()
 
     async def wait(self):
-        """Async wait for process completion."""
-        return await to_thread.run_sync(self.popen.wait)
+        """
+        Poll the process status instead of blocking wait
+        This allows anyio timeouts to work properly
+        """
+        while self.popen.poll() is None:
+            await anyio.sleep(0.1)
+        return self.popen.returncode
 
     def terminate(self):
         """Terminate the subprocess immediately."""
