@@ -1,4 +1,6 @@
+import logging
 import os
+import signal
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -6,6 +8,7 @@ from typing import Literal, TextIO
 
 import anyio
 import anyio.lowlevel
+from anyio.abc import Process
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from anyio.streams.text import TextReceiveStream
 from pydantic import BaseModel, Field
@@ -14,9 +17,13 @@ import mcp.types as types
 from mcp.shared.message import SessionMessage
 
 from .win32 import (
+    FallbackProcess,
     create_windows_process,
     get_windows_executable_command,
+    terminate_windows_process_tree,
 )
+
+logger = logging.getLogger("client.stdio")
 
 # Environment variables to inherit by default
 DEFAULT_INHERITED_ENV_VARS = (
@@ -187,7 +194,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                     await process.wait()
             except TimeoutError:
                 # If process doesn't terminate in time, force kill it
-                process.kill()
+                await _terminate_process_tree(process)
             except ProcessLookupError:
                 # Process already exited, which is fine
                 pass
@@ -222,11 +229,65 @@ async def _create_platform_compatible_process(
 ):
     """
     Creates a subprocess in a platform-compatible way.
-    Returns a process handle.
+
+    Unix: Creates process in a new session/process group for killpg support
+    Windows: Creates process in a Job Object for reliable child termination
     """
     if sys.platform == "win32":
         process = await create_windows_process(command, args, env, errlog, cwd)
     else:
-        process = await anyio.open_process([command, *args], env=env, stderr=errlog, cwd=cwd)
+        process = await anyio.open_process(
+            [command, *args],
+            env=env,
+            stderr=errlog,
+            cwd=cwd,
+            start_new_session=True,
+        )
 
     return process
+
+
+async def _terminate_process_tree(process: Process | FallbackProcess, timeout: float = 2.0) -> None:
+    """
+    Terminate a process and all its children using platform-specific methods.
+
+    Unix: Uses os.killpg() for atomic process group termination
+    Windows: Uses Job Objects via pywin32 for reliable child process cleanup
+    """
+    if sys.platform == "win32":
+        await terminate_windows_process_tree(process, timeout)
+    else:
+        pid = getattr(process, "pid", None) or getattr(getattr(process, "popen", None), "pid", None)
+        if not pid:
+            return
+
+        try:
+            pgid = os.getpgid(pid)
+            os.killpg(pgid, signal.SIGTERM)
+
+            deadline = anyio.current_time() + timeout
+            while anyio.current_time() < deadline:
+                try:
+                    # Check if process group still exists (signal 0 = check only)
+                    os.killpg(pgid, 0)
+                    await anyio.sleep(0.1)
+                except ProcessLookupError:
+                    return
+
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+        except (ProcessLookupError, PermissionError, OSError) as e:
+            logger.warning(f"Process group termination failed for PID {pid}: {e}, falling back to simple terminate")
+            try:
+                process.terminate()
+                with anyio.fail_after(timeout):
+                    await process.wait()
+            except Exception as term_error:
+                logger.warning(f"Process termination failed for PID {pid}: {term_error}, attempting force kill")
+                try:
+                    process.kill()
+                except Exception as kill_error:
+                    logger.error(f"Failed to kill process {pid}: {kill_error}")

@@ -1,5 +1,7 @@
+import os
 import shutil
 import sys
+import tempfile
 import textwrap
 import time
 
@@ -9,6 +11,7 @@ import pytest
 from mcp.client.session import ClientSession
 from mcp.client.stdio import (
     StdioServerParameters,
+    _create_platform_compatible_process,
     stdio_client,
 )
 from mcp.shared.exceptions import McpError
@@ -219,3 +222,306 @@ async def test_stdio_client_sigint_only_process():
             )
         else:
             raise
+
+
+class TestChildProcessCleanup:
+    """
+    Tests for child process cleanup functionality using _terminate_process_tree.
+
+    These tests verify that child processes are properly terminated when the parent
+    is killed, addressing the issue where processes like npx spawn child processes
+    that need to be cleaned up. The tests cover various process tree scenarios:
+
+    - Basic parent-child relationship (single child process)
+    - Multi-level process trees (parent → child → grandchild)
+    - Race conditions where parent exits during cleanup
+
+    Note on Windows ResourceWarning:
+    On Windows, we may see ResourceWarning about subprocess still running. This is
+    expected behavior due to how Windows process termination works:
+    - anyio's process.terminate() calls Windows TerminateProcess() API
+    - TerminateProcess() immediately kills the process without allowing cleanup
+    - subprocess.Popen objects in the killed process can't run their cleanup code
+    - Python detects this during garbage collection and issues a ResourceWarning
+
+    This warning does NOT indicate a process leak - the processes are properly
+    terminated. It only means the Popen objects couldn't clean up gracefully.
+    This is a fundamental difference between Windows and Unix process termination.
+    """
+
+    @staticmethod
+    def _escape_path_for_python(path: str) -> str:
+        """Escape a file path for use in Python code strings."""
+        # Use forward slashes which work on all platforms and don't need escaping
+        return repr(path.replace("\\", "/"))
+
+    @pytest.mark.anyio
+    @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
+    async def test_basic_child_process_cleanup(self):
+        """
+        Test basic parent-child process cleanup.
+        Parent spawns a single child process that writes continuously to a file.
+        """
+        # Create a marker file for the child process to write to
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            marker_file = f.name
+
+        # Also create a file to verify parent started
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            parent_marker = f.name
+
+        try:
+            # Parent script that spawns a child process
+            parent_script = textwrap.dedent(
+                f"""
+                import subprocess
+                import sys
+                import time
+                import os
+
+                # Mark that parent started
+                with open({self._escape_path_for_python(parent_marker)}, 'w') as f:
+                    f.write('parent started\\n')
+
+                # Child script that writes continuously
+                child_script = f'''
+                import time
+                with open({self._escape_path_for_python(marker_file)}, 'a') as f:
+                    while True:
+                        f.write(f"{time.time()}")
+                        f.flush()
+                        time.sleep(0.1)
+                '''
+
+                # Start the child process
+                child = subprocess.Popen([sys.executable, '-c', child_script])
+
+                # Parent just sleeps
+                while True:
+                    time.sleep(0.1)
+                """
+            )
+
+            print("\nStarting child process termination test...")
+
+            # Start the parent process
+            proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+
+            # Wait for processes to start
+            await anyio.sleep(0.5)
+
+            # Verify parent started
+            assert os.path.exists(parent_marker), "Parent process didn't start"
+
+            # Verify child is writing
+            if os.path.exists(marker_file):
+                initial_size = os.path.getsize(marker_file)
+                await anyio.sleep(0.3)
+                size_after_wait = os.path.getsize(marker_file)
+                assert size_after_wait > initial_size, "Child process should be writing"
+                print(f"Child is writing (file grew from {initial_size} to {size_after_wait} bytes)")
+
+            # Terminate using our function
+            print("Terminating process and children...")
+            from mcp.client.stdio import _terminate_process_tree
+
+            await _terminate_process_tree(proc)
+
+            # Verify processes stopped
+            await anyio.sleep(0.5)
+            if os.path.exists(marker_file):
+                size_after_cleanup = os.path.getsize(marker_file)
+                await anyio.sleep(0.5)
+                final_size = os.path.getsize(marker_file)
+
+                print(f"After cleanup: file size {size_after_cleanup} -> {final_size}")
+                assert final_size == size_after_cleanup, (
+                    f"Child process still running! File grew by {final_size - size_after_cleanup} bytes"
+                )
+
+            print("SUCCESS: Child process was properly terminated")
+
+        finally:
+            # Clean up files
+            for f in [marker_file, parent_marker]:
+                try:
+                    os.unlink(f)
+                except OSError:
+                    pass
+
+    @pytest.mark.anyio
+    @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
+    async def test_nested_process_tree(self):
+        """
+        Test nested process tree cleanup (parent → child → grandchild).
+        Each level writes to a different file to verify all processes are terminated.
+        """
+        # Create temporary files for each process level
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f1:
+            parent_file = f1.name
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f2:
+            child_file = f2.name
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f3:
+            grandchild_file = f3.name
+
+        try:
+            # Simple nested process tree test
+            # We create parent -> child -> grandchild, each writing to a file
+            parent_script = textwrap.dedent(
+                f"""
+                import subprocess
+                import sys
+                import time
+                import os
+
+                # Child will spawn grandchild and write to child file
+                child_script = f'''import subprocess
+                import sys
+                import time
+
+                # Grandchild just writes to file
+                grandchild_script = \"\"\"import time
+                with open({self._escape_path_for_python(grandchild_file)}, 'a') as f:
+                    while True:
+                        f.write(f"gc {{time.time()}}")
+                        f.flush()
+                        time.sleep(0.1)\"\"\"
+
+                # Spawn grandchild
+                subprocess.Popen([sys.executable, '-c', grandchild_script])
+
+                # Child writes to its file
+                with open({self._escape_path_for_python(child_file)}, 'a') as f:
+                    while True:
+                        f.write(f"c {time.time()}")
+                        f.flush()
+                        time.sleep(0.1)'''
+
+                # Spawn child process
+                subprocess.Popen([sys.executable, '-c', child_script])
+
+                # Parent writes to its file
+                with open({self._escape_path_for_python(parent_file)}, 'a') as f:
+                    while True:
+                        f.write(f"p {time.time()}")
+                        f.flush()
+                        time.sleep(0.1)
+                """
+            )
+
+            # Start the parent process
+            proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+
+            # Let all processes start
+            await anyio.sleep(1.0)
+
+            # Verify all are writing
+            for file_path, name in [(parent_file, "parent"), (child_file, "child"), (grandchild_file, "grandchild")]:
+                if os.path.exists(file_path):
+                    initial_size = os.path.getsize(file_path)
+                    await anyio.sleep(0.3)
+                    new_size = os.path.getsize(file_path)
+                    assert new_size > initial_size, f"{name} process should be writing"
+
+            # Terminate the whole tree
+            from mcp.client.stdio import _terminate_process_tree
+
+            await _terminate_process_tree(proc)
+
+            # Verify all stopped
+            await anyio.sleep(0.5)
+            for file_path, name in [(parent_file, "parent"), (child_file, "child"), (grandchild_file, "grandchild")]:
+                if os.path.exists(file_path):
+                    size1 = os.path.getsize(file_path)
+                    await anyio.sleep(0.3)
+                    size2 = os.path.getsize(file_path)
+                    assert size1 == size2, f"{name} still writing after cleanup!"
+
+            print("SUCCESS: All processes in tree terminated")
+
+        finally:
+            # Clean up all marker files
+            for f in [parent_file, child_file, grandchild_file]:
+                try:
+                    os.unlink(f)
+                except OSError:
+                    pass
+
+    @pytest.mark.anyio
+    @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
+    async def test_early_parent_exit(self):
+        """
+        Test cleanup when parent exits during termination sequence.
+        Tests the race condition where parent might die during our termination
+        sequence but we can still clean up the children via the process group.
+        """
+        # Create a temporary file for the child
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            marker_file = f.name
+
+        try:
+            # Parent that spawns child and waits briefly
+            parent_script = textwrap.dedent(
+                f"""
+                import subprocess
+                import sys
+                import time
+                import signal
+
+                # Child that continues running
+                child_script = f'''import time
+                with open({self._escape_path_for_python(marker_file)}, 'a') as f:
+                    while True:
+                        f.write(f"child {time.time()}")
+                        f.flush()
+                        time.sleep(0.1)'''
+
+                # Start child in same process group
+                subprocess.Popen([sys.executable, '-c', child_script])
+
+                # Parent waits a bit then exits on SIGTERM
+                def handle_term(sig, frame):
+                    sys.exit(0)
+
+                signal.signal(signal.SIGTERM, handle_term)
+
+                # Wait
+                while True:
+                    time.sleep(0.1)
+                """
+            )
+
+            # Start the parent process
+            proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+
+            # Let child start writing
+            await anyio.sleep(0.5)
+
+            # Verify child is writing
+            if os.path.exists(marker_file):
+                size1 = os.path.getsize(marker_file)
+                await anyio.sleep(0.3)
+                size2 = os.path.getsize(marker_file)
+                assert size2 > size1, "Child should be writing"
+
+            # Terminate - this will kill the process group even if parent exits first
+            from mcp.client.stdio import _terminate_process_tree
+
+            await _terminate_process_tree(proc)
+
+            # Verify child stopped
+            await anyio.sleep(0.5)
+            if os.path.exists(marker_file):
+                size3 = os.path.getsize(marker_file)
+                await anyio.sleep(0.3)
+                size4 = os.path.getsize(marker_file)
+                assert size3 == size4, "Child should be terminated"
+
+            print("SUCCESS: Child terminated even with parent exit during cleanup")
+
+        finally:
+            # Clean up marker file
+            try:
+                os.unlink(marker_file)
+            except OSError:
+                pass
