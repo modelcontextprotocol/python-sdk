@@ -305,7 +305,7 @@ class StreamableHTTPTransport:
             data = json.loads(content)
 
             if isinstance(data, list):
-                messages = [JSONRPCMessage.model_validate(item) for item in data] # type: ignore
+                messages = [JSONRPCMessage.model_validate(item) for item in data]  # type: ignore
             else:
                 message = JSONRPCMessage.model_validate(data)
                 messages = [message]
