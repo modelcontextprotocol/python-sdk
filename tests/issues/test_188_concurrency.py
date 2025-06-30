@@ -24,9 +24,12 @@ async def test_messages_are_executed_concurrently():
         return "done"
 
     @server.resource(_resource_name)
-    async def slow_resource():
+    def slow_resource():
         call_timestamps.append(("resource_start_time", anyio.current_time()))
-        await anyio.sleep(_sleep_time_seconds)
+        # For sync function, we can't use anyio.sleep, so we'll use time.sleep
+        import time
+
+        time.sleep(_sleep_time_seconds)
         call_timestamps.append(("resource_end_time", anyio.current_time()))
         return "slow"
 
