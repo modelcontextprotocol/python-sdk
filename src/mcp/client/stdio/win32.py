@@ -62,6 +62,7 @@ class FallbackProcess:
         self.stdin_raw = popen_obj.stdin  # type: ignore[assignment]
         self.stdout_raw = popen_obj.stdout  # type: ignore[assignment]
         self.stderr = popen_obj.stderr  # type: ignore[assignment]
+        self.pid = popen_obj.pid
 
         self.stdin = FileWriteStream(cast(BinaryIO, self.stdin_raw)) if self.stdin_raw else None
         self.stdout = FileReadStream(cast(BinaryIO, self.stdout_raw)) if self.stdout_raw else None
