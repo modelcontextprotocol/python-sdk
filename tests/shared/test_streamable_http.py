@@ -181,11 +181,25 @@ class ServerTest(Server):
                     related_request_id=ctx.request_id,  # need for stream association
                 )
 
-                await anyio.sleep(0.1)
+                # need to wait for long enough that the client can
+                # reliably stop the tool before this finishes
+                await anyio.sleep(0.3)
 
                 await ctx.session.send_log_message(
                     level="info",
                     data="Tool is almost done",
+                    logger="tool",
+                    related_request_id=ctx.request_id,
+                )
+
+                # Adding another message just to make it even less
+                # likely that this tool will exit before the client
+                # can stop it
+                await anyio.sleep(0.3)
+
+                await ctx.session.send_log_message(
+                    level="info",
+                    data="Tool is done",
                     logger="tool",
                     related_request_id=ctx.request_id,
                 )
@@ -1114,6 +1128,11 @@ async def test_streamablehttp_client_resumption(event_server):
                     await anyio.sleep(0.1)
                 tg.cancel_scope.cancel()
 
+    # Make sure we only have one notification.. otherwise the test is flaky
+    # More than one notification means the tool likely could have finished
+    # already and will not call the message handler again upon resumption
+    assert len(captured_notifications) == 1
+
     # Store pre notifications and clear the captured notifications
     # for the post-resumption check
     captured_notifications_pre = captured_notifications.copy()
@@ -1140,6 +1159,10 @@ async def test_streamablehttp_client_resumption(event_server):
             metadata = ClientMessageMetadata(
                 resumption_token=captured_resumption_token,
             )
+            # We need to wait for the tool to send another message so this doesn't
+            # deadlock.  Fixing is out of scope for this PR.  More details in
+            # https://github.com/modelcontextprotocol/python-sdk/issues/860
+            await anyio.sleep(0.2)
             result = await session.send_request(
                 types.ClientRequest(
                     types.CallToolRequest(
@@ -1157,7 +1180,7 @@ async def test_streamablehttp_client_resumption(event_server):
             assert "Completed" in result.content[0].text
 
             # We should have received the remaining notifications
-            assert len(captured_notifications) > 0
+            assert len(captured_notifications) == 2
 
             # Should not have the first notification
             # Check that "Tool started" notification isn't repeated when resuming
