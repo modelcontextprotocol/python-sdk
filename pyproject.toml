@@ -32,6 +32,7 @@ dependencies = [
     "pydantic-settings>=2.5.2",
     "uvicorn>=0.23.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",
+    "psutil>=5.9.0,<6.0.0",
 ]
 
 [project.optional-dependencies]

@@ -115,6 +115,11 @@ class FallbackProcess:
         """Kill the subprocess immediately (alias for terminate)."""
         self.terminate()
 
+    @property
+    def pid(self) -> int:
+        """Return the process ID."""
+        return self.popen.pid
+
 
 # ------------------------
 # Updated function
