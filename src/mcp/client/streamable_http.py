@@ -6,12 +6,12 @@ providing support for HTTP POST requests with optional SSE streaming responses
 and session management.
 """
 
+import json
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
-import json
 
 import anyio
 import httpx
