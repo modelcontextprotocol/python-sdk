@@ -169,6 +169,8 @@ async def terminate_windows_process(process: Process | FallbackProcess):
         parent = psutil.Process(process.pid)
     except psutil.NoSuchProcess:
         return
+    except Exception:
+        pass  # Optionally log the exception
     parent = psutil.Process(process.pid)
     children = parent.children(recursive=True)
     await terminate_psutil_process(children)
