@@ -106,7 +106,7 @@ extend-exclude = ["README.md"]
 "tests/server/fastmcp/test_func_metadata.py" = ["E501"]
 
 [tool.uv.workspace]
-members = ["examples/servers/*"]
+members = ["examples/servers/*", "examples/snippets"]
 
 [tool.uv.sources]
 mcp = { workspace = true }
