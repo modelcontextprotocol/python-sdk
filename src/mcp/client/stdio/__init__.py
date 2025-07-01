@@ -181,29 +181,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         try:
             yield read_stream, write_stream
         finally:
-            # MCP spec: stdio shutdown sequence
-            # 1. Close input stream to server
-            # 2. Wait for server to exit, or send SIGTERM if it doesn't exit in time
-            # 3. Send SIGKILL if still not exited (forcibly kill on Windows)
-            if process.stdin:
-                try:
-                    await process.stdin.aclose()
-                except Exception:
-                    # stdin might already be closed, which is fine
-                    pass
-
-            try:
-                # Give the process time to exit gracefully after stdin closes
-                with anyio.fail_after(2.0):
-                    await process.wait()
-            except TimeoutError:
-                # Process didn't exit from stdin closure, use our termination function
-                # that handles child processes properly
-                await _terminate_process_with_children(process)
-            except ProcessLookupError:
-                # Process already exited, which is fine
-                pass
-
+            await _shutdown_process(process)
             await read_stream.aclose()
             await write_stream.aclose()
             await read_stream_writer.aclose()
@@ -249,6 +227,35 @@ async def _create_platform_compatible_process(
         )
 
     return process
+
+
+async def _shutdown_process(process: Process | FallbackProcess) -> None:
+    """
+    MCP spec: stdio shutdown sequence
+    1. Close input stream to server
+    2. Wait for server to exit, or send SIGTERM if it doesn't exit in time
+    3. Send SIGKILL if still not exited (forcibly kill on Windows)
+    """
+
+    # Close input stream to server
+    if process.stdin:
+        try:
+            await process.stdin.aclose()
+        except Exception:
+            # stdin might already be closed, which is fine
+            pass
+
+    try:
+        # Wait for server to exit gracefully after stdin closes
+        with anyio.fail_after(2.0):
+            await process.wait()
+    except TimeoutError:
+        # 2. send SIGTERM if it doesn't exit in time
+        # 3. Send SIGKILL if still not exited (forcibly kill on Windows)
+        await _terminate_process_with_children(process)
+    except ProcessLookupError:
+        # Process already exited, which is fine
+        pass
 
 
 async def _terminate_process_with_children(process: Process | FallbackProcess, timeout: float = 2.0) -> None:
