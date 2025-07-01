@@ -236,7 +236,7 @@ async def test_basic_tools(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Basic Tool Example"
+            assert result.serverInfo.name == "Tool Example"
             assert result.capabilities.tools is not None
 
             # Test add tool
@@ -273,7 +273,7 @@ async def test_basic_resources(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Basic Resource Example"
+            assert result.serverInfo.name == "Resource Example"
             assert result.capabilities.resources is not None
 
             # Test document resource
@@ -314,7 +314,7 @@ async def test_basic_prompts(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Basic Prompt Example"
+            assert result.serverInfo.name == "Prompt Example"
             assert result.capabilities.prompts is not None
 
             # Test summarize prompt
@@ -544,7 +544,7 @@ async def test_completion(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Completion Example"
+            assert result.serverInfo.name == "Example"
             assert result.capabilities.resources is not None
             assert result.capabilities.prompts is not None
 
