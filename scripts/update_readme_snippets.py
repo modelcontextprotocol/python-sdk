@@ -71,7 +71,7 @@ def process_snippet_block(match: re.Match, check_mode: bool = False) -> str:
     indent = match.group(1)
     file_path = match.group(2)
     start_line = match.group(3)  # May be None
-    end_line = match.group(4)    # May be None
+    end_line = match.group(4)  # May be None
 
     try:
         # Read and extract the code
