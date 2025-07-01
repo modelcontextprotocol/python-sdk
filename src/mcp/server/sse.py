@@ -78,7 +78,7 @@ class SseServerTransport:
         messages to the relative path given.
 
         Args:
-            endpoint: A relative path where messages should be posted 
+            endpoint: A relative path where messages should be posted
                     (e.g., "/messages/").
 
         Note:
@@ -97,9 +97,10 @@ class SseServerTransport:
         super().__init__()
 
         # Validate that endpoint is a relative path and not a full URL
-        if "://" in endpoint or endpoint.startswith("//"):
+        if "://" in endpoint or endpoint.startswith("//") or "?" in endpoint or "#" in endpoint:
             raise ValueError(
-                "Endpoint must be a relative path (e.g., '/messages/'), not a full URL."
+                f"Given endpoint: {endpoint} is not a relative path (e.g., '/messages/'), \
+                             expecting a relative path(e.g., '/messages/')."
             )
 
         # Ensure endpoint starts with a forward slash
