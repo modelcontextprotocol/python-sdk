@@ -33,9 +33,9 @@ async def book_table(
 
         if result.action == "accept" and result.data:
             if result.data.checkAlternative:
-                return f"✅ Booked for {result.data.alternativeDate}"
-            return "❌ No booking made"
-        return "❌ Booking cancelled"
+                return f"[SUCCESS] Booked for {result.data.alternativeDate}"
+            return "[CANCELLED] No booking made"
+        return "[CANCELLED] Booking cancelled"
 
     # Date available
-    return f"✅ Booked for {date} at {time}"
+    return f"[SUCCESS] Booked for {date} at {time}"

@@ -459,7 +459,7 @@ async def test_elicitation(server_transport: str, server_url: str) -> None:
             )
             assert len(booking_result.content) == 1
             assert isinstance(booking_result.content[0], TextContent)
-            assert "✅ Booked for 2024-12-26" in booking_result.content[0].text
+            assert "[SUCCESS] Booked for 2024-12-26" in booking_result.content[0].text
 
             # Test booking with available date (no elicitation)
             booking_result = await session.call_tool(
@@ -472,7 +472,7 @@ async def test_elicitation(server_transport: str, server_url: str) -> None:
             )
             assert len(booking_result.content) == 1
             assert isinstance(booking_result.content[0], TextContent)
-            assert "✅ Booked for 2024-12-20 at 20:00" in booking_result.content[0].text
+            assert "[SUCCESS] Booked for 2024-12-20 at 20:00" in booking_result.content[0].text
 
 
 # Test notifications
