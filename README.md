@@ -33,6 +33,8 @@
     - [Context](#context)
     - [Completions](#completions)
     - [Elicitation](#elicitation)
+    - [Sampling](#sampling)
+    - [Logging and Notifications](#logging-and-notifications)
     - [Authentication](#authentication)
   - [Running Your Server](#running-your-server)
     - [Development Mode](#development-mode)
@@ -207,48 +209,57 @@ def query_db() -> str:
 
 Resources are how you expose data to LLMs. They're similar to GET endpoints in a REST API - they provide data but shouldn't perform significant computation or have side effects:
 
+<!-- snippet-source examples/snippets/servers/basic_resource.py -->
 ```python
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("My App")
+mcp = FastMCP(name="Resource Example")
 
 
-@mcp.resource("config://app", title="Application Configuration")
-def get_config() -> str:
-    """Static configuration data"""
-    return "App configuration here"
+@mcp.resource("file://documents/{name}")
+def read_document(name: str) -> str:
+    """Read a document by name."""
+    # This would normally read from disk
+    return f"Content of {name}"
 
 
-@mcp.resource("users://{user_id}/profile", title="User Profile")
-def get_user_profile(user_id: str) -> str:
-    """Dynamic user data"""
-    return f"Profile data for user {user_id}"
+@mcp.resource("config://settings")
+def get_settings() -> str:
+    """Get application settings."""
+    return """{
+  "theme": "dark",
+  "language": "en",
+  "debug": false
+}"""
 ```
+_Full example: [examples/snippets/servers/basic_resource.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_resource.py)_
+<!-- /snippet-source -->
 
 ### Tools
 
 Tools let LLMs take actions through your server. Unlike resources, tools are expected to perform computation and have side effects:
 
+<!-- snippet-source examples/snippets/servers/basic_tool.py -->
 ```python
-import httpx
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("My App")
+mcp = FastMCP(name="Tool Example")
 
 
-@mcp.tool(title="BMI Calculator")
-def calculate_bmi(weight_kg: float, height_m: float) -> float:
-    """Calculate BMI given weight in kg and height in meters"""
-    return weight_kg / (height_m**2)
+@mcp.tool(description="Add two numbers")
+def add(a: int, b: int) -> int:
+    """Add two numbers together."""
+    return a + b
 
 
-@mcp.tool(title="Weather Fetcher")
-async def fetch_weather(city: str) -> str:
-    """Fetch current weather for a city"""
-    async with httpx.AsyncClient() as client:
-        response = await client.get(f"https://api.weather.com/{city}")
-        return response.text
+@mcp.tool(description="Get weather for a city")
+def get_weather(city: str, unit: str = "celsius") -> str:
+    """Get weather for a city."""
+    # This would normally call a weather API
+    return f"Weather in {city}: 22°{unit[0].upper()}"
 ```
+_Full example: [examples/snippets/servers/basic_tool.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_tool.py)_
+<!-- /snippet-source -->
 
 #### Structured Output
 
@@ -375,26 +386,26 @@ def get_temperature(city: str) -> float:
 
 Prompts are reusable templates that help LLMs interact with your server effectively:
 
+<!-- snippet-source examples/snippets/servers/basic_prompt.py -->
 ```python
 from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.prompts import base
 
-mcp = FastMCP("My App")
-
-
-@mcp.prompt(title="Code Review")
-def review_code(code: str) -> str:
-    return f"Please review this code:\n\n{code}"
+mcp = FastMCP(name="Prompt Example")
 
 
-@mcp.prompt(title="Debug Assistant")
-def debug_error(error: str) -> list[base.Message]:
-    return [
-        base.UserMessage("I'm seeing this error:"),
-        base.UserMessage(error),
-        base.AssistantMessage("I'll help debug that. What have you tried so far?"),
-    ]
+@mcp.prompt(description="Generate a summary")
+def summarize(text: str, max_words: int = 100) -> str:
+    """Create a summarization prompt."""
+    return f"Summarize this text in {max_words} words:\n\n{text}"
+
+
+@mcp.prompt(description="Explain a concept")
+def explain(concept: str, audience: str = "general") -> str:
+    """Create an explanation prompt."""
+    return f"Explain {concept} for a {audience} audience"
 ```
+_Full example: [examples/snippets/servers/basic_prompt.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_prompt.py)_
+<!-- /snippet-source -->
 
 ### Images
 
@@ -419,28 +430,30 @@ def create_thumbnail(image_path: str) -> Image:
 
 The Context object gives your tools and resources access to MCP capabilities:
 
-<!-- snippet-source examples/servers/everything/src/everything/server.py#L37-L54 -->
+<!-- snippet-source examples/snippets/servers/tool_progress.py -->
 ```python
-    # Tool with context for logging and progress
-    @mcp.tool(description="A tool that demonstrates logging and progress", title="Progress Tool")
-    async def tool_with_progress(message: str, ctx: Context, steps: int = 3) -> str:
-        await ctx.info(f"Starting processing of '{message}' with {steps} steps")
+from mcp.server.fastmcp import Context, FastMCP
 
-        # Send progress notifications
-        for i in range(steps):
-            progress_value = (i + 1) / steps
-            await ctx.report_progress(
-                progress=progress_value,
-                total=1.0,
-                message=f"Processing step {i + 1} of {steps}",
-            )
-            await ctx.debug(f"Completed step {i + 1}")
+mcp = FastMCP(name="Progress Example")
 
-        return f"Processed '{message}' in {steps} steps"
 
-    # Simple tool for basic functionality
+@mcp.tool(description="Demonstrates progress reporting")
+async def long_running_task(task_name: str, ctx: Context, steps: int = 5) -> str:
+    """Execute a task with progress updates."""
+    await ctx.info(f"Starting: {task_name}")
+
+    for i in range(steps):
+        progress = (i + 1) / steps
+        await ctx.report_progress(
+            progress=progress,
+            total=1.0,
+            message=f"Step {i + 1}/{steps}",
+        )
+        await ctx.debug(f"Completed step {i + 1}")
+
+    return f"Task '{task_name}' completed"
 ```
-_Full example: [examples/servers/everything/src/everything/server.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/servers/everything/src/everything/server.py#L37-L54)_
+_Full example: [examples/snippets/servers/tool_progress.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/tool_progress.py)_
 <!-- /snippet-source -->
 
 ### Completions
@@ -473,8 +486,10 @@ async def use_completion(session: ClientSession):
 ```
 
 Server implementation:
+
+<!-- snippet-source examples/snippets/servers/completion.py -->
 ```python
-from mcp.server import Server
+from mcp.server.fastmcp import FastMCP
 from mcp.types import (
     Completion,
     CompletionArgument,
@@ -483,71 +498,166 @@ from mcp.types import (
     ResourceTemplateReference,
 )
 
-server = Server("example-server")
+mcp = FastMCP(name="Example")
 
 
-@server.completion()
+@mcp.resource("github://repos/{owner}/{repo}")
+def github_repo(owner: str, repo: str) -> str:
+    """GitHub repository resource."""
+    return f"Repository: {owner}/{repo}"
+
+
+@mcp.prompt(description="Code review prompt")
+def review_code(language: str, code: str) -> str:
+    """Generate a code review."""
+    return f"Review this {language} code:\n{code}"
+
+
+@mcp.completion()
 async def handle_completion(
     ref: PromptReference | ResourceTemplateReference,
     argument: CompletionArgument,
     context: CompletionContext | None,
 ) -> Completion | None:
+    """Provide completions for prompts and resources."""
+
+    # Complete programming languages for the prompt
+    if isinstance(ref, PromptReference):
+        if ref.name == "review_code" and argument.name == "language":
+            languages = ["python", "javascript", "typescript", "go", "rust"]
+            return Completion(
+                values=[lang for lang in languages if lang.startswith(argument.value)],
+                hasMore=False,
+            )
+
+    # Complete repository names for GitHub resources
     if isinstance(ref, ResourceTemplateReference):
         if ref.uri == "github://repos/{owner}/{repo}" and argument.name == "repo":
-            # Use context to provide owner-specific repos
-            if context and context.arguments:
-                owner = context.arguments.get("owner")
-                if owner == "modelcontextprotocol":
-                    repos = ["python-sdk", "typescript-sdk", "specification"]
-                    # Filter based on partial input
-                    filtered = [r for r in repos if r.startswith(argument.value)]
-                    return Completion(values=filtered)
+            if context and context.arguments and context.arguments.get("owner") == "modelcontextprotocol":
+                repos = ["python-sdk", "typescript-sdk", "specification"]
+                return Completion(values=repos, hasMore=False)
+
     return None
 ```
+_Full example: [examples/snippets/servers/completion.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/completion.py)_
+<!-- /snippet-source -->
 ### Elicitation
 
 Request additional information from users during tool execution:
 
+<!-- snippet-source examples/snippets/servers/elicitation.py -->
 ```python
-from mcp.server.fastmcp import FastMCP, Context
-from mcp.server.elicitation import (
-    AcceptedElicitation,
-    DeclinedElicitation,
-    CancelledElicitation,
-)
 from pydantic import BaseModel, Field
 
-mcp = FastMCP("Booking System")
+from mcp.server.fastmcp import Context, FastMCP
+
+mcp = FastMCP(name="Elicitation Example")
 
 
-@mcp.tool()
-async def book_table(date: str, party_size: int, ctx: Context) -> str:
-    """Book a table with confirmation"""
+class BookingPreferences(BaseModel):
+    """Schema for collecting user preferences."""
 
-    # Schema must only contain primitive types (str, int, float, bool)
-    class ConfirmBooking(BaseModel):
-        confirm: bool = Field(description="Confirm booking?")
-        notes: str = Field(default="", description="Special requests")
-
-    result = await ctx.elicit(
-        message=f"Confirm booking for {party_size} on {date}?", schema=ConfirmBooking
+    checkAlternative: bool = Field(description="Would you like to check another date?")
+    alternativeDate: str = Field(
+        default="2024-12-26",
+        description="Alternative date (YYYY-MM-DD)",
     )
 
-    match result:
-        case AcceptedElicitation(data=data):
-            if data.confirm:
-                return f"Booked! Notes: {data.notes or 'None'}"
-            return "Booking cancelled"
-        case DeclinedElicitation():
-            return "Booking declined"
-        case CancelledElicitation():
-            return "Booking cancelled"
+
+@mcp.tool(description="Book a restaurant table")
+async def book_table(
+    date: str,
+    time: str,
+    party_size: int,
+    ctx: Context,
+) -> str:
+    """Book a table with date availability check."""
+    # Check if date is available
+    if date == "2024-12-25":
+        # Date unavailable - ask user for alternative
+        result = await ctx.elicit(
+            message=(f"No tables available for {party_size} on {date}. " "Would you like to try another date?"),
+            schema=BookingPreferences,
+        )
+
+        if result.action == "accept" and result.data:
+            if result.data.checkAlternative:
+                return f"✅ Booked for {result.data.alternativeDate}"
+            return "❌ No booking made"
+        return "❌ Booking cancelled"
+
+    # Date available
+    return f"✅ Booked for {date} at {time}"
 ```
+_Full example: [examples/snippets/servers/elicitation.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/elicitation.py)_
+<!-- /snippet-source -->
 
 The `elicit()` method returns an `ElicitationResult` with:
 - `action`: "accept", "decline", or "cancel"
 - `data`: The validated response (only when accepted)
 - `validation_error`: Any validation error message
+
+### Sampling
+
+Tools can interact with LLMs through sampling (generating text):
+
+<!-- snippet-source examples/snippets/servers/sampling.py -->
+```python
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.types import SamplingMessage, TextContent
+
+mcp = FastMCP(name="Sampling Example")
+
+
+@mcp.tool(description="Uses sampling to generate content")
+async def generate_poem(topic: str, ctx: Context) -> str:
+    """Generate a poem using LLM sampling."""
+    prompt = f"Write a short poem about {topic}"
+
+    result = await ctx.session.create_message(
+        messages=[
+            SamplingMessage(
+                role="user",
+                content=TextContent(type="text", text=prompt),
+            )
+        ],
+        max_tokens=100,
+    )
+
+    if result.content.type == "text":
+        return result.content.text
+    return str(result.content)
+```
+_Full example: [examples/snippets/servers/sampling.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/sampling.py)_
+<!-- /snippet-source -->
+
+### Logging and Notifications
+
+Tools can send logs and notifications through the context:
+
+<!-- snippet-source examples/snippets/servers/notifications.py -->
+```python
+from mcp.server.fastmcp import Context, FastMCP
+
+mcp = FastMCP(name="Notifications Example")
+
+
+@mcp.tool(description="Demonstrates logging at different levels")
+async def process_data(data: str, ctx: Context) -> str:
+    """Process data with comprehensive logging."""
+    # Different log levels
+    await ctx.debug(f"Debug: Processing '{data}'")
+    await ctx.info("Info: Starting processing")
+    await ctx.warning("Warning: This is experimental")
+    await ctx.error("Error: (This is just a demo)")
+
+    # Notify about resource changes
+    await ctx.session.send_resource_list_changed()
+
+    return f"Processed: {data}"
+```
+_Full example: [examples/snippets/servers/notifications.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/notifications.py)_
+<!-- /snippet-source -->
 
 ### Authentication
 

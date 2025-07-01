@@ -70,8 +70,8 @@ def process_snippet_block(match: re.Match, check_mode: bool = False) -> str:
     full_match = match.group(0)
     indent = match.group(1)
     file_path = match.group(2)
-    start_line = int(match.group(3))
-    end_line = int(match.group(4))
+    start_line = match.group(3)  # May be None
+    end_line = match.group(4)    # May be None
 
     try:
         # Read and extract the code
@@ -80,13 +80,21 @@ def process_snippet_block(match: re.Match, check_mode: bool = False) -> str:
             print(f"Warning: File not found: {file_path}")
             return full_match
 
-        code = extract_lines(file, start_line, end_line)
-
-        # Generate GitHub URL
-        github_url = get_github_url(file_path, start_line, end_line)
+        if start_line and end_line:
+            # Line range specified
+            start_line = int(start_line)
+            end_line = int(end_line)
+            code = extract_lines(file, start_line, end_line)
+            github_url = get_github_url(file_path, start_line, end_line)
+            line_ref = f"#L{start_line}-L{end_line}"
+        else:
+            # No line range - use whole file
+            code = file.read_text().rstrip()
+            github_url = f"https://github.com/modelcontextprotocol/python-sdk/blob/main/{file_path}"
+            line_ref = ""
 
         # Build the replacement block
-        replacement = f"""{indent}<!-- snippet-source {file_path}#L{start_line}-L{end_line} -->
+        replacement = f"""{indent}<!-- snippet-source {file_path}{line_ref} -->
 {indent}```python
 {code}
 {indent}```
@@ -137,11 +145,12 @@ def update_readme_snippets(readme_path: Path = Path("README.md"), check_mode: bo
     content = readme_path.read_text()
     original_content = content
 
-    # Pattern to match snippet-source blocks with line ranges
-    # Matches: <!-- snippet-source path/to/file.py#L10-L20 -->
+    # Pattern to match snippet-source blocks with optional line ranges
+    # Matches: <!-- snippet-source path/to/file.py -->
+    #      or: <!-- snippet-source path/to/file.py#L10-L20 -->
     #          ... any content ...
     #          <!-- /snippet-source -->
-    pattern = r"^(\s*)<!-- snippet-source ([^#]+)#L(\d+)-L(\d+) -->\n" r"(.*?)" r"^\1<!-- /snippet-source -->"
+    pattern = r"^(\s*)<!-- snippet-source ([^#\s]+)(?:#L(\d+)-L(\d+))? -->\n" r"(.*?)" r"^\1<!-- /snippet-source -->"
 
     # Process all snippet-source blocks
     updated_content = re.sub(
