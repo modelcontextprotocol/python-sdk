@@ -13,4 +13,4 @@ def add(a: int, b: int) -> int:
 def get_weather(city: str, unit: str = "celsius") -> str:
     """Get weather for a city."""
     # This would normally call a weather API
-    return f"Weather in {city}: 22°{unit[0].upper()}"
+    return f"Weather in {city}: 22degrees{unit[0].upper()}"

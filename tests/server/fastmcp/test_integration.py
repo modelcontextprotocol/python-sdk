@@ -249,7 +249,7 @@ async def test_basic_tools(server_transport: str, server_url: str) -> None:
             weather_result = await session.call_tool("get_weather", {"city": "London"})
             assert len(weather_result.content) == 1
             assert isinstance(weather_result.content[0], TextContent)
-            assert "Weather in London: 22°C" in weather_result.content[0].text
+            assert "Weather in London: 22degreesC" in weather_result.content[0].text
 
 
 # Test resources
