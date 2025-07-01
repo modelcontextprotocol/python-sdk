@@ -1,8 +1,10 @@
+import logging
 from datetime import timedelta
 from typing import Any, Protocol
 
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from jsonschema import SchemaError, ValidationError, validate
 from pydantic import AnyUrl, TypeAdapter
 
 import mcp.types as types
@@ -13,6 +15,8 @@ from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
+logger = logging.getLogger("client")
+
 
 class SamplingFnT(Protocol):
     async def __call__(
@@ -20,6 +24,14 @@ class SamplingFnT(Protocol):
         context: RequestContext["ClientSession", Any],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.ErrorData: ...
+
+
+class ElicitationFnT(Protocol):
+    async def __call__(
+        self,
+        context: RequestContext["ClientSession", Any],
+        params: types.ElicitRequestParams,
+    ) -> types.ElicitResult | types.ErrorData: ...
 
 
 class ListRootsFnT(Protocol):
@@ -58,6 +70,16 @@ async def _default_sampling_callback(
     )
 
 
+async def _default_elicitation_callback(
+    context: RequestContext["ClientSession", Any],
+    params: types.ElicitRequestParams,
+) -> types.ElicitResult | types.ErrorData:
+    return types.ErrorData(
+        code=types.INVALID_REQUEST,
+        message="Elicitation not supported",
+    )
+
+
 async def _default_list_roots_callback(
     context: RequestContext["ClientSession", Any],
 ) -> types.ListRootsResult | types.ErrorData:
@@ -91,6 +113,7 @@ class ClientSession(
         write_stream: MemoryObjectSendStream[SessionMessage],
         read_timeout_seconds: timedelta | None = None,
         sampling_callback: SamplingFnT | None = None,
+        elicitation_callback: ElicitationFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
@@ -105,12 +128,17 @@ class ClientSession(
         )
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
+        self._elicitation_callback = elicitation_callback or _default_elicitation_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
+        self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
+        elicitation = (
+            types.ElicitationCapability() if self._elicitation_callback is not _default_elicitation_callback else None
+        )
         roots = (
             # TODO: Should this be based on whether we
             # _will_ send notifications, or only whether
@@ -128,6 +156,7 @@ class ClientSession(
                         protocolVersion=types.LATEST_PROTOCOL_VERSION,
                         capabilities=types.ClientCapabilities(
                             sampling=sampling,
+                            elicitation=elicitation,
                             experimental=None,
                             roots=roots,
                         ),
@@ -261,7 +290,7 @@ class ClientSession(
     ) -> types.CallToolResult:
         """Send a tools/call request with optional progress callback support."""
 
-        return await self.send_request(
+        result = await self.send_request(
             types.ClientRequest(
                 types.CallToolRequest(
                     method="tools/call",
@@ -275,6 +304,33 @@ class ClientSession(
             request_read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
         )
+
+        if not result.isError:
+            await self._validate_tool_result(name, result)
+
+        return result
+
+    async def _validate_tool_result(self, name: str, result: types.CallToolResult) -> None:
+        """Validate the structured content of a tool result against its output schema."""
+        if name not in self._tool_output_schemas:
+            # refresh output schema cache
+            await self.list_tools()
+
+        output_schema = None
+        if name in self._tool_output_schemas:
+            output_schema = self._tool_output_schemas.get(name)
+        else:
+            logger.warning(f"Tool {name} not listed by server, cannot validate any structured content")
+
+        if output_schema is not None:
+            if result.structuredContent is None:
+                raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
+            try:
+                validate(result.structuredContent, output_schema)
+            except ValidationError as e:
+                raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}")
+            except SchemaError as e:
+                raise RuntimeError(f"Invalid schema for tool {name}: {e}")
 
     async def list_prompts(self, cursor: str | None = None) -> types.ListPromptsResult:
         """Send a prompts/list request."""
@@ -302,10 +358,15 @@ class ClientSession(
 
     async def complete(
         self,
-        ref: types.ResourceReference | types.PromptReference,
+        ref: types.ResourceTemplateReference | types.PromptReference,
         argument: dict[str, str],
+        context_arguments: dict[str, str] | None = None,
     ) -> types.CompleteResult:
         """Send a completion/complete request."""
+        context = None
+        if context_arguments is not None:
+            context = types.CompletionContext(arguments=context_arguments)
+
         return await self.send_request(
             types.ClientRequest(
                 types.CompleteRequest(
@@ -313,6 +374,7 @@ class ClientSession(
                     params=types.CompleteRequestParams(
                         ref=ref,
                         argument=types.CompletionArgument(**argument),
+                        context=context,
                     ),
                 )
             ),
@@ -321,7 +383,7 @@ class ClientSession(
 
     async def list_tools(self, cursor: str | None = None) -> types.ListToolsResult:
         """Send a tools/list request."""
-        return await self.send_request(
+        result = await self.send_request(
             types.ClientRequest(
                 types.ListToolsRequest(
                     method="tools/list",
@@ -330,6 +392,13 @@ class ClientSession(
             ),
             types.ListToolsResult,
         )
+
+        # Cache tool output schemas for future validation
+        # Note: don't clear the cache, as we may be using a cursor
+        for tool in result.tools:
+            self._tool_output_schemas[tool.name] = tool.outputSchema
+
+        return result
 
     async def send_roots_list_changed(self) -> None:
         """Send a roots/list_changed notification."""
@@ -353,6 +422,12 @@ class ClientSession(
             case types.CreateMessageRequest(params=params):
                 with responder:
                     response = await self._sampling_callback(ctx, params)
+                    client_response = ClientResponse.validate_python(response)
+                    await responder.respond(client_response)
+
+            case types.ElicitRequest(params=params):
+                with responder:
+                    response = await self._elicitation_callback(ctx, params)
                     client_response = ClientResponse.validate_python(response)
                     await responder.respond(client_response)
 

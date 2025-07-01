@@ -9,7 +9,6 @@ from contextlib import (
     AbstractAsyncContextManager,
     asynccontextmanager,
 )
-from itertools import chain
 from typing import Any, Generic, Literal
 
 import anyio
@@ -30,16 +29,14 @@ from mcp.server.auth.middleware.bearer_auth import (
     BearerAuthBackend,
     RequireAuthMiddleware,
 )
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider
-from mcp.server.auth.settings import (
-    AuthSettings,
-)
+from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
+from mcp.server.auth.settings import AuthSettings
+from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, elicit_with_validation
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
-from mcp.server.fastmcp.utilities.types import Image
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.lowlevel.server import Server as MCPServer
@@ -49,12 +46,12 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
 from mcp.types import (
     AnyFunction,
-    Content,
+    ContentBlock,
     GetPromptResult,
-    TextContent,
     ToolAnnotations,
 )
 from mcp.types import Prompt as MCPPrompt
@@ -117,6 +114,9 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 
     auth: AuthSettings | None = None
 
+    # Transport security settings (DNS rebinding protection)
+    transport_security: TransportSecuritySettings | None = None
+
 
 def lifespan_wrapper(
     app: FastMCP,
@@ -136,6 +136,7 @@ class FastMCP:
         name: str | None = None,
         instructions: str | None = None,
         auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
+        token_verifier: TokenVerifier | None = None,
         event_store: EventStore | None = None,
         *,
         tools: list[Tool] | None = None,
@@ -151,14 +152,22 @@ class FastMCP:
         self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
         self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
-        if (self.settings.auth is not None) != (auth_server_provider is not None):
-            # TODO: after we support separate authorization servers (see
-            # https://github.com/modelcontextprotocol/modelcontextprotocol/pull/284)
-            # we should validate that if auth is enabled, we have either an
-            # auth_server_provider to host our own authorization server,
-            # OR the URL of a 3rd party authorization server.
-            raise ValueError("settings.auth must be specified if and only if auth_server_provider " "is specified")
+        # Validate auth configuration
+        if self.settings.auth is not None:
+            if auth_server_provider and token_verifier:
+                raise ValueError("Cannot specify both auth_server_provider and token_verifier")
+            if not auth_server_provider and not token_verifier:
+                raise ValueError("Must specify either auth_server_provider or token_verifier when auth is enabled")
+        else:
+            if auth_server_provider or token_verifier:
+                raise ValueError("Cannot specify auth_server_provider or token_verifier without auth settings")
+
         self._auth_server_provider = auth_server_provider
+        self._token_verifier = token_verifier
+
+        # Create token verifier from provider if needed (backwards compatibility)
+        if auth_server_provider and not token_verifier:
+            self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._event_store = event_store
         self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
@@ -223,7 +232,10 @@ class FastMCP:
     def _setup_handlers(self) -> None:
         """Set up core MCP protocol handlers."""
         self._mcp_server.list_tools()(self.list_tools)
-        self._mcp_server.call_tool()(self.call_tool)
+        # Note: we disable the lowlevel server's input validation.
+        # FastMCP does ad hoc conversion of incoming data before validating -
+        # for now we preserve this for backwards compatibility.
+        self._mcp_server.call_tool(validate_input=False)(self.call_tool)
         self._mcp_server.list_resources()(self.list_resources)
         self._mcp_server.read_resource()(self.read_resource)
         self._mcp_server.list_prompts()(self.list_prompts)
@@ -236,8 +248,10 @@ class FastMCP:
         return [
             MCPTool(
                 name=info.name,
+                title=info.title,
                 description=info.description,
                 inputSchema=info.parameters,
+                outputSchema=info.output_schema,
                 annotations=info.annotations,
             )
             for info in tools
@@ -254,12 +268,10 @@ class FastMCP:
             request_context = None
         return Context(request_context=request_context, fastmcp=self)
 
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Sequence[Content]:
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Sequence[ContentBlock] | dict[str, Any]:
         """Call a tool by name with arguments."""
         context = self.get_context()
-        result = await self._tool_manager.call_tool(name, arguments, context=context)
-        converted_result = _convert_to_content(result)
-        return converted_result
+        return await self._tool_manager.call_tool(name, arguments, context=context, convert_result=True)
 
     async def list_resources(self) -> list[MCPResource]:
         """List all available resources."""
@@ -269,6 +281,7 @@ class FastMCP:
             MCPResource(
                 uri=resource.uri,
                 name=resource.name or "",
+                title=resource.title,
                 description=resource.description,
                 mimeType=resource.mime_type,
             )
@@ -281,6 +294,7 @@ class FastMCP:
             MCPResourceTemplate(
                 uriTemplate=template.uri_template,
                 name=template.name,
+                title=template.title,
                 description=template.description,
             )
             for template in templates
@@ -304,8 +318,10 @@ class FastMCP:
         self,
         fn: AnyFunction,
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        structured_output: bool | None = None,
     ) -> None:
         """Add a tool to the server.
 
@@ -315,16 +331,30 @@ class FastMCP:
         Args:
             fn: The function to register as a tool
             name: Optional name for the tool (defaults to function name)
+            title: Optional human-readable title for the tool
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
+            structured_output: Controls whether the tool's output is structured or unstructured
+                - If None, auto-detects based on the function's return type annotation
+                - If True, unconditionally creates a structured tool (return type annotation permitting)
+                - If False, unconditionally creates an unstructured tool
         """
-        self._tool_manager.add_tool(fn, name=name, description=description, annotations=annotations)
+        self._tool_manager.add_tool(
+            fn,
+            name=name,
+            title=title,
+            description=description,
+            annotations=annotations,
+            structured_output=structured_output,
+        )
 
     def tool(
         self,
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        structured_output: bool | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
 
@@ -334,8 +364,13 @@ class FastMCP:
 
         Args:
             name: Optional name for the tool (defaults to function name)
+            title: Optional human-readable title for the tool
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
+            structured_output: Controls whether the tool's output is structured or unstructured
+                - If None, auto-detects based on the function's return type annotation
+                - If True, unconditionally creates a structured tool (return type annotation permitting)
+                - If False, unconditionally creates an unstructured tool
 
         Example:
             @server.tool()
@@ -359,10 +394,35 @@ class FastMCP:
             )
 
         def decorator(fn: AnyFunction) -> AnyFunction:
-            self.add_tool(fn, name=name, description=description, annotations=annotations)
+            self.add_tool(
+                fn,
+                name=name,
+                title=title,
+                description=description,
+                annotations=annotations,
+                structured_output=structured_output,
+            )
             return fn
 
         return decorator
+
+    def completion(self):
+        """Decorator to register a completion handler.
+
+        The completion handler receives:
+        - ref: PromptReference or ResourceTemplateReference
+        - argument: CompletionArgument with name and partial value
+        - context: Optional CompletionContext with previously resolved arguments
+
+        Example:
+            @mcp.completion()
+            async def handle_completion(ref, argument, context):
+                if isinstance(ref, ResourceTemplateReference):
+                    # Return completions based on ref, argument, and context
+                    return Completion(values=["option1", "option2"])
+                return None
+        """
+        return self._mcp_server.completion()
 
     def add_resource(self, resource: Resource) -> None:
         """Add a resource to the server.
@@ -377,6 +437,7 @@ class FastMCP:
         uri: str,
         *,
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
@@ -394,6 +455,7 @@ class FastMCP:
         Args:
             uri: URI for the resource (e.g. "resource://my-resource" or "resource://{param}")
             name: Optional name for the resource
+            title: Optional human-readable title for the resource
             description: Optional description of the resource
             mime_type: Optional MIME type for the resource
 
@@ -443,6 +505,7 @@ class FastMCP:
                     fn=fn,
                     uri_template=uri,
                     name=name,
+                    title=title,
                     description=description,
                     mime_type=mime_type,
                 )
@@ -452,6 +515,7 @@ class FastMCP:
                     fn=fn,
                     uri=uri,
                     name=name,
+                    title=title,
                     description=description,
                     mime_type=mime_type,
                 )
@@ -468,11 +532,14 @@ class FastMCP:
         """
         self._prompt_manager.add_prompt(prompt)
 
-    def prompt(self, name: str | None = None, description: str | None = None) -> Callable[[AnyFunction], AnyFunction]:
+    def prompt(
+        self, name: str | None = None, title: str | None = None, description: str | None = None
+    ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a prompt.
 
         Args:
             name: Optional name for the prompt (defaults to function name)
+            title: Optional human-readable title for the prompt
             description: Optional description of what the prompt does
 
         Example:
@@ -510,7 +577,7 @@ class FastMCP:
             )
 
         def decorator(func: AnyFunction) -> AnyFunction:
-            prompt = Prompt.from_function(func, name=name, description=description)
+            prompt = Prompt.from_function(func, name=name, title=title, description=description)
             self.add_prompt(prompt)
             return func
 
@@ -641,6 +708,7 @@ class FastMCP:
 
         sse = SseServerTransport(
             normalized_message_endpoint,
+            security_settings=self.settings.transport_security,
         )
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):
@@ -663,49 +731,60 @@ class FastMCP:
         middleware: list[Middleware] = []
         required_scopes = []
 
-        # Add auth endpoints if auth provider is configured
-        if self._auth_server_provider:
-            assert self.settings.auth
-            from mcp.server.auth.routes import create_auth_routes
-
+        # Set up auth if configured
+        if self.settings.auth:
             required_scopes = self.settings.auth.required_scopes or []
 
-            middleware = [
-                # extract auth info from request (but do not require it)
-                Middleware(
-                    AuthenticationMiddleware,
-                    backend=BearerAuthBackend(
-                        provider=self._auth_server_provider,
+            # Add auth middleware if token verifier is available
+            if self._token_verifier:
+                middleware = [
+                    # extract auth info from request (but do not require it)
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=BearerAuthBackend(self._token_verifier),
                     ),
-                ),
-                # Add the auth context middleware to store
-                # authenticated user in a contextvar
-                Middleware(AuthContextMiddleware),
-            ]
-            routes.extend(
-                create_auth_routes(
-                    provider=self._auth_server_provider,
-                    issuer_url=self.settings.auth.issuer_url,
-                    service_documentation_url=self.settings.auth.service_documentation_url,
-                    client_registration_options=self.settings.auth.client_registration_options,
-                    revocation_options=self.settings.auth.revocation_options,
-                )
-            )
+                    # Add the auth context middleware to store
+                    # authenticated user in a contextvar
+                    Middleware(AuthContextMiddleware),
+                ]
 
-        # When auth is not configured, we shouldn't require auth
-        if self._auth_server_provider:
+            # Add auth endpoints if auth server provider is configured
+            if self._auth_server_provider:
+                from mcp.server.auth.routes import create_auth_routes
+
+                routes.extend(
+                    create_auth_routes(
+                        provider=self._auth_server_provider,
+                        issuer_url=self.settings.auth.issuer_url,
+                        service_documentation_url=self.settings.auth.service_documentation_url,
+                        client_registration_options=self.settings.auth.client_registration_options,
+                        revocation_options=self.settings.auth.revocation_options,
+                    )
+                )
+
+        # When auth is configured, require authentication
+        if self._token_verifier:
+            # Determine resource metadata URL
+            resource_metadata_url = None
+            if self.settings.auth and self.settings.auth.resource_server_url:
+                from pydantic import AnyHttpUrl
+
+                resource_metadata_url = AnyHttpUrl(
+                    str(self.settings.auth.resource_server_url).rstrip("/") + "/.well-known/oauth-protected-resource"
+                )
+
             # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
             routes.append(
                 Route(
                     self.settings.sse_path,
-                    endpoint=RequireAuthMiddleware(handle_sse, required_scopes),
+                    endpoint=RequireAuthMiddleware(handle_sse, required_scopes, resource_metadata_url),
                     methods=["GET"],
                 )
             )
             routes.append(
                 Mount(
                     self.settings.message_path,
-                    app=RequireAuthMiddleware(sse.handle_post_message, required_scopes),
+                    app=RequireAuthMiddleware(sse.handle_post_message, required_scopes, resource_metadata_url),
                 )
             )
         else:
@@ -728,6 +807,18 @@ class FastMCP:
                     app=sse.handle_post_message,
                 )
             )
+        # Add protected resource metadata endpoint if configured as RS
+        if self.settings.auth and self.settings.auth.resource_server_url:
+            from mcp.server.auth.routes import create_protected_resource_routes
+
+            routes.extend(
+                create_protected_resource_routes(
+                    resource_url=self.settings.auth.resource_server_url,
+                    authorization_servers=[self.settings.auth.issuer_url],
+                    scopes_supported=self.settings.auth.required_scopes,
+                )
+            )
+
         # mount these routes last, so they have the lowest route matching precedence
         routes.extend(self._custom_starlette_routes)
 
@@ -746,6 +837,7 @@ class FastMCP:
                 event_store=self._event_store,
                 json_response=self.settings.json_response,
                 stateless=self.settings.stateless_http,  # Use the stateless setting
+                security_settings=self.settings.transport_security,
             )
 
         # Create the ASGI handler
@@ -757,35 +849,49 @@ class FastMCP:
         middleware: list[Middleware] = []
         required_scopes = []
 
-        # Add auth endpoints if auth provider is configured
-        if self._auth_server_provider:
-            assert self.settings.auth
-            from mcp.server.auth.routes import create_auth_routes
-
+        # Set up auth if configured
+        if self.settings.auth:
             required_scopes = self.settings.auth.required_scopes or []
 
-            middleware = [
-                Middleware(
-                    AuthenticationMiddleware,
-                    backend=BearerAuthBackend(
-                        provider=self._auth_server_provider,
+            # Add auth middleware if token verifier is available
+            if self._token_verifier:
+                middleware = [
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=BearerAuthBackend(self._token_verifier),
                     ),
-                ),
-                Middleware(AuthContextMiddleware),
-            ]
-            routes.extend(
-                create_auth_routes(
-                    provider=self._auth_server_provider,
-                    issuer_url=self.settings.auth.issuer_url,
-                    service_documentation_url=self.settings.auth.service_documentation_url,
-                    client_registration_options=self.settings.auth.client_registration_options,
-                    revocation_options=self.settings.auth.revocation_options,
+                    Middleware(AuthContextMiddleware),
+                ]
+
+            # Add auth endpoints if auth server provider is configured
+            if self._auth_server_provider:
+                from mcp.server.auth.routes import create_auth_routes
+
+                routes.extend(
+                    create_auth_routes(
+                        provider=self._auth_server_provider,
+                        issuer_url=self.settings.auth.issuer_url,
+                        service_documentation_url=self.settings.auth.service_documentation_url,
+                        client_registration_options=self.settings.auth.client_registration_options,
+                        revocation_options=self.settings.auth.revocation_options,
+                    )
                 )
-            )
+
+        # Set up routes with or without auth
+        if self._token_verifier:
+            # Determine resource metadata URL
+            resource_metadata_url = None
+            if self.settings.auth and self.settings.auth.resource_server_url:
+                from pydantic import AnyHttpUrl
+
+                resource_metadata_url = AnyHttpUrl(
+                    str(self.settings.auth.resource_server_url).rstrip("/") + "/.well-known/oauth-protected-resource"
+                )
+
             routes.append(
                 Mount(
                     self.settings.streamable_http_path,
-                    app=RequireAuthMiddleware(handle_streamable_http, required_scopes),
+                    app=RequireAuthMiddleware(handle_streamable_http, required_scopes, resource_metadata_url),
                 )
             )
         else:
@@ -794,6 +900,28 @@ class FastMCP:
                 Mount(
                     self.settings.streamable_http_path,
                     app=handle_streamable_http,
+                )
+            )
+
+        # Add protected resource metadata endpoint if configured as RS
+        if self.settings.auth and self.settings.auth.resource_server_url:
+            from mcp.server.auth.handlers.metadata import ProtectedResourceMetadataHandler
+            from mcp.server.auth.routes import cors_middleware
+            from mcp.shared.auth import ProtectedResourceMetadata
+
+            protected_resource_metadata = ProtectedResourceMetadata(
+                resource=self.settings.auth.resource_server_url,
+                authorization_servers=[self.settings.auth.issuer_url],
+                scopes_supported=self.settings.auth.required_scopes,
+            )
+            routes.append(
+                Route(
+                    "/.well-known/oauth-protected-resource",
+                    endpoint=cors_middleware(
+                        ProtectedResourceMetadataHandler(protected_resource_metadata).handle,
+                        ["GET", "OPTIONS"],
+                    ),
+                    methods=["GET", "OPTIONS"],
                 )
             )
 
@@ -812,6 +940,7 @@ class FastMCP:
         return [
             MCPPrompt(
                 name=prompt.name,
+                title=prompt.title,
                 description=prompt.description,
                 arguments=[
                     MCPPromptArgument(
@@ -834,28 +963,6 @@ class FastMCP:
         except Exception as e:
             logger.error(f"Error getting prompt {name}: {e}")
             raise ValueError(str(e))
-
-
-def _convert_to_content(
-    result: Any,
-) -> Sequence[Content]:
-    """Convert a result to a sequence of content objects."""
-    if result is None:
-        return []
-
-    if isinstance(result, Content):
-        return [result]
-
-    if isinstance(result, Image):
-        return [result.to_image_content()]
-
-    if isinstance(result, list | tuple):
-        return list(chain.from_iterable(_convert_to_content(item) for item in result))  # type: ignore[reportUnknownVariableType]
-
-    if not isinstance(result, str):
-        result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
-
-    return [TextContent(type="text", text=result)]
 
 
 class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
@@ -953,6 +1060,37 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         """
         assert self._fastmcp is not None, "Context is not available outside of a request"
         return await self._fastmcp.read_resource(uri)
+
+    async def elicit(
+        self,
+        message: str,
+        schema: type[ElicitSchemaModelT],
+    ) -> ElicitationResult[ElicitSchemaModelT]:
+        """Elicit information from the client/user.
+
+        This method can be used to interactively ask for additional information from the
+        client within a tool's execution. The client might display the message to the
+        user and collect a response according to the provided schema. Or in case a
+        client is an agent, it might decide how to handle the elicitation -- either by asking
+        the user or automatically generating a response.
+
+        Args:
+            schema: A Pydantic model class defining the expected response structure, according to the specification,
+                    only primive types are allowed.
+            message: Optional message to present to the user. If not provided, will use
+                    a default message based on the schema
+
+        Returns:
+            An ElicitationResult containing the action taken and the data if accepted
+
+        Note:
+            Check the result.action to determine if the user accepted, declined, or cancelled.
+            The result.data will only be populated if action is "accept" and validation succeeded.
+        """
+
+        return await elicit_with_validation(
+            session=self.request_context.session, message=message, schema=schema, related_request_id=self.request_id
+        )
 
     async def log(
         self,

@@ -53,6 +53,7 @@ def main(port: int, transport: str) -> int:
         return [
             types.Prompt(
                 name="simple",
+                title="Simple Assistant Prompt",
                 description="A simple prompt that can take optional context and topic "
                 "arguments",
                 arguments=[

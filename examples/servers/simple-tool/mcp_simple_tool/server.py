@@ -7,7 +7,7 @@ from mcp.shared._httpx_utils import create_mcp_http_client
 
 async def fetch_website(
     url: str,
-) -> list[types.Content]:
+) -> list[types.ContentBlock]:
     headers = {
         "User-Agent": "MCP Test Server (github.com/modelcontextprotocol/python-sdk)"
     }
@@ -29,7 +29,7 @@ def main(port: int, transport: str) -> int:
     app = Server("mcp-website-fetcher")
 
     @app.call_tool()
-    async def fetch_tool(name: str, arguments: dict) -> list[types.Content]:
+    async def fetch_tool(name: str, arguments: dict) -> list[types.ContentBlock]:
         if name != "fetch":
             raise ValueError(f"Unknown tool: {name}")
         if "url" not in arguments:
@@ -41,6 +41,7 @@ def main(port: int, transport: str) -> int:
         return [
             types.Tool(
                 name="fetch",
+                title="Website Fetcher",
                 description="Fetches a website and returns its content",
                 inputSchema={
                     "type": "object",

@@ -1,5 +1,7 @@
 import json
 import logging
+from dataclasses import dataclass
+from typing import Any, TypedDict
 
 import pytest
 from pydantic import BaseModel
@@ -10,7 +12,7 @@ from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.server.session import ServerSessionT
 from mcp.shared.context import LifespanContextT, RequestT
-from mcp.types import ToolAnnotations
+from mcp.types import TextContent, ToolAnnotations
 
 
 class TestAddTools:
@@ -44,6 +46,7 @@ class TestAddTools:
 
         original_tool = Tool(
             name="add",
+            title="Add Tool",
             description="Add two numbers.",
             fn=add,
             fn_metadata=fn_metadata,
@@ -449,3 +452,184 @@ class TestToolAnnotations:
         assert tools[0].annotations is not None
         assert tools[0].annotations.title == "Echo Tool"
         assert tools[0].annotations.readOnlyHint is True
+
+
+class TestStructuredOutput:
+    """Test structured output functionality in tools."""
+
+    @pytest.mark.anyio
+    async def test_tool_with_basemodel_output(self):
+        """Test tool with BaseModel return type."""
+
+        class UserOutput(BaseModel):
+            name: str
+            age: int
+
+        def get_user(user_id: int) -> UserOutput:
+            """Get user by ID."""
+            return UserOutput(name="John", age=30)
+
+        manager = ToolManager()
+        manager.add_tool(get_user)
+        result = await manager.call_tool("get_user", {"user_id": 1}, convert_result=True)
+        # don't test unstructured output here, just the structured conversion
+        assert len(result) == 2 and result[1] == {"name": "John", "age": 30}
+
+    @pytest.mark.anyio
+    async def test_tool_with_primitive_output(self):
+        """Test tool with primitive return type."""
+
+        def double_number(n: int) -> int:
+            """Double a number."""
+            return 10
+
+        manager = ToolManager()
+        manager.add_tool(double_number)
+        result = await manager.call_tool("double_number", {"n": 5})
+        assert result == 10
+        result = await manager.call_tool("double_number", {"n": 5}, convert_result=True)
+        assert isinstance(result[0][0], TextContent) and result[1] == {"result": 10}
+
+    @pytest.mark.anyio
+    async def test_tool_with_typeddict_output(self):
+        """Test tool with TypedDict return type."""
+
+        class UserDict(TypedDict):
+            name: str
+            age: int
+
+        expected_output = {"name": "Alice", "age": 25}
+
+        def get_user_dict(user_id: int) -> UserDict:
+            """Get user as dict."""
+            return UserDict(name="Alice", age=25)
+
+        manager = ToolManager()
+        manager.add_tool(get_user_dict)
+        result = await manager.call_tool("get_user_dict", {"user_id": 1})
+        assert result == expected_output
+
+    @pytest.mark.anyio
+    async def test_tool_with_dataclass_output(self):
+        """Test tool with dataclass return type."""
+
+        @dataclass
+        class Person:
+            name: str
+            age: int
+
+        expected_output = {"name": "Bob", "age": 40}
+
+        def get_person() -> Person:
+            """Get a person."""
+            return Person("Bob", 40)
+
+        manager = ToolManager()
+        manager.add_tool(get_person)
+        result = await manager.call_tool("get_person", {}, convert_result=True)
+        # don't test unstructured output here, just the structured conversion
+        assert len(result) == 2 and result[1] == expected_output
+
+    @pytest.mark.anyio
+    async def test_tool_with_list_output(self):
+        """Test tool with list return type."""
+
+        expected_list = [1, 2, 3, 4, 5]
+        expected_output = {"result": expected_list}
+
+        def get_numbers() -> list[int]:
+            """Get a list of numbers."""
+            return expected_list
+
+        manager = ToolManager()
+        manager.add_tool(get_numbers)
+        result = await manager.call_tool("get_numbers", {})
+        assert result == expected_list
+        result = await manager.call_tool("get_numbers", {}, convert_result=True)
+        assert isinstance(result[0][0], TextContent) and result[1] == expected_output
+
+    @pytest.mark.anyio
+    async def test_tool_without_structured_output(self):
+        """Test that tools work normally when structured_output=False."""
+
+        def get_dict() -> dict:
+            """Get a dict."""
+            return {"key": "value"}
+
+        manager = ToolManager()
+        manager.add_tool(get_dict, structured_output=False)
+        result = await manager.call_tool("get_dict", {})
+        assert isinstance(result, dict)
+        assert result == {"key": "value"}
+
+    def test_tool_output_schema_property(self):
+        """Test that Tool.output_schema property works correctly."""
+
+        class UserOutput(BaseModel):
+            name: str
+            age: int
+
+        def get_user() -> UserOutput:
+            return UserOutput(name="Test", age=25)
+
+        manager = ToolManager()
+        tool = manager.add_tool(get_user)
+
+        # Test that output_schema is populated
+        expected_schema = {
+            "properties": {"name": {"type": "string", "title": "Name"}, "age": {"type": "integer", "title": "Age"}},
+            "required": ["name", "age"],
+            "title": "UserOutput",
+            "type": "object",
+        }
+        assert tool.output_schema == expected_schema
+
+    @pytest.mark.anyio
+    async def test_tool_with_dict_str_any_output(self):
+        """Test tool with dict[str, Any] return type."""
+
+        def get_config() -> dict[str, Any]:
+            """Get configuration"""
+            return {"debug": True, "port": 8080, "features": ["auth", "logging"]}
+
+        manager = ToolManager()
+        tool = manager.add_tool(get_config)
+
+        # Check output schema
+        assert tool.output_schema is not None
+        assert tool.output_schema["type"] == "object"
+        assert "properties" not in tool.output_schema  # dict[str, Any] has no constraints
+
+        # Test raw result
+        result = await manager.call_tool("get_config", {})
+        expected = {"debug": True, "port": 8080, "features": ["auth", "logging"]}
+        assert result == expected
+
+        # Test converted result
+        result = await manager.call_tool("get_config", {})
+        assert result == expected
+
+    @pytest.mark.anyio
+    async def test_tool_with_dict_str_typed_output(self):
+        """Test tool with dict[str, T] return type for specific T."""
+
+        def get_scores() -> dict[str, int]:
+            """Get player scores"""
+            return {"alice": 100, "bob": 85, "charlie": 92}
+
+        manager = ToolManager()
+        tool = manager.add_tool(get_scores)
+
+        # Check output schema
+        assert tool.output_schema is not None
+        assert tool.output_schema["type"] == "object"
+        assert tool.output_schema["additionalProperties"]["type"] == "integer"
+
+        # Test raw result
+        result = await manager.call_tool("get_scores", {})
+        expected = {"alice": 100, "bob": 85, "charlie": 92}
+        assert result == expected
+
+        # Test converted result
+        result = await manager.call_tool("get_scores", {})
+        assert result == expected

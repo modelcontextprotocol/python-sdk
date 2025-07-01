@@ -68,13 +68,15 @@ messages from the client.
 from __future__ import annotations as _annotations
 
 import contextvars
+import json
 import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from typing import Any, Generic
+from typing import Any, Generic, TypeAlias, cast
 
 import anyio
+import jsonschema
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 from typing_extensions import TypeVar
@@ -93,6 +95,11 @@ logger = logging.getLogger(__name__)
 
 LifespanResultT = TypeVar("LifespanResultT")
 RequestT = TypeVar("RequestT", default=Any)
+
+# type aliases for tool call results
+StructuredContent: TypeAlias = dict[str, Any]
+UnstructuredContent: TypeAlias = Iterable[types.ContentBlock]
+CombinationContent: TypeAlias = tuple[UnstructuredContent, StructuredContent]
 
 # This will be properly typed in each Server instance's context
 request_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any, Any]] = contextvars.ContextVar("request_ctx")
@@ -143,6 +150,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self.notification_options = NotificationOptions()
+        self._tool_cache: dict[str, types.Tool] = {}
         logger.debug("Initializing server %r", name)
 
     def create_initialization_options(
@@ -373,6 +381,10 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(_: Any):
                 tools = await func()
+                # Refresh the tool cache
+                self._tool_cache.clear()
+                for tool in tools:
+                    self._tool_cache[tool.name] = tool
                 return types.ServerResult(types.ListToolsResult(tools=tools))
 
             self.request_handlers[types.ListToolsRequest] = handler
@@ -380,26 +392,109 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return decorator
 
-    def call_tool(self):
+    def _make_error_result(self, error_message: str) -> types.ServerResult:
+        """Create a ServerResult with an error CallToolResult."""
+        return types.ServerResult(
+            types.CallToolResult(
+                content=[types.TextContent(type="text", text=error_message)],
+                isError=True,
+            )
+        )
+
+    async def _get_cached_tool_definition(self, tool_name: str) -> types.Tool | None:
+        """Get tool definition from cache, refreshing if necessary.
+
+        Returns the Tool object if found, None otherwise.
+        """
+        if tool_name not in self._tool_cache:
+            if types.ListToolsRequest in self.request_handlers:
+                logger.debug("Tool cache miss for %s, refreshing cache", tool_name)
+                await self.request_handlers[types.ListToolsRequest](None)
+
+        tool = self._tool_cache.get(tool_name)
+        if tool is None:
+            logger.warning("Tool '%s' not listed, no validation will be performed", tool_name)
+
+        return tool
+
+    def call_tool(self, *, validate_input: bool = True):
+        """Register a tool call handler.
+
+        Args:
+            validate_input: If True, validates input against inputSchema. Default is True.
+
+        The handler validates input against inputSchema (if validate_input=True), calls the tool function,
+        and builds a CallToolResult with the results:
+        - Unstructured content (iterable of ContentBlock): returned in content
+        - Structured content (dict): returned in structuredContent, serialized JSON text returned in content
+        - Both: returned in content and structuredContent
+
+        If outputSchema is defined, validates structuredContent or errors if missing.
+        """
+
         def decorator(
             func: Callable[
                 ...,
-                Awaitable[Iterable[types.Content]],
+                Awaitable[UnstructuredContent | StructuredContent | CombinationContent],
             ],
         ):
             logger.debug("Registering handler for CallToolRequest")
 
             async def handler(req: types.CallToolRequest):
                 try:
-                    results = await func(req.params.name, (req.params.arguments or {}))
-                    return types.ServerResult(types.CallToolResult(content=list(results), isError=False))
-                except Exception as e:
+                    tool_name = req.params.name
+                    arguments = req.params.arguments or {}
+                    tool = await self._get_cached_tool_definition(tool_name)
+
+                    # input validation
+                    if validate_input and tool:
+                        try:
+                            jsonschema.validate(instance=arguments, schema=tool.inputSchema)
+                        except jsonschema.ValidationError as e:
+                            return self._make_error_result(f"Input validation error: {e.message}")
+
+                    # tool call
+                    results = await func(tool_name, arguments)
+
+                    # output normalization
+                    unstructured_content: UnstructuredContent
+                    maybe_structured_content: StructuredContent | None
+                    if isinstance(results, tuple) and len(results) == 2:
+                        # tool returned both structured and unstructured content
+                        unstructured_content, maybe_structured_content = cast(CombinationContent, results)
+                    elif isinstance(results, dict):
+                        # tool returned structured content only
+                        maybe_structured_content = cast(StructuredContent, results)
+                        unstructured_content = [types.TextContent(type="text", text=json.dumps(results, indent=2))]
+                    elif hasattr(results, "__iter__"):
+                        # tool returned unstructured content only
+                        unstructured_content = cast(UnstructuredContent, results)
+                        maybe_structured_content = None
+                    else:
+                        return self._make_error_result(f"Unexpected return type from tool: {type(results).__name__}")
+
+                    # output validation
+                    if tool and tool.outputSchema is not None:
+                        if maybe_structured_content is None:
+                            return self._make_error_result(
+                                "Output validation error: outputSchema defined but no structured output returned"
+                            )
+                        else:
+                            try:
+                                jsonschema.validate(instance=maybe_structured_content, schema=tool.outputSchema)
+                            except jsonschema.ValidationError as e:
+                                return self._make_error_result(f"Output validation error: {e.message}")
+
+                    # result
                     return types.ServerResult(
                         types.CallToolResult(
-                            content=[types.TextContent(type="text", text=str(e))],
-                            isError=True,
+                            content=list(unstructured_content),
+                            structuredContent=maybe_structured_content,
+                            isError=False,
                         )
                     )
+                except Exception as e:
+                    return self._make_error_result(str(e))
 
             self.request_handlers[types.CallToolRequest] = handler
             return func
@@ -431,8 +526,9 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(
             func: Callable[
                 [
-                    types.PromptReference | types.ResourceReference,
+                    types.PromptReference | types.ResourceTemplateReference,
                     types.CompletionArgument,
+                    types.CompletionContext | None,
                 ],
                 Awaitable[types.Completion | None],
             ],
@@ -440,7 +536,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             logger.debug("Registering handler for CompleteRequest")
 
             async def handler(req: types.CompleteRequest):
-                completion = await func(req.params.ref, req.params.argument)
+                completion = await func(req.params.ref, req.params.argument, req.params.context)
                 return types.ServerResult(
                     types.CompleteResult(
                         completion=completion

@@ -1,10 +1,10 @@
 import base64
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
-from pydantic import AnyUrl
+from pydantic import AnyUrl, BaseModel
 from starlette.routing import Mount, Route
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -18,7 +18,7 @@ from mcp.shared.memory import (
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
-    Content,
+    ContentBlock,
     EmbeddedResource,
     ImageContent,
     TextContent,
@@ -194,7 +194,7 @@ def image_tool_fn(path: str) -> Image:
     return Image(path)
 
 
-def mixed_content_tool_fn() -> list[Content]:
+def mixed_content_tool_fn() -> list[ContentBlock]:
     return [
         TextContent(type="text", text="Hello"),
         ImageContent(type="image", data="abc", mimeType="image/png"),
@@ -274,6 +274,9 @@ class TestServerTools:
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert content.text == "3"
+            # Check structured content - int return type should have structured output
+            assert result.structuredContent is not None
+            assert result.structuredContent == {"result": 3}
 
     @pytest.mark.anyio
     async def test_tool_image_helper(self, tmp_path: Path):
@@ -293,6 +296,8 @@ class TestServerTools:
             # Verify base64 encoding
             decoded = base64.b64decode(content.data)
             assert decoded == b"fake png data"
+            # Check structured content - Image return type should NOT have structured output
+            assert result.structuredContent is None
 
     @pytest.mark.anyio
     async def test_tool_mixed_content(self):
@@ -310,6 +315,20 @@ class TestServerTools:
             assert isinstance(content3, AudioContent)
             assert content3.mimeType == "audio/wav"
             assert content3.data == "def"
+            assert result.structuredContent is not None
+            assert "result" in result.structuredContent
+            structured_result = result.structuredContent["result"]
+            assert len(structured_result) == 3
+
+            expected_content = [
+                {"type": "text", "text": "Hello"},
+                {"type": "image", "data": "abc", "mimeType": "image/png"},
+                {"type": "audio", "data": "def", "mimeType": "audio/wav"},
+            ]
+
+            for i, expected in enumerate(expected_content):
+                for key, value in expected.items():
+                    assert structured_result[i][key] == value
 
     @pytest.mark.anyio
     async def test_tool_mixed_list_with_image(self, tmp_path: Path):
@@ -349,6 +368,169 @@ class TestServerTools:
             content4 = result.content[3]
             assert isinstance(content4, TextContent)
             assert content4.text == "direct content"
+            # Check structured content - untyped list with Image objects should NOT have structured output
+            assert result.structuredContent is None
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_basemodel(self):
+        """Test tool with structured output returning BaseModel"""
+
+        class UserOutput(BaseModel):
+            name: str
+            age: int
+            active: bool = True
+
+        def get_user(user_id: int) -> UserOutput:
+            """Get user by ID"""
+            return UserOutput(name="John Doe", age=30)
+
+        mcp = FastMCP()
+        mcp.add_tool(get_user)
+
+        async with client_session(mcp._mcp_server) as client:
+            # Check that the tool has outputSchema
+            tools = await client.list_tools()
+            tool = next(t for t in tools.tools if t.name == "get_user")
+            assert tool.outputSchema is not None
+            assert tool.outputSchema["type"] == "object"
+            assert "name" in tool.outputSchema["properties"]
+            assert "age" in tool.outputSchema["properties"]
+
+            # Call the tool and check structured output
+            result = await client.call_tool("get_user", {"user_id": 123})
+            assert result.isError is False
+            assert result.structuredContent is not None
+            assert result.structuredContent == {"name": "John Doe", "age": 30, "active": True}
+            # Content should be JSON serialized version
+            assert len(result.content) == 1
+            assert isinstance(result.content[0], TextContent)
+            assert '"name": "John Doe"' in result.content[0].text
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_primitive(self):
+        """Test tool with structured output returning primitive type"""
+
+        def calculate_sum(a: int, b: int) -> int:
+            """Add two numbers"""
+            return a + b
+
+        mcp = FastMCP()
+        mcp.add_tool(calculate_sum)
+
+        async with client_session(mcp._mcp_server) as client:
+            # Check that the tool has outputSchema
+            tools = await client.list_tools()
+            tool = next(t for t in tools.tools if t.name == "calculate_sum")
+            assert tool.outputSchema is not None
+            # Primitive types are wrapped
+            assert tool.outputSchema["type"] == "object"
+            assert "result" in tool.outputSchema["properties"]
+            assert tool.outputSchema["properties"]["result"]["type"] == "integer"
+
+            # Call the tool
+            result = await client.call_tool("calculate_sum", {"a": 5, "b": 7})
+            assert result.isError is False
+            assert result.structuredContent is not None
+            assert result.structuredContent == {"result": 12}
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_list(self):
+        """Test tool with structured output returning list"""
+
+        def get_numbers() -> list[int]:
+            """Get a list of numbers"""
+            return [1, 2, 3, 4, 5]
+
+        mcp = FastMCP()
+        mcp.add_tool(get_numbers)
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("get_numbers", {})
+            assert result.isError is False
+            assert result.structuredContent is not None
+            assert result.structuredContent == {"result": [1, 2, 3, 4, 5]}
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_server_side_validation_error(self):
+        """Test that server-side validation errors are handled properly"""
+
+        def get_numbers() -> list[int]:
+            return [1, 2, 3, 4, [5]]  # type: ignore
+
+        mcp = FastMCP()
+        mcp.add_tool(get_numbers)
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("get_numbers", {})
+            assert result.isError is True
+            assert result.structuredContent is None
+            assert len(result.content) == 1
+            assert isinstance(result.content[0], TextContent)
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_dict_str_any(self):
+        """Test tool with dict[str, Any] structured output"""
+
+        def get_metadata() -> dict[str, Any]:
+            """Get metadata dictionary"""
+            return {
+                "version": "1.0.0",
+                "enabled": True,
+                "count": 42,
+                "tags": ["production", "stable"],
+                "config": {"nested": {"value": 123}},
+            }
+
+        mcp = FastMCP()
+        mcp.add_tool(get_metadata)
+
+        async with client_session(mcp._mcp_server) as client:
+            # Check schema
+            tools = await client.list_tools()
+            tool = next(t for t in tools.tools if t.name == "get_metadata")
+            assert tool.outputSchema is not None
+            assert tool.outputSchema["type"] == "object"
+            # dict[str, Any] should have minimal schema
+            assert (
+                "additionalProperties" not in tool.outputSchema or tool.outputSchema.get("additionalProperties") is True
+            )
+
+            # Call tool
+            result = await client.call_tool("get_metadata", {})
+            assert result.isError is False
+            assert result.structuredContent is not None
+            expected = {
+                "version": "1.0.0",
+                "enabled": True,
+                "count": 42,
+                "tags": ["production", "stable"],
+                "config": {"nested": {"value": 123}},
+            }
+            assert result.structuredContent == expected
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_dict_str_typed(self):
+        """Test tool with dict[str, T] structured output for specific T"""
+
+        def get_settings() -> dict[str, str]:
+            """Get settings as string dictionary"""
+            return {"theme": "dark", "language": "en", "timezone": "UTC"}
+
+        mcp = FastMCP()
+        mcp.add_tool(get_settings)
+
+        async with client_session(mcp._mcp_server) as client:
+            # Check schema
+            tools = await client.list_tools()
+            tool = next(t for t in tools.tools if t.name == "get_settings")
+            assert tool.outputSchema is not None
+            assert tool.outputSchema["type"] == "object"
+            assert tool.outputSchema["additionalProperties"]["type"] == "string"
+
+            # Call tool
+            result = await client.call_tool("get_settings", {})
+            assert result.isError is False
+            assert result.structuredContent == {"theme": "dark", "language": "en", "timezone": "UTC"}
 
 
 class TestServerResources:

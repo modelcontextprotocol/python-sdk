@@ -20,6 +20,7 @@ from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import McpError
 from mcp.types import (
     EmptyResult,
@@ -80,7 +81,11 @@ class ServerTest(Server):
 # Test fixtures
 def make_server_app() -> Starlette:
     """Create test Starlette app with SSE transport"""
-    sse = SseServerTransport("/messages/")
+    # Configure security with allowed hosts/origins for testing
+    security_settings = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+    )
+    sse = SseServerTransport("/messages/", security_settings=security_settings)
     server = ServerTest()
 
     async def handle_sse(request: Request) -> Response:
@@ -339,7 +344,11 @@ class RequestContextServer(Server[object, Request]):
 
 def run_context_server(server_port: int) -> None:
     """Run a server that captures request context"""
-    sse = SseServerTransport("/messages/")
+    # Configure security with allowed hosts/origins for testing
+    security_settings = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+    )
+    sse = SseServerTransport("/messages/", security_settings=security_settings)
     context_server = RequestContextServer()
 
     async def handle_sse(request: Request) -> Response:

@@ -24,8 +24,14 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+from mcp.server.transport_security import (
+    TransportSecurityMiddleware,
+    TransportSecuritySettings,
+)
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
+    DEFAULT_NEGOTIATED_VERSION,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
@@ -45,6 +51,7 @@ MAXIMUM_MESSAGE_SIZE = 4 * 1024 * 1024  # 4MB
 
 # Header names
 MCP_SESSION_ID_HEADER = "mcp-session-id"
+MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version"
 LAST_EVENT_ID_HEADER = "last-event-id"
 
 # Content types
@@ -127,12 +134,14 @@ class StreamableHTTPServerTransport:
     _read_stream: MemoryObjectReceiveStream[SessionMessage | Exception] | None = None
     _write_stream: MemoryObjectSendStream[SessionMessage] | None = None
     _write_stream_reader: MemoryObjectReceiveStream[SessionMessage] | None = None
+    _security: TransportSecurityMiddleware
 
     def __init__(
         self,
         mcp_session_id: str | None,
         is_json_response_enabled: bool = False,
         event_store: EventStore | None = None,
+        security_settings: TransportSecuritySettings | None = None,
     ) -> None:
         """
         Initialize a new StreamableHTTP server transport.
@@ -145,6 +154,7 @@ class StreamableHTTPServerTransport:
             event_store: Event store for resumability support. If provided,
                         resumability will be enabled, allowing clients to
                         reconnect and resume messages.
+            security_settings: Optional security settings for DNS rebinding protection.
 
         Raises:
             ValueError: If the session ID contains invalid characters.
@@ -155,6 +165,7 @@ class StreamableHTTPServerTransport:
         self.mcp_session_id = mcp_session_id
         self.is_json_response_enabled = is_json_response_enabled
         self._event_store = event_store
+        self._security = TransportSecurityMiddleware(security_settings)
         self._request_streams: dict[
             RequestId,
             tuple[
@@ -248,6 +259,14 @@ class StreamableHTTPServerTransport:
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Application entry point that handles all HTTP requests"""
         request = Request(scope, receive)
+
+        # Validate request headers for DNS rebinding protection
+        is_post = request.method == "POST"
+        error_response = await self._security.validate_request(request, is_post=is_post)
+        if error_response:
+            await error_response(scope, receive, send)
+            return
+
         if self._terminated:
             # If the session has been terminated, return 404 Not Found
             response = self._create_error_response(
@@ -293,7 +312,7 @@ class StreamableHTTPServerTransport:
             has_json, has_sse = self._check_accept_headers(request)
             if not (has_json and has_sse):
                 response = self._create_error_response(
-                    ("Not Acceptable: Client must accept both application/json and " "text/event-stream"),
+                    ("Not Acceptable: Client must accept both application/json and text/event-stream"),
                     HTTPStatus.NOT_ACCEPTABLE,
                 )
                 await response(scope, receive, send)
@@ -353,8 +372,7 @@ class StreamableHTTPServerTransport:
                         )
                         await response(scope, receive, send)
                         return
-            # For non-initialization requests, validate the session
-            elif not await self._validate_session(request, send):
+            elif not await self._validate_request_headers(request, send):
                 return
 
             # For notifications and responses only, return 202 Accepted
@@ -513,8 +531,9 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
             return
 
-        if not await self._validate_session(request, send):
+        if not await self._validate_request_headers(request, send):
             return
+
         # Handle resumability: check for Last-Event-ID header
         if last_event_id := request.headers.get(LAST_EVENT_ID_HEADER):
             await self._replay_events(last_event_id, request, send)
@@ -593,7 +612,7 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
             return
 
-        if not await self._validate_session(request, send):
+        if not await self._validate_request_headers(request, send):
             return
 
         await self._terminate_session()
@@ -653,6 +672,13 @@ class StreamableHTTPServerTransport:
         )
         await response(request.scope, request.receive, send)
 
+    async def _validate_request_headers(self, request: Request, send: Send) -> bool:
+        if not await self._validate_session(request, send):
+            return False
+        if not await self._validate_protocol_version(request, send):
+            return False
+        return True
+
     async def _validate_session(self, request: Request, send: Send) -> bool:
         """Validate the session ID in the request."""
         if not self.mcp_session_id:
@@ -676,6 +702,28 @@ class StreamableHTTPServerTransport:
             response = self._create_error_response(
                 "Not Found: Invalid or expired session ID",
                 HTTPStatus.NOT_FOUND,
+            )
+            await response(request.scope, request.receive, send)
+            return False
+
+        return True
+
+    async def _validate_protocol_version(self, request: Request, send: Send) -> bool:
+        """Validate the protocol version header in the request."""
+        # Get the protocol version from the request headers
+        protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
+
+        # If no protocol version provided, assume default version
+        if protocol_version is None:
+            protocol_version = DEFAULT_NEGOTIATED_VERSION
+
+        # Check if the protocol version is supported
+        if protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
+            supported_versions = ", ".join(SUPPORTED_PROTOCOL_VERSIONS)
+            response = self._create_error_response(
+                f"Bad Request: Unsupported protocol version: {protocol_version}. "
+                + f"Supported versions: {supported_versions}",
+                HTTPStatus.BAD_REQUEST,
             )
             await response(request.scope, request.receive, send)
             return False

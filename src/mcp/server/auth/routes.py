@@ -16,6 +16,7 @@ from mcp.server.auth.handlers.token import TokenHandler
 from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
+from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.auth import OAuthMetadata
 
 
@@ -31,7 +32,11 @@ def validate_issuer_url(url: AnyHttpUrl):
     """
 
     # RFC 8414 requires HTTPS, but we allow localhost HTTP for testing
-    if url.scheme != "https" and url.host != "localhost" and not url.host.startswith("127.0.0.1"):
+    if (
+        url.scheme != "https"
+        and url.host != "localhost"
+        and (url.host is not None and not url.host.startswith("127.0.0.1"))
+    ):
         raise ValueError("Issuer URL must be HTTPS")
 
     # No fragments or query parameters allowed
@@ -55,7 +60,7 @@ def cors_middleware(
         app=request_response(handler),
         allow_origins="*",
         allow_methods=allow_methods,
-        allow_headers=["mcp-protocol-version"],
+        allow_headers=[MCP_PROTOCOL_VERSION_HEADER],
     )
     return cors_app
 
@@ -179,3 +184,40 @@ def build_metadata(
         metadata.revocation_endpoint_auth_methods_supported = ["client_secret_post"]
 
     return metadata
+
+
+def create_protected_resource_routes(
+    resource_url: AnyHttpUrl,
+    authorization_servers: list[AnyHttpUrl],
+    scopes_supported: list[str] | None = None,
+) -> list[Route]:
+    """
+    Create routes for OAuth 2.0 Protected Resource Metadata (RFC 9728).
+
+    Args:
+        resource_url: The URL of this resource server
+        authorization_servers: List of authorization servers that can issue tokens
+        scopes_supported: Optional list of scopes supported by this resource
+
+    Returns:
+        List of Starlette routes for protected resource metadata
+    """
+    from mcp.server.auth.handlers.metadata import ProtectedResourceMetadataHandler
+    from mcp.shared.auth import ProtectedResourceMetadata
+
+    metadata = ProtectedResourceMetadata(
+        resource=resource_url,
+        authorization_servers=authorization_servers,
+        scopes_supported=scopes_supported,
+        # bearer_methods_supported defaults to ["header"] in the model
+    )
+
+    handler = ProtectedResourceMetadataHandler(metadata)
+
+    return [
+        Route(
+            "/.well-known/oauth-protected-resource",
+            endpoint=cors_middleware(handler.handle, ["GET", "OPTIONS"]),
+            methods=["GET", "OPTIONS"],
+        )
+    ]

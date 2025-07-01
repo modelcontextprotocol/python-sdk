@@ -3,6 +3,7 @@ from __future__ import annotations as _annotations
 import functools
 import inspect
 from collections.abc import Callable
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, get_origin
 
 from pydantic import BaseModel, Field
@@ -22,6 +23,7 @@ class Tool(BaseModel):
 
     fn: Callable[..., Any] = Field(exclude=True)
     name: str = Field(description="Name of the tool")
+    title: str | None = Field(None, description="Human-readable title of the tool")
     description: str = Field(description="Description of what the tool does")
     parameters: dict[str, Any] = Field(description="JSON schema for tool parameters")
     fn_metadata: FuncMetadata = Field(
@@ -31,14 +33,20 @@ class Tool(BaseModel):
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
     annotations: ToolAnnotations | None = Field(None, description="Optional annotations for the tool")
 
+    @cached_property
+    def output_schema(self) -> dict[str, Any] | None:
+        return self.fn_metadata.output_schema
+
     @classmethod
     def from_function(
         cls,
         fn: Callable[..., Any],
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
         context_kwarg: str | None = None,
         annotations: ToolAnnotations | None = None,
+        structured_output: bool | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
         from mcp.server.fastmcp.server import Context
@@ -63,12 +71,14 @@ class Tool(BaseModel):
         func_arg_metadata = func_metadata(
             fn,
             skip_names=[context_kwarg] if context_kwarg is not None else [],
+            structured_output=structured_output,
         )
         parameters = func_arg_metadata.arg_model.model_json_schema()
 
         return cls(
             fn=fn,
             name=func_name,
+            title=title,
             description=func_doc,
             parameters=parameters,
             fn_metadata=func_arg_metadata,
@@ -81,15 +91,21 @@ class Tool(BaseModel):
         self,
         arguments: dict[str, Any],
         context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
+        convert_result: bool = False,
     ) -> Any:
         """Run the tool with arguments."""
         try:
-            return await self.fn_metadata.call_fn_with_arg_validation(
+            result = await self.fn_metadata.call_fn_with_arg_validation(
                 self.fn,
                 self.is_async,
                 arguments,
                 {self.context_kwarg: context} if self.context_kwarg is not None else None,
             )
+
+            if convert_result:
+                result = self.fn_metadata.convert_result(result)
+
+            return result
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e
 

@@ -11,16 +11,53 @@ import secrets
 import string
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import Protocol
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlparse
 
 import anyio
 import httpx
+from pydantic import BaseModel, Field, ValidationError
 
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata, OAuthToken
+from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
+from mcp.shared.auth import (
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthMetadata,
+    OAuthToken,
+    ProtectedResourceMetadata,
+)
+from mcp.shared.auth_utils import check_resource_allowed, resource_url_from_server_url
 from mcp.types import LATEST_PROTOCOL_VERSION
 
 logger = logging.getLogger(__name__)
+
+
+class OAuthFlowError(Exception):
+    """Base exception for OAuth flow errors."""
+
+
+class OAuthTokenError(OAuthFlowError):
+    """Raised when token operations fail."""
+
+
+class OAuthRegistrationError(OAuthFlowError):
+    """Raised when client registration fails."""
+
+
+class PKCEParameters(BaseModel):
+    """PKCE (Proof Key for Code Exchange) parameters."""
+
+    code_verifier: str = Field(..., min_length=43, max_length=128)
+    code_challenge: str = Field(..., min_length=43, max_length=128)
+
+    @classmethod
+    def generate(cls) -> "PKCEParameters":
+        """Generate new PKCE parameters."""
+        code_verifier = "".join(secrets.choice(string.ascii_letters + string.digits + "-._~") for _ in range(128))
+        digest = hashlib.sha256(code_verifier.encode()).digest()
+        code_challenge = base64.urlsafe_b64encode(digest).decode().rstrip("=")
+        return cls(code_verifier=code_verifier, code_challenge=code_challenge)
 
 
 class TokenStorage(Protocol):
@@ -43,11 +80,108 @@ class TokenStorage(Protocol):
         ...
 
 
+@dataclass
+class OAuthContext:
+    """OAuth flow context."""
+
+    server_url: str
+    client_metadata: OAuthClientMetadata
+    storage: TokenStorage
+    redirect_handler: Callable[[str], Awaitable[None]]
+    callback_handler: Callable[[], Awaitable[tuple[str, str | None]]]
+    timeout: float = 300.0
+
+    # Discovered metadata
+    protected_resource_metadata: ProtectedResourceMetadata | None = None
+    oauth_metadata: OAuthMetadata | None = None
+    auth_server_url: str | None = None
+    protocol_version: str | None = None
+
+    # Client registration
+    client_info: OAuthClientInformationFull | None = None
+
+    # Token management
+    current_tokens: OAuthToken | None = None
+    token_expiry_time: float | None = None
+
+    # State
+    lock: anyio.Lock = field(default_factory=anyio.Lock)
+
+    # Discovery state for fallback support
+    discovery_base_url: str | None = None
+    discovery_pathname: str | None = None
+
+    def get_authorization_base_url(self, server_url: str) -> str:
+        """Extract base URL by removing path component."""
+        parsed = urlparse(server_url)
+        return f"{parsed.scheme}://{parsed.netloc}"
+
+    def update_token_expiry(self, token: OAuthToken) -> None:
+        """Update token expiry time."""
+        if token.expires_in:
+            self.token_expiry_time = time.time() + token.expires_in
+        else:
+            self.token_expiry_time = None
+
+    def is_token_valid(self) -> bool:
+        """Check if current token is valid."""
+        return bool(
+            self.current_tokens
+            and self.current_tokens.access_token
+            and (not self.token_expiry_time or time.time() <= self.token_expiry_time)
+        )
+
+    def can_refresh_token(self) -> bool:
+        """Check if token can be refreshed."""
+        return bool(self.current_tokens and self.current_tokens.refresh_token and self.client_info)
+
+    def clear_tokens(self) -> None:
+        """Clear current tokens."""
+        self.current_tokens = None
+        self.token_expiry_time = None
+
+    def get_resource_url(self) -> str:
+        """Get resource URL for RFC 8707.
+
+        Uses PRM resource if it's a valid parent, otherwise uses canonical server URL.
+        """
+        resource = resource_url_from_server_url(self.server_url)
+
+        # If PRM provides a resource that's a valid parent, use it
+        if self.protected_resource_metadata and self.protected_resource_metadata.resource:
+            prm_resource = str(self.protected_resource_metadata.resource)
+            if check_resource_allowed(requested_resource=resource, configured_resource=prm_resource):
+                resource = prm_resource
+
+        return resource
+
+    def should_include_resource_param(self, protocol_version: str | None = None) -> bool:
+        """Determine if the resource parameter should be included in OAuth requests.
+
+        Returns True if:
+        - Protected resource metadata is available, OR
+        - MCP-Protocol-Version header is 2025-06-18 or later
+        """
+        # If we have protected resource metadata, include the resource param
+        if self.protected_resource_metadata is not None:
+            return True
+
+        # If no protocol version provided, don't include resource param
+        if not protocol_version:
+            return False
+
+        # Check if protocol version is 2025-06-18 or later
+        # Version format is YYYY-MM-DD, so string comparison works
+        return protocol_version >= "2025-06-18"
+
+
 class OAuthClientProvider(httpx.Auth):
     """
-    Authentication for httpx using anyio.
+    OAuth2 authentication for httpx.
     Handles OAuth flow with automatic client registration and token storage.
     """
+
+    requires_response_body = True
 
     def __init__(
         self,
@@ -58,407 +192,389 @@ class OAuthClientProvider(httpx.Auth):
         callback_handler: Callable[[], Awaitable[tuple[str, str | None]]],
         timeout: float = 300.0,
     ):
-        """
-        Initialize OAuth2 authentication.
+        """Initialize OAuth2 authentication."""
+        self.context = OAuthContext(
+            server_url=server_url,
+            client_metadata=client_metadata,
+            storage=storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+            timeout=timeout,
+        )
+        self._initialized = False
 
-        Args:
-            server_url: Base URL of the OAuth server
-            client_metadata: OAuth client metadata
-            storage: Token storage implementation (defaults to in-memory)
-            redirect_handler: Function to handle authorization URL like opening browser
-            callback_handler: Function to wait for callback
-                              and return (auth_code, state)
-            timeout: Timeout for OAuth flow in seconds
-        """
-        self.server_url = server_url
-        self.client_metadata = client_metadata
-        self.storage = storage
-        self.redirect_handler = redirect_handler
-        self.callback_handler = callback_handler
-        self.timeout = timeout
+    async def _discover_protected_resource(self) -> httpx.Request:
+        """Build discovery request for protected resource metadata."""
+        auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
+        url = urljoin(auth_base_url, "/.well-known/oauth-protected-resource")
+        return httpx.Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
 
-        # Cached authentication state
-        self._current_tokens: OAuthToken | None = None
-        self._metadata: OAuthMetadata | None = None
-        self._client_info: OAuthClientInformationFull | None = None
-        self._token_expiry_time: float | None = None
-
-        # PKCE flow parameters
-        self._code_verifier: str | None = None
-        self._code_challenge: str | None = None
-
-        # State parameter for CSRF protection
-        self._auth_state: str | None = None
-
-        # Thread safety lock
-        self._token_lock = anyio.Lock()
-
-    def _generate_code_verifier(self) -> str:
-        """Generate a cryptographically random code verifier for PKCE."""
-        return "".join(secrets.choice(string.ascii_letters + string.digits + "-._~") for _ in range(128))
-
-    def _generate_code_challenge(self, code_verifier: str) -> str:
-        """Generate a code challenge from a code verifier using SHA256."""
-        digest = hashlib.sha256(code_verifier.encode()).digest()
-        return base64.urlsafe_b64encode(digest).decode().rstrip("=")
-
-    def _get_authorization_base_url(self, server_url: str) -> str:
-        """
-        Extract base URL by removing path component.
-
-        Per MCP spec 2.3.2: https://api.example.com/v1/mcp -> https://api.example.com
-        """
-        from urllib.parse import urlparse, urlunparse
-
-        parsed = urlparse(server_url)
-        # Remove path component
-        return urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
-
-    async def _discover_oauth_metadata(self, server_url: str) -> OAuthMetadata | None:
-        """
-        Discover OAuth metadata from server's well-known endpoint.
-        """
-        # Extract base URL per MCP spec
-        auth_base_url = self._get_authorization_base_url(server_url)
-        url = urljoin(auth_base_url, "/.well-known/oauth-authorization-server")
-        headers = {"MCP-Protocol-Version": LATEST_PROTOCOL_VERSION}
-
-        async with httpx.AsyncClient() as client:
+    async def _handle_protected_resource_response(self, response: httpx.Response) -> None:
+        """Handle discovery response."""
+        if response.status_code == 200:
             try:
-                response = await client.get(url, headers=headers)
-                if response.status_code == 404:
-                    return None
-                response.raise_for_status()
-                metadata_json = response.json()
-                logger.debug(f"OAuth metadata discovered: {metadata_json}")
-                return OAuthMetadata.model_validate(metadata_json)
-            except Exception:
-                # Retry without MCP header for CORS compatibility
-                try:
-                    response = await client.get(url)
-                    if response.status_code == 404:
-                        return None
-                    response.raise_for_status()
-                    metadata_json = response.json()
-                    logger.debug(f"OAuth metadata discovered (no MCP header): {metadata_json}")
-                    return OAuthMetadata.model_validate(metadata_json)
-                except Exception:
-                    logger.exception("Failed to discover OAuth metadata")
-                    return None
+                content = await response.aread()
+                metadata = ProtectedResourceMetadata.model_validate_json(content)
+                self.context.protected_resource_metadata = metadata
+                if metadata.authorization_servers:
+                    self.context.auth_server_url = str(metadata.authorization_servers[0])
+            except ValidationError:
+                pass
 
-    async def _register_oauth_client(
-        self,
-        server_url: str,
-        client_metadata: OAuthClientMetadata,
-        metadata: OAuthMetadata | None = None,
-    ) -> OAuthClientInformationFull:
-        """
-        Register OAuth client with server.
-        """
-        if not metadata:
-            metadata = await self._discover_oauth_metadata(server_url)
+    def _build_well_known_path(self, pathname: str) -> str:
+        """Construct well-known path for OAuth metadata discovery."""
+        well_known_path = f"/.well-known/oauth-authorization-server{pathname}"
+        if pathname.endswith("/"):
+            # Strip trailing slash from pathname to avoid double slashes
+            well_known_path = well_known_path[:-1]
+        return well_known_path
 
-        if metadata and metadata.registration_endpoint:
-            registration_url = str(metadata.registration_endpoint)
+    def _should_attempt_fallback(self, response_status: int, pathname: str) -> bool:
+        """Determine if fallback to root discovery should be attempted."""
+        return response_status == 404 and pathname != "/"
+
+    async def _try_metadata_discovery(self, url: str) -> httpx.Request:
+        """Build metadata discovery request for a specific URL."""
+        return httpx.Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
+
+    async def _discover_oauth_metadata(self) -> httpx.Request:
+        """Build OAuth metadata discovery request with fallback support."""
+        if self.context.auth_server_url:
+            auth_server_url = self.context.auth_server_url
         else:
-            # Use fallback registration endpoint
-            auth_base_url = self._get_authorization_base_url(server_url)
+            auth_server_url = self.context.server_url
+
+        # Per RFC 8414, try path-aware discovery first
+        parsed = urlparse(auth_server_url)
+        well_known_path = self._build_well_known_path(parsed.path)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        url = urljoin(base_url, well_known_path)
+
+        # Store fallback info for use in response handler
+        self.context.discovery_base_url = base_url
+        self.context.discovery_pathname = parsed.path
+
+        return await self._try_metadata_discovery(url)
+
+    async def _discover_oauth_metadata_fallback(self) -> httpx.Request:
+        """Build fallback OAuth metadata discovery request for legacy servers."""
+        base_url = getattr(self.context, "discovery_base_url", "")
+        if not base_url:
+            raise OAuthFlowError("No base URL available for fallback discovery")
+
+        # Fallback to root discovery for legacy servers
+        url = urljoin(base_url, "/.well-known/oauth-authorization-server")
+        return await self._try_metadata_discovery(url)
+
+    async def _handle_oauth_metadata_response(self, response: httpx.Response, is_fallback: bool = False) -> bool:
+        """Handle OAuth metadata response. Returns True if handled successfully."""
+        if response.status_code == 200:
+            try:
+                content = await response.aread()
+                metadata = OAuthMetadata.model_validate_json(content)
+                self.context.oauth_metadata = metadata
+                # Apply default scope if none specified
+                if self.context.client_metadata.scope is None and metadata.scopes_supported is not None:
+                    self.context.client_metadata.scope = " ".join(metadata.scopes_supported)
+                return True
+            except ValidationError:
+                pass
+
+        # Check if we should attempt fallback (404 on path-aware discovery)
+        if not is_fallback and self._should_attempt_fallback(
+            response.status_code, getattr(self.context, "discovery_pathname", "/")
+        ):
+            return False  # Signal that fallback should be attempted
+
+        return True  # Signal no fallback needed (either success or non-404 error)
+
+    async def _register_client(self) -> httpx.Request | None:
+        """Build registration request or skip if already registered."""
+        if self.context.client_info:
+            return None
+
+        if self.context.oauth_metadata and self.context.oauth_metadata.registration_endpoint:
+            registration_url = str(self.context.oauth_metadata.registration_endpoint)
+        else:
+            auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             registration_url = urljoin(auth_base_url, "/register")
 
-        # Handle default scope
-        if client_metadata.scope is None and metadata and metadata.scopes_supported is not None:
-            client_metadata.scope = " ".join(metadata.scopes_supported)
+        registration_data = self.context.client_metadata.model_dump(by_alias=True, mode="json", exclude_none=True)
 
-        # Serialize client metadata
-        registration_data = client_metadata.model_dump(by_alias=True, mode="json", exclude_none=True)
+        return httpx.Request(
+            "POST", registration_url, json=registration_data, headers={"Content-Type": "application/json"}
+        )
 
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(
-                    registration_url,
-                    json=registration_data,
-                    headers={"Content-Type": "application/json"},
-                )
+    async def _handle_registration_response(self, response: httpx.Response) -> None:
+        """Handle registration response."""
+        if response.status_code not in (200, 201):
+            raise OAuthRegistrationError(f"Registration failed: {response.status_code} {response.text}")
 
-                if response.status_code not in (200, 201):
-                    raise httpx.HTTPStatusError(
-                        f"Registration failed: {response.status_code}",
-                        request=response.request,
-                        response=response,
-                    )
+        try:
+            content = await response.aread()
+            client_info = OAuthClientInformationFull.model_validate_json(content)
+            self.context.client_info = client_info
+            await self.context.storage.set_client_info(client_info)
+        except ValidationError as e:
+            raise OAuthRegistrationError(f"Invalid registration response: {e}")
 
-                response_data = response.json()
-                logger.debug(f"Registration successful: {response_data}")
-                return OAuthClientInformationFull.model_validate(response_data)
-
-            except httpx.HTTPStatusError:
-                raise
-            except Exception:
-                logger.exception("Registration error")
-                raise
-
-    async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
-        """
-        HTTPX auth flow integration.
-        """
-
-        if not self._has_valid_token():
-            await self.initialize()
-            await self.ensure_token()
-        # Add Bearer token if available
-        if self._current_tokens and self._current_tokens.access_token:
-            request.headers["Authorization"] = f"Bearer {self._current_tokens.access_token}"
-
-        response = yield request
-
-        # Clear token on 401 to trigger re-auth
-        if response.status_code == 401:
-            self._current_tokens = None
-
-    def _has_valid_token(self) -> bool:
-        """Check if current token is valid."""
-        if not self._current_tokens or not self._current_tokens.access_token:
-            return False
-
-        # Check expiry time
-        if self._token_expiry_time and time.time() > self._token_expiry_time:
-            return False
-
-        return True
-
-    async def _validate_token_scopes(self, token_response: OAuthToken) -> None:
-        """
-        Validate returned scopes against requested scopes.
-
-        Per OAuth 2.1 Section 3.3: server may grant subset, not superset.
-        """
-        if not token_response.scope:
-            # No scope returned = validation passes
-            return
-
-        # Check explicitly requested scopes only
-        requested_scopes: set[str] = set()
-
-        if self.client_metadata.scope:
-            # Validate against explicit scope request
-            requested_scopes = set(self.client_metadata.scope.split())
-
-            # Check for unauthorized scopes
-            returned_scopes = set(token_response.scope.split())
-            unauthorized_scopes = returned_scopes - requested_scopes
-
-            if unauthorized_scopes:
-                raise Exception(
-                    f"Server granted unauthorized scopes: {unauthorized_scopes}. "
-                    f"Requested: {requested_scopes}, Returned: {returned_scopes}"
-                )
+    async def _perform_authorization(self) -> tuple[str, str]:
+        """Perform the authorization redirect and get auth code."""
+        if self.context.oauth_metadata and self.context.oauth_metadata.authorization_endpoint:
+            auth_endpoint = str(self.context.oauth_metadata.authorization_endpoint)
         else:
-            # No explicit scopes requested - accept server defaults
-            logger.debug(
-                f"No explicit scopes requested, accepting server-granted "
-                f"scopes: {set(token_response.scope.split())}"
-            )
+            auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
+            auth_endpoint = urljoin(auth_base_url, "/authorize")
 
-    async def initialize(self) -> None:
-        """Load stored tokens and client info."""
-        self._current_tokens = await self.storage.get_tokens()
-        self._client_info = await self.storage.get_client_info()
+        if not self.context.client_info:
+            raise OAuthFlowError("No client info available for authorization")
 
-    async def _get_or_register_client(self) -> OAuthClientInformationFull:
-        """Get or register client with server."""
-        if not self._client_info:
-            try:
-                self._client_info = await self._register_oauth_client(
-                    self.server_url, self.client_metadata, self._metadata
-                )
-                await self.storage.set_client_info(self._client_info)
-            except Exception:
-                logger.exception("Client registration failed")
-                raise
-        return self._client_info
+        # Generate PKCE parameters
+        pkce_params = PKCEParameters.generate()
+        state = secrets.token_urlsafe(32)
 
-    async def ensure_token(self) -> None:
-        """Ensure valid access token, refreshing or re-authenticating as needed."""
-        async with self._token_lock:
-            # Return early if token is valid
-            if self._has_valid_token():
-                return
-
-            # Try refreshing existing token
-            if self._current_tokens and self._current_tokens.refresh_token and await self._refresh_access_token():
-                return
-
-            # Fall back to full OAuth flow
-            await self._perform_oauth_flow()
-
-    async def _perform_oauth_flow(self) -> None:
-        """Execute OAuth2 authorization code flow with PKCE."""
-        logger.debug("Starting authentication flow.")
-
-        # Discover OAuth metadata
-        if not self._metadata:
-            self._metadata = await self._discover_oauth_metadata(self.server_url)
-
-        # Ensure client registration
-        client_info = await self._get_or_register_client()
-
-        # Generate PKCE challenge
-        self._code_verifier = self._generate_code_verifier()
-        self._code_challenge = self._generate_code_challenge(self._code_verifier)
-
-        # Get authorization endpoint
-        if self._metadata and self._metadata.authorization_endpoint:
-            auth_url_base = str(self._metadata.authorization_endpoint)
-        else:
-            # Use fallback authorization endpoint
-            auth_base_url = self._get_authorization_base_url(self.server_url)
-            auth_url_base = urljoin(auth_base_url, "/authorize")
-
-        # Build authorization URL
-        self._auth_state = secrets.token_urlsafe(32)
         auth_params = {
             "response_type": "code",
-            "client_id": client_info.client_id,
-            "redirect_uri": str(self.client_metadata.redirect_uris[0]),
-            "state": self._auth_state,
-            "code_challenge": self._code_challenge,
+            "client_id": self.context.client_info.client_id,
+            "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
+            "state": state,
+            "code_challenge": pkce_params.code_challenge,
             "code_challenge_method": "S256",
         }
 
-        # Include explicit scopes only
-        if self.client_metadata.scope:
-            auth_params["scope"] = self.client_metadata.scope
+        # Only include resource param if conditions are met
+        if self.context.should_include_resource_param(self.context.protocol_version):
+            auth_params["resource"] = self.context.get_resource_url()  # RFC 8707
 
-        auth_url = f"{auth_url_base}?{urlencode(auth_params)}"
+        if self.context.client_metadata.scope:
+            auth_params["scope"] = self.context.client_metadata.scope
 
-        # Redirect user for authorization
-        await self.redirect_handler(auth_url)
+        authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
+        await self.context.redirect_handler(authorization_url)
 
-        auth_code, returned_state = await self.callback_handler()
+        # Wait for callback
+        auth_code, returned_state = await self.context.callback_handler()
 
-        # Validate state parameter for CSRF protection
-        if returned_state is None or not secrets.compare_digest(returned_state, self._auth_state):
-            raise Exception(f"State parameter mismatch: {returned_state} != {self._auth_state}")
-
-        # Clear state after validation
-        self._auth_state = None
+        if returned_state is None or not secrets.compare_digest(returned_state, state):
+            raise OAuthFlowError(f"State parameter mismatch: {returned_state} != {state}")
 
         if not auth_code:
-            raise Exception("No authorization code received")
+            raise OAuthFlowError("No authorization code received")
 
-        # Exchange authorization code for tokens
-        await self._exchange_code_for_token(auth_code, client_info)
+        # Return auth code and code verifier for token exchange
+        return auth_code, pkce_params.code_verifier
 
-    async def _exchange_code_for_token(self, auth_code: str, client_info: OAuthClientInformationFull) -> None:
-        """Exchange authorization code for access token."""
-        # Get token endpoint
-        if self._metadata and self._metadata.token_endpoint:
-            token_url = str(self._metadata.token_endpoint)
+    async def _exchange_token(self, auth_code: str, code_verifier: str) -> httpx.Request:
+        """Build token exchange request."""
+        if not self.context.client_info:
+            raise OAuthFlowError("Missing client info")
+
+        if self.context.oauth_metadata and self.context.oauth_metadata.token_endpoint:
+            token_url = str(self.context.oauth_metadata.token_endpoint)
         else:
-            # Use fallback token endpoint
-            auth_base_url = self._get_authorization_base_url(self.server_url)
+            auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             token_url = urljoin(auth_base_url, "/token")
 
         token_data = {
             "grant_type": "authorization_code",
             "code": auth_code,
-            "redirect_uri": str(self.client_metadata.redirect_uris[0]),
-            "client_id": client_info.client_id,
-            "code_verifier": self._code_verifier,
+            "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
+            "client_id": self.context.client_info.client_id,
+            "code_verifier": code_verifier,
         }
 
-        if client_info.client_secret:
-            token_data["client_secret"] = client_info.client_secret
+        # Only include resource param if conditions are met
+        if self.context.should_include_resource_param(self.context.protocol_version):
+            token_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                token_url,
-                data=token_data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                timeout=30.0,
-            )
+        if self.context.client_info.client_secret:
+            token_data["client_secret"] = self.context.client_info.client_secret
 
-            if response.status_code != 200:
-                # Parse OAuth error response
-                try:
-                    error_data = response.json()
-                    error_msg = error_data.get("error_description", error_data.get("error", "Unknown error"))
-                    raise Exception(f"Token exchange failed: {error_msg} " f"(HTTP {response.status_code})")
-                except Exception:
-                    raise Exception(f"Token exchange failed: {response.status_code} {response.text}")
+        return httpx.Request(
+            "POST", token_url, data=token_data, headers={"Content-Type": "application/x-www-form-urlencoded"}
+        )
 
-            # Parse token response
-            token_response = OAuthToken.model_validate(response.json())
+    async def _handle_token_response(self, response: httpx.Response) -> None:
+        """Handle token exchange response."""
+        if response.status_code != 200:
+            raise OAuthTokenError(f"Token exchange failed: {response.status_code}")
 
-            # Validate token scopes
-            await self._validate_token_scopes(token_response)
+        try:
+            content = await response.aread()
+            token_response = OAuthToken.model_validate_json(content)
 
-            # Calculate token expiry
-            if token_response.expires_in:
-                self._token_expiry_time = time.time() + token_response.expires_in
-            else:
-                self._token_expiry_time = None
+            # Validate scopes
+            if token_response.scope and self.context.client_metadata.scope:
+                requested_scopes = set(self.context.client_metadata.scope.split())
+                returned_scopes = set(token_response.scope.split())
+                unauthorized_scopes = returned_scopes - requested_scopes
+                if unauthorized_scopes:
+                    raise OAuthTokenError(f"Server granted unauthorized scopes: {unauthorized_scopes}")
 
-            # Store tokens
-            await self.storage.set_tokens(token_response)
-            self._current_tokens = token_response
+            self.context.current_tokens = token_response
+            self.context.update_token_expiry(token_response)
+            await self.context.storage.set_tokens(token_response)
+        except ValidationError as e:
+            raise OAuthTokenError(f"Invalid token response: {e}")
 
-    async def _refresh_access_token(self) -> bool:
-        """Refresh access token using refresh token."""
-        if not self._current_tokens or not self._current_tokens.refresh_token:
-            return False
+    async def _refresh_token(self) -> httpx.Request:
+        """Build token refresh request."""
+        if not self.context.current_tokens or not self.context.current_tokens.refresh_token:
+            raise OAuthTokenError("No refresh token available")
 
-        # Get client credentials
-        client_info = await self._get_or_register_client()
+        if not self.context.client_info:
+            raise OAuthTokenError("No client info available")
 
-        # Get token endpoint
-        if self._metadata and self._metadata.token_endpoint:
-            token_url = str(self._metadata.token_endpoint)
+        if self.context.oauth_metadata and self.context.oauth_metadata.token_endpoint:
+            token_url = str(self.context.oauth_metadata.token_endpoint)
         else:
-            # Use fallback token endpoint
-            auth_base_url = self._get_authorization_base_url(self.server_url)
+            auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             token_url = urljoin(auth_base_url, "/token")
 
         refresh_data = {
             "grant_type": "refresh_token",
-            "refresh_token": self._current_tokens.refresh_token,
-            "client_id": client_info.client_id,
+            "refresh_token": self.context.current_tokens.refresh_token,
+            "client_id": self.context.client_info.client_id,
         }
 
-        if client_info.client_secret:
-            refresh_data["client_secret"] = client_info.client_secret
+        # Only include resource param if conditions are met
+        if self.context.should_include_resource_param(self.context.protocol_version):
+            refresh_data["resource"] = self.context.get_resource_url()  # RFC 8707
+
+        if self.context.client_info.client_secret:
+            refresh_data["client_secret"] = self.context.client_info.client_secret
+
+        return httpx.Request(
+            "POST", token_url, data=refresh_data, headers={"Content-Type": "application/x-www-form-urlencoded"}
+        )
+
+    async def _handle_refresh_response(self, response: httpx.Response) -> bool:
+        """Handle token refresh response. Returns True if successful."""
+        if response.status_code != 200:
+            logger.warning(f"Token refresh failed: {response.status_code}")
+            self.context.clear_tokens()
+            return False
 
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    token_url,
-                    data=refresh_data,
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
-                    timeout=30.0,
-                )
+            content = await response.aread()
+            token_response = OAuthToken.model_validate_json(content)
 
-                if response.status_code != 200:
-                    logger.error(f"Token refresh failed: {response.status_code}")
-                    return False
+            self.context.current_tokens = token_response
+            self.context.update_token_expiry(token_response)
+            await self.context.storage.set_tokens(token_response)
 
-                # Parse refreshed tokens
-                token_response = OAuthToken.model_validate(response.json())
-
-                # Validate token scopes
-                await self._validate_token_scopes(token_response)
-
-                # Calculate token expiry
-                if token_response.expires_in:
-                    self._token_expiry_time = time.time() + token_response.expires_in
-                else:
-                    self._token_expiry_time = None
-
-                # Store refreshed tokens
-                await self.storage.set_tokens(token_response)
-                self._current_tokens = token_response
-
-                return True
-
-        except Exception:
-            logger.exception("Token refresh failed")
+            return True
+        except ValidationError as e:
+            logger.error(f"Invalid refresh response: {e}")
+            self.context.clear_tokens()
             return False
+
+    async def _initialize(self) -> None:
+        """Load stored tokens and client info."""
+        self.context.current_tokens = await self.context.storage.get_tokens()
+        self.context.client_info = await self.context.storage.get_client_info()
+        self._initialized = True
+
+    def _add_auth_header(self, request: httpx.Request) -> None:
+        """Add authorization header to request if we have valid tokens."""
+        if self.context.current_tokens and self.context.current_tokens.access_token:
+            request.headers["Authorization"] = f"Bearer {self.context.current_tokens.access_token}"
+
+    async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
+        """HTTPX auth flow integration."""
+        async with self.context.lock:
+            if not self._initialized:
+                await self._initialize()
+
+            # Capture protocol version from request headers
+            self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION)
+
+            # Perform OAuth flow if not authenticated
+            if not self.context.is_token_valid():
+                try:
+                    # OAuth flow must be inline due to generator constraints
+                    # Step 1: Discover protected resource metadata (spec revision 2025-06-18)
+                    discovery_request = await self._discover_protected_resource()
+                    discovery_response = yield discovery_request
+                    await self._handle_protected_resource_response(discovery_response)
+
+                    # Step 2: Discover OAuth metadata (with fallback for legacy servers)
+                    oauth_request = await self._discover_oauth_metadata()
+                    oauth_response = yield oauth_request
+                    handled = await self._handle_oauth_metadata_response(oauth_response, is_fallback=False)
+
+                    # If path-aware discovery failed with 404, try fallback to root
+                    if not handled:
+                        fallback_request = await self._discover_oauth_metadata_fallback()
+                        fallback_response = yield fallback_request
+                        await self._handle_oauth_metadata_response(fallback_response, is_fallback=True)
+
+                    # Step 3: Register client if needed
+                    registration_request = await self._register_client()
+                    if registration_request:
+                        registration_response = yield registration_request
+                        await self._handle_registration_response(registration_response)
+
+                    # Step 4: Perform authorization
+                    auth_code, code_verifier = await self._perform_authorization()
+
+                    # Step 5: Exchange authorization code for tokens
+                    token_request = await self._exchange_token(auth_code, code_verifier)
+                    token_response = yield token_request
+                    await self._handle_token_response(token_response)
+                except Exception as e:
+                    logger.error(f"OAuth flow error: {e}")
+                    raise
+
+            # Add authorization header and make request
+            self._add_auth_header(request)
+            response = yield request
+
+            # Handle 401 responses
+            if response.status_code == 401 and self.context.can_refresh_token():
+                # Try to refresh token
+                refresh_request = await self._refresh_token()
+                refresh_response = yield refresh_request
+
+                if await self._handle_refresh_response(refresh_response):
+                    # Retry original request with new token
+                    self._add_auth_header(request)
+                    yield request
+                else:
+                    # Refresh failed, need full re-authentication
+                    self._initialized = False
+
+                    # OAuth flow must be inline due to generator constraints
+                    # Step 1: Discover protected resource metadata (spec revision 2025-06-18)
+                    discovery_request = await self._discover_protected_resource()
+                    discovery_response = yield discovery_request
+                    await self._handle_protected_resource_response(discovery_response)
+
+                    # Step 2: Discover OAuth metadata (with fallback for legacy servers)
+                    oauth_request = await self._discover_oauth_metadata()
+                    oauth_response = yield oauth_request
+                    handled = await self._handle_oauth_metadata_response(oauth_response, is_fallback=False)
+
+                    # If path-aware discovery failed with 404, try fallback to root
+                    if not handled:
+                        fallback_request = await self._discover_oauth_metadata_fallback()
+                        fallback_response = yield fallback_request
+                        await self._handle_oauth_metadata_response(fallback_response, is_fallback=True)
+
+                    # Step 3: Register client if needed
+                    registration_request = await self._register_client()
+                    if registration_request:
+                        registration_response = yield registration_request
+                        await self._handle_registration_response(registration_response)
+
+                    # Step 4: Perform authorization
+                    auth_code, code_verifier = await self._perform_authorization()
+
+                    # Step 5: Exchange authorization code for tokens
+                    token_request = await self._exchange_token(auth_code, code_verifier)
+                    token_response = yield token_request
+                    await self._handle_token_response(token_response)
+
+                    # Retry with new tokens
+                    self._add_auth_header(request)
+                    yield request

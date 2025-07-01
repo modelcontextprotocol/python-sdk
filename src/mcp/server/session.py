@@ -121,6 +121,10 @@ class ServerSession(
             if client_caps.sampling is None:
                 return False
 
+        if capability.elicitation is not None:
+            if client_caps.elicitation is None:
+                return False
+
         if capability.experimental is not None:
             if client_caps.experimental is None:
                 return False
@@ -249,6 +253,35 @@ class ServerSession(
                 )
             ),
             types.ListRootsResult,
+        )
+
+    async def elicit(
+        self,
+        message: str,
+        requestedSchema: types.ElicitRequestedSchema,
+        related_request_id: types.RequestId | None = None,
+    ) -> types.ElicitResult:
+        """Send an elicitation/create request.
+
+        Args:
+            message: The message to present to the user
+            requestedSchema: Schema defining the expected response structure
+
+        Returns:
+            The client's response
+        """
+        return await self.send_request(
+            types.ServerRequest(
+                types.ElicitRequest(
+                    method="elicitation/create",
+                    params=types.ElicitRequestParams(
+                        message=message,
+                        requestedSchema=requestedSchema,
+                    ),
+                )
+            ),
+            types.ElicitResult,
+            metadata=ServerMessageMetadata(related_request_id=related_request_id),
         )
 
     async def send_ping(self) -> types.EmptyResult:
