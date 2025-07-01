@@ -17,6 +17,7 @@ from mcp.client.stdio import (
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
 from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
+from tests.shared.test_win32_utils import escape_path_for_python
 
 # Timeout for cleanup of processes that ignore SIGTERM
 # This timeout ensures the test fails quickly if the cleanup logic doesn't have
@@ -249,12 +250,6 @@ class TestChildProcessCleanup:
     This is a fundamental difference between Windows and Unix process termination.
     """
 
-    @staticmethod
-    def _escape_path_for_python(path: str) -> str:
-        """Escape a file path for use in Python code strings."""
-        # Use forward slashes which work on all platforms and don't need escaping
-        return repr(path.replace("\\", "/"))
-
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_basic_child_process_cleanup(self):
@@ -280,13 +275,13 @@ class TestChildProcessCleanup:
                 import os
 
                 # Mark that parent started
-                with open({self._escape_path_for_python(parent_marker)}, 'w') as f:
+                with open({escape_path_for_python(parent_marker)}, 'w') as f:
                     f.write('parent started\\n')
 
                 # Child script that writes continuously
                 child_script = f'''
                 import time
-                with open({self._escape_path_for_python(marker_file)}, 'a') as f:
+                with open({escape_path_for_python(marker_file)}, 'a') as f:
                     while True:
                         f.write(f"{time.time()}")
                         f.flush()
@@ -381,7 +376,7 @@ class TestChildProcessCleanup:
 
                 # Grandchild just writes to file
                 grandchild_script = \"\"\"import time
-                with open({self._escape_path_for_python(grandchild_file)}, 'a') as f:
+                with open({escape_path_for_python(grandchild_file)}, 'a') as f:
                     while True:
                         f.write(f"gc {{time.time()}}")
                         f.flush()
@@ -391,7 +386,7 @@ class TestChildProcessCleanup:
                 subprocess.Popen([sys.executable, '-c', grandchild_script])
 
                 # Child writes to its file
-                with open({self._escape_path_for_python(child_file)}, 'a') as f:
+                with open({escape_path_for_python(child_file)}, 'a') as f:
                     while True:
                         f.write(f"c {time.time()}")
                         f.flush()
@@ -401,7 +396,7 @@ class TestChildProcessCleanup:
                 subprocess.Popen([sys.executable, '-c', child_script])
 
                 # Parent writes to its file
-                with open({self._escape_path_for_python(parent_file)}, 'a') as f:
+                with open({escape_path_for_python(parent_file)}, 'a') as f:
                     while True:
                         f.write(f"p {time.time()}")
                         f.flush()
@@ -470,7 +465,7 @@ class TestChildProcessCleanup:
 
                 # Child that continues running
                 child_script = f'''import time
-                with open({self._escape_path_for_python(marker_file)}, 'a') as f:
+                with open({escape_path_for_python(marker_file)}, 'a') as f:
                     while True:
                         f.write(f"child {time.time()}")
                         f.flush()
