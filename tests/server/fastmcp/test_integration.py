@@ -317,21 +317,33 @@ async def test_basic_prompts(server_transport: str, server_url: str) -> None:
             assert result.serverInfo.name == "Prompt Example"
             assert result.capabilities.prompts is not None
 
-            # Test summarize prompt
+            # Test review_code prompt
             prompts = await session.list_prompts()
-            summarize_prompt = next((p for p in prompts.prompts if p.name == "summarize"), None)
-            assert summarize_prompt is not None
+            review_prompt = next((p for p in prompts.prompts if p.name == "review_code"), None)
+            assert review_prompt is not None
 
-            prompt_result = await session.get_prompt("summarize", {"text": "Long text here", "max_words": "50"})
+            prompt_result = await session.get_prompt("review_code", {"code": "def hello():\n    print('Hello')"})
             assert isinstance(prompt_result, GetPromptResult)
-            assert len(prompt_result.messages) >= 1
+            assert len(prompt_result.messages) == 1
+            assert isinstance(prompt_result.messages[0].content, TextContent)
+            assert "Please review this code:" in prompt_result.messages[0].content.text
+            assert "def hello():" in prompt_result.messages[0].content.text
 
-            # Test explain prompt
-            explain_result = await session.get_prompt(
-                "explain", {"concept": "machine learning", "audience": "beginner"}
+            # Test debug_error prompt
+            debug_result = await session.get_prompt(
+                "debug_error", {"error": "TypeError: 'NoneType' object is not subscriptable"}
             )
-            assert isinstance(explain_result, GetPromptResult)
-            assert len(explain_result.messages) >= 1
+            assert isinstance(debug_result, GetPromptResult)
+            assert len(debug_result.messages) == 3
+            assert debug_result.messages[0].role == "user"
+            assert isinstance(debug_result.messages[0].content, TextContent)
+            assert "I'm seeing this error:" in debug_result.messages[0].content.text
+            assert debug_result.messages[1].role == "user"
+            assert isinstance(debug_result.messages[1].content, TextContent)
+            assert "TypeError" in debug_result.messages[1].content.text
+            assert debug_result.messages[2].role == "assistant"
+            assert isinstance(debug_result.messages[2].content, TextContent)
+            assert "I'll help debug that" in debug_result.messages[2].content.text
 
 
 # Test progress reporting

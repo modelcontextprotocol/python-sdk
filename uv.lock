@@ -8,7 +8,6 @@ resolution-mode = "lowest-direct"
 [manifest]
 members = [
     "mcp",
-    "mcp-server-everything",
     "mcp-simple-auth",
     "mcp-simple-prompt",
     "mcp-simple-resource",
@@ -637,23 +636,6 @@ docs = [
     { name = "mkdocs-glightbox", specifier = ">=0.4.0" },
     { name = "mkdocs-material", extras = ["imaging"], specifier = ">=9.5.45" },
     { name = "mkdocstrings-python", specifier = ">=1.12.2" },
-]
-
-[[package]]
-name = "mcp-server-everything"
-version = "0.1.0"
-source = { editable = "examples/servers/everything" }
-dependencies = [
-    { name = "httpx" },
-    { name = "mcp" },
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx" },
-    { name = "mcp", editable = "." },
-    { name = "pydantic", specifier = ">=2.0" },
 ]
 
 [[package]]
