@@ -34,22 +34,23 @@ from mcp.types import LATEST_PROTOCOL_VERSION
 logger = logging.getLogger(__name__)
 
 
-def _extract_resource_metadata_from_www_auth(header_value: str) -> str | None:
+def _extract_resource_metadata_from_www_auth(response: httpx.Response) -> str | None:
     """
-    Parse WWW-Authenticate header to extract resource_metadata parameter.
-    
-    According to RFC9728, the header format is:
-    WWW-Authenticate: Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"
-    
-    Returns the resource_metadata URL if found, None otherwise.
+    Extract protected resource metadata URL from WWW-Authenticate header as per RFC9728.
+        
+    Returns:
+        Resource metadata URL if found in WWW-Authenticate header, None otherwise
     """
-    if not header_value:
+    if not response or response.status_code != 401:
+        return None
+        
+    www_auth_header = response.headers.get("WWW-Authenticate")
+    if not www_auth_header:
         return None
     
-    # Look for resource_metadata parameter in the header
     # Pattern matches: resource_metadata="url" or resource_metadata=url (unquoted)
     pattern = r'resource_metadata=(?:"([^"]+)"|([^\s,]+))'
-    match = re.search(pattern, header_value)
+    match = re.search(pattern, www_auth_header)
     
     if match:
         # Return quoted value if present, otherwise unquoted value
@@ -228,10 +229,15 @@ class OAuthClientProvider(httpx.Auth):
         )
         self._initialized = False
 
-    async def _discover_protected_resource(self) -> httpx.Request:
-        """Build discovery request for protected resource metadata."""
-        auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
-        url = urljoin(auth_base_url, "/.well-known/oauth-protected-resource")
+    async def _discover_protected_resource(self, response: httpx.Response | None = None) -> httpx.Request:
+        # RFC9728: Try to extract resource_metadata URL from WWW-Authenticate header
+        url = _extract_resource_metadata_from_www_auth(response) if response else None
+        
+        if not url:
+            # Fallback to well-known discovery
+            auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
+            url = urljoin(auth_base_url, "/.well-known/oauth-protected-resource")
+        
         return httpx.Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
 
     async def _handle_protected_resource_response(self, response: httpx.Response) -> None:
@@ -535,8 +541,8 @@ class OAuthClientProvider(httpx.Auth):
                 if not self.context.is_token_valid():
                     try:
                         # OAuth flow must be inline due to generator constraints
-                        # Step 1: Discover protected resource metadata (spec revision 2025-06-18)
-                        discovery_request = await self._discover_protected_resource()
+                        # Step 1: Discover protected resource metadata (RFC9728 with WWW-Authenticate support)
+                        discovery_request = await self._discover_protected_resource(response)
                         discovery_response = yield discovery_request
                         await self._handle_protected_resource_response(discovery_response)
 
