@@ -34,31 +34,6 @@ from mcp.types import LATEST_PROTOCOL_VERSION
 logger = logging.getLogger(__name__)
 
 
-def _extract_resource_metadata_from_www_auth(response: httpx.Response) -> str | None:
-    """
-    Extract protected resource metadata URL from WWW-Authenticate header as per RFC9728.
-        
-    Returns:
-        Resource metadata URL if found in WWW-Authenticate header, None otherwise
-    """
-    if not response or response.status_code != 401:
-        return None
-        
-    www_auth_header = response.headers.get("WWW-Authenticate")
-    if not www_auth_header:
-        return None
-    
-    # Pattern matches: resource_metadata="url" or resource_metadata=url (unquoted)
-    pattern = r'resource_metadata=(?:"([^"]+)"|([^\s,]+))'
-    match = re.search(pattern, www_auth_header)
-    
-    if match:
-        # Return quoted value if present, otherwise unquoted value
-        return match.group(1) or match.group(2)
-    
-    return None
-
-
 class OAuthFlowError(Exception):
     """Base exception for OAuth flow errors."""
 
@@ -229,9 +204,33 @@ class OAuthClientProvider(httpx.Auth):
         )
         self._initialized = False
 
-    async def _discover_protected_resource(self, response: httpx.Response | None = None) -> httpx.Request:
-        # RFC9728: Try to extract resource_metadata URL from WWW-Authenticate header
-        url = _extract_resource_metadata_from_www_auth(response) if response else None
+    def _extract_resource_metadata_from_www_auth(self, init_response: httpx.Response) -> str | None:
+        """
+        Extract protected resource metadata URL from WWW-Authenticate header as per RFC9728.
+            
+        Returns:
+            Resource metadata URL if found in WWW-Authenticate header, None otherwise
+        """
+        if not init_response or init_response.status_code != 401:
+            return None
+            
+        www_auth_header = init_response.headers.get("WWW-Authenticate")
+        if not www_auth_header:
+            return None
+        
+        # Pattern matches: resource_metadata="url" or resource_metadata=url (unquoted)
+        pattern = r'resource_metadata=(?:"([^"]+)"|([^\s,]+))'
+        match = re.search(pattern, www_auth_header)
+        
+        if match:
+            # Return quoted value if present, otherwise unquoted value
+            return match.group(1) or match.group(2)
+        
+        return None
+
+    async def _discover_protected_resource(self, init_response: httpx.Response | None = None) -> httpx.Request:
+        # RFC9728: Try to extract resource_metadata URL from WWW-Authenticate header of the initial response
+        url = self._extract_resource_metadata_from_www_auth(init_response) if init_response else None
         
         if not url:
             # Fallback to well-known discovery
