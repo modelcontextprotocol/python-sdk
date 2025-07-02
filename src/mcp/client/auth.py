@@ -514,92 +514,60 @@ class OAuthClientProvider(httpx.Auth):
             # Capture protocol version from request headers
             self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION)
 
-            # Perform OAuth flow if not authenticated
-            if not self.context.is_token_valid():
-                try:
-                    # OAuth flow must be inline due to generator constraints
-                    # Step 1: Discover protected resource metadata (spec revision 2025-06-18)
-                    discovery_request = await self._discover_protected_resource()
-                    discovery_response = yield discovery_request
-                    await self._handle_protected_resource_response(discovery_response)
-
-                    # Step 2: Discover OAuth metadata (with fallback for legacy servers)
-                    oauth_request = await self._discover_oauth_metadata()
-                    oauth_response = yield oauth_request
-                    handled = await self._handle_oauth_metadata_response(oauth_response, is_fallback=False)
-
-                    # If path-aware discovery failed with 404, try fallback to root
-                    if not handled:
-                        fallback_request = await self._discover_oauth_metadata_fallback()
-                        fallback_response = yield fallback_request
-                        await self._handle_oauth_metadata_response(fallback_response, is_fallback=True)
-
-                    # Step 3: Register client if needed
-                    registration_request = await self._register_client()
-                    if registration_request:
-                        registration_response = yield registration_request
-                        await self._handle_registration_response(registration_response)
-
-                    # Step 4: Perform authorization
-                    auth_code, code_verifier = await self._perform_authorization()
-
-                    # Step 5: Exchange authorization code for tokens
-                    token_request = await self._exchange_token(auth_code, code_verifier)
-                    token_response = yield token_request
-                    await self._handle_token_response(token_response)
-                except Exception as e:
-                    logger.error(f"OAuth flow error: {e}")
-                    raise
-
-            # Add authorization header and make request
-            self._add_auth_header(request)
+            if self.context.is_token_valid():
+                self._add_auth_header(request)
+            
             response = yield request
 
-            # Handle 401 responses
-            if response.status_code == 401 and self.context.can_refresh_token():
-                # Try to refresh token
-                refresh_request = await self._refresh_token()
-                refresh_response = yield refresh_request
+            if response.status_code == 401:
+                if self.context.can_refresh_token():
+                    # Try to refresh token
+                    refresh_request = await self._refresh_token()
+                    refresh_response = yield refresh_request
 
-                if await self._handle_refresh_response(refresh_response):
-                    # Retry original request with new token
-                    self._add_auth_header(request)
-                    yield request
+                    if not await self._handle_refresh_response(refresh_response):
+                        # Refresh failed, need full re-authentication
+                        self._initialized = False
                 else:
-                    # Refresh failed, need full re-authentication
-                    self._initialized = False
+                    self.context.clear_tokens()
 
-                    # OAuth flow must be inline due to generator constraints
-                    # Step 1: Discover protected resource metadata (spec revision 2025-06-18)
-                    discovery_request = await self._discover_protected_resource()
-                    discovery_response = yield discovery_request
-                    await self._handle_protected_resource_response(discovery_response)
+                # If we don't have valid tokens after refresh, perform OAuth flow
+                if not self.context.is_token_valid():
+                    try:
+                        # OAuth flow must be inline due to generator constraints
+                        # Step 1: Discover protected resource metadata (spec revision 2025-06-18)
+                        discovery_request = await self._discover_protected_resource()
+                        discovery_response = yield discovery_request
+                        await self._handle_protected_resource_response(discovery_response)
 
-                    # Step 2: Discover OAuth metadata (with fallback for legacy servers)
-                    oauth_request = await self._discover_oauth_metadata()
-                    oauth_response = yield oauth_request
-                    handled = await self._handle_oauth_metadata_response(oauth_response, is_fallback=False)
+                        # Step 2: Discover OAuth metadata (with fallback for legacy servers)
+                        oauth_request = await self._discover_oauth_metadata()
+                        oauth_response = yield oauth_request
+                        handled = await self._handle_oauth_metadata_response(oauth_response, is_fallback=False)
 
-                    # If path-aware discovery failed with 404, try fallback to root
-                    if not handled:
-                        fallback_request = await self._discover_oauth_metadata_fallback()
-                        fallback_response = yield fallback_request
-                        await self._handle_oauth_metadata_response(fallback_response, is_fallback=True)
+                        # If path-aware discovery failed with 404, try fallback to root
+                        if not handled:
+                            fallback_request = await self._discover_oauth_metadata_fallback()
+                            fallback_response = yield fallback_request
+                            await self._handle_oauth_metadata_response(fallback_response, is_fallback=True)
 
-                    # Step 3: Register client if needed
-                    registration_request = await self._register_client()
-                    if registration_request:
-                        registration_response = yield registration_request
-                        await self._handle_registration_response(registration_response)
+                        # Step 3: Register client if needed
+                        registration_request = await self._register_client()
+                        if registration_request:
+                            registration_response = yield registration_request
+                            await self._handle_registration_response(registration_response)
 
-                    # Step 4: Perform authorization
-                    auth_code, code_verifier = await self._perform_authorization()
+                        # Step 4: Perform authorization
+                        auth_code, code_verifier = await self._perform_authorization()
 
-                    # Step 5: Exchange authorization code for tokens
-                    token_request = await self._exchange_token(auth_code, code_verifier)
-                    token_response = yield token_request
-                    await self._handle_token_response(token_response)
+                        # Step 5: Exchange authorization code for tokens
+                        token_request = await self._exchange_token(auth_code, code_verifier)
+                        token_response = yield token_request
+                        await self._handle_token_response(token_response)
+                    except Exception as e:
+                        logger.error(f"OAuth flow error: {e}")
+                        raise
 
-                    # Retry with new tokens
-                    self._add_auth_header(request)
-                    yield request
+                # Retry with new tokens
+                self._add_auth_header(request)
+                yield request
