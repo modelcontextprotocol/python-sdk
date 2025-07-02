@@ -27,6 +27,7 @@
     - [Server](#server)
     - [Resources](#resources)
     - [Tools](#tools)
+      - [Structured Output](#structured-output)
     - [Prompts](#prompts)
     - [Images](#images)
     - [Context](#context)
@@ -247,6 +248,127 @@ async def fetch_weather(city: str) -> str:
     async with httpx.AsyncClient() as client:
         response = await client.get(f"https://api.weather.com/{city}")
         return response.text
+```
+
+#### Structured Output
+
+Tools will return structured results by default, if their return type
+annotation is compatible. Otherwise, they will return unstructured results. 
+
+Structured output supports these return types:
+- Pydantic models (BaseModel subclasses)
+- TypedDicts
+- Dataclasses and other classes with type hints
+- `dict[str, T]` (where T is any JSON-serializable type)
+- Primitive types (str, int, float, bool, bytes, None) - wrapped in `{"result": value}`
+- Generic types (list, tuple, Union, Optional, etc.) - wrapped in `{"result": value}`
+
+Classes without type hints cannot be serialized for structured output. Only
+classes with properly annotated attributes will be converted to Pydantic models
+for schema generation and validation.
+
+Structured results are automatically validated against the output schema 
+generated from the annotation. This ensures the tool returns well-typed, 
+validated data that clients can easily process.
+
+**Note:** For backward compatibility, unstructured results are also
+returned. Unstructured results are provided for backward compatibility 
+with previous versions of the MCP specification, and are quirks-compatible
+with previous versions of FastMCP in the current version of the SDK.
+
+**Note:** In cases where a tool function's return type annotation 
+causes the tool to be classified as structured _and this is undesirable_, 
+the  classification can be suppressed by passing `structured_output=False`
+to the `@tool` decorator.
+
+```python
+from mcp.server.fastmcp import FastMCP
+from pydantic import BaseModel, Field
+from typing import TypedDict
+
+mcp = FastMCP("Weather Service")
+
+
+# Using Pydantic models for rich structured data
+class WeatherData(BaseModel):
+    temperature: float = Field(description="Temperature in Celsius")
+    humidity: float = Field(description="Humidity percentage")
+    condition: str
+    wind_speed: float
+
+
+@mcp.tool()
+def get_weather(city: str) -> WeatherData:
+    """Get structured weather data"""
+    return WeatherData(
+        temperature=22.5, humidity=65.0, condition="partly cloudy", wind_speed=12.3
+    )
+
+
+# Using TypedDict for simpler structures
+class LocationInfo(TypedDict):
+    latitude: float
+    longitude: float
+    name: str
+
+
+@mcp.tool()
+def get_location(address: str) -> LocationInfo:
+    """Get location coordinates"""
+    return LocationInfo(latitude=51.5074, longitude=-0.1278, name="London, UK")
+
+
+# Using dict[str, Any] for flexible schemas
+@mcp.tool()
+def get_statistics(data_type: str) -> dict[str, float]:
+    """Get various statistics"""
+    return {"mean": 42.5, "median": 40.0, "std_dev": 5.2}
+
+
+# Ordinary classes with type hints work for structured output
+class UserProfile:
+    name: str
+    age: int
+    email: str | None = None
+
+    def __init__(self, name: str, age: int, email: str | None = None):
+        self.name = name
+        self.age = age
+        self.email = email
+
+
+@mcp.tool()
+def get_user(user_id: str) -> UserProfile:
+    """Get user profile - returns structured data"""
+    return UserProfile(name="Alice", age=30, email="alice@example.com")
+
+
+# Classes WITHOUT type hints cannot be used for structured output
+class UntypedConfig:
+    def __init__(self, setting1, setting2):
+        self.setting1 = setting1
+        self.setting2 = setting2
+
+
+@mcp.tool()
+def get_config() -> UntypedConfig:
+    """This returns unstructured output - no schema generated"""
+    return UntypedConfig("value1", "value2")
+
+
+# Lists and other types are wrapped automatically
+@mcp.tool()
+def list_cities() -> list[str]:
+    """Get a list of cities"""
+    return ["London", "Paris", "Tokyo"]
+    # Returns: {"result": ["London", "Paris", "Tokyo"]}
+
+
+@mcp.tool()
+def get_temperature(city: str) -> float:
+    """Get temperature as a simple float"""
+    return 22.5
+    # Returns: {"result": 22.5}
 ```
 
 ### Prompts
@@ -828,6 +950,67 @@ if __name__ == "__main__":
 ```
 
 Caution: The `mcp run` and `mcp dev` tool doesn't support low-level server.
+
+#### Structured Output Support
+
+The low-level server supports structured output for tools, allowing you to return both human-readable content and machine-readable structured data. Tools can define an `outputSchema` to validate their structured output:
+
+```python
+from types import Any
+
+import mcp.types as types
+from mcp.server.lowlevel import Server
+
+server = Server("example-server")
+
+
+@server.list_tools()
+async def list_tools() -> list[types.Tool]:
+    return [
+        types.Tool(
+            name="calculate",
+            description="Perform mathematical calculations",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "expression": {"type": "string", "description": "Math expression"}
+                },
+                "required": ["expression"],
+            },
+            outputSchema={
+                "type": "object",
+                "properties": {
+                    "result": {"type": "number"},
+                    "expression": {"type": "string"},
+                },
+                "required": ["result", "expression"],
+            },
+        )
+    ]
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if name == "calculate":
+        expression = arguments["expression"]
+        try:
+            result = eval(expression)  # Use a safe math parser
+            structured = {"result": result, "expression": expression}
+
+            # low-level server will validate structured output against the tool's
+            # output schema, and automatically serialize it into a TextContent block
+            # for backwards compatibility with pre-2025-06-18 clients.
+            return structured
+        except Exception as e:
+            raise ValueError(f"Calculation error: {str(e)}")
+```
+
+Tools can return data in three ways:
+1. **Content only**: Return a list of content blocks (default behavior before spec revision 2025-06-18)
+2. **Structured data only**: Return a dictionary that will be serialized to JSON (Introduced in spec revision 2025-06-18)
+3. **Both**: Return a tuple of (content, structured_data) preferred option to use for backwards compatibility
+
+When an `outputSchema` is defined, the server automatically validates the structured output against the schema. This ensures type safety and helps catch errors early.
 
 ### Writing MCP Clients
 
