@@ -389,20 +389,23 @@ Prompts are reusable templates that help LLMs interact with your server effectiv
 <!-- snippet-source examples/snippets/servers/basic_prompt.py -->
 ```python
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.prompts import base
 
 mcp = FastMCP(name="Prompt Example")
 
 
-@mcp.prompt(description="Generate a summary")
-def summarize(text: str, max_words: int = 100) -> str:
-    """Create a summarization prompt."""
-    return f"Summarize this text in {max_words} words:\n\n{text}"
+@mcp.prompt(title="Code Review")
+def review_code(code: str) -> str:
+    return f"Please review this code:\n\n{code}"
 
 
-@mcp.prompt(description="Explain a concept")
-def explain(concept: str, audience: str = "general") -> str:
-    """Create an explanation prompt."""
-    return f"Explain {concept} for a {audience} audience"
+@mcp.prompt(title="Debug Assistant")
+def debug_error(error: str) -> list[base.Message]:
+    return [
+        base.UserMessage("I'm seeing this error:"),
+        base.UserMessage(error),
+        base.AssistantMessage("I'll help debug that. What have you tried so far?"),
+    ]
 ```
 _Full example: [examples/snippets/servers/basic_prompt.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_prompt.py)_
 <!-- /snippet-source -->
