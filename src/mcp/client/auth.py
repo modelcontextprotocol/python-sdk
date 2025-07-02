@@ -207,36 +207,36 @@ class OAuthClientProvider(httpx.Auth):
     def _extract_resource_metadata_from_www_auth(self, init_response: httpx.Response) -> str | None:
         """
         Extract protected resource metadata URL from WWW-Authenticate header as per RFC9728.
-            
+
         Returns:
             Resource metadata URL if found in WWW-Authenticate header, None otherwise
         """
         if not init_response or init_response.status_code != 401:
             return None
-            
+
         www_auth_header = init_response.headers.get("WWW-Authenticate")
         if not www_auth_header:
             return None
-        
+
         # Pattern matches: resource_metadata="url" or resource_metadata=url (unquoted)
         pattern = r'resource_metadata=(?:"([^"]+)"|([^\s,]+))'
         match = re.search(pattern, www_auth_header)
-        
+
         if match:
             # Return quoted value if present, otherwise unquoted value
             return match.group(1) or match.group(2)
-        
+
         return None
 
-    async def _discover_protected_resource(self, init_response: httpx.Response | None = None) -> httpx.Request:
+    async def _discover_protected_resource(self, init_response: httpx.Response) -> httpx.Request:
         # RFC9728: Try to extract resource_metadata URL from WWW-Authenticate header of the initial response
-        url = self._extract_resource_metadata_from_www_auth(init_response) if init_response else None
-        
+        url = self._extract_resource_metadata_from_www_auth(init_response)
+
         if not url:
             # Fallback to well-known discovery
             auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             url = urljoin(auth_base_url, "/.well-known/oauth-protected-resource")
-        
+
         return httpx.Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
 
     async def _handle_protected_resource_response(self, response: httpx.Response) -> None:
@@ -521,7 +521,7 @@ class OAuthClientProvider(httpx.Auth):
 
             if self.context.is_token_valid():
                 self._add_auth_header(request)
-            
+
             response = yield request
 
             if response.status_code == 401:
