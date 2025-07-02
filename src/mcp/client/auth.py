@@ -7,6 +7,7 @@ Implements authorization code flow with PKCE and automatic token refresh.
 import base64
 import hashlib
 import logging
+import re
 import secrets
 import string
 import time
@@ -31,6 +32,30 @@ from mcp.shared.auth_utils import check_resource_allowed, resource_url_from_serv
 from mcp.types import LATEST_PROTOCOL_VERSION
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_resource_metadata_from_www_auth(header_value: str) -> str | None:
+    """
+    Parse WWW-Authenticate header to extract resource_metadata parameter.
+    
+    According to RFC9728, the header format is:
+    WWW-Authenticate: Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"
+    
+    Returns the resource_metadata URL if found, None otherwise.
+    """
+    if not header_value:
+        return None
+    
+    # Look for resource_metadata parameter in the header
+    # Pattern matches: resource_metadata="url" or resource_metadata=url (unquoted)
+    pattern = r'resource_metadata=(?:"([^"]+)"|([^\s,]+))'
+    match = re.search(pattern, header_value)
+    
+    if match:
+        # Return quoted value if present, otherwise unquoted value
+        return match.group(1) or match.group(2)
+    
+    return None
 
 
 class OAuthFlowError(Exception):
