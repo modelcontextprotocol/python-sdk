@@ -6,6 +6,9 @@ from typing import Literal, TextIO
 
 import anyio
 import anyio.lowlevel
+import anyio.to_thread
+import psutil
+from anyio.abc import Process
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from anyio.streams.text import TextReceiveStream
 from pydantic import BaseModel, Field
@@ -14,6 +17,7 @@ import mcp.types as types
 from mcp.shared.message import SessionMessage
 
 from .win32 import (
+    FallbackProcess,
     create_windows_process,
     get_windows_executable_command,
 )
@@ -177,38 +181,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         try:
             yield read_stream, write_stream
         finally:
-            # MCP spec: stdio shutdown sequence
-            # 1. Close input stream to server
-            # 2. Wait for server to exit, or send SIGTERM if it doesn't exit in time
-            # 3. Send SIGKILL if still not exited
-            if process.stdin:
-                try:
-                    await process.stdin.aclose()
-                except Exception:
-                    # stdin might already be closed, which is fine
-                    pass
-
-            try:
-                # Give the process time to exit gracefully after stdin closes
-                with anyio.fail_after(2.0):
-                    await process.wait()
-            except TimeoutError:
-                # Process didn't exit from stdin closure, escalate to SIGTERM
-                try:
-                    process.terminate()
-                    with anyio.fail_after(2.0):
-                        await process.wait()
-                except TimeoutError:
-                    # Process didn't respond to SIGTERM, force kill it
-                    process.kill()
-                    await process.wait()
-                except ProcessLookupError:
-                    # Process already exited, which is fine
-                    pass
-            except ProcessLookupError:
-                # Process already exited, which is fine
-                pass
-
+            await _shutdown_process(process)
             await read_stream.aclose()
             await write_stream.aclose()
             await read_stream_writer.aclose()
@@ -245,6 +218,99 @@ async def _create_platform_compatible_process(
     if sys.platform == "win32":
         process = await create_windows_process(command, args, env, errlog, cwd)
     else:
-        process = await anyio.open_process([command, *args], env=env, stderr=errlog, cwd=cwd)
+        process = await anyio.open_process(
+            [command, *args],
+            env=env,
+            stderr=errlog,
+            cwd=cwd,
+            start_new_session=True,
+        )
 
     return process
+
+
+async def _shutdown_process(process: Process | FallbackProcess) -> None:
+    """
+    MCP spec: stdio shutdown sequence
+    1. Close input stream to server
+    2. Wait for server to exit, or send SIGTERM if it doesn't exit in time
+    3. Send SIGKILL if still not exited (forcibly kill on Windows)
+    """
+
+    # Close input stream to server
+    if process.stdin:
+        try:
+            await process.stdin.aclose()
+        except Exception:
+            # stdin might already be closed, which is fine
+            pass
+
+    try:
+        # Wait for server to exit gracefully after stdin closes
+        with anyio.fail_after(2.0):
+            await process.wait()
+    except TimeoutError:
+        # 2. send SIGTERM if it doesn't exit in time
+        # 3. Send SIGKILL if still not exited (forcibly kill on Windows)
+        await _terminate_process_with_children(process)
+    except ProcessLookupError:
+        # Process already exited, which is fine
+        pass
+
+
+async def _terminate_process_with_children(process: Process | FallbackProcess, timeout: float = 2.0) -> None:
+    """
+    Terminate a process and all its children using psutil.
+
+    This provides consistent behavior across platforms and properly
+    handles process trees without shell commands.
+
+    Platform behavior:
+    - On Unix: psutil.terminate() sends SIGTERM, allowing graceful shutdown
+    - On Windows: psutil.terminate() calls TerminateProcess() which is immediate
+      and doesn't allow cleanup handlers to run. This can cause ResourceWarnings
+      for subprocess.Popen objects that don't get to clean up.
+    """
+    pid = getattr(process, "pid", None)
+    if pid is None:
+        popen = getattr(process, "popen", None)
+        if popen:
+            pid = getattr(popen, "pid", None)
+
+    if not pid:
+        # Process has no PID, cannot terminate
+        return
+
+    try:
+        parent = psutil.Process(pid)
+        children = parent.children(recursive=True)
+
+        # First, try graceful termination for all children
+        for child in children:
+            try:
+                child.terminate()
+            except psutil.NoSuchProcess:
+                pass
+
+        # Then, also terminate the parent process
+        try:
+            parent.terminate()
+        except psutil.NoSuchProcess:
+            return
+
+        # Wait for processes to exit gracefully, force kill any that remain
+        all_procs = children + [parent]
+        _, alive = await anyio.to_thread.run_sync(lambda: psutil.wait_procs(all_procs, timeout=timeout))
+        for proc in alive:
+            try:
+                proc.kill()
+            except psutil.NoSuchProcess:
+                pass
+
+        # Wait a bit more for force-killed processes
+        if alive:
+            await anyio.to_thread.run_sync(lambda: psutil.wait_procs(alive, timeout=0.5))
+
+    except psutil.NoSuchProcess:
+        # Process already terminated
+        pass
