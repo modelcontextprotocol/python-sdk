@@ -635,6 +635,66 @@ mcp run server.py
 
 Note that `mcp run` or `mcp dev` only supports server using FastMCP and not the low-level server variant.
 
+### Socket Transport
+
+Socket transport provides a simple and efficient communication channel between client and server, similar to stdio but without stdout pollution concerns. Unlike stdio transport which requires clean stdout for message passing, socket transport allows the server to freely use stdout for logging and other purposes.
+
+The workflow is:
+1. Client creates a TCP server and gets an available port
+2. Client starts the server process, passing the port number
+3. Server connects back to the client's TCP server
+4. Client and server exchange messages over the TCP connection
+5. When done, client closes the connection and terminates the server process
+
+This design maintains the simplicity of stdio transport while providing more flexibility for server output handling.
+
+Example server setup:
+```python
+from mcp.server.fastmcp import FastMCP
+
+# Create server with socket transport configuration
+mcp = FastMCP(
+    "SocketServer",
+    socket_host="127.0.0.1",  # Optional, defaults to 127.0.0.1
+    socket_port=3000,  # Required when using socket transport
+)
+
+# Run with socket transport
+mcp.run(transport="socket")
+```
+
+Client usage:
+```python
+from mcp.client.session import ClientSession
+from mcp.client.socket_transport import SocketServerParameters, socket_client
+
+# Create server parameters
+params = SocketServerParameters(
+    command="python",  # Server process to run
+    args=["server.py"],  # Server script and arguments
+    # Port 0 means auto-assign an available port
+    port=0,  # Optional, defaults to 0 (auto-assign)
+    host="127.0.0.1",  # Optional, defaults to 127.0.0.1
+)
+
+# Connect to server (this will start the server process)
+async with socket_client(params) as (read_stream, write_stream):
+    async with ClientSession(read_stream, write_stream) as session:
+        # Use the session...
+        await session.initialize()
+        result = await session.call_tool("echo", {"text": "Hello!"})
+```
+
+The socket transport provides:
+- Freedom to use stdout without affecting message transport
+- Standard TCP socket-based communication
+- Automatic port assignment for easy setup
+- Connection retry logic for reliability
+- Clean process lifecycle management
+- Robust error handling
+
+For a complete example, see [`examples/fastmcp/socket_example.py`](examples/fastmcp/socket_example.py).
+
 ### Streamable HTTP Transport
 
 > **Note**: Streamable HTTP transport is superseding SSE transport for production deployments.

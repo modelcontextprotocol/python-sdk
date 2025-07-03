@@ -42,6 +42,7 @@ from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.lowlevel.server import Server as MCPServer
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.session import ServerSession, ServerSessionT
+from mcp.server.socket_transport import socket_server
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
@@ -89,6 +90,12 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     sse_path: str = "/sse"
     message_path: str = "/messages/"
     streamable_http_path: str = "/mcp"
+
+    # Socket settings
+    socket_host: str = "127.0.0.1"
+    socket_port: int = 0  # Use 0 for placeholder, must be set when running on socket transport
+    socket_encoding: str = "utf-8"
+    socket_encoding_error_handler: str = "strict"
 
     # StreamableHTTP settings
     json_response: bool = False
@@ -208,16 +215,16 @@ class FastMCP:
 
     def run(
         self,
-        transport: Literal["stdio", "sse", "streamable-http"] = "stdio",
+        transport: Literal["stdio", "sse", "streamable-http", "socket"] = "stdio",
         mount_path: str | None = None,
     ) -> None:
         """Run the FastMCP server. Note this is a synchronous function.
 
         Args:
-            transport: Transport protocol to use ("stdio", "sse", or "streamable-http")
+            transport: Transport protocol to use ("stdio", "sse", "streamable-http", or "socket")
             mount_path: Optional mount path for SSE transport
         """
-        TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
+        TRANSPORTS = Literal["stdio", "sse", "streamable-http", "socket"]
         if transport not in TRANSPORTS.__args__:  # type: ignore
             raise ValueError(f"Unknown transport: {transport}")
 
@@ -228,6 +235,8 @@ class FastMCP:
                 anyio.run(lambda: self.run_sse_async(mount_path))
             case "streamable-http":
                 anyio.run(self.run_streamable_http_async)
+            case "socket":
+                anyio.run(self.run_socket_async)
 
     def _setup_handlers(self) -> None:
         """Set up core MCP protocol handlers."""
@@ -630,6 +639,20 @@ class FastMCP:
     async def run_stdio_async(self) -> None:
         """Run the server using stdio transport."""
         async with stdio_server() as (read_stream, write_stream):
+            await self._mcp_server.run(
+                read_stream,
+                write_stream,
+                self._mcp_server.create_initialization_options(),
+            )
+
+    async def run_socket_async(self) -> None:
+        """Run the server using socket transport."""
+        async with socket_server(
+            host=self.settings.socket_host,
+            port=self.settings.socket_port,
+            encoding=self.settings.socket_encoding,
+            encoding_error_handler=self.settings.socket_encoding_error_handler,
+        ) as (read_stream, write_stream):
             await self._mcp_server.run(
                 read_stream,
                 write_stream,
