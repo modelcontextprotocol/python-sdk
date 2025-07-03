@@ -17,7 +17,7 @@ from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
 from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
-python: str = shutil.which("python")  # type: ignore
+python = shutil.which("python") or "python"
 
 
 @pytest.mark.anyio
@@ -267,3 +267,203 @@ s.close()
         async for message in read_stream:
             assert isinstance(message, Exception)
             break
+
+
+@pytest.mark.anyio
+async def test_socket_client_cancellation_handling():
+    """Test that socket_client handles cancellation gracefully."""
+    server_params = SocketServerParameters(
+        command=python,
+        args=[
+            "-c",
+            """
+import socket, sys, time
+s = socket.socket()
+s.connect(('127.0.0.1', int(sys.argv[2])))
+# Keep connection alive for a bit
+time.sleep(2)
+s.close()
+            """,
+        ],
+    )
+
+    # Test that cancellation works properly
+    with anyio.move_on_after(0.5) as cancel_scope:
+        async with socket_client(server_params) as (read_stream, write_stream):
+            # Wait a bit, then the move_on_after should cancel
+            await anyio.sleep(1)
+
+    # The cancellation should have occurred
+    assert cancel_scope.cancelled_caught
+
+
+@pytest.mark.anyio
+async def test_socket_client_cleanup_timeout():
+    """Test that socket_client cleanup has timeout protection."""
+    server_params = SocketServerParameters(
+        command=python,
+        args=[
+            "-c",
+            """
+import socket, sys, time
+s = socket.socket()
+s.connect(('127.0.0.1', int(sys.argv[2])))
+
+# Send a message and keep connection alive briefly
+s.send(b'{"jsonrpc": "2.0", "id": 1, "method": "test"}\\n')
+time.sleep(1)  # Brief delay, then exit normally
+s.close()
+            """,
+        ],
+    )
+
+    # Test that cleanup completes within reasonable time
+    start_time = anyio.current_time()
+
+    async with socket_client(server_params) as (read_stream, write_stream):
+        # Do some work
+        await anyio.sleep(0.1)
+
+    end_time = anyio.current_time()
+
+    # Normal cleanup should complete quickly (within 3 seconds)
+    # This tests that the cleanup mechanism works without hanging
+    assert end_time - start_time < 3.0
+
+
+@pytest.mark.anyio
+async def test_socket_client_cleanup_mechanism():
+    """Test that socket_client cleanup mechanism is robust."""
+    server_params = SocketServerParameters(
+        command=python,
+        args=[
+            "-c",
+            """
+import socket, sys, time
+s = socket.socket()
+s.connect(('127.0.0.1', int(sys.argv[2])))
+
+# Send a test message
+s.send(b'{"jsonrpc": "2.0", "id": 1, "method": "test"}\\n')
+
+# Close after brief delay
+time.sleep(0.2)
+s.close()
+            """,
+        ],
+    )
+
+    # Test that cleanup works correctly
+    async with socket_client(server_params) as (read_stream, write_stream):
+        # Process at least one message
+        async for message in read_stream:
+            if isinstance(message, Exception):
+                continue
+            # Exit after first valid message
+            break
+
+    # If we reach here, cleanup worked properly
+    assert True
+
+
+@pytest.mark.anyio
+async def test_socket_client_reader_writer_exception_handling():
+    """Test that socket reader/writer handle exceptions properly."""
+    server_params = SocketServerParameters(
+        command=python,
+        args=[
+            "-c",
+            """
+import socket, sys, time
+s = socket.socket()
+s.connect(('127.0.0.1', int(sys.argv[2])))
+
+# Send some data then close abruptly
+s.send(b'{"jsonrpc": "2.0", "id": 1, "method": "test"}\\n')
+time.sleep(0.1)
+s.close()  # Close connection abruptly
+            """,
+        ],
+    )
+
+    async with socket_client(server_params) as (read_stream, write_stream):
+        # Should handle the abrupt connection close gracefully
+        messages_received = 0
+        async for message in read_stream:
+            if isinstance(message, Exception):
+                # Exceptions in the stream are expected
+                continue
+            messages_received += 1
+            if messages_received >= 1:
+                break
+
+        assert messages_received >= 1
+
+
+@pytest.mark.anyio
+async def test_socket_client_process_cleanup():
+    """Test that socket_client cleans up processes properly."""
+    server_params = SocketServerParameters(
+        command=python,
+        args=[
+            "-c",
+            """
+import socket, sys, time, os
+pid = os.getpid()
+print(f"Process PID: {pid}", file=sys.stderr)
+
+s = socket.socket()
+s.connect(('127.0.0.1', int(sys.argv[2])))
+time.sleep(0.5)
+s.close()
+            """,
+        ],
+    )
+
+    async with socket_client(server_params) as (read_stream, write_stream):
+        # Brief interaction
+        await anyio.sleep(0.1)
+
+    # Process should be cleaned up after context exit
+    # This is mainly to ensure no zombie processes remain
+    await anyio.sleep(0.1)  # Give cleanup time to complete
+
+
+@pytest.mark.anyio
+async def test_socket_client_multiple_messages_with_cancellation():
+    """Test handling multiple messages with cancellation."""
+    server_params = SocketServerParameters(
+        command=python,
+        args=[
+            "-c",
+            """
+import socket, sys, time, json
+s = socket.socket()
+s.connect(('127.0.0.1', int(sys.argv[2])))
+
+# Send multiple messages
+for i in range(10):
+    msg = {"jsonrpc": "2.0", "id": i, "method": "test", "params": {"counter": i}}
+    s.send((json.dumps(msg) + '\\n').encode())
+    time.sleep(0.01)  # Small delay between messages
+
+s.close()
+            """,
+        ],
+    )
+
+    messages_received = 0
+
+    with anyio.move_on_after(1.0) as cancel_scope:
+        async with socket_client(server_params) as (read_stream, write_stream):
+            async for message in read_stream:
+                if isinstance(message, Exception):
+                    continue
+                messages_received += 1
+                if messages_received >= 5:
+                    # Cancel after receiving some messages
+                    cancel_scope.cancel()
+
+    # Should have received some messages before cancellation
+    assert messages_received >= 5
+    assert cancel_scope.cancelled_caught

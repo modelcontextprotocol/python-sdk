@@ -163,6 +163,10 @@ async def socket_client(
                                     continue
                 except anyio.ClosedResourceError:
                     await anyio.lowlevel.checkpoint()
+                except anyio.get_cancelled_exc_class():
+                    # Handle cancellation gracefully
+                    logger.info("Socket reader cancelled")
+                    return
                 except Exception as e:
                     logger.error(f"Error in socket reader: {e}")
                     raise
@@ -181,6 +185,10 @@ async def socket_client(
                             await stream.send(data)
                 except anyio.ClosedResourceError:
                     await anyio.lowlevel.checkpoint()
+                except anyio.get_cancelled_exc_class():
+                    # Handle cancellation gracefully
+                    logger.info("Socket writer cancelled")
+                    return
                 except Exception as e:
                     logger.error(f"Error in socket writer: {e}")
                     raise
@@ -201,18 +209,29 @@ async def socket_client(
                     async with process, stream:
                         yield read_stream, write_stream
                 finally:
-                    # Cancel all tasks and clean up
+                    # Cancel all tasks and clean up with timeout
                     tg.cancel_scope.cancel()
-                    # Clean up process to prevent any dangling orphaned processes
+
+                    # Force cleanup with timeout to prevent hanging
                     try:
-                        process.terminate()
-                    except ProcessLookupError:
-                        # Process already exited, which is fine
-                        pass
-                    await read_stream.aclose()
-                    await write_stream.aclose()
-                    await read_stream_writer.aclose()
-                    await write_stream_reader.aclose()
+                        with anyio.fail_after(5.0):  # 5 second timeout for cleanup
+                            # Clean up process to prevent any dangling orphaned processes
+                            try:
+                                process.terminate()
+                            except ProcessLookupError:
+                                # Process already exited, which is fine
+                                pass
+                            await read_stream.aclose()
+                            await write_stream.aclose()
+                            await read_stream_writer.aclose()
+                            await write_stream_reader.aclose()
+                    except anyio.get_cancelled_exc_class():
+                        # If cleanup times out, force kill the process
+                        logger.warning("Cleanup timed out, force killing process")
+                        try:
+                            process.kill()
+                        except ProcessLookupError:
+                            pass
 
         finally:
             # Clean up process

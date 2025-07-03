@@ -103,6 +103,13 @@ async def socket_server(
                                 continue
             except anyio.ClosedResourceError:
                 await anyio.lowlevel.checkpoint()
+            except anyio.get_cancelled_exc_class():
+                # Handle cancellation gracefully
+                logger.info("Socket reader cancelled")
+                return
+            except Exception as e:
+                logger.error(f"Error in socket reader: {e}")
+                raise
             finally:
                 await stream.aclose()
 
@@ -118,6 +125,13 @@ async def socket_server(
                         await stream.send(data)
             except anyio.ClosedResourceError:
                 await anyio.lowlevel.checkpoint()
+            except anyio.get_cancelled_exc_class():
+                # Handle cancellation gracefully
+                logger.info("Socket writer cancelled")
+                return
+            except Exception as e:
+                logger.error(f"Error in socket writer: {e}")
+                raise
             finally:
                 await stream.aclose()
 
@@ -128,8 +142,20 @@ async def socket_server(
             try:
                 yield read_stream, write_stream
             finally:
-                await stream.aclose()
+                # Cancel all tasks and clean up with timeout
                 tg.cancel_scope.cancel()
+
+                # Force cleanup with timeout to prevent hanging
+                try:
+                    with anyio.fail_after(5.0):  # 5 second timeout for cleanup
+                        await stream.aclose()
+                        await read_stream.aclose()
+                        await write_stream.aclose()
+                        await read_stream_writer.aclose()
+                        await write_stream_reader.aclose()
+                except anyio.get_cancelled_exc_class():
+                    # If cleanup times out, log warning
+                    logger.warning("Server cleanup timed out")
 
     except Exception:
         await read_stream.aclose()
