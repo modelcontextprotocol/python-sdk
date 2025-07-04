@@ -7,21 +7,21 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.server.fastmcp.tools.base import Tool
 from mcp.types import TextContent
 
+
 @pytest.mark.anyio
 async def test_runtime_tools():
     """Test that runtime tools work correctly."""
+
     async def runtime_mcp_tools_generator() -> list[Tool]:
         """Generate runtime tools."""
+
         def runtime_tool_1(message: str):
             return message
-        
+
         def runtime_tool_2(message: str):
             return message
 
-        return [
-            Tool.from_function(runtime_tool_1),
-            Tool.from_function(runtime_tool_2)
-        ]
+        return [Tool.from_function(runtime_tool_1), Tool.from_function(runtime_tool_2)]
 
     # Create server with various tool configurations, both static and runtime
     mcp = FastMCP(name="RuntimeToolsTestServer", runtime_mcp_tools_generator=runtime_mcp_tools_generator)

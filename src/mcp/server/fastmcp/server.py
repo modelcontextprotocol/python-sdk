@@ -253,7 +253,9 @@ class FastMCP:
 
         # Check if there are no duplicated tools
         if len(tools) != len(set([tool.name for tool in tools])):
-            raise Exception("There are duplicated tools. Check the for tools with the same name both static and generated at runtime.")
+            raise Exception(
+                "There are duplicated tools. Check the for tools with the same name both static and generated at runtime."
+            )
 
         return [
             MCPTool(
