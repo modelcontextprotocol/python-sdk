@@ -371,6 +371,36 @@ def get_temperature(city: str) -> float:
     # Returns: {"result": 22.5}
 ```
 
+#### Runtime tools
+
+It is also possible to define tools at runtime, allowing for dynamic modification of the available tools, for example, to display specific tools based on the user making the request. This is done passing a function dedicated to the tools generation:
+
+```python
+from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.tools.base import Tool
+
+
+async def runtime_mcp_tools_generator() -> list[Tool]:
+    """Generate runtime tools."""
+
+    def list_cities() -> list[str]:
+        """Get a list of cities"""
+        return ["London", "Paris", "Tokyo"]
+        # Returns: {"result": ["London", "Paris", "Tokyo"]}
+
+    def get_temperature(city: str) -> float:
+        """Get temperature as a simple float"""
+        return 22.5
+        # Returns: {"result": 22.5}
+
+    return [Tool.from_function(list_cities), Tool.from_function(get_temperature)]
+
+
+mcp = FastMCP(
+    name="Weather Service", runtime_mcp_tools_generator=runtime_mcp_tools_generator
+)
+```
+
 ### Prompts
 
 Prompts are reusable templates that help LLMs interact with your server effectively:

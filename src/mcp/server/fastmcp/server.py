@@ -140,6 +140,7 @@ class FastMCP:
         event_store: EventStore | None = None,
         *,
         tools: list[Tool] | None = None,
+        runtime_mcp_tools_generator: Callable[[], Awaitable[list[Tool]]] | None = None,
         **settings: Any,
     ):
         self.settings = Settings(**settings)
@@ -172,6 +173,7 @@ class FastMCP:
         self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
         self._session_manager: StreamableHTTPSessionManager | None = None
+        self._runtime_mcp_tools_generator = runtime_mcp_tools_generator
 
         # Set up MCP protocol handlers
         self._setup_handlers()
@@ -245,6 +247,14 @@ class FastMCP:
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""
         tools = self._tool_manager.list_tools()
+
+        if self._runtime_mcp_tools_generator:
+            tools.extend(await self._runtime_mcp_tools_generator())
+
+        # Check if there are no duplicated tools
+        if len(tools) != len(set([tool.name for tool in tools])):
+            raise Exception("There are duplicated tools. Check the for tools with the same name both static and generated at runtime.")
+
         return [
             MCPTool(
                 name=info.name,
@@ -271,6 +281,15 @@ class FastMCP:
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Sequence[ContentBlock] | dict[str, Any]:
         """Call a tool by name with arguments."""
         context = self.get_context()
+
+        # Try to call a runtime tool
+        if self._runtime_mcp_tools_generator:
+            runtime_tools = await self._runtime_mcp_tools_generator()
+            for tool in runtime_tools:
+                if tool.name == name:
+                    return await tool.run(arguments=arguments, context=context, convert_result=True)
+
+        # Call a static tool if the runtime tool has not been called
         return await self._tool_manager.call_tool(name, arguments, context=context, convert_result=True)
 
     async def list_resources(self) -> list[MCPResource]:
