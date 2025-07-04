@@ -239,8 +239,8 @@ async def test_basic_tools(server_transport: str, server_url: str) -> None:
             assert result.serverInfo.name == "Tool Example"
             assert result.capabilities.tools is not None
 
-            # Test add tool
-            tool_result = await session.call_tool("add", {"a": 5, "b": 3})
+            # Test sum tool
+            tool_result = await session.call_tool("sum", {"a": 5, "b": 3})
             assert len(tool_result.content) == 1
             assert isinstance(tool_result.content[0], TextContent)
             assert tool_result.content[0].text == "8"

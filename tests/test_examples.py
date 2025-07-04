@@ -56,8 +56,8 @@ async def test_desktop(monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: Path("/fake/home"))
 
     async with client_session(mcp._mcp_server) as client:
-        # Test the add function
-        result = await client.call_tool("add", {"a": 1, "b": 2})
+        # Test the sum function
+        result = await client.call_tool("sum", {"a": 1, "b": 2})
         assert len(result.content) == 1
         content = result.content[0]
         assert isinstance(content, TextContent)
