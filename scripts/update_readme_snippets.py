@@ -54,7 +54,7 @@ def process_snippet_block(match: re.Match, check_mode: bool = False) -> str:
         github_url = get_github_url(file_path)
 
         # Build the replacement block
-        indented_code = code.replace('\n', f'\n{indent}')
+        indented_code = code.replace("\n", f"\n{indent}")
         replacement = f"""{indent}<!-- snippet-source {file_path} -->
 {indent}```python
 {indent}{indented_code}
@@ -80,7 +80,7 @@ def process_snippet_block(match: re.Match, check_mode: bool = False) -> str:
                         code_lines.append(line)
                 existing_code = "\n".join(code_lines).strip()
                 # Compare with the indented version we would generate
-                expected_code = code.replace('\n', f'\n{indent}').strip()
+                expected_code = code.replace("\n", f"\n{indent}").strip()
                 if existing_code == expected_code:
                     return full_match
 
