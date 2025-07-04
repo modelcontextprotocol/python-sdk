@@ -8,7 +8,7 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP()
 
 
-@mcp.tool(description="🌟 A tool that uses various Unicode characters in its description: " "á é í ó ú ñ 漢字 🎉")
+@mcp.tool(description="🌟 A tool that uses various Unicode characters in its description: á é í ó ú ñ 漢字 🎉")
 def hello_unicode(name: str = "世界", greeting: str = "¡Hola") -> str:
     """
     A simple tool that demonstrates Unicode handling in:
