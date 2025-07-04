@@ -252,9 +252,10 @@ class FastMCP:
             tools.extend(await self._runtime_mcp_tools_generator())
 
         # Check if there are no duplicated tools
-        if len(tools) != len(set([tool.name for tool in tools])):
+        if len(tools) != len({tool.name for tool in tools}):
             raise Exception(
-                "There are duplicated tools. Check the for tools with the same name both static and generated at runtime."
+                "There are duplicated tools. Check the for tools"
+                "with the same name both static and generated at runtime."
             )
 
         return [
