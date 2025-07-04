@@ -28,6 +28,7 @@
     - [Resources](#resources)
     - [Tools](#tools)
       - [Structured Output](#structured-output)
+      - [Runtime Tools](#runtime-tools)
     - [Prompts](#prompts)
     - [Images](#images)
     - [Context](#context)
