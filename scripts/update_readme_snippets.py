@@ -79,9 +79,9 @@ def process_snippet_block(match: re.Match, check_mode: bool = False) -> str:
                     elif in_code:
                         code_lines.append(line)
                 existing_code = "\n".join(code_lines).strip()
-                # Need to remove the indent from existing code for comparison
-                dedented_existing = "\n".join(line.lstrip() for line in existing_code.split("\n"))
-                if dedented_existing == code.strip():
+                # Compare with the indented version we would generate
+                expected_code = code.replace('\n', f'\n{indent}').strip()
+                if existing_code == expected_code:
                     return full_match
 
         return replacement
