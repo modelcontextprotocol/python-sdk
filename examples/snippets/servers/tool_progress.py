@@ -3,7 +3,7 @@ from mcp.server.fastmcp import Context, FastMCP
 mcp = FastMCP(name="Progress Example")
 
 
-@mcp.tool(description="Demonstrates progress reporting")
+@mcp.tool()
 async def long_running_task(task_name: str, ctx: Context, steps: int = 5) -> str:
     """Execute a task with progress updates."""
     await ctx.info(f"Starting: {task_name}")

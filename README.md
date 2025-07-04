@@ -121,7 +121,7 @@ mcp = FastMCP("Demo")
 
 # Add an addition tool
 @mcp.tool()
-def add(a: int, b: int) -> int:
+def sum(a: int, b: int) -> int:
     """Add two numbers"""
     return a + b
 
@@ -246,13 +246,13 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP(name="Tool Example")
 
 
-@mcp.tool(description="Add two numbers")
-def add(a: int, b: int) -> int:
+@mcp.tool()
+def sum(a: int, b: int) -> int:
     """Add two numbers together."""
     return a + b
 
 
-@mcp.tool(description="Get weather for a city")
+@mcp.tool()
 def get_weather(city: str, unit: str = "celsius") -> str:
     """Get weather for a city."""
     # This would normally call a weather API
@@ -440,7 +440,7 @@ from mcp.server.fastmcp import Context, FastMCP
 mcp = FastMCP(name="Progress Example")
 
 
-@mcp.tool(description="Demonstrates progress reporting")
+@mcp.tool()
 async def long_running_task(task_name: str, ctx: Context, steps: int = 5) -> str:
     """Execute a task with progress updates."""
     await ctx.info(f"Starting: {task_name}")
@@ -567,7 +567,7 @@ class BookingPreferences(BaseModel):
     )
 
 
-@mcp.tool(description="Book a restaurant table")
+@mcp.tool()
 async def book_table(
     date: str,
     time: str,
@@ -612,7 +612,7 @@ from mcp.types import SamplingMessage, TextContent
 mcp = FastMCP(name="Sampling Example")
 
 
-@mcp.tool(description="Uses sampling to generate content")
+@mcp.tool()
 async def generate_poem(topic: str, ctx: Context) -> str:
     """Generate a poem using LLM sampling."""
     prompt = f"Write a short poem about {topic}"
@@ -645,9 +645,9 @@ from mcp.server.fastmcp import Context, FastMCP
 mcp = FastMCP(name="Notifications Example")
 
 
-@mcp.tool(description="Demonstrates logging at different levels")
+@mcp.tool()
 async def process_data(data: str, ctx: Context) -> str:
-    """Process data with comprehensive logging."""
+    """Process data with logging."""
     # Different log levels
     await ctx.debug(f"Debug: Processing '{data}'")
     await ctx.info("Info: Starting processing")
@@ -785,8 +785,9 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP(name="EchoServer", stateless_http=True)
 
 
-@mcp.tool(description="A simple echo tool")
+@mcp.tool()
 def echo(message: str) -> str:
+    """A simple echo tool"""
     return f"Echo: {message}"
 ```
 
@@ -797,8 +798,9 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP(name="MathServer", stateless_http=True)
 
 
-@mcp.tool(description="A simple add tool")
+@mcp.tool()
 def add_two(n: int) -> int:
+    """Tool to add two to the input"""
     return n + 2
 ```
 

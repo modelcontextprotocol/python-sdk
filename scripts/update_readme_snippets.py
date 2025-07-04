@@ -94,9 +94,10 @@ def process_snippet_block(match: re.Match, check_mode: bool = False) -> str:
             line_ref = ""
 
         # Build the replacement block
+        indented_code = code.replace('\n', f'\n{indent}')
         replacement = f"""{indent}<!-- snippet-source {file_path}{line_ref} -->
 {indent}```python
-{code}
+{indent}{indented_code}
 {indent}```
 {indent}_Full example: [{file_path}]({github_url})_
 {indent}<!-- /snippet-source -->"""

@@ -15,11 +15,4 @@ build-backend = "setuptools.build_meta"
 packages = ["servers"]
 
 [project.scripts]
-basic-tool = "servers:run_basic_tool"
-basic-resource = "servers:run_basic_resource"
-basic-prompt = "servers:run_basic_prompt"
-tool-progress = "servers:run_tool_progress"
-sampling = "servers:run_sampling"  
-elicitation = "servers:run_elicitation"
-completion = "servers:run_completion"
-notifications = "servers:run_notifications"
+server = "servers:run_server"

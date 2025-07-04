@@ -15,7 +15,7 @@ class BookingPreferences(BaseModel):
     )
 
 
-@mcp.tool(description="Book a restaurant table")
+@mcp.tool()
 async def book_table(
     date: str,
     time: str,
