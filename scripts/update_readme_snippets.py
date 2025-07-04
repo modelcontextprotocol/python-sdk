@@ -16,45 +16,17 @@ import sys
 from pathlib import Path
 
 
-def extract_lines(file_path: Path, start_line: int, end_line: int) -> str:
-    """Extract lines from a file.
-
-    Args:
-        file_path: Path to the file
-        start_line: Starting line number (1-based)
-        end_line: Ending line number (1-based, inclusive)
-
-    Returns:
-        The extracted lines
-    """
-    content = file_path.read_text()
-    lines = content.splitlines()
-    # Convert to 0-based indexing
-    start_idx = max(0, start_line - 1)
-    end_idx = min(len(lines), end_line)
-    return "\n".join(lines[start_idx:end_idx])
-
-
-def get_github_url(file_path: str, start_line: int, end_line: int) -> str:
-    """Generate a GitHub URL for the file with line highlighting.
+def get_github_url(file_path: str) -> str:
+    """Generate a GitHub URL for the file.
 
     Args:
         file_path: Path to the file relative to repo root
-        start_line: Starting line number
-        end_line: Ending line number
 
     Returns:
-        GitHub URL with line highlighting
+        GitHub URL
     """
     base_url = "https://github.com/modelcontextprotocol/python-sdk/blob/main"
-    url = f"{base_url}/{file_path}"
-
-    if start_line == end_line:
-        url += f"#L{start_line}"
-    else:
-        url += f"#L{start_line}-L{end_line}"
-
-    return url
+    return f"{base_url}/{file_path}"
 
 
 def process_snippet_block(match: re.Match, check_mode: bool = False) -> str:
@@ -70,32 +42,20 @@ def process_snippet_block(match: re.Match, check_mode: bool = False) -> str:
     full_match = match.group(0)
     indent = match.group(1)
     file_path = match.group(2)
-    start_line = match.group(3)  # May be None
-    end_line = match.group(4)  # May be None
 
     try:
-        # Read and extract the code
+        # Read the entire file
         file = Path(file_path)
         if not file.exists():
             print(f"Warning: File not found: {file_path}")
             return full_match
 
-        if start_line and end_line:
-            # Line range specified
-            start_line = int(start_line)
-            end_line = int(end_line)
-            code = extract_lines(file, start_line, end_line)
-            github_url = get_github_url(file_path, start_line, end_line)
-            line_ref = f"#L{start_line}-L{end_line}"
-        else:
-            # No line range - use whole file
-            code = file.read_text().rstrip()
-            github_url = f"https://github.com/modelcontextprotocol/python-sdk/blob/main/{file_path}"
-            line_ref = ""
+        code = file.read_text().rstrip()
+        github_url = get_github_url(file_path)
 
         # Build the replacement block
         indented_code = code.replace('\n', f'\n{indent}')
-        replacement = f"""{indent}<!-- snippet-source {file_path}{line_ref} -->
+        replacement = f"""{indent}<!-- snippet-source {file_path} -->
 {indent}```python
 {indent}{indented_code}
 {indent}```
@@ -105,7 +65,7 @@ def process_snippet_block(match: re.Match, check_mode: bool = False) -> str:
         # In check mode, only check if code has changed
         if check_mode:
             # Extract existing code from the match
-            existing_content = match.group(5)
+            existing_content = match.group(3)
             if existing_content is not None:
                 existing_lines = existing_content.strip().split("\n")
                 # Find code between ```python and ```
@@ -119,13 +79,15 @@ def process_snippet_block(match: re.Match, check_mode: bool = False) -> str:
                     elif in_code:
                         code_lines.append(line)
                 existing_code = "\n".join(code_lines).strip()
-                if existing_code == code.strip():
+                # Need to remove the indent from existing code for comparison
+                dedented_existing = "\n".join(line.lstrip() for line in existing_code.split("\n"))
+                if dedented_existing == code.strip():
                     return full_match
 
         return replacement
 
     except Exception as e:
-        print(f"Error processing {file_path}#L{start_line}-L{end_line}: {e}")
+        print(f"Error processing {file_path}: {e}")
         return full_match
 
 
@@ -146,12 +108,11 @@ def update_readme_snippets(readme_path: Path = Path("README.md"), check_mode: bo
     content = readme_path.read_text()
     original_content = content
 
-    # Pattern to match snippet-source blocks with optional line ranges
+    # Pattern to match snippet-source blocks
     # Matches: <!-- snippet-source path/to/file.py -->
-    #      or: <!-- snippet-source path/to/file.py#L10-L20 -->
     #          ... any content ...
     #          <!-- /snippet-source -->
-    pattern = r"^(\s*)<!-- snippet-source ([^#\s]+)(?:#L(\d+)-L(\d+))? -->\n" r"(.*?)" r"^\1<!-- /snippet-source -->"
+    pattern = r"^(\s*)<!-- snippet-source ([^\s]+) -->\n" r"(.*?)" r"^\1<!-- /snippet-source -->"
 
     # Process all snippet-source blocks
     updated_content = re.sub(
