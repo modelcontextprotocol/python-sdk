@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import BinaryIO, TextIO, cast
 
 import anyio
-from anyio import to_thread
 from anyio.abc import Process
 from anyio.streams.file import FileReadStream, FileWriteStream
 
@@ -75,9 +74,18 @@ class FallbackProcess:
         exc_val: BaseException | None,
         exc_tb: object | None,
     ) -> None:
-        """Terminate and wait on process exit inside a thread."""
-        self.popen.terminate()
-        await to_thread.run_sync(self.popen.wait)
+        """Clean up process and streams.
+
+        Attempts to terminate the process, but doesn't fail if termination
+        is not possible (e.g., process already dead or being handled elsewhere).
+        """
+        try:
+            self.popen.terminate()
+            with anyio.move_on_after(0.5):
+                await self.wait()
+        except (ProcessLookupError, OSError):
+            # Process already dead or being handled elsewhere
+            pass
 
         # Close the file handles to prevent ResourceWarning
         if self.stdin:
@@ -92,8 +100,13 @@ class FallbackProcess:
             self.stderr.close()
 
     async def wait(self):
-        """Async wait for process completion."""
-        return await to_thread.run_sync(self.popen.wait)
+        """
+        Poll the process status instead of blocking wait
+        This allows anyio timeouts to work properly
+        """
+        while self.popen.poll() is None:
+            await anyio.sleep(0.1)
+        return self.popen.returncode
 
     def terminate(self):
         """Terminate the subprocess immediately."""
@@ -115,13 +128,13 @@ async def create_windows_process(
     env: dict[str, str] | None = None,
     errlog: TextIO | None = sys.stderr,
     cwd: Path | str | None = None,
-) -> FallbackProcess:
+) -> Process | FallbackProcess:
     """
     Creates a subprocess in a Windows-compatible way.
 
-    On Windows, asyncio.create_subprocess_exec has incomplete support
-    (NotImplementedError when trying to open subprocesses).
-    Therefore, we fallback to subprocess.Popen and wrap it for async usage.
+    First attempts to use anyio.open_process. If that fails
+    (e.g., with SelectorEventLoop on Windows), falls back
+    to subprocess.Popen wrapped for async usage.
 
     Args:
         command (str): The executable to run
@@ -131,7 +144,39 @@ async def create_windows_process(
         cwd (Path | str | None): Working directory for the subprocess
 
     Returns:
-        FallbackProcess: Async-compatible subprocess with stdin and stdout streams
+        Process | FallbackProcess: Async-compatible subprocess with stdin and stdout streams
+    """
+    try:
+        # Try with Windows-specific flags to hide console window
+        process = await anyio.open_process(
+            [command, *args],
+            env=env,
+            # Ensure we don't create console windows for each process
+            creationflags=subprocess.CREATE_NO_WINDOW  # type: ignore
+            if hasattr(subprocess, "CREATE_NO_WINDOW")
+            else 0,
+            stderr=errlog,
+            cwd=cwd,
+        )
+        return process
+    except NotImplementedError:
+        # If anyio fails (e.g., with SelectorEventLoop), fall back to subprocess.Popen
+        return await _create_windows_fallback_process(command, args, env=env, errlog=errlog, cwd=cwd)
+    except Exception:
+        # Don't raise, let's try to create the process without creation flags
+        process = await anyio.open_process([command, *args], env=env, stderr=errlog, cwd=cwd)
+        return process
+
+
+async def _create_windows_fallback_process(
+    command: str,
+    args: list[str],
+    env: dict[str, str] | None = None,
+    errlog: TextIO | None = sys.stderr,
+    cwd: Path | str | None = None,
+) -> FallbackProcess:
+    """
+    Create a FallbackProcess for Windows using subprocess.Popen.
     """
     try:
         # Try launching with creationflags to avoid opening a new console window
@@ -159,24 +204,3 @@ async def create_windows_process(
             bufsize=0,
         )
         return FallbackProcess(popen_obj)
-
-
-async def terminate_windows_process(process: Process | FallbackProcess):
-    """
-    Terminate a Windows process.
-
-    Note: On Windows, terminating a process with process.terminate() doesn't
-    always guarantee immediate process termination.
-    So we give it 2s to exit, or we call process.kill()
-    which sends a SIGKILL equivalent signal.
-
-    Args:
-        process: The process to terminate
-    """
-    try:
-        process.terminate()
-        with anyio.fail_after(2.0):
-            await process.wait()
-    except TimeoutError:
-        # Force kill if it doesn't terminate
-        process.kill()

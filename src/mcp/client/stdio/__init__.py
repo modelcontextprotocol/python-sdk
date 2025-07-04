@@ -16,7 +16,6 @@ from mcp.shared.message import SessionMessage
 from .win32 import (
     create_windows_process,
     get_windows_executable_command,
-    terminate_windows_process,
 )
 
 # Environment variables to inherit by default
@@ -178,15 +177,38 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         try:
             yield read_stream, write_stream
         finally:
-            # Clean up process to prevent any dangling orphaned processes
+            # MCP spec: stdio shutdown sequence
+            # 1. Close input stream to server
+            # 2. Wait for server to exit, or send SIGTERM if it doesn't exit in time
+            # 3. Send SIGKILL if still not exited
+            if process.stdin:
+                try:
+                    await process.stdin.aclose()
+                except Exception:
+                    # stdin might already be closed, which is fine
+                    pass
+
             try:
-                if sys.platform == "win32":
-                    await terminate_windows_process(process)
-                else:
+                # Give the process time to exit gracefully after stdin closes
+                with anyio.fail_after(2.0):
+                    await process.wait()
+            except TimeoutError:
+                # Process didn't exit from stdin closure, escalate to SIGTERM
+                try:
                     process.terminate()
+                    with anyio.fail_after(2.0):
+                        await process.wait()
+                except TimeoutError:
+                    # Process didn't respond to SIGTERM, force kill it
+                    process.kill()
+                    await process.wait()
+                except ProcessLookupError:
+                    # Process already exited, which is fine
+                    pass
             except ProcessLookupError:
                 # Process already exited, which is fine
                 pass
+
             await read_stream.aclose()
             await write_stream.aclose()
             await read_stream_writer.aclose()
