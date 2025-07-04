@@ -16,7 +16,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, Self
+from typing import Annotated, Self, TypeVar
 
 import asyncpg
 import numpy as np
@@ -34,6 +34,8 @@ REINFORCEMENT_FACTOR = 1.1
 
 DEFAULT_LLM_MODEL = "openai:gpt-4o"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+
+T = TypeVar("T")
 
 mcp = FastMCP(
     "memory",
@@ -57,7 +59,7 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     return np.dot(a_array, b_array) / (np.linalg.norm(a_array) * np.linalg.norm(b_array))
 
 
-async def do_ai[T](
+async def do_ai(
     user_prompt: str,
     system_prompt: str,
     result_type: type[T] | Annotated,

@@ -696,7 +696,7 @@ def everything_streamable_http_server(
             time.sleep(0.1)
             attempt += 1
     else:
-        raise RuntimeError(f"Comprehensive StreamableHTTP server failed to start after " f"{max_attempts} attempts")
+        raise RuntimeError(f"Comprehensive StreamableHTTP server failed to start after {max_attempts} attempts")
 
     yield
 

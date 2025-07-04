@@ -87,7 +87,7 @@ class OAuthClientMetadata(BaseModel):
         elif len(self.redirect_uris) == 1:
             return self.redirect_uris[0]
         else:
-            raise InvalidRedirectUriError("redirect_uri must be specified when client " "has multiple registered URIs")
+            raise InvalidRedirectUriError("redirect_uri must be specified when client has multiple registered URIs")
 
 
 class OAuthClientInformationFull(OAuthClientMetadata):
