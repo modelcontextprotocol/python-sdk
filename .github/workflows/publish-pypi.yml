@@ -79,4 +79,4 @@ jobs:
             mkdocs-material-
 
       - run: uv sync --frozen --group docs
-      - run: uv run --no-sync mkdocs gh-deploy --force
+      - run: uv run --frozen --no-sync mkdocs gh-deploy --force

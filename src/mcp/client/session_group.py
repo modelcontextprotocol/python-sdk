@@ -62,9 +62,7 @@ class StreamableHttpParameters(BaseModel):
     terminate_on_close: bool = True
 
 
-ServerParameters: TypeAlias = (
-    StdioServerParameters | SseServerParameters | StreamableHttpParameters
-)
+ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | StreamableHttpParameters
 
 
 class ClientSessionGroup:
@@ -261,9 +259,7 @@ class ClientSessionGroup:
                 )
                 read, write, _ = await session_stack.enter_async_context(client)
 
-            session = await session_stack.enter_async_context(
-                mcp.ClientSession(read, write)
-            )
+            session = await session_stack.enter_async_context(mcp.ClientSession(read, write))
             result = await session.initialize()
 
             # Session successfully initialized.
@@ -280,9 +276,7 @@ class ClientSessionGroup:
             await session_stack.aclose()
             raise
 
-    async def _aggregate_components(
-        self, server_info: types.Implementation, session: mcp.ClientSession
-    ) -> None:
+    async def _aggregate_components(self, server_info: types.Implementation, session: mcp.ClientSession) -> None:
         """Aggregates prompts, resources, and tools from a given session."""
 
         # Create a reverse index so we can find all prompts, resources, and
