@@ -11,6 +11,7 @@ members = [
     "mcp-simple-streamablehttp",
     "mcp-simple-streamablehttp-stateless",
     "mcp-simple-tool",
+    "mcp-snippets",
 ]
 
 [[package]]
@@ -871,6 +872,17 @@ dev = [
     { name = "pytest", specifier = ">=8.3.3" },
     { name = "ruff", specifier = ">=0.6.9" },
 ]
+
+[[package]]
+name = "mcp-snippets"
+version = "0.1.0"
+source = { editable = "examples/snippets" }
+dependencies = [
+    { name = "mcp" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "mcp", editable = "." }]
 
 [[package]]
 name = "mdurl"

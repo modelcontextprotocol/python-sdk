@@ -3,6 +3,9 @@ name: Shared Checks
 on:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   pre-commit:
     runs-on: ubuntu-latest
@@ -54,3 +57,18 @@ jobs:
           uv run --no-sync pytest
         env:
           UV_RESOLUTION: lowest-direct
+  readme-snippets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: 0.7.2
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras --python 3.10
+
+      - name: Check README snippets are up to date
+        run: uv run --frozen scripts/update_readme_snippets.py --check

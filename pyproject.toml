@@ -99,13 +99,14 @@ ignore = ["PERF203"]
 [tool.ruff]
 line-length = 120
 target-version = "py310"
+extend-exclude = ["README.md"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 "tests/server/fastmcp/test_func_metadata.py" = ["E501"]
 
 [tool.uv.workspace]
-members = ["examples/servers/*"]
+members = ["examples/servers/*", "examples/snippets"]
 
 [tool.uv.sources]
 mcp = { workspace = true }
