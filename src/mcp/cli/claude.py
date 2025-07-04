@@ -35,7 +35,7 @@ def get_uv_path() -> str:
     uv_path = shutil.which("uv")
     if not uv_path:
         logger.error(
-            "uv executable not found in PATH, falling back to 'uv'. " "Please ensure uv is installed and in your PATH"
+            "uv executable not found in PATH, falling back to 'uv'. Please ensure uv is installed and in your PATH"
         )
         return "uv"  # Fall back to just "uv" if not found
     return uv_path
