@@ -1,11 +1,8 @@
 import anyio
 import pytest
-from pydantic import AnyUrl
 
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session as create_session
-
-_resource_name = "slow://slow_resource"
 
 
 @pytest.mark.anyio
@@ -23,12 +20,13 @@ async def test_messages_are_executed_concurrently():
         call_order.append("tool_end")
         return "done"
 
-    @server.resource(_resource_name)
-    async def slow_resource():
+    @server.tool("trigger")
+    async def trigger():
         # Wait for tool to start before setting the event
         await tool_started.wait()
+        call_order.append("trigger_started")
         event.set()
-        call_order.append("resource_end")
+        call_order.append("trigger_end")
         return "slow"
 
     async with create_session(server._mcp_server) as client_session:
@@ -36,12 +34,13 @@ async def test_messages_are_executed_concurrently():
         async with anyio.create_task_group() as tg:
             # Start the tool first (it will wait on event)
             tg.start_soon(client_session.call_tool, "sleep")
-            # Then the resource (it will set the event)
-            tg.start_soon(client_session.read_resource, AnyUrl(_resource_name))
+            # Then the trigger tool will set the event to allow the first tool to continue
+            await client_session.call_tool("trigger")
 
         # Verify that both ran concurrently
         assert call_order == [
             "waiting_for_event",
-            "resource_end",
+            "trigger_started",
+            "trigger_end",
             "tool_end",
         ], f"Expected concurrent execution, but got: {call_order}"
