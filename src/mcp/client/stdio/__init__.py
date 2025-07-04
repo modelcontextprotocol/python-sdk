@@ -1,4 +1,5 @@
 import os
+import signal
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -6,6 +7,7 @@ from typing import Literal, TextIO
 
 import anyio
 import anyio.lowlevel
+from anyio.abc import Process
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from anyio.streams.text import TextReceiveStream
 from pydantic import BaseModel, Field
@@ -14,8 +16,10 @@ import mcp.types as types
 from mcp.shared.message import SessionMessage
 
 from .win32 import (
+    FallbackProcess,
     create_windows_process,
     get_windows_executable_command,
+    terminate_windows_process_tree,
 )
 
 # Environment variables to inherit by default
@@ -184,7 +188,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                     await process.wait()
             except TimeoutError:
                 # If process doesn't terminate in time, force kill it
-                process.kill()
+                await _terminate_process_tree(process)
             except ProcessLookupError:
                 # Process already exited, which is fine
                 pass
@@ -219,11 +223,80 @@ async def _create_platform_compatible_process(
 ):
     """
     Creates a subprocess in a platform-compatible way.
-    Returns a process handle.
+
+    Unix: Creates process in a new session/process group for killpg support
+    Windows: Creates process in a Job Object for reliable child termination
     """
     if sys.platform == "win32":
+        # Windows: Use Job Objects for proper process tree management
         process = await create_windows_process(command, args, env, errlog, cwd)
     else:
-        process = await anyio.open_process([command, *args], env=env, stderr=errlog, cwd=cwd)
+        # Unix: Create process in new session for process group termination
+        process = await anyio.open_process(
+            [command, *args],
+            env=env,
+            stderr=errlog,
+            cwd=cwd,
+            start_new_session=True,
+        )
 
     return process
+
+
+async def _terminate_process_tree(process: Process | FallbackProcess, timeout: float = 2.0) -> None:
+    """
+    Terminate a process and all its children using platform-specific methods.
+
+    Unix: Uses os.killpg() for atomic process group termination
+    Windows: Uses Job Objects via pywin32 for reliable child process cleanup
+    """
+    if sys.platform == "win32":
+        # Windows: Use Job Object termination
+        await terminate_windows_process_tree(process)
+    else:
+        # Unix: Use process groups for atomic termination
+        pid = getattr(process, "pid", None)
+        if pid is None:
+            popen = getattr(process, "popen", None)
+            if popen:
+                pid = getattr(popen, "pid", None)
+
+        if not pid:
+            return
+
+        try:
+            # Get process group ID (we use start_new_session=True)
+            pgid = os.getpgid(pid)
+
+            # Send SIGTERM to entire process group atomically
+            os.killpg(pgid, signal.SIGTERM)
+
+            # Wait for graceful termination
+            deadline = anyio.current_time() + timeout
+            while anyio.current_time() < deadline:
+                try:
+                    # Check if process group still exists (signal 0 = check only)
+                    os.killpg(pgid, 0)
+                    await anyio.sleep(0.1)
+                except ProcessLookupError:
+                    # Process group terminated successfully
+                    return
+
+            # Force kill if still alive after timeout
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                # Already dead
+                pass
+
+        except (ProcessLookupError, PermissionError, OSError):
+            # Fall back to simple terminate if process group approach fails
+            try:
+                process.terminate()
+                with anyio.fail_after(timeout):
+                    await process.wait()
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
