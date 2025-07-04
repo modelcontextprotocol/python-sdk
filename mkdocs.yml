@@ -12,6 +12,7 @@ site_url: https://modelcontextprotocol.github.io/python-sdk
 
 nav:
   - Home: index.md
+  - Client Configuration: client-configuration.md
   - API Reference: api.md
 
 theme:
