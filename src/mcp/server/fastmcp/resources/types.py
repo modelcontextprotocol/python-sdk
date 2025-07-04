@@ -59,7 +59,7 @@ class FunctionResource(Resource):
             # If it's a coroutine, await it
             if inspect.iscoroutine(result):
                 result = await result
-            
+
             if isinstance(result, Resource):
                 return await result.read()
             elif isinstance(result, bytes):
