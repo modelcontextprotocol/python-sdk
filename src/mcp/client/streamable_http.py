@@ -8,7 +8,7 @@ and session management.
 
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -240,15 +240,16 @@ class StreamableHTTPTransport:
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
 
-            async for sse in event_source.aiter_sse():
-                is_complete = await self._handle_sse_event(
-                    sse,
-                    ctx.read_stream_writer,
-                    original_request_id,
-                    ctx.metadata.on_resumption_token_update if ctx.metadata else None,
-                )
-                if is_complete:
-                    break
+            async with aclosing(event_source.aiter_sse()) as iterator:
+                async for sse in iterator:
+                    is_complete = await self._handle_sse_event(
+                        sse,
+                        ctx.read_stream_writer,
+                        original_request_id,
+                        ctx.metadata.on_resumption_token_update if ctx.metadata else None,
+                    )
+                    if is_complete:
+                        break
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
@@ -319,18 +320,18 @@ class StreamableHTTPTransport:
     ) -> None:
         """Handle SSE response from the server."""
         try:
-            event_source = EventSource(response)
-            async for sse in event_source.aiter_sse():
-                is_complete = await self._handle_sse_event(
-                    sse,
-                    ctx.read_stream_writer,
-                    resumption_callback=(ctx.metadata.on_resumption_token_update if ctx.metadata else None),
-                    is_initialization=is_initialization,
-                )
-                # If the SSE event indicates completion, like returning respose/error
-                # break the loop
-                if is_complete:
-                    break
+            async with aclosing(EventSource(response).aiter_sse()) as items:
+                async for sse in items:
+                    is_complete = await self._handle_sse_event(
+                        sse,
+                        ctx.read_stream_writer,
+                        resumption_callback=(ctx.metadata.on_resumption_token_update if ctx.metadata else None),
+                        is_initialization=is_initialization,
+                    )
+                    # If the SSE event indicates completion, like returning respose/error
+                    # break the loop
+                    if is_complete:
+                        break
         except Exception as e:
             logger.exception("Error reading SSE stream:")
             await ctx.read_stream_writer.send(e)
@@ -471,15 +472,14 @@ async def streamablehttp_client(
     read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
-    async with anyio.create_task_group() as tg:
-        try:
-            logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
+    try:
+        logger.info(f"Connecting to StreamableHTTP endpoint: {url}")
 
-            async with httpx_client_factory(
-                headers=transport.request_headers,
-                timeout=httpx.Timeout(transport.timeout, read=transport.sse_read_timeout),
-                auth=transport.auth,
-            ) as client:
+        async with create_mcp_http_client(
+            headers=transport.request_headers,
+            timeout=httpx.Timeout(transport.timeout, read=transport.sse_read_timeout),
+        ) as client:
+            async with anyio.create_task_group() as tg:
                 # Define callbacks that need access to tg
                 def start_get_stream() -> None:
                     tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
@@ -504,6 +504,6 @@ async def streamablehttp_client(
                     if transport.session_id and terminate_on_close:
                         await transport.terminate_session(client)
                     tg.cancel_scope.cancel()
-        finally:
-            await read_stream_writer.aclose()
-            await write_stream.aclose()
+    finally:
+        await read_stream_writer.aclose()
+        await write_stream.aclose()

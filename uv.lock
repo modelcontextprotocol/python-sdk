@@ -41,6 +41,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/3b/68/f9e9bf6324c46e6b8396610aef90ad423ec3e18c9079547ceafea3dce0ec/anyio-4.5.0-py3-none-any.whl", hash = "sha256:fdeb095b7cc5a5563175eedd926ec4ae55413bb4be5770c424af0ba46ccb4a78", size = 89250, upload-time = "2024-09-19T09:28:42.699Z" },
 ]
 
+[package.optional-dependencies]
+trio = [
+    { name = "trio" },
+]
+
 [[package]]
 name = "asttokens"
 version = "2.4.1"
@@ -394,11 +399,11 @@ wheels = [
 
 [[package]]
 name = "httpx-sse"
-version = "0.4.0"
+version = "0.4.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4c/60/8f4281fa9bbf3c8034fd54c0e7412e66edbab6bc74c4996bd616f8d0406e/httpx-sse-0.4.0.tar.gz", hash = "sha256:1e81a3a3070ce322add1d3529ed42eb5f70817f45ed6ec915ab753f961139721", size = 12624, upload-time = "2023-12-22T08:01:21.083Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6e/fa/66bd985dd0b7c109a3bcb89272ee0bfb7e2b4d06309ad7b38ff866734b2a/httpx_sse-0.4.1.tar.gz", hash = "sha256:8f44d34414bc7b21bf3602713005c5df4917884f76072479b21f68befa4ea26e", size = 12998, upload-time = "2025-06-24T13:21:05.71Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e1/9b/a181f281f65d776426002f330c31849b86b31fc9d848db62e16f03ff739f/httpx_sse-0.4.0-py3-none-any.whl", hash = "sha256:f329af6eae57eaa2bdfd962b42524764af68075ea87370a2de920af5341e318f", size = 7819, upload-time = "2023-12-22T08:01:19.89Z" },
+    { url = "https://files.pythonhosted.org/packages/25/0a/6269e3473b09aed2dab8aa1a600c70f31f00ae1349bee30658f7e358a159/httpx_sse-0.4.1-py3-none-any.whl", hash = "sha256:cba42174344c3a5b06f255ce65b350880f962d99ead85e776f23c6618a377a37", size = 8054, upload-time = "2025-06-24T13:21:04.772Z" },
 ]
 
 [[package]]
@@ -566,6 +571,7 @@ dependencies = [
     { name = "python-multipart" },
     { name = "sse-starlette" },
     { name = "starlette" },
+    { name = "typing-extensions" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
 
@@ -583,6 +589,7 @@ ws = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "anyio", extra = ["trio"] },
     { name = "inline-snapshot" },
     { name = "pyright" },
     { name = "pytest" },
@@ -591,7 +598,6 @@ dev = [
     { name = "pytest-pretty" },
     { name = "pytest-xdist" },
     { name = "ruff" },
-    { name = "trio" },
 ]
 docs = [
     { name = "mkdocs" },
@@ -604,7 +610,7 @@ docs = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "httpx-sse", specifier = ">=0.4" },
+    { name = "httpx-sse", specifier = ">=0.4.1" },
     { name = "jsonschema", specifier = ">=4.20.0" },
     { name = "pydantic", specifier = ">=2.7.2,<3.0.0" },
     { name = "pydantic-settings", specifier = ">=2.5.2" },
@@ -614,6 +620,7 @@ requires-dist = [
     { name = "sse-starlette", specifier = ">=1.6.1" },
     { name = "starlette", specifier = ">=0.27" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.12.4" },
+    { name = "typing-extensions", specifier = ">=4.12" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'", specifier = ">=0.23.1" },
     { name = "websockets", marker = "extra == 'ws'", specifier = ">=15.0.1" },
 ]
@@ -621,6 +628,7 @@ provides-extras = ["cli", "rich", "ws"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "anyio", extras = ["trio"] },
     { name = "inline-snapshot", specifier = ">=0.23.0" },
     { name = "pyright", specifier = ">=1.1.391" },
     { name = "pytest", specifier = ">=8.3.4" },
@@ -629,7 +637,6 @@ dev = [
     { name = "pytest-pretty", specifier = ">=1.2.0" },
     { name = "pytest-xdist", specifier = ">=3.6.1" },
     { name = "ruff", specifier = ">=0.8.5" },
-    { name = "trio", specifier = ">=0.26.2" },
 ]
 docs = [
     { name = "mkdocs", specifier = ">=1.6.1" },
