@@ -1,4 +1,8 @@
 """MCP CLI tools."""
+# pyright: reportMissingImports=false
+# pyright: reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false
+# pyright: reportUntypedFunctionDecorator=false
 
 import importlib.metadata
 import importlib.util
