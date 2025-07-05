@@ -77,6 +77,40 @@ class TestClientSessionGroup:
         mock_session.call_tool.assert_called_once_with(
             "my_tool",
             {"name": "value1", "args": {}},
+            _meta=None,
+        )
+
+    async def test_call_tool_with_meta(self):
+        # --- Mock Dependencies ---
+        mock_session = mock.AsyncMock()
+
+        # --- Prepare Session Group ---
+        def hook(name, server_info):
+            return f"{(server_info.name)}-{name}"
+
+        mcp_session_group = ClientSessionGroup(component_name_hook=hook)
+        mcp_session_group._tools = {"server1-my_tool": types.Tool(name="my_tool", inputSchema={})}
+        mcp_session_group._tool_to_session = {"server1-my_tool": mock_session}
+        text_content = types.TextContent(type="text", text="OK")
+        mock_session.call_tool.return_value = types.CallToolResult(content=[text_content])
+
+        # --- Test Execution with _meta ---
+        meta_data = {"user_id": "12345", "session_id": "abc123"}
+        result = await mcp_session_group.call_tool(
+            name="server1-my_tool",
+            args={
+                "name": "value1",
+                "args": {},
+            },
+            _meta=meta_data,
+        )
+
+        # --- Assertions ---
+        assert result.content == [text_content]
+        mock_session.call_tool.assert_called_once_with(
+            "my_tool",
+            {"name": "value1", "args": {}},
+            _meta=meta_data,
         )
 
     async def test_connect_to_server(self, mock_exit_stack):

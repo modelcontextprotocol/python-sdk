@@ -495,3 +495,82 @@ async def test_client_capabilities_with_custom_callbacks():
     assert received_capabilities.roots is not None  # Custom list_roots callback provided
     assert isinstance(received_capabilities.roots, types.RootsCapability)
     assert received_capabilities.roots.listChanged is True  # Should be True for custom callback
+
+
+@pytest.mark.anyio
+async def test_client_session_call_tool_with_meta():
+    """Test that call_tool properly handles the _meta parameter."""
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    received_request = None
+
+    async def mock_server():
+        nonlocal received_request
+
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        request = ClientRequest.model_validate(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        received_request = request
+
+        # Send a successful response
+        result = ServerResult(
+            types.CallToolResult(
+                content=[types.TextContent(type="text", text="Tool executed successfully")],
+                isError=False,
+            )
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=jsonrpc_request.root.id,
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                        )
+                    )
+                )
+            )
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+
+        # Test call_tool with _meta parameter
+        meta_data = {"user_id": "12345", "session_id": "abc123"}
+        result = await session.call_tool(
+            name="test_tool",
+            arguments={"param1": "value1"},
+            _meta=meta_data,
+        )
+
+    # Assert that the request was sent with the correct meta data
+    assert received_request is not None
+    assert isinstance(received_request.root, types.CallToolRequest)
+    assert received_request.root.params.name == "test_tool"
+    assert received_request.root.params.arguments == {"param1": "value1"}
+    assert received_request.root.params.meta is not None
+    assert received_request.root.params.meta.progressToken is None  # No progressToken in our test meta
+    # The meta object should contain our custom data
+    assert hasattr(received_request.root.params.meta, "user_id")
+    assert hasattr(received_request.root.params.meta, "session_id")
+
+    # Assert the result
+    assert isinstance(result, types.CallToolResult)
+    assert len(result.content) == 1
+    assert isinstance(result.content[0], types.TextContent)
+    assert result.content[0].text == "Tool executed successfully"
