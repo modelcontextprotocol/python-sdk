@@ -859,6 +859,14 @@ app = Starlette(
     ]
 )
 
+# To mount a specific path, provide the path in the mount_path argument or you can set it in the config. The server will now connect on "/weather/sse"
+'''
+app = Starlette(
+    routes=[
+        Mount('/weather', app=mcp.sse_app(mount_path="/weather")),
+    ]
+)
+'''
 # or dynamically mount as host
 app.router.routes.append(Host('mcp.acme.corp', app=mcp.sse_app()))
 ```
