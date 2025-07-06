@@ -56,8 +56,8 @@ async def test_desktop(monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: Path("/fake/home"))
 
     async with client_session(mcp._mcp_server) as client:
-        # Test the add function
-        result = await client.call_tool("add", {"a": 1, "b": 2})
+        # Test the sum function
+        result = await client.call_tool("sum", {"a": 1, "b": 2})
         assert len(result.content) == 1
         content = result.content[0]
         assert isinstance(content, TextContent)
@@ -82,11 +82,13 @@ async def test_desktop(monkeypatch):
 
 @pytest.mark.parametrize("example", find_examples("README.md"), ids=str)
 def test_docs_examples(example: CodeExample, eval_example: EvalExample):
-    ruff_ignore: list[str] = ["F841", "I001"]
+    ruff_ignore: list[str] = ["F841", "I001", "F821"]  # F821: undefined names (snippets lack imports)
 
-    eval_example.set_config(ruff_ignore=ruff_ignore, target_version="py310", line_length=88)
+    # Use project's actual line length of 120
+    eval_example.set_config(ruff_ignore=ruff_ignore, target_version="py310", line_length=120)
 
+    # Use Ruff for both formatting and linting (skip Black)
     if eval_example.update_examples:  # pragma: no cover
-        eval_example.format(example)
+        eval_example.format_ruff(example)
     else:
-        eval_example.lint(example)
+        eval_example.lint_ruff(example)

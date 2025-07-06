@@ -390,7 +390,7 @@ class FastMCP:
         # Check if user passed function directly instead of calling decorator
         if callable(name):
             raise TypeError(
-                "The @tool decorator was used incorrectly. " "Did you forget to call it? Use @tool() instead of @tool"
+                "The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool"
             )
 
         def decorator(fn: AnyFunction) -> AnyFunction:
@@ -497,7 +497,7 @@ class FastMCP:
 
                 if uri_params != func_params:
                     raise ValueError(
-                        f"Mismatch between URI parameters {uri_params} " f"and function parameters {func_params}"
+                        f"Mismatch between URI parameters {uri_params} and function parameters {func_params}"
                     )
 
                 # Register as template
