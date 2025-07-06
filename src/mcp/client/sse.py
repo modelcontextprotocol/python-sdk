@@ -83,7 +83,7 @@ async def sse_client(
                                             or url_parsed.scheme != endpoint_parsed.scheme
                                         ):
                                             error_msg = (
-                                                "Endpoint origin does not match " f"connection origin: {endpoint_url}"
+                                                f"Endpoint origin does not match connection origin: {endpoint_url}"
                                             )
                                             logger.error(error_msg)
                                             raise ValueError(error_msg)
@@ -125,7 +125,7 @@ async def sse_client(
                                         ),
                                     )
                                     response.raise_for_status()
-                                    logger.debug("Client message sent successfully: " f"{response.status_code}")
+                                    logger.debug(f"Client message sent successfully: {response.status_code}")
                         except Exception as exc:
                             logger.error(f"Error in post_writer: {exc}")
                         finally:

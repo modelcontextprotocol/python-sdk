@@ -40,7 +40,12 @@ uv run ruff check .
 uv run ruff format .
 ```
 
-7. Submit a pull request to the same branch you branched from
+7. Update README snippets if you modified example code:
+```bash
+uv run scripts/update_readme_snippets.py
+```
+
+8. Submit a pull request to the same branch you branched from
 
 ## Code Style
 
