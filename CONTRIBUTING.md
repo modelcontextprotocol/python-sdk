@@ -15,7 +15,7 @@ uv sync --frozen --all-extras --dev
 6. Set up pre-commit hooks:
 
    ```bash
-   uv tool install pre-commit --with pre-commit-uv --force-install
+   uv tool install pre-commit --with pre-commit-uv --force-reinstall
    ```
 
 ## Development Workflow
