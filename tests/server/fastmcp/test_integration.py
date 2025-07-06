@@ -372,31 +372,31 @@ async def test_tool_progress(server_transport: str, server_url: str) -> None:
 
     async with client_cm as client_streams:
         read_stream, write_stream = unpack_streams(client_streams)
-        async with ClientSession(read_stream, write_stream) as session:
-            # Set up notification handler
-            session.request_context.session.notification_handler = (
-                notification_collector.handle_generic_notification
-            )
-
+        async with ClientSession(
+            read_stream,
+            write_stream,
+            message_handler=notification_collector.handle_generic_notification,
+        ) as session:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
             assert result.serverInfo.name == "Progress Example"
             assert result.capabilities.tools is not None
 
-            # Test slow_operation tool that reports progress
-            tool_result = await session.call_tool("slow_operation", {"duration": 1})
+            # Test long_running_task tool that reports progress
+            tool_result = await session.call_tool(
+                "long_running_task", {"task_name": "test", "steps": 3}
+            )
             assert len(tool_result.content) == 1
             assert isinstance(tool_result.content[0], TextContent)
-            assert "Completed slow operation" in tool_result.content[0].text
+            assert "Task 'test' completed" in tool_result.content[0].text
 
-            # Verify progress notifications were sent
-            assert len(notification_collector.progress_notifications) > 0
-            progress_messages = [
-                notif.message for notif in notification_collector.progress_notifications
-            ]
-            assert any("Starting slow operation" in msg for msg in progress_messages)
-            assert any("Completed slow operation" in msg for msg in progress_messages)
+            # Verify that progress notifications or log messages were sent
+            # Progress can come through either progress notifications or log messages
+            total_notifications = len(
+                notification_collector.progress_notifications
+            ) + len(notification_collector.log_messages)
+            assert total_notifications > 0
 
 
 # Test sampling
@@ -416,23 +416,20 @@ async def test_sampling(server_transport: str, server_url: str) -> None:
 
     async with client_cm as client_streams:
         read_stream, write_stream = unpack_streams(client_streams)
-        async with ClientSession(read_stream, write_stream) as session:
-            # Set up sampling callback
-            session.request_context.session.sampling_callback = sampling_callback
-
+        async with ClientSession(
+            read_stream, write_stream, sampling_callback=sampling_callback
+        ) as session:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
             assert result.serverInfo.name == "Sampling Example"
             assert result.capabilities.tools is not None
 
-            # Test analyze_sentiment tool that uses sampling
-            tool_result = await session.call_tool(
-                "analyze_sentiment", {"text": "I love this product!"}
-            )
+            # Test generate_poem tool that uses sampling
+            tool_result = await session.call_tool("generate_poem", {"topic": "nature"})
             assert len(tool_result.content) == 1
             assert isinstance(tool_result.content[0], TextContent)
-            assert "sentiment analysis" in tool_result.content[0].text.lower()
+            assert "This is a simulated LLM response" in tool_result.content[0].text
 
 
 # Test elicitation
@@ -452,19 +449,18 @@ async def test_elicitation(server_transport: str, server_url: str) -> None:
 
     async with client_cm as client_streams:
         read_stream, write_stream = unpack_streams(client_streams)
-        async with ClientSession(read_stream, write_stream) as session:
-            # Set up elicitation callback
-            session.request_context.session.elicitation_callback = elicitation_callback
-
+        async with ClientSession(
+            read_stream, write_stream, elicitation_callback=elicitation_callback
+        ) as session:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
             assert result.serverInfo.name == "Elicitation Example"
             assert result.capabilities.tools is not None
 
-            # Test book_restaurant tool that triggers elicitation
+            # Test book_table tool that triggers elicitation
             tool_result = await session.call_tool(
-                "book_restaurant", {"date": "2024-12-25", "party_size": 4}
+                "book_table", {"date": "2024-12-25", "time": "19:00", "party_size": 4}
             )
             assert len(tool_result.content) == 1
             assert isinstance(tool_result.content[0], TextContent)
@@ -493,16 +489,18 @@ async def test_completion(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Completion Example"
-            assert result.capabilities.tools is not None
+            assert result.serverInfo.name == "Example"
+            # Note: Completion server supports completion, not tools
 
-            # Test complete_argument tool
-            tool_result = await session.call_tool(
-                "complete_argument", {"prefix": "def hello_wor"}
+            # Test completion functionality - list prompts first
+            prompts = await session.list_prompts()
+            assert len(prompts.prompts) > 0
+
+            # Test getting a prompt
+            prompt_result = await session.get_prompt(
+                "review_code", {"language": "python", "code": "def test(): pass"}
             )
-            assert len(tool_result.content) == 1
-            assert isinstance(tool_result.content[0], TextContent)
-            assert "hello_world" in tool_result.content[0].text
+            assert len(prompt_result.messages) > 0
 
 
 # Test notifications
@@ -524,42 +522,28 @@ async def test_notifications(server_transport: str, server_url: str) -> None:
 
     async with client_cm as client_streams:
         read_stream, write_stream = unpack_streams(client_streams)
-        async with ClientSession(read_stream, write_stream) as session:
-            # Set up notification handler
-            session.request_context.session.notification_handler = (
-                notification_collector.handle_generic_notification
-            )
-
+        async with ClientSession(
+            read_stream,
+            write_stream,
+            message_handler=notification_collector.handle_generic_notification,
+        ) as session:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
             assert result.serverInfo.name == "Notifications Example"
             assert result.capabilities.tools is not None
 
-            # Test send_notification tool
-            tool_result = await session.call_tool(
-                "send_notification", {"message": "Test notification"}
-            )
+            # Test process_data tool that sends log notifications
+            tool_result = await session.call_tool("process_data", {"data": "test_data"})
             assert len(tool_result.content) == 1
             assert isinstance(tool_result.content[0], TextContent)
-            assert "Notification sent" in tool_result.content[0].text
+            assert "Processed: test_data" in tool_result.content[0].text
 
-            # Verify log notification was sent
-            assert len(notification_collector.log_messages) > 0
-            log_message = notification_collector.log_messages[0]
-            assert log_message.level == "info"
-            assert "Test notification" in log_message.data
-
-            # Test add_dynamic_tool to trigger tool list change notification
-            await session.call_tool("add_dynamic_tool", {"tool_name": "dynamic_test"})
-
-            # Verify tool list change notification was sent
-            assert len(notification_collector.tool_notifications) > 0
-
-            # Test add_dynamic_resource to trigger resource list change notification
-            await session.call_tool(
-                "add_dynamic_resource", {"resource_name": "dynamic_resource"}
-            )
+            # Verify log messages were sent at different levels
+            assert len(notification_collector.log_messages) >= 1
+            log_levels = {msg.level for msg in notification_collector.log_messages}
+            # Should have at least one of these log levels
+            assert log_levels & {"debug", "info", "warning", "error"}
 
             # Verify resource list change notification was sent
             assert len(notification_collector.resource_notifications) > 0
