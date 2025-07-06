@@ -45,6 +45,7 @@ uv run ruff format .
 ```
 
 7. Update README snippets if you modified example code:
+
 ```bash
 uv run scripts/update_readme_snippets.py
 ```

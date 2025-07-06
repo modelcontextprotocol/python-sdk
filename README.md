@@ -235,6 +235,7 @@ def get_settings() -> str:
   "debug": false
 }"""
 ```
+
 _Full example: [examples/snippets/servers/basic_resource.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_resource.py)_
 <!-- /snippet-source -->
 
@@ -261,6 +262,7 @@ def get_weather(city: str, unit: str = "celsius") -> str:
     # This would normally call a weather API
     return f"Weather in {city}: 22degrees{unit[0].upper()}"
 ```
+
 _Full example: [examples/snippets/servers/basic_tool.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_tool.py)_
 <!-- /snippet-source -->
 
@@ -411,6 +413,7 @@ def debug_error(error: str) -> list[base.Message]:
         base.AssistantMessage("I'll help debug that. What have you tried so far?"),
     ]
 ```
+
 _Full example: [examples/snippets/servers/basic_prompt.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_prompt.py)_
 <!-- /snippet-source -->
 
@@ -460,6 +463,7 @@ async def long_running_task(task_name: str, ctx: Context, steps: int = 5) -> str
 
     return f"Task '{task_name}' completed"
 ```
+
 _Full example: [examples/snippets/servers/tool_progress.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/tool_progress.py)_
 <!-- /snippet-source -->
 
@@ -547,6 +551,7 @@ async def handle_completion(
 
     return None
 ```
+
 _Full example: [examples/snippets/servers/completion.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/completion.py)_
 <!-- /snippet-source -->
 ### Elicitation
@@ -597,6 +602,7 @@ async def book_table(
     # Date available
     return f"[SUCCESS] Booked for {date} at {time}"
 ```
+
 _Full example: [examples/snippets/servers/elicitation.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/elicitation.py)_
 <!-- /snippet-source -->
 
@@ -637,6 +643,7 @@ async def generate_poem(topic: str, ctx: Context) -> str:
         return result.content.text
     return str(result.content)
 ```
+
 _Full example: [examples/snippets/servers/sampling.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/sampling.py)_
 <!-- /snippet-source -->
 
@@ -665,6 +672,7 @@ async def process_data(data: str, ctx: Context) -> str:
 
     return f"Processed: {data}"
 ```
+
 _Full example: [examples/snippets/servers/notifications.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/notifications.py)_
 <!-- /snippet-source -->
 
