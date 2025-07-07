@@ -19,7 +19,10 @@ logger = logging.getLogger(__name__)
 async def websocket_client(
     url: str,
 ) -> AsyncGenerator[
-    tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]],
+    tuple[
+        MemoryObjectReceiveStream[SessionMessage | Exception],
+        MemoryObjectSendStream[SessionMessage],
+    ],
     None,
 ]:
     """
@@ -79,8 +82,42 @@ async def websocket_client(
             tg.start_soon(ws_reader)
             tg.start_soon(ws_writer)
 
-            # Yield the receive/send streams
-            yield (read_stream, write_stream)
+            try:
+                # Yield the receive/send streams
+                yield (read_stream, write_stream)
+            finally:
+                # Once the caller's 'async with' block exits, we shut down
+                tg.cancel_scope.cancel()
 
-            # Once the caller's 'async with' block exits, we shut down
-            tg.cancel_scope.cancel()
+                # Improved stream cleanup with comprehensive exception handling
+                try:
+                    await read_stream.aclose()
+                except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                    # Stream already closed, ignore
+                    pass
+                except Exception as exc:
+                    logger.debug(f"Error closing read_stream in WebSocket cleanup: {exc}")
+
+                try:
+                    await write_stream.aclose()
+                except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                    # Stream already closed, ignore
+                    pass
+                except Exception as exc:
+                    logger.debug(f"Error closing write_stream in WebSocket cleanup: {exc}")
+
+                try:
+                    await read_stream_writer.aclose()
+                except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                    # Stream already closed, ignore
+                    pass
+                except Exception as exc:
+                    logger.debug(f"Error closing read_stream_writer in WebSocket cleanup: {exc}")
+
+                try:
+                    await write_stream_reader.aclose()
+                except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                    # Stream already closed, ignore
+                    pass
+                except Exception as exc:
+                    logger.debug(f"Error closing write_stream_reader in WebSocket cleanup: {exc}")
