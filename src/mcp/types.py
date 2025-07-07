@@ -306,9 +306,7 @@ class ServerCapabilities(BaseModel):
     tools: ToolsCapability | None = None
     """Present if the server offers any tools to call."""
     completions: CompletionsCapability | None = None
-    """
-    Present if the server offers autocompletion suggestions for prompts and resources.
-    """
+    """Present if the server offers autocompletion suggestions for prompts and resources."""
     model_config = ConfigDict(extra="allow")
 
 
