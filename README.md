@@ -390,9 +390,10 @@ It is also possible to define tools at runtime, allowing for dynamic modificatio
 ```python
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.tools.base import Tool
+from mcp.server.fastmcp.server import Context
 
 
-async def runtime_mcp_tools_generator() -> list[Tool]:
+async def runtime_mcp_tools_generator(ctx: Context) -> list[Tool]:
     """Generate runtime tools."""
 
     def list_cities() -> list[str]:
@@ -405,7 +406,14 @@ async def runtime_mcp_tools_generator() -> list[Tool]:
         return 22.5
         # Returns: {"result": 22.5}
 
-    return [Tool.from_function(list_cities), Tool.from_function(get_temperature)]
+    tools = [Tool.from_function(list_cities)]
+
+    # Tool added only after authorization
+    request = ctx.request_context.request
+    if request and request.header.get("Authorization") == "Bearer auth_token_123":
+        tools.append(Tool.from_function(get_temperature))
+
+    return tools
 
 
 mcp = FastMCP(

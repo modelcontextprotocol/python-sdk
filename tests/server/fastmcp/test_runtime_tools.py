@@ -3,6 +3,7 @@
 import pytest
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.server import Context
 from mcp.server.fastmcp.tools.base import Tool
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import TextContent
@@ -12,7 +13,7 @@ from mcp.types import TextContent
 async def test_runtime_tools():
     """Test that runtime tools work correctly."""
 
-    async def runtime_mcp_tools_generator() -> list[Tool]:
+    async def runtime_mcp_tools_generator(ctx: Context) -> list[Tool]:
         """Generate runtime tools."""
 
         def runtime_tool_1(message: str):
@@ -21,7 +22,17 @@ async def test_runtime_tools():
         def runtime_tool_2(message: str):
             return message
 
-        return [Tool.from_function(runtime_tool_1), Tool.from_function(runtime_tool_2)]
+        def runtime_tool_3(message: str):
+            return message
+
+        tools = [Tool.from_function(runtime_tool_1), Tool.from_function(runtime_tool_2)]
+
+        # Tool added only after authorization
+        request = ctx.request_context.request
+        if request and request.header.get("Authorization") == "Bearer test_auth":
+            tools.append(Tool.from_function(runtime_tool_3))
+
+        return tools
 
     # Create server with various tool configurations, both static and runtime
     mcp = FastMCP(name="RuntimeToolsTestServer", runtime_mcp_tools_generator=runtime_mcp_tools_generator)
@@ -31,7 +42,7 @@ async def test_runtime_tools():
     def static_tool(message: str) -> str:
         return message
 
-    # Start server and connect client
+    # Start server and connect client without authorization
     async with create_connected_server_and_client_session(mcp._mcp_server) as client:
         await client.initialize()
 
@@ -71,3 +82,10 @@ async def test_runtime_tools():
         content = result.content[0]
         assert isinstance(content, TextContent)
         assert content.text == "Unknown tool: non_existing_tool"
+
+        # Check not authorized tool
+        result = await client.call_tool("runtime_tool_3", {"message": "This is a test"})
+        assert len(result.content) == 1
+        content = result.content[0]
+        assert isinstance(content, TextContent)
+        assert content.text == "Unknown tool: runtime_tool_3"

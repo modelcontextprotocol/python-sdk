@@ -140,7 +140,8 @@ class FastMCP:
         event_store: EventStore | None = None,
         *,
         tools: list[Tool] | None = None,
-        runtime_mcp_tools_generator: Callable[[], Awaitable[list[Tool]]] | None = None,
+        runtime_mcp_tools_generator: Callable[[Context[ServerSession, object, Request]], Awaitable[list[Tool]]]
+        | None = None,
         **settings: Any,
     ):
         self.settings = Settings(**settings)
@@ -249,7 +250,8 @@ class FastMCP:
         tools = self._tool_manager.list_tools()
 
         if self._runtime_mcp_tools_generator:
-            tools.extend(await self._runtime_mcp_tools_generator())
+            context = self.get_context()
+            tools.extend(await self._runtime_mcp_tools_generator(context))
 
         # Check if there are no duplicated tools
         if len(tools) != len({tool.name for tool in tools}):
@@ -287,7 +289,7 @@ class FastMCP:
 
         # Try to call a runtime tool
         if self._runtime_mcp_tools_generator:
-            runtime_tools = await self._runtime_mcp_tools_generator()
+            runtime_tools = await self._runtime_mcp_tools_generator(context)
             for tool in runtime_tools:
                 if tool.name == name:
                     return await tool.run(arguments=arguments, context=context, convert_result=True)
