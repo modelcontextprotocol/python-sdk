@@ -62,8 +62,12 @@ class FallbackProcess:
         self.stdout_raw = popen_obj.stdout  # type: ignore[assignment]
         self.stderr = popen_obj.stderr  # type: ignore[assignment]
 
-        self.stdin = FileWriteStream(cast(BinaryIO, self.stdin_raw)) if self.stdin_raw else None
-        self.stdout = FileReadStream(cast(BinaryIO, self.stdout_raw)) if self.stdout_raw else None
+        self.stdin = (
+            FileWriteStream(cast(BinaryIO, self.stdin_raw)) if self.stdin_raw else None
+        )
+        self.stdout = (
+            FileReadStream(cast(BinaryIO, self.stdout_raw)) if self.stdout_raw else None
+        )
 
     async def __aenter__(self):
         """Support async context manager entry."""
@@ -76,20 +80,50 @@ class FallbackProcess:
         exc_tb: object | None,
     ) -> None:
         """Terminate and wait on process exit inside a thread."""
-        self.popen.terminate()
-        await to_thread.run_sync(self.popen.wait)
+        try:
+            self.popen.terminate()
+            await to_thread.run_sync(self.popen.wait)
+        except (ProcessLookupError, OSError):
+            # Process already exited or couldn't be terminated, which is fine
+            pass
 
         # Close the file handles to prevent ResourceWarning
-        if self.stdin:
-            await self.stdin.aclose()
-        if self.stdout:
-            await self.stdout.aclose()
-        if self.stdin_raw:
-            self.stdin_raw.close()
-        if self.stdout_raw:
-            self.stdout_raw.close()
-        if self.stderr:
-            self.stderr.close()
+        # Close in reverse order of creation to avoid BrokenResourceError
+        try:
+            if self.stderr:
+                self.stderr.close()
+        except (OSError, ValueError):
+            # Stream already closed or invalid, ignore
+            pass
+
+        try:
+            if self.stdout_raw:
+                self.stdout_raw.close()
+        except (OSError, ValueError):
+            # Stream already closed or invalid, ignore
+            pass
+
+        try:
+            if self.stdin_raw:
+                self.stdin_raw.close()
+        except (OSError, ValueError):
+            # Stream already closed or invalid, ignore
+            pass
+
+        # Close async stream wrappers
+        try:
+            if self.stdout:
+                await self.stdout.aclose()
+        except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+            # Stream already closed, ignore
+            pass
+
+        try:
+            if self.stdin:
+                await self.stdin.aclose()
+        except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+            # Stream already closed, ignore
+            pass
 
     async def wait(self):
         """Async wait for process completion."""
@@ -175,8 +209,19 @@ async def terminate_windows_process(process: Process | FallbackProcess):
     """
     try:
         process.terminate()
-        with anyio.fail_after(2.0):
-            await process.wait()
-    except TimeoutError:
-        # Force kill if it doesn't terminate
-        process.kill()
+        try:
+            with anyio.fail_after(2.0):
+                await process.wait()
+        except TimeoutError:
+            # Force kill if it doesn't terminate
+            try:
+                process.kill()
+                # Give it a moment to actually terminate after kill
+                with anyio.fail_after(1.0):
+                    await process.wait()
+            except (TimeoutError, ProcessLookupError, OSError):
+                # Process is really stubborn or already gone, just continue
+                pass
+    except (ProcessLookupError, OSError, anyio.BrokenResourceError):
+        # Process already exited or couldn't be terminated, which is fine
+        pass
