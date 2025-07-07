@@ -111,7 +111,7 @@ class FuncMetadata(BaseModel):
 
             assert self.output_model is not None, "Output model must be set if output schema is defined"
             validated = self.output_model.model_validate(result)
-            structured_content = validated.model_dump(mode="json")
+            structured_content = validated.model_dump(mode="json", by_alias=True)
 
             return (unstructured_content, structured_content)
 
