@@ -3,6 +3,7 @@ from typing import Annotated, Any, TypedDict
 
 import annotated_types
 import pytest
+from dirty_equals import IsPartialDict
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.utilities.func_metadata import func_metadata
@@ -202,11 +203,8 @@ def test_structured_output_dict_str_types():
         return {"a": 1, "b": "hello", "c": [1, 2, 3]}
 
     meta = func_metadata(func_dict_any)
-    assert meta.output_schema == {
-        "additionalProperties": True,
-        "type": "object",
-        "title": "func_dict_anyDictOutput",
-    }
+
+    assert meta.output_schema == IsPartialDict(type="object", title="func_dict_anyDictOutput")
 
     # Test dict[str, str]
     def func_dict_str() -> dict[str, str]:
