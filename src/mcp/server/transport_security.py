@@ -48,6 +48,10 @@ class TransportSecurityMiddleware:
             logger.warning("Missing Host header in request")
             return False
 
+        # Check for wildcard "*" first - allows any host
+        if "*" in self.settings.allowed_hosts:
+            return True
+
         # Check exact match first
         if host in self.settings.allowed_hosts:
             return True
@@ -68,6 +72,10 @@ class TransportSecurityMiddleware:
         """Validate the Origin header against allowed values."""
         # Origin can be absent for same-origin requests
         if not origin:
+            return True
+
+        # Check for wildcard "*" first - allows any origin
+        if "*" in self.settings.allowed_origins:
             return True
 
         # Check exact match first

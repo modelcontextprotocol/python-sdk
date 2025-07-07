@@ -150,7 +150,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
 
                         session_message = SessionMessage(message)
                         await read_stream_writer.send(session_message)
-        except anyio.ClosedResourceError:
+        except (anyio.ClosedResourceError, anyio.BrokenResourceError):
             await anyio.lowlevel.checkpoint()
 
     async def stdin_writer():
@@ -166,7 +166,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                             errors=server.encoding_error_handler,
                         )
                     )
-        except anyio.ClosedResourceError:
+        except (anyio.ClosedResourceError, anyio.BrokenResourceError):
             await anyio.lowlevel.checkpoint()
 
     async with (
@@ -184,13 +184,30 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                     await terminate_windows_process(process)
                 else:
                     process.terminate()
-            except ProcessLookupError:
-                # Process already exited, which is fine
+            except (ProcessLookupError, OSError, anyio.BrokenResourceError):
+                # Process already exited or couldn't be terminated, which is fine
                 pass
-            await read_stream.aclose()
-            await write_stream.aclose()
-            await read_stream_writer.aclose()
-            await write_stream_reader.aclose()
+
+            # Close streams in proper order to avoid BrokenResourceError
+            try:
+                await read_stream.aclose()
+            except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                pass
+
+            try:
+                await write_stream.aclose()
+            except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                pass
+
+            try:
+                await read_stream_writer.aclose()
+            except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                pass
+
+            try:
+                await write_stream_reader.aclose()
+            except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                pass
 
 
 def _get_executable_command(command: str) -> str:

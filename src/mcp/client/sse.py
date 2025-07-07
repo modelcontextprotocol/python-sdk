@@ -55,7 +55,9 @@ async def sse_client(
         try:
             logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
             async with httpx_client_factory(
-                headers=headers, auth=auth, timeout=httpx.Timeout(timeout, read=sse_read_timeout)
+                headers=headers,
+                auth=auth,
+                timeout=httpx.Timeout(timeout, read=sse_read_timeout),
             ) as client:
                 async with aconnect_sse(
                     client,
@@ -109,7 +111,16 @@ async def sse_client(
                             logger.error(f"Error in sse_reader: {exc}")
                             await read_stream_writer.send(exc)
                         finally:
-                            await read_stream_writer.aclose()
+                            try:
+                                await read_stream_writer.aclose()
+                            except (
+                                anyio.ClosedResourceError,
+                                anyio.BrokenResourceError,
+                            ):
+                                # Stream already closed, ignore
+                                pass
+                            except Exception as exc:
+                                logger.debug(f"Error closing read_stream_writer in sse_reader: {exc}")
 
                     async def post_writer(endpoint_url: str):
                         try:
@@ -129,7 +140,16 @@ async def sse_client(
                         except Exception as exc:
                             logger.error(f"Error in post_writer: {exc}")
                         finally:
-                            await write_stream.aclose()
+                            try:
+                                await write_stream.aclose()
+                            except (
+                                anyio.ClosedResourceError,
+                                anyio.BrokenResourceError,
+                            ):
+                                # Stream already closed, ignore
+                                pass
+                            except Exception as exc:
+                                logger.debug(f"Error closing write_stream in post_writer: {exc}")
 
                     endpoint_url = await tg.start(sse_reader)
                     logger.debug(f"Starting post writer with endpoint URL: {endpoint_url}")
@@ -140,5 +160,35 @@ async def sse_client(
                     finally:
                         tg.cancel_scope.cancel()
         finally:
-            await read_stream_writer.aclose()
-            await write_stream.aclose()
+            # Improved stream cleanup with comprehensive exception handling
+            try:
+                await read_stream_writer.aclose()
+            except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                # Stream already closed, ignore
+                pass
+            except Exception as exc:
+                logger.debug(f"Error closing read_stream_writer in SSE cleanup: {exc}")
+
+            try:
+                await write_stream.aclose()
+            except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                # Stream already closed, ignore
+                pass
+            except Exception as exc:
+                logger.debug(f"Error closing write_stream in SSE cleanup: {exc}")
+
+            try:
+                await read_stream.aclose()
+            except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                # Stream already closed, ignore
+                pass
+            except Exception as exc:
+                logger.debug(f"Error closing read_stream in SSE cleanup: {exc}")
+
+            try:
+                await write_stream_reader.aclose()
+            except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                # Stream already closed, ignore
+                pass
+            except Exception as exc:
+                logger.debug(f"Error closing write_stream_reader in SSE cleanup: {exc}")
