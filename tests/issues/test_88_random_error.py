@@ -8,14 +8,11 @@ import anyio
 import pytest
 from anyio.abc import TaskStatus
 
+from mcp import types
 from mcp.client.session import ClientSession
 from mcp.server.lowlevel import Server
 from mcp.shared.exceptions import McpError
-from mcp.types import (
-    EmbeddedResource,
-    ImageContent,
-    TextContent,
-)
+from mcp.types import ContentBlock, TextContent
 
 
 @pytest.mark.anyio
@@ -34,10 +31,23 @@ async def test_notification_validation_error(tmp_path: Path):
     slow_request_started = anyio.Event()
     slow_request_complete = anyio.Event()
 
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [
+            types.Tool(
+                name="slow",
+                description="A slow tool",
+                inputSchema={"type": "object"},
+            ),
+            types.Tool(
+                name="fast",
+                description="A fast tool",
+                inputSchema={"type": "object"},
+            ),
+        ]
+
     @server.call_tool()
-    async def slow_tool(
-        name: str, arg
-    ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+    async def slow_tool(name: str, arg) -> Sequence[ContentBlock]:
         nonlocal request_count
         request_count += 1
 
@@ -74,9 +84,7 @@ async def test_notification_validation_error(tmp_path: Path):
         # - Long enough for fast operations (>10ms)
         # - Short enough for slow operations (<200ms)
         # - Not too short to avoid flakiness
-        async with ClientSession(
-            read_stream, write_stream, read_timeout_seconds=timedelta(milliseconds=50)
-        ) as session:
+        async with ClientSession(read_stream, write_stream, read_timeout_seconds=timedelta(milliseconds=50)) as session:
             await session.initialize()
 
             # First call should work (fast operation)

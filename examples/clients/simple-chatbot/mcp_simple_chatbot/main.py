@@ -123,7 +123,7 @@ class Server:
         for item in tools_response:
             if isinstance(item, tuple) and item[0] == "tools":
                 tools.extend(
-                    Tool(tool.name, tool.description, tool.inputSchema)
+                    Tool(tool.name, tool.description, tool.inputSchema, tool.title)
                     for tool in item[1]
                 )
 
@@ -189,9 +189,14 @@ class Tool:
     """Represents a tool with its properties and formatting."""
 
     def __init__(
-        self, name: str, description: str, input_schema: dict[str, Any]
+        self,
+        name: str,
+        description: str,
+        input_schema: dict[str, Any],
+        title: str | None = None,
     ) -> None:
         self.name: str = name
+        self.title: str | None = title
         self.description: str = description
         self.input_schema: dict[str, Any] = input_schema
 
@@ -211,12 +216,19 @@ class Tool:
                     arg_desc += " (required)"
                 args_desc.append(arg_desc)
 
-        return f"""
-Tool: {self.name}
-Description: {self.description}
+        # Build the formatted output with title as a separate field
+        output = f"Tool: {self.name}\n"
+
+        # Add human-readable title if available
+        if self.title:
+            output += f"User-readable title: {self.title}\n"
+
+        output += f"""Description: {self.description}
 Arguments:
 {chr(10).join(args_desc)}
 """
+
+        return output
 
 
 class LLMClient:
@@ -245,7 +257,7 @@ class LLMClient:
         }
         payload = {
             "messages": messages,
-            "model": "llama-3.2-90b-vision-preview",
+            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
             "temperature": 0.7,
             "max_tokens": 4096,
             "top_p": 1,
@@ -284,12 +296,9 @@ class ChatSession:
 
     async def cleanup_servers(self) -> None:
         """Clean up all servers properly."""
-        cleanup_tasks = [
-            asyncio.create_task(server.cleanup()) for server in self.servers
-        ]
-        if cleanup_tasks:
+        for server in reversed(self.servers):
             try:
-                await asyncio.gather(*cleanup_tasks, return_exceptions=True)
+                await server.cleanup()
             except Exception as e:
                 logging.warning(f"Warning during final cleanup: {e}")
 

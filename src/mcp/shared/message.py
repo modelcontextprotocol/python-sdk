@@ -20,9 +20,7 @@ class ClientMessageMetadata:
     """Metadata specific to client messages."""
 
     resumption_token: ResumptionToken | None = None
-    on_resumption_token_update: Callable[[ResumptionToken], Awaitable[None]] | None = (
-        None
-    )
+    on_resumption_token_update: Callable[[ResumptionToken], Awaitable[None]] | None = None
 
 
 @dataclass
@@ -30,6 +28,8 @@ class ServerMessageMetadata:
     """Metadata specific to server messages."""
 
     related_request_id: RequestId | None = None
+    # Request-specific context (e.g., headers, auth info)
+    request_context: object | None = None
 
 
 MessageMetadata = ClientMessageMetadata | ServerMessageMetadata | None

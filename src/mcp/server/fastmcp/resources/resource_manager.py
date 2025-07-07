@@ -56,6 +56,7 @@ class ResourceManager:
         fn: Callable[..., Any],
         uri_template: str,
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
     ) -> ResourceTemplate:
@@ -64,6 +65,7 @@ class ResourceManager:
             fn,
             uri_template=uri_template,
             name=name,
+            title=title,
             description=description,
             mime_type=mime_type,
         )

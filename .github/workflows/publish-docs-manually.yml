@@ -19,6 +19,7 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          version: 0.7.2
 
       - run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV
       - uses: actions/cache@v4
@@ -29,4 +30,4 @@ jobs:
             mkdocs-material-
 
       - run: uv sync --frozen --group docs
-      - run: uv run --no-sync mkdocs gh-deploy --force
+      - run: uv run --frozen --no-sync mkdocs gh-deploy --force

@@ -54,9 +54,12 @@ class FunctionResource(Resource):
     async def read(self) -> str | bytes:
         """Read the resource by calling the wrapped function."""
         try:
-            result = (
-                await self.fn() if inspect.iscoroutinefunction(self.fn) else self.fn()
-            )
+            # Call the function first to see if it returns a coroutine
+            result = self.fn()
+            # If it's a coroutine, await it
+            if inspect.iscoroutine(result):
+                result = await result
+
             if isinstance(result, Resource):
                 return await result.read()
             elif isinstance(result, bytes):
@@ -74,6 +77,7 @@ class FunctionResource(Resource):
         fn: Callable[..., Any],
         uri: str,
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
     ) -> "FunctionResource":
@@ -88,6 +92,7 @@ class FunctionResource(Resource):
         return cls(
             uri=AnyUrl(uri),
             name=func_name,
+            title=title,
             description=description or fn.__doc__ or "",
             mime_type=mime_type or "text/plain",
             fn=fn,
@@ -141,9 +146,7 @@ class HttpResource(Resource):
     """A resource that reads from an HTTP endpoint."""
 
     url: str = Field(description="URL to fetch content from")
-    mime_type: str = Field(
-        default="application/json", description="MIME type of the resource content"
-    )
+    mime_type: str = Field(default="application/json", description="MIME type of the resource content")
 
     async def read(self) -> str | bytes:
         """Read the HTTP content."""
@@ -157,15 +160,9 @@ class DirectoryResource(Resource):
     """A resource that lists files in a directory."""
 
     path: Path = Field(description="Path to the directory")
-    recursive: bool = Field(
-        default=False, description="Whether to list files recursively"
-    )
-    pattern: str | None = Field(
-        default=None, description="Optional glob pattern to filter files"
-    )
-    mime_type: str = Field(
-        default="application/json", description="MIME type of the resource content"
-    )
+    recursive: bool = Field(default=False, description="Whether to list files recursively")
+    pattern: str | None = Field(default=None, description="Optional glob pattern to filter files")
+    mime_type: str = Field(default="application/json", description="MIME type of the resource content")
 
     @pydantic.field_validator("path")
     @classmethod
@@ -184,16 +181,8 @@ class DirectoryResource(Resource):
 
         try:
             if self.pattern:
-                return (
-                    list(self.path.glob(self.pattern))
-                    if not self.recursive
-                    else list(self.path.rglob(self.pattern))
-                )
-            return (
-                list(self.path.glob("*"))
-                if not self.recursive
-                else list(self.path.rglob("*"))
-            )
+                return list(self.path.glob(self.pattern)) if not self.recursive else list(self.path.rglob(self.pattern))
+            return list(self.path.glob("*")) if not self.recursive else list(self.path.rglob("*"))
         except Exception as e:
             raise ValueError(f"Error listing directory {self.path}: {e}")
 

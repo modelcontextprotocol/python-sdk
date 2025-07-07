@@ -1,91 +1,129 @@
-# Simple MCP Server with GitHub OAuth Authentication
+# MCP OAuth Authentication Demo
 
-This is a simple example of an MCP server with GitHub OAuth authentication. It demonstrates the essential components needed for OAuth integration with just a single tool.
+This example demonstrates OAuth 2.0 authentication with the Model Context Protocol using **separate Authorization Server (AS) and Resource Server (RS)** to comply with the new RFC 9728 specification.
 
-This is just an example of a server that uses auth, an official GitHub mcp server is [here](https://github.com/github/github-mcp-server)
-
-## Overview
-
-This simple demo to show to set up a server with:
-- GitHub OAuth2 authorization flow
-- Single tool: `get_user_profile` to retrieve GitHub user information
+---
 
 
-## Prerequisites
+## Running the Servers
 
-1. Create a GitHub OAuth App:
-   - Go to GitHub Settings > Developer settings > OAuth Apps > New OAuth App
-   - Application name: Any name (e.g., "Simple MCP Auth Demo")
-   - Homepage URL: `http://localhost:8000`
-   - Authorization callback URL: `http://localhost:8000/github/callback`
-   - Click "Register application"
-   - Note down your Client ID and Client Secret
-
-## Required Environment Variables
-
-You MUST set these environment variables before running the server:
+### Step 1: Start Authorization Server
 
 ```bash
-export MCP_GITHUB_GITHUB_CLIENT_ID="your_client_id_here"
-export MCP_GITHUB_GITHUB_CLIENT_SECRET="your_client_secret_here"
+# Navigate to the simple-auth directory
+cd examples/servers/simple-auth
+
+# Start Authorization Server on port 9000
+uv run mcp-simple-auth-as --port=9000
 ```
 
-The server will not start without these environment variables properly set.
+**What it provides:**
+- OAuth 2.0 flows (registration, authorization, token exchange)
+- Simple credential-based authentication (no external provider needed)  
+- Token introspection endpoint for Resource Servers (`/introspect`)
 
+---
 
-## Running the Server
+### Step 2: Start Resource Server (MCP Server)
 
 ```bash
-# Set environment variables first (see above)
+# In another terminal, navigate to the simple-auth directory
+cd examples/servers/simple-auth
 
-# Run the server
-uv run mcp-simple-auth
+# Start Resource Server on port 8001, connected to Authorization Server
+uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000  --transport=streamable-http
+
+# With RFC 8707 strict resource validation (recommended for production)
+uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000  --transport=streamable-http --oauth-strict
+
 ```
 
-The server will start on `http://localhost:8000`.
 
-### Transport Options
+### Step 3: Test with Client
 
-This server supports multiple transport protocols that can run on the same port:
-
-#### SSE (Server-Sent Events) - Default
 ```bash
-uv run mcp-simple-auth
-# or explicitly:
-uv run mcp-simple-auth --transport sse
+cd examples/clients/simple-auth-client
+# Start client with streamable HTTP
+MCP_SERVER_PORT=8001 MCP_TRANSPORT_TYPE=streamable_http uv run mcp-simple-auth-client
 ```
 
-SSE transport provides endpoint:
-- `/sse`
 
-#### Streamable HTTP
+## How It Works
+
+### RFC 9728 Discovery
+
+**Client → Resource Server:**
 ```bash
-uv run mcp-simple-auth --transport streamable-http
+curl http://localhost:8001/.well-known/oauth-protected-resource
+```
+```json
+{
+  "resource": "http://localhost:8001",
+  "authorization_servers": ["http://localhost:9000"]
+}
 ```
 
-Streamable HTTP transport provides endpoint:
-- `/mcp`
+**Client → Authorization Server:**
+```bash
+curl http://localhost:9000/.well-known/oauth-authorization-server
+```
+```json
+{
+  "issuer": "http://localhost:9000",
+  "authorization_endpoint": "http://localhost:9000/authorize",
+  "token_endpoint": "http://localhost:9000/token"
+}
+```
 
 
-This ensures backward compatibility without needing multiple server instances. When using SSE transport (`--transport sse`), only the `/sse` endpoint is available.
+## Legacy MCP Server as Authorization Server (Backwards Compatibility)
 
-## Available Tool
+For backwards compatibility with older MCP implementations, a legacy server is provided that acts as an Authorization Server (following the old spec where MCP servers could optionally provide OAuth):
 
-### get_user_profile
+### Running the Legacy Server
 
-The only tool in this simple example. Returns the authenticated user's GitHub profile information.
+```bash
+# Start legacy authorization server on port 8002
+uv run mcp-simple-auth-legacy --port=8002
+```
 
-**Required scope**: `user`
+**Differences from the new architecture:**
+- **MCP server acts as AS:** The MCP server itself provides OAuth endpoints (old spec behavior)
+- **No separate RS:** The server handles both authentication and MCP tools
+- **Local token validation:** Tokens are validated internally without introspection
+- **No RFC 9728 support:** Does not provide `/.well-known/oauth-protected-resource`
+- **Direct OAuth discovery:** OAuth metadata is at the MCP server's URL
 
-**Returns**: GitHub user profile data including username, email, bio, etc.
+### Testing with Legacy Server
 
+```bash
+# Test with client (will automatically fall back to legacy discovery)
+cd examples/clients/simple-auth-client
+MCP_SERVER_PORT=8002 MCP_TRANSPORT_TYPE=streamable_http uv run mcp-simple-auth-client
+```
 
-## Troubleshooting
+The client will:
+1. Try RFC 9728 discovery at `/.well-known/oauth-protected-resource` (404 on legacy server)
+2. Fall back to direct OAuth discovery at `/.well-known/oauth-authorization-server`
+3. Complete authentication with the MCP server acting as its own AS
 
-If the server fails to start, check:
-1. Environment variables `MCP_GITHUB_GITHUB_CLIENT_ID` and `MCP_GITHUB_GITHUB_CLIENT_SECRET` are set
-2. The GitHub OAuth app callback URL matches `http://localhost:8000/github/callback`
-3. No other service is using port 8000
-4. The transport specified is valid (`sse` or `streamable-http`)
+This ensures existing MCP servers (which could optionally act as Authorization Servers under the old spec) continue to work while the ecosystem transitions to the new architecture where MCP servers are Resource Servers only.
 
-You can use [Inspector](https://github.com/modelcontextprotocol/inspector) to test Auth
+## Manual Testing
+
+### Test Discovery
+```bash
+# Test Resource Server discovery endpoint (new architecture)
+curl -v http://localhost:8001/.well-known/oauth-protected-resource
+
+# Test Authorization Server metadata
+curl -v http://localhost:9000/.well-known/oauth-authorization-server
+```
+
+### Test Token Introspection
+```bash
+# After getting a token through OAuth flow:
+curl -X POST http://localhost:9000/introspect \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "token=your_access_token"
+```
