@@ -11,7 +11,6 @@ import socket
 import time
 from collections.abc import Generator
 
-import anyio
 import pytest
 import uvicorn
 from pydantic import AnyUrl

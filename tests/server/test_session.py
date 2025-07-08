@@ -17,7 +17,6 @@ from mcp.types import (
     InitializedNotification,
     PromptReference,
     PromptsCapability,
-    ResourceReference,
     ResourcesCapability,
     ServerCapabilities,
 )
