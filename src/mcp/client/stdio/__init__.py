@@ -265,14 +265,14 @@ async def _terminate_process_tree(process: Process | FallbackProcess, timeout: f
             pgid = os.getpgid(pid)
             os.killpg(pgid, signal.SIGTERM)
 
-            deadline = anyio.current_time() + timeout
-            while anyio.current_time() < deadline:
-                try:
-                    # Check if process group still exists (signal 0 = check only)
-                    os.killpg(pgid, 0)
-                    await anyio.sleep(0.1)
-                except ProcessLookupError:
-                    return
+            with anyio.move_on_after(timeout):
+                while True:
+                    try:
+                        # Check if process group still exists (signal 0 = check only)
+                        os.killpg(pgid, 0)
+                        await anyio.sleep(0.1)
+                    except ProcessLookupError:
+                        return
 
             try:
                 os.killpg(pgid, signal.SIGKILL)

@@ -227,8 +227,7 @@ async def _create_windows_fallback_process(
             cwd=cwd,
             bufsize=0,
         )
-    process = FallbackProcess(popen_obj)
-    return process
+    return FallbackProcess(popen_obj)
 
 
 def _create_job_object() -> int | None:
