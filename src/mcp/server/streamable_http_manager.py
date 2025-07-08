@@ -180,7 +180,7 @@ class StreamableHTTPSessionManager:
                         stateless=True,
                     )
                 except Exception as e:
-                    logger.warning(f"Stateless session crashed: {e}", exc_info=True)
+                    logger.error(f"Stateless session crashed: {e}", exc_info=True)
 
         # Assert task group is not None for type checking
         assert self._task_group is not None
@@ -243,7 +243,7 @@ class StreamableHTTPSessionManager:
                                 stateless=False,  # Stateful mode
                             )
                         except Exception as e:
-                            logger.warning(
+                            logger.error(
                                 f"Session {http_transport.mcp_session_id} crashed: {e}",
                                 exc_info=True,
                             )
@@ -252,9 +252,7 @@ class StreamableHTTPSessionManager:
                             if (
                                 http_transport.mcp_session_id
                                 and http_transport.mcp_session_id in self._server_instances
-                                and not (
-                                    hasattr(http_transport, "_terminated") and http_transport._terminated  # pyright: ignore
-                                )
+                                and not http_transport.is_terminated
                             ):
                                 logger.info(
                                     "Cleaning up crashed session "
