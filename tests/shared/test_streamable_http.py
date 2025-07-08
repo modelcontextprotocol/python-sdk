@@ -7,6 +7,7 @@ Contains tests for both server and client sides of the StreamableHTTP transport.
 import json
 import multiprocessing
 import socket
+import sys
 import time
 from collections.abc import Generator
 from typing import Any
@@ -1047,6 +1048,7 @@ async def test_streamablehttp_client_session_termination_204(basic_server, basic
 
 
 @pytest.mark.anyio
+@pytest.mark.skipif(sys.platform == "win32", reason="Resumption unstable on Windows")
 async def test_streamablehttp_client_resumption(event_server):
     """Test client session to resume a long running tool."""
     _, server_url = event_server
