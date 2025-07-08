@@ -25,24 +25,24 @@ dependencies = [
     "anyio>=4.5",
     "httpx>=0.27",
     "httpx-sse>=0.4",
-    "pydantic>=2.7.2,<3.0.0",
+    "pydantic>=2.8.0,<3.0.0",
     "starlette>=0.27",
     "python-multipart>=0.0.9",
     "sse-starlette>=1.6.1",
     "pydantic-settings>=2.5.2",
     "uvicorn>=0.23.1; sys_platform != 'emscripten'",
+    "jsonschema>=4.20.0",
 ]
 
 [project.optional-dependencies]
 rich = ["rich>=13.9.4"]
-cli = ["typer>=0.12.4", "python-dotenv>=1.0.0"]
+cli = ["typer>=0.16.0", "python-dotenv>=1.0.0"]
 ws = ["websockets>=15.0.1"]
 
 [project.scripts]
 mcp = "mcp.cli:app [cli]"
 
 [tool.uv]
-resolution = "lowest-direct"
 default-groups = ["dev", "docs"]
 required-version = ">=0.7.2"
 
@@ -57,6 +57,7 @@ dev = [
     "pytest-examples>=0.0.14",
     "pytest-pretty>=1.2.0",
     "inline-snapshot>=0.23.0",
+    "dirty-equals>=0.9.0",
 ]
 docs = [
     "mkdocs>=1.6.1",
@@ -96,15 +97,16 @@ select = ["C4", "E", "F", "I", "PERF", "UP"]
 ignore = ["PERF203"]
 
 [tool.ruff]
-line-length = 88
+line-length = 120
 target-version = "py310"
+extend-exclude = ["README.md"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 "tests/server/fastmcp/test_func_metadata.py" = ["E501"]
 
 [tool.uv.workspace]
-members = ["examples/servers/*"]
+members = ["examples/servers/*", "examples/snippets"]
 
 [tool.uv.sources]
 mcp = { workspace = true }
@@ -122,5 +124,5 @@ filterwarnings = [
     # This should be fixed on Uvicorn's side.
     "ignore::DeprecationWarning:websockets",
     "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
-    "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel"
+    "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel",
 ]

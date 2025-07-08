@@ -41,9 +41,7 @@ def main(
     app = Server("mcp-streamable-http-stateless-demo")
 
     @app.call_tool()
-    async def call_tool(
-        name: str, arguments: dict
-    ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+    async def call_tool(name: str, arguments: dict) -> list[types.ContentBlock]:
         ctx = app.request_context
         interval = arguments.get("interval", 1.0)
         count = arguments.get("count", 5)
@@ -53,7 +51,7 @@ def main(
         for i in range(count):
             await ctx.session.send_log_message(
                 level="info",
-                data=f"Notification {i+1}/{count} from caller: {caller}",
+                data=f"Notification {i + 1}/{count} from caller: {caller}",
                 logger="notification_stream",
                 related_request_id=ctx.request_id,
             )
