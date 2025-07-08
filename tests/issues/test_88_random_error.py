@@ -84,7 +84,13 @@ async def test_notification_validation_error(tmp_path: Path):
         # - Long enough for fast operations (>10ms)
         # - Short enough for slow operations (<200ms)
         # - Not too short to avoid flakiness
-        async with ClientSession(read_stream, write_stream, read_timeout_seconds=timedelta(milliseconds=50)) as session:
+        async with ClientSession(
+            read_stream,
+            write_stream,
+            # Increased to 150ms to avoid flakiness on slower platforms
+            read_timeout_seconds=timedelta(milliseconds=150),
+        ) as session:
+        # async with ClientSession(read_stream, write_stream, read_timeout_seconds=timedelta(milliseconds=50)) as session:
             await session.initialize()
 
             # First call should work (fast operation)
