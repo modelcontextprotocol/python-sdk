@@ -278,12 +278,16 @@ def _maybe_assign_process_to_job(process: Process | FallbackProcess, job: JobHan
             win32api.CloseHandle(job)
 
 
-async def terminate_windows_process_tree(process: Process | FallbackProcess, timeout: float = 2.0) -> None:
+async def terminate_windows_process_tree(process: Process | FallbackProcess, timeout_seconds: float = 2.0) -> None:
     """
     Terminate a process and all its children on Windows.
 
     If the process has an associated job object, it will be terminated.
     Otherwise, falls back to basic process termination.
+
+    Args:
+        process: The process to terminate
+        timeout_seconds: Timeout in seconds before force killing (default: 2.0)
     """
     if sys.platform != "win32":
         return

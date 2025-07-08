@@ -1,6 +1,5 @@
 import logging
 import os
-import signal
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -14,16 +13,16 @@ from anyio.streams.text import TextReceiveStream
 from pydantic import BaseModel, Field
 
 import mcp.types as types
-from mcp.shared.message import SessionMessage
-
-from .win32 import (
+from mcp.os.posix.utilities import terminate_posix_process_tree
+from mcp.os.win32.utilities import (
     FallbackProcess,
     create_windows_process,
     get_windows_executable_command,
     terminate_windows_process_tree,
 )
+from mcp.shared.message import SessionMessage
 
-logger = logging.getLogger("client.stdio")
+logger = logging.getLogger(__name__)
 
 # Environment variables to inherit by default
 DEFAULT_INHERITED_ENV_VARS = (
@@ -247,47 +246,20 @@ async def _create_platform_compatible_process(
     return process
 
 
-async def _terminate_process_tree(process: Process | FallbackProcess, timeout: float = 2.0) -> None:
+async def _terminate_process_tree(process: Process | FallbackProcess, timeout_seconds: float = 2.0) -> None:
     """
     Terminate a process and all its children using platform-specific methods.
 
     Unix: Uses os.killpg() for atomic process group termination
     Windows: Uses Job Objects via pywin32 for reliable child process cleanup
+
+    Args:
+        process: The process to terminate
+        timeout_seconds: Timeout in seconds before force killing (default: 2.0)
     """
     if sys.platform == "win32":
-        await terminate_windows_process_tree(process, timeout)
+        await terminate_windows_process_tree(process, timeout_seconds)
     else:
-        pid = getattr(process, "pid", None) or getattr(getattr(process, "popen", None), "pid", None)
-        if not pid:
-            return
-
-        try:
-            pgid = os.getpgid(pid)
-            os.killpg(pgid, signal.SIGTERM)
-
-            with anyio.move_on_after(timeout):
-                while True:
-                    try:
-                        # Check if process group still exists (signal 0 = check only)
-                        os.killpg(pgid, 0)
-                        await anyio.sleep(0.1)
-                    except ProcessLookupError:
-                        return
-
-            try:
-                os.killpg(pgid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-
-        except (ProcessLookupError, PermissionError, OSError) as e:
-            logger.warning(f"Process group termination failed for PID {pid}: {e}, falling back to simple terminate")
-            try:
-                process.terminate()
-                with anyio.fail_after(timeout):
-                    await process.wait()
-            except Exception as term_error:
-                logger.warning(f"Process termination failed for PID {pid}: {term_error}, attempting force kill")
-                try:
-                    process.kill()
-                except Exception as kill_error:
-                    logger.error(f"Failed to kill process {pid}: {kill_error}")
+        # FallbackProcess should only be used for Windows compatibility
+        assert isinstance(process, Process)
+        await terminate_posix_process_tree(process, timeout_seconds)
