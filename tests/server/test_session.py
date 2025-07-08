@@ -109,7 +109,11 @@ async def test_server_capabilities():
 
     # Add a complete handler
     @server.completion()
-    async def complete(ref: PromptReference | ResourceReference, argument: CompletionArgument):
+    async def complete(
+        ref: PromptReference | types.ResourceTemplateReference,
+        argument: CompletionArgument,
+        context: types.CompletionContext | None,
+    ):
         return Completion(
             values=["completion1", "completion2"],
         )
