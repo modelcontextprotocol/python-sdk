@@ -142,9 +142,7 @@ class TokenHandler:
             return self.response(
                 TokenErrorResponse(
                     error="unsupported_grant_type",
-                    error_description=(
-                        f"Unsupported grant type (supported grant types are " f"{client_info.grant_types})"
-                    ),
+                    error_description=(f"Unsupported grant type (supported grant types are {client_info.grant_types})"),
                 )
             )
 
@@ -284,7 +282,7 @@ class TokenHandler:
                         return self.response(
                             TokenErrorResponse(
                                 error="invalid_scope",
-                                error_description=(f"cannot request scope `{scope}` " "not provided by refresh token"),
+                                error_description=(f"cannot request scope `{scope}` not provided by refresh token"),
                             )
                         )
 

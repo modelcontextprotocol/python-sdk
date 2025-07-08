@@ -146,7 +146,7 @@ class TestServer:
         mcp = FastMCP()
 
         @mcp.tool()
-        def add(x: int, y: int) -> int:
+        def sum(x: int, y: int) -> int:
             return x + y
 
         assert len(mcp._tool_manager.list_tools()) == 1
@@ -158,7 +158,7 @@ class TestServer:
         with pytest.raises(TypeError, match="The @tool decorator was used incorrectly"):
 
             @mcp.tool  # Missing parentheses #type: ignore
-            def add(x: int, y: int) -> int:
+            def sum(x: int, y: int) -> int:
                 return x + y
 
     @pytest.mark.anyio

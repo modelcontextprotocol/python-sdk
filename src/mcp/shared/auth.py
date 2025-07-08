@@ -95,7 +95,7 @@ class OAuthClientMetadata(BaseModel):
         elif len(self.redirect_uris) == 1:
             return self.redirect_uris[0]
         else:
-            raise InvalidRedirectUriError("redirect_uri must be specified when client " "has multiple registered URIs")
+            raise InvalidRedirectUriError("redirect_uri must be specified when client has multiple registered URIs")
 
 
 class OAuthClientInformationFull(OAuthClientMetadata):
@@ -122,7 +122,7 @@ class OAuthMetadata(BaseModel):
     registration_endpoint: AnyHttpUrl | None = None
     scopes_supported: list[str] | None = None
     response_types_supported: list[str] = ["code"]
-    response_modes_supported: list[Literal["query", "fragment"]] | None = None
+    response_modes_supported: list[Literal["query", "fragment", "form_post"]] | None = None
     grant_types_supported: (
         list[
             Literal[
