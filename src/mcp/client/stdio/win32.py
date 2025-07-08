@@ -12,6 +12,7 @@ import anyio
 from anyio import to_thread
 from anyio.abc import Process
 from anyio.streams.file import FileReadStream, FileWriteStream
+from typing_extensions import deprecated
 
 
 def get_windows_executable_command(command: str) -> str:
@@ -199,3 +200,28 @@ async def _create_windows_fallback_process(
             bufsize=0,
         )
         return FallbackProcess(popen_obj)
+
+
+@deprecated(
+    "terminate_windows_process is deprecated and will be removed in a future version. "
+    "Process termination is now handled internally by the stdio_client context manager."
+)
+async def terminate_windows_process(process: Process | FallbackProcess):
+    """
+    Terminate a Windows process.
+
+    Note: On Windows, terminating a process with process.terminate() doesn't
+    always guarantee immediate process termination.
+    So we give it 2s to exit, or we call process.kill()
+    which sends a SIGKILL equivalent signal.
+
+    Args:
+        process: The process to terminate
+    """
+    try:
+        process.terminate()
+        with anyio.fail_after(2.0):
+            await process.wait()
+    except TimeoutError:
+        # Force kill if it doesn't terminate
+        process.kill()

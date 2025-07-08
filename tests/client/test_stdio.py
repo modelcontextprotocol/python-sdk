@@ -15,6 +15,11 @@ from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
 from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
+# Timeout for cleanup of processes that ignore SIGTERM
+# This timeout ensures the test fails quickly if the cleanup logic doesn't have
+# proper fallback mechanisms (SIGINT/SIGKILL) for processes that ignore SIGTERM
+SIGTERM_IGNORING_PROCESS_TIMEOUT = 5.0
+
 tee: str = shutil.which("tee")  # type: ignore
 python: str = shutil.which("python")  # type: ignore
 
@@ -200,14 +205,16 @@ async def test_stdio_client_sigint_only_process():
 
         # Should complete quickly even with SIGTERM-ignoring process
         # This will fail if cleanup only uses process.terminate() without fallback
-        assert elapsed < 5.0, (
+        assert elapsed < SIGTERM_IGNORING_PROCESS_TIMEOUT, (
             f"stdio_client cleanup took {elapsed:.1f} seconds with SIGTERM-ignoring process. "
-            f"Expected < 5.0 seconds. This suggests the cleanup needs SIGINT/SIGKILL fallback."
+            f"Expected < {SIGTERM_IGNORING_PROCESS_TIMEOUT} seconds. "
+            "This suggests the cleanup needs SIGINT/SIGKILL fallback."
         )
     except (TimeoutError, Exception) as e:
         if isinstance(e, TimeoutError) or "timed out" in str(e):
             pytest.fail(
-                "stdio_client cleanup timed out after 5.0 seconds with SIGTERM-ignoring process. "
+                f"stdio_client cleanup timed out after {SIGTERM_IGNORING_PROCESS_TIMEOUT} seconds "
+                "with SIGTERM-ignoring process. "
                 "This confirms the cleanup needs SIGINT/SIGKILL fallback for processes that ignore SIGTERM."
             )
         else:

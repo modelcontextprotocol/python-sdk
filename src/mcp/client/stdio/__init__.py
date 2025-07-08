@@ -37,6 +37,9 @@ DEFAULT_INHERITED_ENV_VARS = (
     else ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"]
 )
 
+# Timeout for process termination before falling back to force kill
+PROCESS_TERMINATION_TIMEOUT = 2.0
+
 
 def get_default_environment() -> dict[str, str]:
     """
@@ -180,7 +183,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             # Clean up process to prevent any dangling orphaned processes
             try:
                 process.terminate()
-                with anyio.fail_after(2.0):
+                with anyio.fail_after(PROCESS_TERMINATION_TIMEOUT):
                     await process.wait()
             except TimeoutError:
                 # If process doesn't terminate in time, force kill it
