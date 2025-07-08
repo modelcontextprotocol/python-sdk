@@ -89,7 +89,7 @@ class OAuthClientMetadata(BaseModel):
         elif len(self.redirect_uris) == 1:
             return self.redirect_uris[0]
         else:
-            raise InvalidRedirectUriError("redirect_uri must be specified when client " "has multiple registered URIs")
+            raise InvalidRedirectUriError("redirect_uri must be specified when client has multiple registered URIs")
 
 
 class OAuthClientInformationFull(OAuthClientMetadata):
@@ -116,7 +116,7 @@ class OAuthMetadata(BaseModel):
     registration_endpoint: AnyHttpUrl | None = None
     scopes_supported: list[str] | None = None
     response_types_supported: list[str] = ["code"]
-    response_modes_supported: list[Literal["query", "fragment"]] | None = None
+    response_modes_supported: list[Literal["query", "fragment", "form_post"]] | None = None
     grant_types_supported: list[str] | None = None
     token_endpoint_auth_methods_supported: list[str] | None = None
     token_endpoint_auth_signing_alg_values_supported: None = None
@@ -131,3 +131,16 @@ class OAuthMetadata(BaseModel):
     introspection_endpoint_auth_methods_supported: list[str] | None = None
     introspection_endpoint_auth_signing_alg_values_supported: None = None
     code_challenge_methods_supported: list[str] | None = None
+
+
+class ProtectedResourceMetadata(BaseModel):
+    """
+    RFC 9728 OAuth 2.0 Protected Resource Metadata.
+    See https://datatracker.ietf.org/doc/html/rfc9728#section-2
+    """
+
+    resource: AnyHttpUrl
+    authorization_servers: list[AnyHttpUrl] = Field(..., min_length=1)
+    scopes_supported: list[str] | None = None
+    bearer_methods_supported: list[str] | None = Field(default=["header"])  # MCP only supports header method
+    resource_documentation: AnyHttpUrl | None = None

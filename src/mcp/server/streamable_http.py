@@ -46,8 +46,6 @@ from mcp.types import (
 
 logger = logging.getLogger(__name__)
 
-# Maximum size for incoming messages
-MAXIMUM_MESSAGE_SIZE = 4 * 1024 * 1024  # 4MB
 
 # Header names
 MCP_SESSION_ID_HEADER = "mcp-session-id"
@@ -329,13 +327,6 @@ class StreamableHTTPServerTransport:
 
             # Parse the body - only read it once
             body = await request.body()
-            if len(body) > MAXIMUM_MESSAGE_SIZE:
-                response = self._create_error_response(
-                    "Payload Too Large: Message exceeds maximum size",
-                    HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
-                )
-                await response(scope, receive, send)
-                return
 
             try:
                 raw_message = json.loads(body)
