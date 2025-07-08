@@ -1111,7 +1111,7 @@ async def test_streamablehttp_client_resumption(event_server):
                 # Wait for the tool to start and at least one notification
                 # and then kill the task group
                 while not tool_started or not captured_resumption_token:
-                    await anyio.sleep(0.1)
+                    await anyio.sleep(0.05)
                 tg.cancel_scope.cancel()
 
     # Store pre notifications and clear the captured notifications
