@@ -996,6 +996,33 @@ class TestServerPrompts:
             assert result.description == "Test prompt description"
 
     @pytest.mark.anyio
+    async def test_get_prompt_without_description(self):
+        """Test getting a prompt without description returns None."""
+        mcp = FastMCP()
+
+        @mcp.prompt()  # No description provided
+        def fn(name: str) -> str:
+            return f"Hello, {name}!"
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.get_prompt("fn", {"name": "World"})
+            assert result.description is None
+
+    @pytest.mark.anyio
+    async def test_get_prompt_with_docstring_description(self):
+        """Test prompt uses docstring as description when not explicitly provided."""
+        mcp = FastMCP()
+
+        @mcp.prompt()
+        def fn(name: str) -> str:
+            """This is the function docstring."""
+            return f"Hello, {name}!"
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.get_prompt("fn", {"name": "World"})
+            assert result.description == "This is the function docstring."
+
+    @pytest.mark.anyio
     async def test_get_prompt_with_resource(self):
         """Test getting a prompt that returns resource content."""
         mcp = FastMCP()

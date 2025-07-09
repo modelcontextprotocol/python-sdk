@@ -958,10 +958,13 @@ class FastMCP:
         """Get a prompt by name with arguments."""
         try:
             prompt = self._prompt_manager.get_prompt(name)
-            messages = await self._prompt_manager.render_prompt(name, arguments)
-
+            if not prompt:
+                raise ValueError(f"Unknown prompt: {name}")
+            
+            messages = await prompt.render(arguments)
+            
             return GetPromptResult(
-                description=getattr(prompt, "description", None),
+                description=prompt.description,
                 messages=pydantic_core.to_jsonable_python(messages),
             )
         except Exception as e:
