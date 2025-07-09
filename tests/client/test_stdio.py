@@ -27,8 +27,6 @@ SIGTERM_IGNORING_PROCESS_TIMEOUT = 5.0
 tee: str = shutil.which("tee")  # type: ignore
 python: str = shutil.which("python")  # type: ignore
 
-tee: str = shutil.which("tee")  # type: ignore
-
 
 @pytest.mark.anyio
 @pytest.mark.skipif(tee is None, reason="could not find tee command")
