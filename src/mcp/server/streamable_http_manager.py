@@ -180,7 +180,7 @@ class StreamableHTTPSessionManager:
                         stateless=True,
                     )
                 except Exception as e:
-                    logger.error(f"Stateless session crashed: {e}", exc_info=True)
+                    logger.exception("Stateless session crashed")
 
         # Assert task group is not None for type checking
         assert self._task_group is not None
