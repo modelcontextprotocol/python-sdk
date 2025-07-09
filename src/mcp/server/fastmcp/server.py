@@ -828,7 +828,7 @@ class FastMCP:
     def streamable_http_app(self) -> Starlette:
         """Return an instance of the StreamableHTTP server app."""
         from starlette.middleware import Middleware
-        from starlette.routing import Mount
+        from starlette.routing import Route
 
         # Create session manager on first call (lazy initialization)
         if self._session_manager is None:
@@ -845,7 +845,7 @@ class FastMCP:
             await self.session_manager.handle_request(scope, receive, send)
 
         # Create routes
-        routes: list[Route | Mount] = []
+        routes: list[Route] = []
         middleware: list[Middleware] = []
         required_scopes = []
 
@@ -889,17 +889,19 @@ class FastMCP:
                 )
 
             routes.append(
-                Mount(
+                Route(
                     self.settings.streamable_http_path,
-                    app=RequireAuthMiddleware(handle_streamable_http, required_scopes, resource_metadata_url),
+                    endpoint=RequireAuthMiddleware(handle_streamable_http, required_scopes, resource_metadata_url),
+                    methods=["POST", "GET", "DELETE"],
                 )
             )
         else:
             # Auth is disabled, no wrapper needed
             routes.append(
-                Mount(
+                Route(
                     self.settings.streamable_http_path,
-                    app=handle_streamable_http,
+                    endpoint=handle_streamable_http,
+                    methods=["POST", "GET", "DELETE"],
                 )
             )
 
