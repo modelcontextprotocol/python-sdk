@@ -330,9 +330,9 @@ class TestChildProcessCleanup:
                 final_size = os.path.getsize(marker_file)
 
                 print(f"After cleanup: file size {size_after_cleanup} -> {final_size}")
-                assert (
-                    final_size == size_after_cleanup
-                ), f"Child process still running! File grew by {final_size - size_after_cleanup} bytes"
+                assert final_size == size_after_cleanup, (
+                    f"Child process still running! File grew by {final_size - size_after_cleanup} bytes"
+                )
 
             print("SUCCESS: Child process was properly terminated")
 
