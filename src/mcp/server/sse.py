@@ -105,8 +105,8 @@ class SseServerTransport:
         # Validate that endpoint is a relative path and not a full URL
         if "://" in endpoint or endpoint.startswith("//") or "?" in endpoint or "#" in endpoint:
             raise ValueError(
-                f"Given endpoint: {endpoint} is not a relative path (e.g., '/messages/'), \
-                             expecting a relative path(e.g., '/messages/')."
+                f"Given endpoint: {endpoint} is not a relative path (e.g., '/messages/'), "
+                "expecting a relative path (e.g., '/messages/')."
             )
 
         # Ensure endpoint starts with a forward slash
@@ -234,7 +234,7 @@ class SseServerTransport:
             message = types.JSONRPCMessage.model_validate_json(body)
             logger.debug(f"Validated client message: {message}")
         except ValidationError as err:
-            logger.error(f"Failed to parse message: {err}")
+            logger.exception("Failed to parse message")
             response = Response("Could not parse message", status_code=400)
             await response(scope, receive, send)
             await writer.send(err)

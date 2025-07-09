@@ -248,8 +248,9 @@ class StreamableHTTPServerTransport:
                 # Close the request stream
                 await self._request_streams[request_id][0].aclose()
                 await self._request_streams[request_id][1].aclose()
-            except Exception as e:
-                logger.debug(f"Error closing memory streams: {e}")
+            except Exception:
+                # During cleanup, we catch all exceptions since streams might be in various states
+                logger.debug("Error closing memory streams - may already be closed")
             finally:
                 # Remove the request stream from the mapping
                 self._request_streams.pop(request_id, None)
@@ -421,10 +422,10 @@ class StreamableHTTPServerTransport:
                             HTTPStatus.INTERNAL_SERVER_ERROR,
                         )
                         await response(scope, receive, send)
-                except Exception as e:
-                    logger.exception(f"Error processing JSON response: {e}")
+                except Exception:
+                    logger.exception("Error processing JSON response")
                     response = self._create_error_response(
-                        f"Error processing request: {str(e)}",
+                        "Error processing request",
                         HTTPStatus.INTERNAL_SERVER_ERROR,
                         INTERNAL_ERROR,
                     )
@@ -451,8 +452,8 @@ class StreamableHTTPServerTransport:
                                     JSONRPCResponse | JSONRPCError,
                                 ):
                                     break
-                    except Exception as e:
-                        logger.exception(f"Error in SSE writer: {e}")
+                    except Exception:
+                        logger.exception("Error in SSE writer")
                     finally:
                         logger.debug("Closing SSE writer")
                         await self._clean_up_memory_streams(request_id)
@@ -569,8 +570,8 @@ class StreamableHTTPServerTransport:
                         # Send the message via SSE
                         event_data = self._create_event_data(event_message)
                         await sse_stream_writer.send(event_data)
-            except Exception as e:
-                logger.exception(f"Error in standalone SSE writer: {e}")
+            except Exception:
+                logger.exception("Error in standalone SSE writer")
             finally:
                 logger.debug("Closing standalone SSE writer")
                 await self._clean_up_memory_streams(GET_STREAM_KEY)
@@ -585,8 +586,8 @@ class StreamableHTTPServerTransport:
         try:
             # This will send headers immediately and establish the SSE connection
             await response(request.scope, request.receive, send)
-        except Exception as e:
-            logger.exception(f"Error in standalone SSE response: {e}")
+        except Exception:
+            logger.exception("Error in standalone SSE response")
             await sse_stream_writer.aclose()
             await sse_stream_reader.aclose()
             await self._clean_up_memory_streams(GET_STREAM_KEY)
@@ -628,10 +629,7 @@ class StreamableHTTPServerTransport:
 
         # Close all request streams asynchronously
         for key in request_stream_keys:
-            try:
-                await self._clean_up_memory_streams(key)
-            except Exception as e:
-                logger.debug(f"Error closing stream {key} during termination: {e}")
+            await self._clean_up_memory_streams(key)
 
         # Clear the request streams dictionary immediately
         self._request_streams.clear()
@@ -645,6 +643,7 @@ class StreamableHTTPServerTransport:
             if self._write_stream is not None:
                 await self._write_stream.aclose()
         except Exception as e:
+            # During cleanup, we catch all exceptions since streams might be in various states
             logger.debug(f"Error closing streams: {e}")
 
     async def _handle_unsupported_request(self, request: Request, send: Send) -> None:
@@ -765,8 +764,8 @@ class StreamableHTTPServerTransport:
                                     event_data = self._create_event_data(event_message)
 
                                     await sse_stream_writer.send(event_data)
-                except Exception as e:
-                    logger.exception(f"Error in replay sender: {e}")
+                except Exception:
+                    logger.exception("Error in replay sender")
 
             # Create and start EventSourceResponse
             response = EventSourceResponse(
@@ -777,16 +776,16 @@ class StreamableHTTPServerTransport:
 
             try:
                 await response(request.scope, request.receive, send)
-            except Exception as e:
-                logger.exception(f"Error in replay response: {e}")
+            except Exception:
+                logger.exception("Error in replay response")
             finally:
                 await sse_stream_writer.aclose()
                 await sse_stream_reader.aclose()
 
-        except Exception as e:
-            logger.exception(f"Error replaying events: {e}")
+        except Exception:
+            logger.exception("Error replaying events")
             response = self._create_error_response(
-                f"Error replaying events: {str(e)}",
+                "Error replaying events",
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 INTERNAL_ERROR,
             )
@@ -874,8 +873,8 @@ class StreamableHTTPServerTransport:
                                 for message. Still processing message as the client
                                 might reconnect and replay."""
                             )
-                except Exception as e:
-                    logger.exception(f"Error in message router: {e}")
+                except Exception:
+                    logger.exception("Error in message router")
 
             # Start the message router
             tg.start_soon(message_router)
@@ -885,11 +884,7 @@ class StreamableHTTPServerTransport:
                 yield read_stream, write_stream
             finally:
                 for stream_id in list(self._request_streams.keys()):
-                    try:
-                        await self._clean_up_memory_streams(stream_id)
-                    except Exception as e:
-                        logger.debug(f"Error closing request stream: {e}")
-                        pass
+                    await self._clean_up_memory_streams(stream_id)
                 self._request_streams.clear()
 
                 # Clean up the read and write streams
@@ -899,4 +894,5 @@ class StreamableHTTPServerTransport:
                     await write_stream_reader.aclose()
                     await write_stream.aclose()
                 except Exception as e:
+                    # During cleanup, we catch all exceptions since streams might be in various states
                     logger.debug(f"Error closing streams: {e}")

@@ -349,12 +349,11 @@ def run(
 
         server.run(**kwargs)
 
-    except Exception as e:
-        logger.error(
-            f"Failed to run server: {e}",
+    except Exception:
+        logger.exception(
+            "Failed to run server",
             extra={
                 "file": str(file),
-                "error": str(e),
             },
         )
         sys.exit(1)
@@ -464,8 +463,8 @@ def install(
             if dotenv:
                 try:
                     env_dict |= {k: v for k, v in dotenv.dotenv_values(env_file).items() if v is not None}
-                except Exception as e:
-                    logger.error(f"Failed to load .env file: {e}")
+                except (OSError, ValueError):
+                    logger.exception("Failed to load .env file")
                     sys.exit(1)
             else:
                 logger.error("python-dotenv is not installed. Cannot load .env file.")
