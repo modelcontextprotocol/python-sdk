@@ -494,8 +494,8 @@ class OAuthClientProvider(httpx.Auth):
             await self.context.storage.set_tokens(token_response)
 
             return True
-        except ValidationError as e:
-            logger.error(f"Invalid refresh response: {e}")
+        except ValidationError:
+            logger.exception("Invalid refresh response")
             self.context.clear_tokens()
             return False
 
@@ -570,7 +570,7 @@ class OAuthClientProvider(httpx.Auth):
                         token_response = yield token_request
                         await self._handle_token_response(token_response)
                     except Exception as e:
-                        logger.error(f"OAuth flow error: {e}")
+                        logger.exception("OAuth flow error")
                         raise
 
                 # Retry with new tokens

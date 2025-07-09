@@ -546,7 +546,7 @@ _Full example: [examples/snippets/servers/completion.py](https://github.com/mode
 <!-- /snippet-source -->
 ### Elicitation
 
-Request additional information from users during tool execution:
+Request additional information from users. This example shows an Elicitation during a Tool Call:
 
 <!-- snippet-source examples/snippets/servers/elicitation.py -->
 ```python
@@ -1327,13 +1327,13 @@ The MCP protocol defines three core primitives that servers can implement:
 
 MCP servers declare capabilities during initialization:
 
-| Capability  | Feature Flag                 | Description                        |
-|-------------|------------------------------|------------------------------------|
-| `prompts`   | `listChanged`                | Prompt template management         |
-| `resources` | `subscribe`<br/>`listChanged`| Resource exposure and updates      |
-| `tools`     | `listChanged`                | Tool discovery and execution       |
-| `logging`   | -                            | Server logging configuration       |
-| `completion`| -                            | Argument completion suggestions    |
+| Capability   | Feature Flag                 | Description                        |
+|--------------|------------------------------|------------------------------------|
+| `prompts`    | `listChanged`                | Prompt template management         |
+| `resources`  | `subscribe`<br/>`listChanged`| Resource exposure and updates      |
+| `tools`      | `listChanged`                | Tool discovery and execution       |
+| `logging`    | -                            | Server logging configuration       |
+| `completions`| -                            | Argument completion suggestions    |
 
 ## Documentation
 

@@ -311,7 +311,7 @@ class FastMCP:
             content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type)]
         except Exception as e:
-            logger.error(f"Error reading resource {uri}: {e}")
+            logger.exception(f"Error reading resource {uri}")
             raise ResourceError(str(e))
 
     def add_tool(
@@ -961,7 +961,7 @@ class FastMCP:
 
             return GetPromptResult(messages=pydantic_core.to_jsonable_python(messages))
         except Exception as e:
-            logger.error(f"Error getting prompt {name}: {e}")
+            logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e))
 
 

@@ -75,11 +75,10 @@ def update_claude_config(
     if not config_file.exists():
         try:
             config_file.write_text("{}")
-        except Exception as e:
-            logger.error(
+        except Exception:
+            logger.exception(
                 "Failed to create Claude config file",
                 extra={
-                    "error": str(e),
                     "config_file": str(config_file),
                 },
             )
@@ -139,11 +138,10 @@ def update_claude_config(
             extra={"config_file": str(config_file)},
         )
         return True
-    except Exception as e:
-        logger.error(
+    except Exception:
+        logger.exception(
             "Failed to update Claude config",
             extra={
-                "error": str(e),
                 "config_file": str(config_file),
             },
         )

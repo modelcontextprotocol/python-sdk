@@ -11,9 +11,15 @@ from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     ClientNotification,
+    Completion,
+    CompletionArgument,
+    CompletionContext,
+    CompletionsCapability,
     InitializedNotification,
+    PromptReference,
     PromptsCapability,
     ResourcesCapability,
+    ResourceTemplateReference,
     ServerCapabilities,
 )
 
@@ -80,6 +86,7 @@ async def test_server_capabilities():
     caps = server.get_capabilities(notification_options, experimental_capabilities)
     assert caps.prompts is None
     assert caps.resources is None
+    assert caps.completions is None
 
     # Add a prompts handler
     @server.list_prompts()
@@ -89,6 +96,7 @@ async def test_server_capabilities():
     caps = server.get_capabilities(notification_options, experimental_capabilities)
     assert caps.prompts == PromptsCapability(listChanged=False)
     assert caps.resources is None
+    assert caps.completions is None
 
     # Add a resources handler
     @server.list_resources()
@@ -98,6 +106,23 @@ async def test_server_capabilities():
     caps = server.get_capabilities(notification_options, experimental_capabilities)
     assert caps.prompts == PromptsCapability(listChanged=False)
     assert caps.resources == ResourcesCapability(subscribe=False, listChanged=False)
+    assert caps.completions is None
+
+    # Add a complete handler
+    @server.completion()
+    async def complete(
+        ref: PromptReference | ResourceTemplateReference,
+        argument: CompletionArgument,
+        context: CompletionContext | None,
+    ) -> Completion | None:
+        return Completion(
+            values=["completion1", "completion2"],
+        )
+
+    caps = server.get_capabilities(notification_options, experimental_capabilities)
+    assert caps.prompts == PromptsCapability(listChanged=False)
+    assert caps.resources == ResourcesCapability(subscribe=False, listChanged=False)
+    assert caps.completions == CompletionsCapability()
 
 
 @pytest.mark.anyio
