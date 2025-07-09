@@ -52,9 +52,9 @@ async def terminate_posix_process_tree(process: Process, timeout_seconds: float 
             process.terminate()
             with anyio.fail_after(timeout_seconds):
                 await process.wait()
-        except Exception as term_error:
-            logger.warning(f"Process termination failed for PID {pid}: {term_error}, attempting force kill")
+        except Exception:
+            logger.warning(f"Process termination failed for PID {pid}, attempting force kill")
             try:
                 process.kill()
-            except Exception as kill_error:
-                logger.error(f"Failed to kill process {pid}: {kill_error}")
+            except Exception:
+                logger.exception(f"Failed to kill process {pid}")
