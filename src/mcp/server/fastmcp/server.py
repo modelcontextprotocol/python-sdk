@@ -311,7 +311,7 @@ class FastMCP:
             content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type)]
         except Exception as e:
-            logger.error(f"Error reading resource {uri}: {e}")
+            logger.exception(f"Error reading resource {uri}")
             raise ResourceError(str(e))
 
     def add_tool(
@@ -390,7 +390,7 @@ class FastMCP:
         # Check if user passed function directly instead of calling decorator
         if callable(name):
             raise TypeError(
-                "The @tool decorator was used incorrectly. " "Did you forget to call it? Use @tool() instead of @tool"
+                "The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool"
             )
 
         def decorator(fn: AnyFunction) -> AnyFunction:
@@ -497,7 +497,7 @@ class FastMCP:
 
                 if uri_params != func_params:
                     raise ValueError(
-                        f"Mismatch between URI parameters {uri_params} " f"and function parameters {func_params}"
+                        f"Mismatch between URI parameters {uri_params} and function parameters {func_params}"
                     )
 
                 # Register as template
@@ -957,11 +957,18 @@ class FastMCP:
     async def get_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> GetPromptResult:
         """Get a prompt by name with arguments."""
         try:
-            messages = await self._prompt_manager.render_prompt(name, arguments)
+            prompt = self._prompt_manager.get_prompt(name)
+            if not prompt:
+                raise ValueError(f"Unknown prompt: {name}")
 
-            return GetPromptResult(messages=pydantic_core.to_jsonable_python(messages))
+            messages = await prompt.render(arguments)
+
+            return GetPromptResult(
+                description=prompt.description,
+                messages=pydantic_core.to_jsonable_python(messages),
+            )
         except Exception as e:
-            logger.error(f"Error getting prompt {name}: {e}")
+            logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e))
 
 

@@ -33,7 +33,7 @@ class AuthorizationRequest(BaseModel):
     state: str | None = Field(None, description="Optional state parameter")
     scope: str | None = Field(
         None,
-        description="Optional scope; if specified, should be " "a space-separated list of scope strings",
+        description="Optional scope; if specified, should be a space-separated list of scope strings",
     )
     resource: str | None = Field(
         None,

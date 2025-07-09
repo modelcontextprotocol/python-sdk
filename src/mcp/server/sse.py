@@ -80,14 +80,39 @@ class SseServerTransport:
     def __init__(self, endpoint: str, security_settings: TransportSecuritySettings | None = None) -> None:
         """
         Creates a new SSE server transport, which will direct the client to POST
-        messages to the relative or absolute URL given.
+        messages to the relative path given.
 
         Args:
-            endpoint: The relative or absolute URL for POST messages.
+            endpoint: A relative path where messages should be posted
+                    (e.g., "/messages/").
             security_settings: Optional security settings for DNS rebinding protection.
+
+        Note:
+            We use relative paths instead of full URLs for several reasons:
+            1. Security: Prevents cross-origin requests by ensuring clients only connect
+               to the same origin they established the SSE connection with
+            2. Flexibility: The server can be mounted at any path without needing to
+               know its full URL
+            3. Portability: The same endpoint configuration works across different
+               environments (development, staging, production)
+
+        Raises:
+            ValueError: If the endpoint is a full URL instead of a relative path
         """
 
         super().__init__()
+
+        # Validate that endpoint is a relative path and not a full URL
+        if "://" in endpoint or endpoint.startswith("//") or "?" in endpoint or "#" in endpoint:
+            raise ValueError(
+                f"Given endpoint: {endpoint} is not a relative path (e.g., '/messages/'), "
+                "expecting a relative path (e.g., '/messages/')."
+            )
+
+        # Ensure endpoint starts with a forward slash
+        if not endpoint.startswith("/"):
+            endpoint = "/" + endpoint
+
         self._endpoint = endpoint
         self._read_stream_writers = {}
         self._security = TransportSecurityMiddleware(security_settings)
@@ -209,7 +234,7 @@ class SseServerTransport:
             message = types.JSONRPCMessage.model_validate_json(body)
             logger.debug(f"Validated client message: {message}")
         except ValidationError as err:
-            logger.error(f"Failed to parse message: {err}")
+            logger.exception("Failed to parse message")
             response = Response("Could not parse message", status_code=400)
             await response(scope, receive, send)
             await writer.send(err)

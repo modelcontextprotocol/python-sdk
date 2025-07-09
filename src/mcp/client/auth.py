@@ -523,8 +523,8 @@ class OAuthClientProvider(httpx.Auth):
             await self.context.storage.set_tokens(token_response)
 
             return True
-        except ValidationError as e:
-            logger.error(f"Invalid refresh response: {e}")
+        except ValidationError:
+            logger.exception("Invalid refresh response")
             self.context.clear_tokens()
             return False
 
@@ -577,8 +577,8 @@ class OAuthClientProvider(httpx.Auth):
                     # Step 4: Perform authorization and complete token exchange
                     token_response = yield await self._perform_authorization()
                     await self._handle_token_response(token_response)
-                except Exception as e:
-                    logger.error(f"OAuth flow error: {e}")
+                except Exception:
+                    logger.exception("OAuth flow error")
                     raise
 
             # Add authorization header and make request
