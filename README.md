@@ -838,9 +838,34 @@ The streamable HTTP transport supports:
 
 ### Mounting to an Existing ASGI Server
 
-> **Note**: SSE transport is being superseded by [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http).
-
 By default, SSE servers are mounted at `/sse` and Streamable HTTP servers are mounted at `/mcp`. You can customize these paths using the methods described below.
+
+#### Streamable HTTP servers
+
+The following example shows how to use `streamable_http_app()`, a method that returns a `Starlette` application object.
+You can then append additional routes to that application as needed.
+
+```
+from starlette.routing import Route
+
+mcp = FastMCP("My App")
+
+app = mcp.streamable_http_app()
+# Additional non-MCP routes can be added like so:
+# app.router.routes.append(Route("/", endpoint=other_route_function))
+```
+
+To customize the route from the default of "/mcp", either specify the `streamable_http_path` option for the `FastMCP` constructor,
+or set `FASTMCP_STREAMABLE_HTTP_PATH` environment variable.
+
+Note that in Starlette and FastAPI (which is based on Starlette), the "/mcp" route will redirect to "/mcp/",
+so you may need to use "/mcp/" when pointing MCP clients at your servers.
+
+For more information on mounting applications in Starlette, see the [Starlette documentation](https://www.starlette.io/routing/#submounting-routes).
+
+#### SSE servers
+
+> **Note**: SSE transport is being superseded by [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http).
 
 You can mount the SSE server to an existing ASGI server using the `sse_app` method. This allows you to integrate the SSE server with other ASGI applications.
 
