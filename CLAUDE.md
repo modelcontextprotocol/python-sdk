@@ -16,7 +16,7 @@ This document contains critical information about working with this codebase. Fo
    - Public APIs must have docstrings
    - Functions must be focused and small
    - Follow existing patterns exactly
-   - Line length: 88 chars maximum
+   - Line length: 120 chars maximum
 
 3. Testing Requirements
    - Framework: `uv run --frozen pytest`
@@ -116,3 +116,15 @@ This document contains critical information about working with this codebase. Fo
    - Follow existing patterns
    - Document public APIs
    - Test thoroughly
+
+## Exception Handling
+
+- **Always use `logger.exception()` instead of `logger.error()` when catching exceptions**
+  - Don't include the exception in the message: `logger.exception("Failed")` not `logger.exception(f"Failed: {e}")`
+- **Catch specific exceptions** where possible:
+  - File ops: `except (OSError, PermissionError):`
+  - JSON: `except json.JSONDecodeError:`
+  - Network: `except (ConnectionError, TimeoutError):`
+- **Only catch `Exception` for**:
+  - Top-level handlers that must not crash
+  - Cleanup blocks (log at debug level)
