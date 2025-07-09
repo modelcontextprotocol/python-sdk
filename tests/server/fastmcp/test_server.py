@@ -1000,7 +1000,7 @@ class TestServerPrompts:
         """Test getting a prompt without description returns empty string."""
         mcp = FastMCP()
 
-        @mcp.prompt()  # No description provided
+        @mcp.prompt()
         def fn(name: str) -> str:
             return f"Hello, {name}!"
 
