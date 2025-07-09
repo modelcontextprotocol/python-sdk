@@ -22,8 +22,6 @@ from mcp.types import (
     ServerCapabilities,
 )
 
-# test
-
 
 @pytest.mark.anyio
 async def test_server_session_initialize():
