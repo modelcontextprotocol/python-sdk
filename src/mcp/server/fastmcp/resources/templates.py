@@ -1,8 +1,11 @@
 """Resource template functionality."""
 
+from __future__ import annotations
+
 import inspect
 import re
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
@@ -12,26 +15,24 @@ from mcp.server.fastmcp.resources.types import FunctionResource, Resource
 class ResourceTemplate(BaseModel):
     """A template for dynamically creating resources."""
 
-    uri_template: str = Field(
-        description="URI template with parameters (e.g. weather://{city}/current)"
-    )
+    uri_template: str = Field(description="URI template with parameters (e.g. weather://{city}/current)")
     name: str = Field(description="Name of the resource")
+    title: str | None = Field(description="Human-readable title of the resource", default=None)
     description: str | None = Field(description="Description of what the resource does")
-    mime_type: str = Field(
-        default="text/plain", description="MIME type of the resource content"
-    )
-    fn: Callable = Field(exclude=True)
-    parameters: dict = Field(description="JSON schema for function parameters")
+    mime_type: str = Field(default="text/plain", description="MIME type of the resource content")
+    fn: Callable[..., Any] = Field(exclude=True)
+    parameters: dict[str, Any] = Field(description="JSON schema for function parameters")
 
     @classmethod
     def from_function(
         cls,
-        fn: Callable,
+        fn: Callable[..., Any],
         uri_template: str,
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
-    ) -> "ResourceTemplate":
+    ) -> ResourceTemplate:
         """Create a template from a function."""
         func_name = name or fn.__name__
         if func_name == "<lambda>":
@@ -46,6 +47,7 @@ class ResourceTemplate(BaseModel):
         return cls(
             uri_template=uri_template,
             name=func_name,
+            title=title,
             description=description or fn.__doc__ or "",
             mime_type=mime_type or "text/plain",
             fn=fn,
@@ -72,6 +74,7 @@ class ResourceTemplate(BaseModel):
             return FunctionResource(
                 uri=uri,  # type: ignore
                 name=self.name,
+                title=self.title,
                 description=self.description,
                 mime_type=self.mime_type,
                 fn=lambda: result,  # Capture result in closure

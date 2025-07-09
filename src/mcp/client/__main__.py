@@ -5,10 +5,14 @@ from functools import partial
 from urllib.parse import urlparse
 
 import anyio
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
+import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.shared.message import SessionMessage
+from mcp.shared.session import RequestResponder
 
 if not sys.warnoptions:
     import warnings
@@ -19,23 +23,27 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("client")
 
 
-async def receive_loop(session: ClientSession):
-    logger.info("Starting receive loop")
-    async for message in session.incoming_messages:
-        if isinstance(message, Exception):
-            logger.error("Error: %s", message)
-            continue
+async def message_handler(
+    message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+) -> None:
+    if isinstance(message, Exception):
+        logger.error("Error: %s", message)
+        return
 
-        logger.info("Received message from server: %s", message)
+    logger.info("Received message from server: %s", message)
 
 
-async def run_session(read_stream, write_stream):
-    async with (
-        ClientSession(read_stream, write_stream) as session,
-        anyio.create_task_group() as tg,
-    ):
-        tg.start_soon(receive_loop, session)
-
+async def run_session(
+    read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
+    write_stream: MemoryObjectSendStream[SessionMessage],
+    client_info: types.Implementation | None = None,
+):
+    async with ClientSession(
+        read_stream,
+        write_stream,
+        message_handler=message_handler,
+        client_info=client_info,
+    ) as session:
         logger.info("Initializing session")
         await session.initialize()
         logger.info("Initialized")
@@ -50,9 +58,7 @@ async def main(command_or_url: str, args: list[str], env: list[tuple[str, str]])
             await run_session(*streams)
     else:
         # Use stdio client for commands
-        server_parameters = StdioServerParameters(
-            command=command_or_url, args=args, env=env_dict
-        )
+        server_parameters = StdioServerParameters(command=command_or_url, args=args, env=env_dict)
         async with stdio_client(server_parameters) as streams:
             await run_session(*streams)
 

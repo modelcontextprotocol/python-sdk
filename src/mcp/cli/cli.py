@@ -6,7 +6,10 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
+
+from mcp.server import FastMCP
+from mcp.server import Server as LowLevelServer
 
 try:
     import typer
@@ -42,9 +45,7 @@ def _get_npx_command():
         # Try both npx.cmd and npx.exe on Windows
         for cmd in ["npx.cmd", "npx.exe", "npx"]:
             try:
-                subprocess.run(
-                    [cmd, "--version"], check=True, capture_output=True, shell=True
-                )
+                subprocess.run([cmd, "--version"], check=True, capture_output=True, shell=True)
                 return cmd
             except subprocess.CalledProcessError:
                 continue
@@ -55,9 +56,7 @@ def _get_npx_command():
 def _parse_env_var(env_var: str) -> tuple[str, str]:
     """Parse environment variable string in format KEY=VALUE."""
     if "=" not in env_var:
-        logger.error(
-            f"Invalid environment variable format: {env_var}. Must be KEY=VALUE"
-        )
+        logger.error(f"Invalid environment variable format: {env_var}. Must be KEY=VALUE")
         sys.exit(1)
     key, value = env_var.split("=", 1)
     return key.strip(), value.strip()
@@ -141,17 +140,41 @@ def _import_server(file: Path, server_object: str | None = None):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
+    def _check_server_object(server_object: Any, object_name: str):
+        """Helper function to check that the server object is supported
+
+        Args:
+            server_object: The server object to check.
+
+        Returns:
+            True if it's supported.
+        """
+        if not isinstance(server_object, FastMCP):
+            logger.error(f"The server object {object_name} is of type {type(server_object)} (expecting {FastMCP}).")
+            if isinstance(server_object, LowLevelServer):
+                logger.warning(
+                    "Note that only FastMCP server is supported. Low level Server class is not yet supported."
+                )
+            return False
+        return True
+
     # If no object specified, try common server names
     if not server_object:
         # Look for the most common server object names
         for name in ["mcp", "server", "app"]:
             if hasattr(module, name):
+                if not _check_server_object(getattr(module, name), f"{file}:{name}"):
+                    logger.error(f"Ignoring object '{file}:{name}' as it's not a valid server object")
+                    continue
                 return getattr(module, name)
 
         logger.error(
             f"No server object found in {file}. Please either:\n"
             "1. Use a standard variable name (mcp, server, or app)\n"
-            "2. Specify the object name with file:object syntax",
+            "2. Specify the object name with file:object syntax"
+            "3. If the server creates the FastMCP object within main() "
+            "   or another function, refactor the FastMCP object to be a "
+            "   global variable named mcp, server, or app.",
             extra={"file": str(file)},
         )
         sys.exit(1)
@@ -177,6 +200,9 @@ def _import_server(file: Path, server_object: str | None = None):
             f"Server object '{server_object}' not found",
             extra={"file": str(file)},
         )
+        sys.exit(1)
+
+    if not _check_server_object(server, server_object):
         sys.exit(1)
 
     return server
@@ -243,8 +269,7 @@ def dev(
         npx_cmd = _get_npx_command()
         if not npx_cmd:
             logger.error(
-                "npx not found. Please ensure Node.js and npm are properly installed "
-                "and added to your system PATH."
+                "npx not found. Please ensure Node.js and npm are properly installed and added to your system PATH."
             )
             sys.exit(1)
 
@@ -294,15 +319,14 @@ def run(
 ) -> None:
     """Run a MCP server.
 
-    The server can be specified in two ways:
-    1. Module approach: server.py - runs the module directly, expecting a server.run()
-       call
-    2. Import approach: server.py:app - imports and runs the specified server object
+    The server can be specified in two ways:\n
+    1. Module approach: server.py - runs the module directly, expecting a server.run() call.\n
+    2. Import approach: server.py:app - imports and runs the specified server object.\n\n
 
     Note: This command runs the server directly. You are responsible for ensuring
-    all dependencies are available. For dependency management, use mcp install
-    or mcp dev instead.
-    """
+    all dependencies are available.\n
+    For dependency management, use `mcp install` or `mcp dev` instead.
+    """  # noqa: E501
     file, server_object = _parse_file_path(file_spec)
 
     logger.debug(
@@ -325,12 +349,11 @@ def run(
 
         server.run(**kwargs)
 
-    except Exception as e:
-        logger.error(
-            f"Failed to run server: {e}",
+    except Exception:
+        logger.exception(
+            "Failed to run server",
             extra={
                 "file": str(file),
-                "error": str(e),
             },
         )
         sys.exit(1)
@@ -347,8 +370,7 @@ def install(
         typer.Option(
             "--name",
             "-n",
-            help="Custom name for the server (defaults to server's name attribute or"
-            " file name)",
+            help="Custom name for the server (defaults to server's name attribute or file name)",
         ),
     ] = None,
     with_editable: Annotated[
@@ -422,8 +444,7 @@ def install(
             name = server.name
         except (ImportError, ModuleNotFoundError) as e:
             logger.debug(
-                "Could not import server (likely missing dependencies), using file"
-                " name",
+                "Could not import server (likely missing dependencies), using file name",
                 extra={"error": str(e)},
             )
             name = file.stem
@@ -441,13 +462,9 @@ def install(
         if env_file:
             if dotenv:
                 try:
-                    env_dict |= {
-                        k: v
-                        for k, v in dotenv.dotenv_values(env_file).items()
-                        if v is not None
-                    }
-                except Exception as e:
-                    logger.error(f"Failed to load .env file: {e}")
+                    env_dict |= {k: v for k, v in dotenv.dotenv_values(env_file).items() if v is not None}
+                except (OSError, ValueError):
+                    logger.exception("Failed to load .env file")
                     sys.exit(1)
             else:
                 logger.error("python-dotenv is not installed. Cannot load .env file.")

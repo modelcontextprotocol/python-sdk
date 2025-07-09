@@ -1,25 +1,22 @@
 """Base classes for FastMCP prompts."""
 
 import inspect
-import json
-from collections.abc import Callable
-from typing import Any, Awaitable, Literal, Sequence
+from collections.abc import Awaitable, Callable, Sequence
+from typing import Any, Literal
 
 import pydantic_core
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
-from mcp.types import EmbeddedResource, ImageContent, TextContent
-
-CONTENT_TYPES = TextContent | ImageContent | EmbeddedResource
+from mcp.types import ContentBlock, TextContent
 
 
 class Message(BaseModel):
     """Base class for all prompt messages."""
 
     role: Literal["user", "assistant"]
-    content: CONTENT_TYPES
+    content: ContentBlock
 
-    def __init__(self, content: str | CONTENT_TYPES, **kwargs):
+    def __init__(self, content: str | ContentBlock, **kwargs: Any):
         if isinstance(content, str):
             content = TextContent(type="text", text=content)
         super().__init__(content=content, **kwargs)
@@ -30,7 +27,7 @@ class UserMessage(Message):
 
     role: Literal["user", "assistant"] = "user"
 
-    def __init__(self, content: str | CONTENT_TYPES, **kwargs):
+    def __init__(self, content: str | ContentBlock, **kwargs: Any):
         super().__init__(content=content, **kwargs)
 
 
@@ -39,15 +36,13 @@ class AssistantMessage(Message):
 
     role: Literal["user", "assistant"] = "assistant"
 
-    def __init__(self, content: str | CONTENT_TYPES, **kwargs):
+    def __init__(self, content: str | ContentBlock, **kwargs: Any):
         super().__init__(content=content, **kwargs)
 
 
-message_validator = TypeAdapter(UserMessage | AssistantMessage)
+message_validator = TypeAdapter[UserMessage | AssistantMessage](UserMessage | AssistantMessage)
 
-SyncPromptResult = (
-    str | Message | dict[str, Any] | Sequence[str | Message | dict[str, Any]]
-)
+SyncPromptResult = str | Message | dict[str, Any] | Sequence[str | Message | dict[str, Any]]
 PromptResult = SyncPromptResult | Awaitable[SyncPromptResult]
 
 
@@ -55,31 +50,25 @@ class PromptArgument(BaseModel):
     """An argument that can be passed to a prompt."""
 
     name: str = Field(description="Name of the argument")
-    description: str | None = Field(
-        None, description="Description of what the argument does"
-    )
-    required: bool = Field(
-        default=False, description="Whether the argument is required"
-    )
+    description: str | None = Field(None, description="Description of what the argument does")
+    required: bool = Field(default=False, description="Whether the argument is required")
 
 
 class Prompt(BaseModel):
     """A prompt template that can be rendered with parameters."""
 
     name: str = Field(description="Name of the prompt")
-    description: str | None = Field(
-        None, description="Description of what the prompt does"
-    )
-    arguments: list[PromptArgument] | None = Field(
-        None, description="Arguments that can be passed to the prompt"
-    )
-    fn: Callable = Field(exclude=True)
+    title: str | None = Field(None, description="Human-readable title of the prompt")
+    description: str | None = Field(None, description="Description of what the prompt does")
+    arguments: list[PromptArgument] | None = Field(None, description="Arguments that can be passed to the prompt")
+    fn: Callable[..., PromptResult | Awaitable[PromptResult]] = Field(exclude=True)
 
     @classmethod
     def from_function(
         cls,
-        fn: Callable[..., PromptResult],
+        fn: Callable[..., PromptResult | Awaitable[PromptResult]],
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
     ) -> "Prompt":
         """Create a Prompt from a function.
@@ -99,7 +88,7 @@ class Prompt(BaseModel):
         parameters = TypeAdapter(fn).json_schema()
 
         # Convert parameters to PromptArguments
-        arguments = []
+        arguments: list[PromptArgument] = []
         if "properties" in parameters:
             for param_name, param in parameters["properties"].items():
                 required = param_name in parameters.get("required", [])
@@ -116,6 +105,7 @@ class Prompt(BaseModel):
 
         return cls(
             name=func_name,
+            title=title,
             description=description or fn.__doc__ or "",
             arguments=arguments,
             fn=fn,
@@ -138,29 +128,25 @@ class Prompt(BaseModel):
                 result = await result
 
             # Validate messages
-            if not isinstance(result, (list, tuple)):
+            if not isinstance(result, list | tuple):
                 result = [result]
 
             # Convert result to messages
-            messages = []
-            for msg in result:
+            messages: list[Message] = []
+            for msg in result:  # type: ignore[reportUnknownVariableType]
                 try:
                     if isinstance(msg, Message):
                         messages.append(msg)
                     elif isinstance(msg, dict):
-                        msg = message_validator.validate_python(msg)
-                        messages.append(msg)
+                        messages.append(message_validator.validate_python(msg))
                     elif isinstance(msg, str):
-                        messages.append(
-                            UserMessage(content=TextContent(type="text", text=msg))
-                        )
+                        content = TextContent(type="text", text=msg)
+                        messages.append(UserMessage(content=content))
                     else:
-                        msg = json.dumps(pydantic_core.to_jsonable_python(msg))
-                        messages.append(Message(role="user", content=msg))
+                        content = pydantic_core.to_json(msg, fallback=str, indent=2).decode()
+                        messages.append(Message(role="user", content=content))
                 except Exception:
-                    raise ValueError(
-                        f"Could not convert prompt result to message: {msg}"
-                    )
+                    raise ValueError(f"Could not convert prompt result to message: {msg}")
 
             return messages
         except Exception as e:

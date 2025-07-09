@@ -2,12 +2,21 @@ import anyio
 import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
-from pydantic import FileUrl
+from pydantic import AnyUrl, FileUrl
 
 SAMPLE_RESOURCES = {
-    "greeting": "Hello! This is a sample text resource.",
-    "help": "This server provides a few sample text resources for testing.",
-    "about": "This is the simple-resource MCP server implementation.",
+    "greeting": {
+        "content": "Hello! This is a sample text resource.",
+        "title": "Welcome Message",
+    },
+    "help": {
+        "content": "This server provides a few sample text resources for testing.",
+        "title": "Help Documentation",
+    },
+    "about": {
+        "content": "This is the simple-resource MCP server implementation.",
+        "title": "About This Server",
+    },
 }
 
 
@@ -28,6 +37,7 @@ def main(port: int, transport: str) -> int:
             types.Resource(
                 uri=FileUrl(f"file:///{name}.txt"),
                 name=name,
+                title=SAMPLE_RESOURCES[name]["title"],
                 description=f"A sample text resource named {name}",
                 mimeType="text/plain",
             )
@@ -35,17 +45,20 @@ def main(port: int, transport: str) -> int:
         ]
 
     @app.read_resource()
-    async def read_resource(uri: FileUrl) -> str | bytes:
+    async def read_resource(uri: AnyUrl) -> str | bytes:
+        if uri.path is None:
+            raise ValueError(f"Invalid resource path: {uri}")
         name = uri.path.replace(".txt", "").lstrip("/")
 
         if name not in SAMPLE_RESOURCES:
             raise ValueError(f"Unknown resource: {uri}")
 
-        return SAMPLE_RESOURCES[name]
+        return SAMPLE_RESOURCES[name]["content"]
 
     if transport == "sse":
         from mcp.server.sse import SseServerTransport
         from starlette.applications import Starlette
+        from starlette.responses import Response
         from starlette.routing import Mount, Route
 
         sse = SseServerTransport("/messages/")
@@ -57,18 +70,19 @@ def main(port: int, transport: str) -> int:
                 await app.run(
                     streams[0], streams[1], app.create_initialization_options()
                 )
+            return Response()
 
         starlette_app = Starlette(
             debug=True,
             routes=[
-                Route("/sse", endpoint=handle_sse),
+                Route("/sse", endpoint=handle_sse, methods=["GET"]),
                 Mount("/messages/", app=sse.handle_post_message),
             ],
         )
 
         import uvicorn
 
-        uvicorn.run(starlette_app, host="0.0.0.0", port=port)
+        uvicorn.run(starlette_app, host="127.0.0.1", port=port)
     else:
         from mcp.server.stdio import stdio_server
 

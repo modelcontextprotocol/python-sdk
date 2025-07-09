@@ -38,7 +38,7 @@ be instantiated directly by users of the MCP framework.
 """
 
 from enum import Enum
-from typing import Any
+from typing import Any, TypeVar
 
 import anyio
 import anyio.lowlevel
@@ -47,16 +47,25 @@ from pydantic import AnyUrl
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (
     BaseSession,
     RequestResponder,
 )
+from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 
 class InitializationState(Enum):
     NotInitialized = 1
     Initializing = 2
     Initialized = 3
+
+
+ServerSessionT = TypeVar("ServerSessionT", bound="ServerSession")
+
+ServerRequestResponder = (
+    RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception
+)
 
 
 class ServerSession(
@@ -73,15 +82,21 @@ class ServerSession(
 
     def __init__(
         self,
-        read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception],
-        write_stream: MemoryObjectSendStream[types.JSONRPCMessage],
+        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
+        write_stream: MemoryObjectSendStream[SessionMessage],
         init_options: InitializationOptions,
+        stateless: bool = False,
     ) -> None:
-        super().__init__(
-            read_stream, write_stream, types.ClientRequest, types.ClientNotification
+        super().__init__(read_stream, write_stream, types.ClientRequest, types.ClientNotification)
+        self._initialization_state = (
+            InitializationState.Initialized if stateless else InitializationState.NotInitialized
         )
-        self._initialization_state = InitializationState.NotInitialized
+
         self._init_options = init_options
+        self._incoming_message_stream_writer, self._incoming_message_stream_reader = anyio.create_memory_object_stream[
+            ServerRequestResponder
+        ](0)
+        self._exit_stack.push_async_callback(lambda: self._incoming_message_stream_reader.aclose())
 
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
@@ -106,31 +121,37 @@ class ServerSession(
             if client_caps.sampling is None:
                 return False
 
+        if capability.elicitation is not None:
+            if client_caps.elicitation is None:
+                return False
+
         if capability.experimental is not None:
             if client_caps.experimental is None:
                 return False
             # Check each experimental capability
             for exp_key, exp_value in capability.experimental.items():
-                if (
-                    exp_key not in client_caps.experimental
-                    or client_caps.experimental[exp_key] != exp_value
-                ):
+                if exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value:
                     return False
 
         return True
 
-    async def _received_request(
-        self, responder: RequestResponder[types.ClientRequest, types.ServerResult]
-    ):
+    async def _receive_loop(self) -> None:
+        async with self._incoming_message_stream_writer:
+            await super()._receive_loop()
+
+    async def _received_request(self, responder: RequestResponder[types.ClientRequest, types.ServerResult]):
         match responder.request.root:
             case types.InitializeRequest(params=params):
+                requested_version = params.protocolVersion
                 self._initialization_state = InitializationState.Initializing
                 self._client_params = params
                 with responder:
                     await responder.respond(
                         types.ServerResult(
                             types.InitializeResult(
-                                protocolVersion=types.LATEST_PROTOCOL_VERSION,
+                                protocolVersion=requested_version
+                                if requested_version in SUPPORTED_PROTOCOL_VERSIONS
+                                else types.LATEST_PROTOCOL_VERSION,
                                 capabilities=self._init_options.capabilities,
                                 serverInfo=types.Implementation(
                                     name=self._init_options.server_name,
@@ -142,13 +163,9 @@ class ServerSession(
                     )
             case _:
                 if self._initialization_state != InitializationState.Initialized:
-                    raise RuntimeError(
-                        "Received request before initialization was complete"
-                    )
+                    raise RuntimeError("Received request before initialization was complete")
 
-    async def _received_notification(
-        self, notification: types.ClientNotification
-    ) -> None:
+    async def _received_notification(self, notification: types.ClientNotification) -> None:
         # Need this to avoid ASYNC910
         await anyio.lowlevel.checkpoint()
         match notification.root:
@@ -156,12 +173,14 @@ class ServerSession(
                 self._initialization_state = InitializationState.Initialized
             case _:
                 if self._initialization_state != InitializationState.Initialized:
-                    raise RuntimeError(
-                        "Received notification before initialization was complete"
-                    )
+                    raise RuntimeError("Received notification before initialization was complete")
 
     async def send_log_message(
-        self, level: types.LoggingLevel, data: Any, logger: str | None = None
+        self,
+        level: types.LoggingLevel,
+        data: Any,
+        logger: str | None = None,
+        related_request_id: types.RequestId | None = None,
     ) -> None:
         """Send a log message notification."""
         await self.send_notification(
@@ -174,7 +193,8 @@ class ServerSession(
                         logger=logger,
                     ),
                 )
-            )
+            ),
+            related_request_id,
         )
 
     async def send_resource_updated(self, uri: AnyUrl) -> None:
@@ -199,10 +219,11 @@ class ServerSession(
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         model_preferences: types.ModelPreferences | None = None,
+        related_request_id: types.RequestId | None = None,
     ) -> types.CreateMessageResult:
         """Send a sampling/create_message request."""
         return await self.send_request(
-            types.ServerRequest(
+            request=types.ServerRequest(
                 types.CreateMessageRequest(
                     method="sampling/createMessage",
                     params=types.CreateMessageRequestParams(
@@ -217,7 +238,10 @@ class ServerSession(
                     ),
                 )
             ),
-            types.CreateMessageResult,
+            result_type=types.CreateMessageResult,
+            metadata=ServerMessageMetadata(
+                related_request_id=related_request_id,
+            ),
         )
 
     async def list_roots(self) -> types.ListRootsResult:
@@ -229,6 +253,35 @@ class ServerSession(
                 )
             ),
             types.ListRootsResult,
+        )
+
+    async def elicit(
+        self,
+        message: str,
+        requestedSchema: types.ElicitRequestedSchema,
+        related_request_id: types.RequestId | None = None,
+    ) -> types.ElicitResult:
+        """Send an elicitation/create request.
+
+        Args:
+            message: The message to present to the user
+            requestedSchema: Schema defining the expected response structure
+
+        Returns:
+            The client's response
+        """
+        return await self.send_request(
+            types.ServerRequest(
+                types.ElicitRequest(
+                    method="elicitation/create",
+                    params=types.ElicitRequestParams(
+                        message=message,
+                        requestedSchema=requestedSchema,
+                    ),
+                )
+            ),
+            types.ElicitResult,
+            metadata=ServerMessageMetadata(related_request_id=related_request_id),
         )
 
     async def send_ping(self) -> types.EmptyResult:
@@ -243,7 +296,12 @@ class ServerSession(
         )
 
     async def send_progress_notification(
-        self, progress_token: str | int, progress: float, total: float | None = None
+        self,
+        progress_token: str | int,
+        progress: float,
+        total: float | None = None,
+        message: str | None = None,
+        related_request_id: str | None = None,
     ) -> None:
         """Send a progress notification."""
         await self.send_notification(
@@ -254,9 +312,11 @@ class ServerSession(
                         progressToken=progress_token,
                         progress=progress,
                         total=total,
+                        message=message,
                     ),
                 )
-            )
+            ),
+            related_request_id,
         )
 
     async def send_resource_list_changed(self) -> None:
@@ -288,3 +348,12 @@ class ServerSession(
                 )
             )
         )
+
+    async def _handle_incoming(self, req: ServerRequestResponder) -> None:
+        await self._incoming_message_stream_writer.send(req)
+
+    @property
+    def incoming_messages(
+        self,
+    ) -> MemoryObjectReceiveStream[ServerRequestResponder]:
+        return self._incoming_message_stream_reader

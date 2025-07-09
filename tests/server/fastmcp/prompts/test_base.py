@@ -18,9 +18,7 @@ class TestRenderPrompt:
             return "Hello, world!"
 
         prompt = Prompt.from_function(fn)
-        assert await prompt.render() == [
-            UserMessage(content=TextContent(type="text", text="Hello, world!"))
-        ]
+        assert await prompt.render() == [UserMessage(content=TextContent(type="text", text="Hello, world!"))]
 
     @pytest.mark.anyio
     async def test_async_fn(self):
@@ -28,9 +26,7 @@ class TestRenderPrompt:
             return "Hello, world!"
 
         prompt = Prompt.from_function(fn)
-        assert await prompt.render() == [
-            UserMessage(content=TextContent(type="text", text="Hello, world!"))
-        ]
+        assert await prompt.render() == [UserMessage(content=TextContent(type="text", text="Hello, world!"))]
 
     @pytest.mark.anyio
     async def test_fn_with_args(self):
@@ -38,12 +34,8 @@ class TestRenderPrompt:
             return f"Hello, {name}! You're {age} years old."
 
         prompt = Prompt.from_function(fn)
-        assert await prompt.render(arguments=dict(name="World")) == [
-            UserMessage(
-                content=TextContent(
-                    type="text", text="Hello, World! You're 30 years old."
-                )
-            )
+        assert await prompt.render(arguments={"name": "World"}) == [
+            UserMessage(content=TextContent(type="text", text="Hello, World! You're 30 years old."))
         ]
 
     @pytest.mark.anyio
@@ -53,7 +45,7 @@ class TestRenderPrompt:
 
         prompt = Prompt.from_function(fn)
         with pytest.raises(ValueError):
-            await prompt.render(arguments=dict(age=40))
+            await prompt.render(arguments={"age": 40})
 
     @pytest.mark.anyio
     async def test_fn_returns_message(self):
@@ -61,21 +53,15 @@ class TestRenderPrompt:
             return UserMessage(content="Hello, world!")
 
         prompt = Prompt.from_function(fn)
-        assert await prompt.render() == [
-            UserMessage(content=TextContent(type="text", text="Hello, world!"))
-        ]
+        assert await prompt.render() == [UserMessage(content=TextContent(type="text", text="Hello, world!"))]
 
     @pytest.mark.anyio
     async def test_fn_returns_assistant_message(self):
         async def fn() -> AssistantMessage:
-            return AssistantMessage(
-                content=TextContent(type="text", text="Hello, world!")
-            )
+            return AssistantMessage(content=TextContent(type="text", text="Hello, world!"))
 
         prompt = Prompt.from_function(fn)
-        assert await prompt.render() == [
-            AssistantMessage(content=TextContent(type="text", text="Hello, world!"))
-        ]
+        assert await prompt.render() == [AssistantMessage(content=TextContent(type="text", text="Hello, world!"))]
 
     @pytest.mark.anyio
     async def test_fn_returns_multiple_messages(self):
@@ -156,9 +142,7 @@ class TestRenderPrompt:
 
         prompt = Prompt.from_function(fn)
         assert await prompt.render() == [
-            UserMessage(
-                content=TextContent(type="text", text="Please analyze this file:")
-            ),
+            UserMessage(content=TextContent(type="text", text="Please analyze this file:")),
             UserMessage(
                 content=EmbeddedResource(
                     type="resource",
@@ -169,9 +153,7 @@ class TestRenderPrompt:
                     ),
                 )
             ),
-            AssistantMessage(
-                content=TextContent(type="text", text="I'll help analyze that file.")
-            ),
+            AssistantMessage(content=TextContent(type="text", text="I'll help analyze that file.")),
         ]
 
     @pytest.mark.anyio

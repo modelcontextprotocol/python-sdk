@@ -3,51 +3,37 @@ name: Shared Checks
 on:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
-  format:
+  pre-commit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          version: 0.7.2
 
-      - name: "Set up Python"
-        uses: actions/setup-python@v5
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras --python 3.10
+
+      - uses: pre-commit/action@v3.0.0
         with:
-          python-version-file: ".python-version"
+          extra_args: --all-files --verbose
+        env:
+          SKIP: no-commit-to-branch
 
-      - name: Install the project
-        run: uv sync --frozen --all-extras --dev
-
-      - name: Run ruff format check
-        run: uv run --frozen ruff check .
-
-  typecheck:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-
-      - name: "Set up Python"
-        uses: actions/setup-python@v5
-        with:
-          python-version-file: ".python-version"
-
-      - name: Install the project
-        run: uv sync --frozen --all-extras --dev
-
-      - name: Run pyright
-        run: uv run --frozen pyright
-
-  build:
-    runs-on: ubuntu-latest
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    continue-on-error: true
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        os: [ubuntu-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -56,14 +42,33 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-
-      - name: "Set up Python"
-        uses: actions/setup-python@v5
-        with:
-          python-version-file: ".python-version"
+          version: 0.7.2
 
       - name: Install the project
-        run: uv sync --frozen --all-extras --dev
+        run: uv sync --frozen --all-extras --python ${{ matrix.python-version }}
 
       - name: Run pytest
-        run: uv run --frozen pytest
+        run: uv run --frozen --no-sync pytest
+
+      # This must run last as it modifies the environment!
+      - name: Run pytest with lowest versions
+        run: |
+          uv sync --all-extras --upgrade
+          uv run --no-sync pytest
+        env:
+          UV_RESOLUTION: lowest-direct
+  readme-snippets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: 0.7.2
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras --python 3.10
+
+      - name: Check README snippets are up to date
+        run: uv run --frozen scripts/update_readme_snippets.py --check

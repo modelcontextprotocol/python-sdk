@@ -53,6 +53,7 @@ def main(port: int, transport: str) -> int:
         return [
             types.Prompt(
                 name="simple",
+                title="Simple Assistant Prompt",
                 description="A simple prompt that can take optional context and topic "
                 "arguments",
                 arguments=[
@@ -90,6 +91,7 @@ def main(port: int, transport: str) -> int:
     if transport == "sse":
         from mcp.server.sse import SseServerTransport
         from starlette.applications import Starlette
+        from starlette.responses import Response
         from starlette.routing import Mount, Route
 
         sse = SseServerTransport("/messages/")
@@ -101,6 +103,7 @@ def main(port: int, transport: str) -> int:
                 await app.run(
                     streams[0], streams[1], app.create_initialization_options()
                 )
+            return Response()
 
         starlette_app = Starlette(
             debug=True,
@@ -112,7 +115,7 @@ def main(port: int, transport: str) -> int:
 
         import uvicorn
 
-        uvicorn.run(starlette_app, host="0.0.0.0", port=port)
+        uvicorn.run(starlette_app, host="127.0.0.1", port=port)
     else:
         from mcp.server.stdio import stdio_server
 

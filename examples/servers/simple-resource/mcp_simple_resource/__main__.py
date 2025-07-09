@@ -1,5 +1,5 @@
 import sys
 
-from server import main
+from .server import main
 
-sys.exit(main())
+sys.exit(main())  # type: ignore[call-arg]
