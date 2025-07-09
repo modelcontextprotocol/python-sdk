@@ -116,13 +116,27 @@ def create_proxy_routes(provider: Any) -> list[Route]:  # type: ignore[valid-typ
         # /register – Dynamic Client Registration stub
         # ------------------------------------------------------------------
         async def register(self, request: Request) -> Response:  # noqa: D401
+            logger.info("🔑 /register endpoint accessed - custom proxy implementation")
             body = await request.json()
+
+            # Log the incoming request body (redacted)
+            from mcp.server.fastmcp.utilities.logging import redact_sensitive_data
+
+            redacted_body = redact_sensitive_data(body)
+            logger.info(f"Incoming registration request: {redacted_body}")
+
             client_metadata = {
                 "client_id": self.s.client_id,
                 "client_secret": self.s.client_secret,
                 "token_endpoint_auth_method": "client_secret_post" if self.s.client_secret else "none",
                 **body,
             }
+
+            # Log the client ID we're returning
+            logger.info(f"Returning client_id: {self.s.client_id}")
+            if self.s.client_secret:
+                logger.info("Including client_secret in response")
+
             return JSONResponse(client_metadata, status_code=201)
 
         # ------------------------------------------------------------------

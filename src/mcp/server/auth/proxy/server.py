@@ -47,19 +47,17 @@ def build_proxy_server(  # noqa: D401,E501
 
     configure_logging(level=log_level)  # type: ignore[arg-type]
 
-    provider = TransparentOAuthProxyProvider(settings=settings)  # type: ignore[arg-type]
+    auth_settings = AuthSettings(
+        issuer_url=AnyHttpUrl(issuer_url or f"http://localhost:{port}"),  # type: ignore[arg-type]
+        resource_server_url=AnyHttpUrl(f"http://localhost:{port}"),  # type: ignore[arg-type]
+        required_scopes=["openid"],
+        client_registration_options=ClientRegistrationOptions(enabled=True),
+    )
+
+    provider = TransparentOAuthProxyProvider(settings=settings, auth_settings=auth_settings)  # type: ignore[arg-type]
 
     mcp = FastMCP(
-        name="Transparent OAuth Proxy",
-        host=host,
-        port=port,
-        auth_server_provider=provider,
-        auth=AuthSettings(
-            issuer_url=AnyHttpUrl(issuer_url or f"http://localhost:{port}"),  # type: ignore[arg-type]
-            resource_server_url=AnyHttpUrl(f"http://localhost:{port}"),  # type: ignore[arg-type]
-            required_scopes=["openid"],
-            client_registration_options=ClientRegistrationOptions(enabled=True),
-        ),
+        name="Transparent OAuth Proxy", host=host, port=port, auth_server_provider=provider, auth=auth_settings
     )
 
     return mcp

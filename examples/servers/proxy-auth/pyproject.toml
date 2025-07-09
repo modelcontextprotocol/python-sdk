@@ -1,0 +1,47 @@
+[project]
+name = "proxy_auth"
+version = "0.1.0"
+description = "OAuth Proxy Server"
+authors = [{ name = "Your Name" }]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+]
+
+[project.scripts]
+mcp-proxy-auth-rs = "proxy_auth.resource_server:main"
+mcp-proxy-auth-as = "proxy_auth.auth_server:main"
+mcp-proxy-auth-combo = "proxy_auth.combo_server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["proxy_auth"]
+
+[tool.pyright]
+include = ["proxy_auth"]
+venvPath = "."
+venv = ".venv"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.uv]
+dev-dependencies = ["pyright>=1.1.391", "pytest>=8.3.4", "ruff>=0.8.5"]
+extras = ["dev"]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"

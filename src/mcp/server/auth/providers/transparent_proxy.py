@@ -12,7 +12,8 @@ from urllib.parse import urlencode
 import httpx  # type: ignore
 from pydantic import AnyHttpUrl, AnyUrl, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from starlette.responses import Response
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from mcp.server.auth.handlers.token import TokenHandler
@@ -24,8 +25,8 @@ from mcp.server.auth.provider import (
     OAuthAuthorizationServerProvider,
 )
 from mcp.server.auth.proxy.routes import create_proxy_routes
-from mcp.server.auth.routes import create_auth_routes
-from mcp.server.auth.settings import ClientRegistrationOptions
+from mcp.server.auth.routes import cors_middleware, create_auth_routes
+from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
 from mcp.server.fastmcp.utilities.logging import redact_sensitive_data
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
@@ -72,6 +73,7 @@ class ProxyTokenHandler(TokenHandler):
         # we are not going to invoke the base-class logic anyway.
         super().__init__(provider=provider, client_authenticator=ClientAuthenticator(provider))
         self.provider = provider  # keep for easy access
+        self.settings = provider.get_settings()  # store settings for easier access
 
     async def handle(self, request) -> Response:  # type: ignore[override]
         correlation_id = str(uuid.uuid4())[:8]
@@ -84,7 +86,7 @@ class ProxyTokenHandler(TokenHandler):
             form_dict = dict(form)
 
             redacted_form = redact_sensitive_data(form_dict)
-            logger.info(f"[{correlation_id}] ➡︎ Incoming form: {redacted_form}")
+            logger.debug(f"[{correlation_id}] ➡︎ Incoming form: {redacted_form}")
 
             headers = {
                 "Content-Type": "application/x-www-form-urlencoded",
@@ -93,8 +95,8 @@ class ProxyTokenHandler(TokenHandler):
             }
 
             http = self.provider.http_client
-            logger.info(f"[{correlation_id}] ⮕ Forwarding to {self.provider._s.upstream_token}")
-            upstream_resp = await http.post(str(self.provider._s.upstream_token), data=form_dict, headers=headers)
+            logger.info(f"[{correlation_id}] ⮕ Forwarding to {self.settings.upstream_token}")
+            upstream_resp = await http.post(str(self.settings.upstream_token), data=form_dict, headers=headers)
 
         except httpx.HTTPError as exc:
             logger.error(f"[{correlation_id}] ✗ Upstream HTTP error: {exc}")
@@ -132,6 +134,91 @@ class ProxyTokenHandler(TokenHandler):
         )
 
 
+class ProxyIntrospectionHandler:
+    """Handler for token introspection endpoint.
+
+    Resource Servers call this endpoint to validate tokens without
+    needing direct access to token storage.
+    """
+
+    def __init__(self, provider: TransparentOAuthProxyProvider, client_id: str, default_scope: str):
+        self.provider = provider
+        self.client_id = client_id
+        self.default_scope = default_scope
+
+    async def handle(self, request: Request) -> Response:
+        """
+        Token introspection endpoint for Resource Servers.
+        """
+        form = await request.form()
+        token = form.get("token")
+        if not token or not isinstance(token, str):
+            return JSONResponse({"active": False}, status_code=400)
+
+        # For the transparent proxy, we don't actually validate tokens
+        # Just create a dummy AccessToken like the provider does
+        access_token = AccessToken(token=token, client_id=self.client_id, scopes=[self.default_scope], expires_at=None)
+
+        return JSONResponse(
+            {
+                "active": True,
+                "client_id": access_token.client_id,
+                "scope": " ".join(access_token.scopes),
+                "exp": access_token.expires_at,
+                "iat": int(time.time()),
+                "token_type": "Bearer",
+                "aud": access_token.resource,  # RFC 8707 audience claim
+            }
+        )
+
+
+class ProxyRegistrationHandler:
+    """Handler for client registration endpoint.
+
+    This handler implements a simplified version of Dynamic Client Registration
+    that always returns the upstream client credentials.
+    """
+
+    def __init__(self, provider: TransparentOAuthProxyProvider):
+        self.provider = provider
+        # Store settings for easier access
+        self.settings = provider.get_settings()
+
+    async def handle(self, request: Request) -> Response:
+        """
+        Client registration endpoint that returns upstream credentials.
+        """
+        correlation_id = str(uuid.uuid4())[:8]
+        logger.info(f"[{correlation_id}] 🔑 ProxyRegistrationHandler - registration request")
+
+        try:
+            body = await request.json()
+
+            # Log the incoming request body (redacted)
+            redacted_body = redact_sensitive_data(body)
+            logger.info(f"[{correlation_id}] ➡︎ Incoming registration request: {redacted_body}")
+
+            # Create response with upstream credentials
+            client_metadata = {
+                "client_id": str(self.settings.client_id),
+                "client_secret": self.settings.client_secret,
+                "token_endpoint_auth_method": "none" if self.settings.client_secret is None else "client_secret_post",
+                **body,  # Include original request fields
+            }
+
+            # Log the client ID we're returning
+            logger.info(f"[{correlation_id}] ⬅︎ Returning client_id: {self.settings.client_id}")
+
+            return JSONResponse(client_metadata, status_code=201)
+
+        except Exception as exc:
+            logger.error(f"[{correlation_id}] ✗ Registration error: {exc}")
+            return JSONResponse(
+                {"error": "invalid_client_metadata", "error_description": str(exc)},
+                status_code=400,
+            )
+
+
 class ProxySettings(BaseSettings):
     """Validated environment-driven settings for the transparent OAuth proxy."""
 
@@ -160,12 +247,13 @@ _Settings = ProxySettings  # type: ignore
 class TransparentOAuthProxyProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Any, AccessToken]):
     """Minimal pass-through provider – only implements code flow, no refresh."""
 
-    def __init__(self, *, settings: ProxySettings):
+    def __init__(self, *, settings: ProxySettings, auth_settings: AuthSettings):
         # Fill in client_id fallback if not provided via upstream var
         if settings.client_id is None:
             settings.client_id = os.getenv("PROXY_CLIENT_ID", "demo-client-id")  # type: ignore[assignment]
         assert settings.client_id is not None, "client_id must be provided"
         self._s = settings
+        self._auth_settings = auth_settings
         # simple in-memory auth-code store (maps code→AuthorizationCode)
         self._codes: dict[str, AuthorizationCode] = {}
         # always the same client info returned by /register
@@ -179,6 +267,10 @@ class TransparentOAuthProxyProvider(OAuthAuthorizationServerProvider[Authorizati
 
         # Single reusable HTTP client for communicating with the upstream AS
         self._http: httpx.AsyncClient = httpx.AsyncClient(timeout=15)
+
+    def get_settings(self) -> ProxySettings:
+        """Return the provider's settings."""
+        return self._s
 
     # Expose http client for handlers
     @property
@@ -194,10 +286,17 @@ class TransparentOAuthProxyProvider(OAuthAuthorizationServerProvider[Authorizati
     # ---------------------------------------------------------------------
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:  # noqa: D401
-        return self._static_client if client_id == self._s.client_id else None
+        logger.info(f"🔍 get_client called with client_id: {client_id}")
+        logger.info(f"Expected client_id from settings: {self._s.client_id}")
+        result = self._static_client if client_id == self._s.client_id else None
+        logger.info(f"Client found: {result is not None}")
+        return result
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:  # noqa: D401
         """Spoof DCR: overwrite the incoming info with fixed credentials."""
+
+        logger.info("🔑 register_client method called in TransparentOAuthProxyProvider")
+        logger.info(f"Original client_id: {client_info.client_id}")
 
         client_info.client_id = str(self._s.client_id)
         client_info.client_secret = self._s.client_secret
@@ -205,6 +304,11 @@ class TransparentOAuthProxyProvider(OAuthAuthorizationServerProvider[Authorizati
         client_info.token_endpoint_auth_method = "none" if self._s.client_secret is None else "client_secret_post"
         # Replace stored static client redirect URIs with provided ones so later validation passes
         self._static_client.redirect_uris = client_info.redirect_uris
+
+        logger.info(f"Modified client_id to: {client_info.client_id}")
+        if self._s.client_secret:
+            logger.info("Set client_secret from settings")
+
         return None
 
     # ------------------------------------------------------------------
@@ -351,20 +455,49 @@ class TransparentOAuthProxyProvider(OAuthAuthorizationServerProvider[Authorizati
 
         routes = create_auth_routes(
             provider=self,
-            issuer_url=AnyHttpUrl("http://localhost:8000"),  # placeholder; FastMCP rewrites host
+            issuer_url=self._auth_settings.issuer_url,
             client_registration_options=self.client_registration_options,
             revocation_options=None,
             service_documentation_url=None,
         )
 
-        # Drop default /token and /authorize handlers – we provide custom ones.
-        routes = [r for r in routes if not (isinstance(r, Route) and r.path in {"/token", "/authorize"})]
+        # Drop default /token, /authorize, and /register handlers – we provide custom ones.
+        routes = [r for r in routes if not (isinstance(r, Route) and r.path in {"/token", "/authorize", "/register"})]
 
         # Insert proxy /token handler first for high precedence
-        proxy_handler = ProxyTokenHandler(self)
-        routes.insert(0, Route("/token", endpoint=proxy_handler.handle, methods=["POST"]))
+        proxy_token_handler = ProxyTokenHandler(self)
+        routes.insert(0, Route("/token", endpoint=proxy_token_handler.handle, methods=["POST"]))
 
-        # Append additional proxy endpoints (metadata, register, authorize, revoke…)
-        routes.extend(create_proxy_routes(self))
+        # Add registration endpoint
+        proxy_registration_handler = ProxyRegistrationHandler(self)
+        routes.insert(1, Route("/register", endpoint=proxy_registration_handler.handle, methods=["POST"]))
+
+        # Add introspection endpoint
+        proxy_introspection_handler = ProxyIntrospectionHandler(
+            provider=self, client_id=str(self._s.client_id), default_scope=self._s.default_scope
+        )
+        routes.insert(
+            1,
+            Route(
+                "/introspect",
+                endpoint=cors_middleware(proxy_introspection_handler.handle, ["POST", "OPTIONS"]),
+                methods=["POST", "OPTIONS"],
+            ),
+        )
+
+        # Get proxy routes but filter out any that would conflict with our custom handlers
+        proxy_routes = create_proxy_routes(self)
+        proxy_routes = [
+            r for r in proxy_routes if not (isinstance(r, Route) and r.path in {"/token", "/register", "/introspect"})
+        ]
+
+        # Log the final route configuration
+        logger.debug("Final route configuration:")
+        for r in routes + proxy_routes:
+            if isinstance(r, Route):
+                logger.debug(f"  {r.path} - Methods: {r.methods}")
+
+        # Append additional proxy endpoints (metadata, authorize, revoke…)
+        routes.extend(proxy_routes)
 
         return routes
