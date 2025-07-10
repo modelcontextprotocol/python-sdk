@@ -1,6 +1,7 @@
 from __future__ import annotations as _annotations
 
 import functools
+import httpx
 import inspect
 from collections.abc import Callable
 from functools import cached_property
@@ -106,6 +107,12 @@ class Tool(BaseModel):
                 result = self.fn_metadata.convert_result(result)
 
             return result
+        except httpx.HTTPStatusException as e:
+            try:
+                error_detail = e.response.json()
+            except:
+                error_detail = e.response.text
+            raise ToolError(f"Error executing tool {self.name}: [{e.response.status_code}] {error_detail}")
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e
 
