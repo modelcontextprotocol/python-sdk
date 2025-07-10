@@ -47,8 +47,11 @@ class ArgModelBase(BaseModel):
         That is, sub-models etc are not dumped - they are kept as pydantic models.
         """
         kwargs: dict[str, Any] = {}
-        for field_name in self.__class__.model_fields.keys():
-            kwargs[field_name] = getattr(self, field_name)
+        for field_name, field_info in self.__class__.model_fields.items():
+            value = getattr(self, field_name)
+            # Use the alias if it exists, otherwise use the field name
+            output_name = field_info.alias if field_info.alias else field_name
+            kwargs[output_name] = value
         return kwargs
 
     model_config = ConfigDict(
@@ -127,12 +130,23 @@ class FuncMetadata(BaseModel):
         dicts (JSON objects) as JSON strings, which can be pre-parsed here.
         """
         new_data = data.copy()  # Shallow copy
-        for field_name in self.arg_model.model_fields.keys():
-            if field_name not in data.keys():
+
+        # Build a mapping from input keys (including aliases) to field info
+        key_to_field_info: dict[str, FieldInfo] = {}
+        for field_name, field_info in self.arg_model.model_fields.items():
+            # Map both the field name and its alias (if any) to the field info
+            key_to_field_info[field_name] = field_info
+            if field_info.alias:
+                key_to_field_info[field_info.alias] = field_info
+
+        for data_key in data.keys():
+            if data_key not in key_to_field_info:
                 continue
-            if isinstance(data[field_name], str) and self.arg_model.model_fields[field_name].annotation is not str:
+
+            field_info = key_to_field_info[data_key]
+            if isinstance(data[data_key], str) and field_info.annotation is not str:
                 try:
-                    pre_parsed = json.loads(data[field_name])
+                    pre_parsed = json.loads(data[data_key])
                 except json.JSONDecodeError:
                     continue  # Not JSON - skip
                 if isinstance(pre_parsed, str | int | float):
@@ -140,7 +154,7 @@ class FuncMetadata(BaseModel):
                     # Should really be parsed as '"hello"' in Python - but if we parse
                     # it as JSON it'll turn into just 'hello'. So we skip it.
                     continue
-                new_data[field_name] = pre_parsed
+                new_data[data_key] = pre_parsed
         assert new_data.keys() == data.keys()
         return new_data
 
@@ -222,7 +236,19 @@ def func_metadata(
             _get_typed_annotation(annotation, globalns),
             param.default if param.default is not inspect.Parameter.empty else PydanticUndefined,
         )
-        dynamic_pydantic_model_params[param.name] = (field_info.annotation, field_info)
+
+        # Check if the parameter name conflicts with BaseModel attributes
+        # This is necessary because Pydantic warns about shadowing parent attributes
+        if hasattr(BaseModel, param.name) and callable(getattr(BaseModel, param.name)):
+            # Use an alias to avoid the shadowing warning
+            field_info.alias = param.name
+            field_info.validation_alias = param.name
+            field_info.serialization_alias = param.name
+            # Use a prefixed internal name
+            internal_name = f"field_{param.name}"
+            dynamic_pydantic_model_params[internal_name] = (field_info.annotation, field_info)
+        else:
+            dynamic_pydantic_model_params[param.name] = (field_info.annotation, field_info)
         continue
 
     arguments_model = create_model(
