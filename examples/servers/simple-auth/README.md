@@ -4,7 +4,6 @@ This example demonstrates OAuth 2.0 authentication with the Model Context Protoc
 
 ---
 
-
 ## Running the Servers
 
 ### Step 1: Start Authorization Server
@@ -18,6 +17,7 @@ uv run mcp-simple-auth-as --port=9000
 ```
 
 **What it provides:**
+
 - OAuth 2.0 flows (registration, authorization, token exchange)
 - Simple credential-based authentication (no external provider needed)  
 - Token introspection endpoint for Resource Servers (`/introspect`)
@@ -38,7 +38,6 @@ uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000  --tra
 
 ```
 
-
 ### Step 3: Test with Client
 
 ```bash
@@ -47,15 +46,16 @@ cd examples/clients/simple-auth-client
 MCP_SERVER_PORT=8001 MCP_TRANSPORT_TYPE=streamable_http uv run mcp-simple-auth-client
 ```
 
-
 ## How It Works
 
 ### RFC 9728 Discovery
 
 **Client → Resource Server:**
+
 ```bash
 curl http://localhost:8001/.well-known/oauth-protected-resource
 ```
+
 ```json
 {
   "resource": "http://localhost:8001",
@@ -64,9 +64,11 @@ curl http://localhost:8001/.well-known/oauth-protected-resource
 ```
 
 **Client → Authorization Server:**
+
 ```bash
 curl http://localhost:9000/.well-known/oauth-authorization-server
 ```
+
 ```json
 {
   "issuer": "http://localhost:9000",
@@ -74,7 +76,6 @@ curl http://localhost:9000/.well-known/oauth-authorization-server
   "token_endpoint": "http://localhost:9000/token"
 }
 ```
-
 
 ## Legacy MCP Server as Authorization Server (Backwards Compatibility)
 
@@ -88,6 +89,7 @@ uv run mcp-simple-auth-legacy --port=8002
 ```
 
 **Differences from the new architecture:**
+
 - **MCP server acts as AS:** The MCP server itself provides OAuth endpoints (old spec behavior)
 - **No separate RS:** The server handles both authentication and MCP tools
 - **Local token validation:** Tokens are validated internally without introspection
@@ -103,6 +105,7 @@ MCP_SERVER_PORT=8002 MCP_TRANSPORT_TYPE=streamable_http uv run mcp-simple-auth-c
 ```
 
 The client will:
+
 1. Try RFC 9728 discovery at `/.well-known/oauth-protected-resource` (404 on legacy server)
 2. Fall back to direct OAuth discovery at `/.well-known/oauth-authorization-server`
 3. Complete authentication with the MCP server acting as its own AS
@@ -112,6 +115,7 @@ This ensures existing MCP servers (which could optionally act as Authorization S
 ## Manual Testing
 
 ### Test Discovery
+
 ```bash
 # Test Resource Server discovery endpoint (new architecture)
 curl -v http://localhost:8001/.well-known/oauth-protected-resource
@@ -121,6 +125,7 @@ curl -v http://localhost:9000/.well-known/oauth-authorization-server
 ```
 
 ### Test Token Introspection
+
 ```bash
 # After getting a token through OAuth flow:
 curl -X POST http://localhost:9000/introspect \
