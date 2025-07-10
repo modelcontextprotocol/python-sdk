@@ -190,6 +190,9 @@ class StreamableHTTPSessionManager:
         # Handle the HTTP request and return the response
         await http_transport.handle_request(scope, receive, send)
 
+        # Terminate the session after the request is handled
+        await http_transport._terminate_session()  # type: ignore[reportPrivateUsage]
+
     async def _handle_stateful_request(
         self,
         scope: Scope,
