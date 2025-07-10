@@ -27,7 +27,6 @@ repos:
       - id: pyright
         name: pyright
         entry: uv run pyright
-        args: [src]
         language: system
         types: [python]
         pass_filenames: false

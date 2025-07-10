@@ -32,6 +32,7 @@ dependencies = [
     "pydantic-settings>=2.5.2",
     "uvicorn>=0.23.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",
+    "pywin32>=310; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -125,4 +126,6 @@ filterwarnings = [
     "ignore::DeprecationWarning:websockets",
     "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
     "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel",
+    # pywin32 internal deprecation warning
+    "ignore:getargs.*The 'u' format is deprecated:DeprecationWarning"
 ]

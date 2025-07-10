@@ -585,7 +585,7 @@ _Full example: [examples/snippets/servers/completion.py](https://github.com/mode
 <!-- /snippet-source -->
 ### Elicitation
 
-Request additional information from users during tool execution:
+Request additional information from users. This example shows an Elicitation during a Tool Call:
 
 <!-- snippet-source examples/snippets/servers/elicitation.py -->
 ```python
