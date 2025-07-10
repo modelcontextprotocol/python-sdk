@@ -44,7 +44,7 @@ from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.session import ServerSession, ServerSessionT
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
-from mcp.server.streamable_http import EventStore, StreamableHTTPASGIApp
+from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
@@ -969,6 +969,16 @@ class FastMCP:
             logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e))
 
+class StreamableHTTPASGIApp:
+    """
+    ASGI application for Streamable HTTP server transport.
+    """
+
+    def __init__(self, session_manager: StreamableHTTPSessionManager):
+        self.session_manager = session_manager
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        await self.session_manager.handle_request(scope, receive, send)
 
 class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     """Context object providing access to MCP capabilities.

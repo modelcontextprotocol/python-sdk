@@ -28,7 +28,6 @@ from mcp.server.transport_security import (
     TransportSecurityMiddleware,
     TransportSecuritySettings,
 )
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -902,15 +901,3 @@ class StreamableHTTPServerTransport:
                 except Exception as e:
                     # During cleanup, we catch all exceptions since streams might be in various states
                     logger.debug(f"Error closing streams: {e}")
-
-
-class StreamableHTTPASGIApp:
-    """
-    ASGI application for StreamableHTTP server transport.
-    """
-
-    def __init__(self, session_manager: StreamableHTTPSessionManager):
-        self.session_manager = session_manager
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        await self.session_manager.handle_request(scope, receive, send)
