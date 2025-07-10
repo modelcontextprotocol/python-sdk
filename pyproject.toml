@@ -32,6 +32,7 @@ dependencies = [
     "pydantic-settings>=2.5.2",
     "uvicorn>=0.23.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",
+    "pywin32>=310; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -125,4 +126,16 @@ filterwarnings = [
     "ignore::DeprecationWarning:websockets",
     "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
     "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel",
+    # pywin32 internal deprecation warning
+    "ignore:getargs.*The 'u' format is deprecated:DeprecationWarning"
 ]
+
+[tool.markdown.lint]
+default=true
+MD004=false  # ul-style - Unordered list style
+MD007.indent=2  # ul-indent - Unordered list indentation
+MD013=false  # line-length - Line length
+MD029=false  # ol-prefix - Ordered list item prefix
+MD033=false  # no-inline-html Inline HTML
+MD041=false  # first-line-heading/first-line-h1
+MD059=false  # descriptive-link-text
