@@ -89,7 +89,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider):
         }
 
         # Build simple login URL that points to login page
-        auth_url = f"{self.auth_callback_url}" f"?state={state}" f"&client_id={client.client_id}"
+        auth_url = f"{self.auth_callback_url}?state={state}&client_id={client.client_id}"
 
         return auth_url
 
@@ -117,7 +117,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider):
             <p><strong>Username:</strong> demo_user<br>
             <strong>Password:</strong> demo_password</p>
             
-            <form action="{self.server_url.rstrip('/')}/login/callback" method="post">
+            <form action="{self.server_url.rstrip("/")}/login/callback" method="post">
                 <input type="hidden" name="state" value="{state}">
                 <div class="form-group">
                     <label>Username:</label>

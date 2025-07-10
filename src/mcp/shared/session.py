@@ -402,7 +402,7 @@ class BaseSession(
                         except Exception as e:
                             # For other validation errors, log and continue
                             logging.warning(
-                                f"Failed to validate notification: {e}. " f"Message was: {message.message.root}"
+                                f"Failed to validate notification: {e}. Message was: {message.message.root}"
                             )
                     else:  # Response or error
                         stream = self._response_streams.pop(message.message.root.id, None)
@@ -410,7 +410,7 @@ class BaseSession(
                             await stream.send(message.message.root)
                         else:
                             await self._handle_incoming(
-                                RuntimeError("Received response with an unknown " f"request ID: {message}")
+                                RuntimeError(f"Received response with an unknown request ID: {message}")
                             )
 
             except anyio.ClosedResourceError:

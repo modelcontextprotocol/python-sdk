@@ -3,58 +3,84 @@ import pytest
 from pydantic import AnyUrl
 
 from mcp.server.fastmcp import FastMCP
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as create_session,
-)
-
-_sleep_time_seconds = 0.01
-_resource_name = "slow://slow_resource"
+from mcp.shared.memory import create_connected_server_and_client_session as create_session
 
 
 @pytest.mark.anyio
-async def test_messages_are_executed_concurrently():
+async def test_messages_are_executed_concurrently_tools():
     server = FastMCP("test")
-    call_timestamps = []
+    event = anyio.Event()
+    tool_started = anyio.Event()
+    call_order = []
 
     @server.tool("sleep")
     async def sleep_tool():
-        call_timestamps.append(("tool_start_time", anyio.current_time()))
-        await anyio.sleep(_sleep_time_seconds)
-        call_timestamps.append(("tool_end_time", anyio.current_time()))
+        call_order.append("waiting_for_event")
+        tool_started.set()
+        await event.wait()
+        call_order.append("tool_end")
         return "done"
 
-    @server.resource(_resource_name)
-    async def slow_resource():
-        call_timestamps.append(("resource_start_time", anyio.current_time()))
-        await anyio.sleep(_sleep_time_seconds)
-        call_timestamps.append(("resource_end_time", anyio.current_time()))
+    @server.tool("trigger")
+    async def trigger():
+        # Wait for tool to start before setting the event
+        await tool_started.wait()
+        call_order.append("trigger_started")
+        event.set()
+        call_order.append("trigger_end")
         return "slow"
 
     async with create_session(server._mcp_server) as client_session:
+        # First tool will wait on event, second will set it
         async with anyio.create_task_group() as tg:
-            for _ in range(10):
-                tg.start_soon(client_session.call_tool, "sleep")
-                tg.start_soon(client_session.read_resource, AnyUrl(_resource_name))
+            # Start the tool first (it will wait on event)
+            tg.start_soon(client_session.call_tool, "sleep")
+            # Then the trigger tool will set the event to allow the first tool to continue
+            await client_session.call_tool("trigger")
 
-        active_calls = 0
-        max_concurrent_calls = 0
-        for call_type, _ in sorted(call_timestamps, key=lambda x: x[1]):
-            if "start" in call_type:
-                active_calls += 1
-                max_concurrent_calls = max(max_concurrent_calls, active_calls)
-            else:
-                active_calls -= 1
-        print(f"Max concurrent calls: {max_concurrent_calls}")
-        assert max_concurrent_calls > 1, "No concurrent calls were executed"
+        # Verify that both ran concurrently
+        assert call_order == [
+            "waiting_for_event",
+            "trigger_started",
+            "trigger_end",
+            "tool_end",
+        ], f"Expected concurrent execution, but got: {call_order}"
 
 
-def main():
-    anyio.run(test_messages_are_executed_concurrently)
+@pytest.mark.anyio
+async def test_messages_are_executed_concurrently_tools_and_resources():
+    server = FastMCP("test")
+    event = anyio.Event()
+    tool_started = anyio.Event()
+    call_order = []
 
+    @server.tool("sleep")
+    async def sleep_tool():
+        call_order.append("waiting_for_event")
+        tool_started.set()
+        await event.wait()
+        call_order.append("tool_end")
+        return "done"
 
-if __name__ == "__main__":
-    import logging
+    @server.resource("slow://slow_resource")
+    async def slow_resource():
+        # Wait for tool to start before setting the event
+        await tool_started.wait()
+        event.set()
+        call_order.append("resource_end")
+        return "slow"
 
-    logging.basicConfig(level=logging.DEBUG)
+    async with create_session(server._mcp_server) as client_session:
+        # First tool will wait on event, second will set it
+        async with anyio.create_task_group() as tg:
+            # Start the tool first (it will wait on event)
+            tg.start_soon(client_session.call_tool, "sleep")
+            # Then the resource (it will set the event)
+            tg.start_soon(client_session.read_resource, AnyUrl("slow://slow_resource"))
 
-    main()
+        # Verify that both ran concurrently
+        assert call_order == [
+            "waiting_for_event",
+            "resource_end",
+            "tool_end",
+        ], f"Expected concurrent execution, but got: {call_order}"

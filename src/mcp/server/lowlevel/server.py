@@ -190,6 +190,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         resources_capability = None
         tools_capability = None
         logging_capability = None
+        completions_capability = None
 
         # Set prompt capabilities if handler exists
         if types.ListPromptsRequest in self.request_handlers:
@@ -209,12 +210,17 @@ class Server(Generic[LifespanResultT, RequestT]):
         if types.SetLevelRequest in self.request_handlers:
             logging_capability = types.LoggingCapability()
 
+        # Set completions capabilities if handler exists
+        if types.CompleteRequest in self.request_handlers:
+            completions_capability = types.CompletionsCapability()
+
         return types.ServerCapabilities(
             prompts=prompts_capability,
             resources=resources_capability,
             tools=tools_capability,
             logging=logging_capability,
             experimental=experimental_capabilities,
+            completions=completions_capability,
         )
 
     @property

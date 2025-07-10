@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -6,18 +7,22 @@ from typing import Literal, TextIO
 
 import anyio
 import anyio.lowlevel
+from anyio.abc import Process
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from anyio.streams.text import TextReceiveStream
 from pydantic import BaseModel, Field
 
 import mcp.types as types
-from mcp.shared.message import SessionMessage
-
-from .win32 import (
+from mcp.os.posix.utilities import terminate_posix_process_tree
+from mcp.os.win32.utilities import (
+    FallbackProcess,
     create_windows_process,
     get_windows_executable_command,
-    terminate_windows_process,
+    terminate_windows_process_tree,
 )
+from mcp.shared.message import SessionMessage
+
+logger = logging.getLogger(__name__)
 
 # Environment variables to inherit by default
 DEFAULT_INHERITED_ENV_VARS = (
@@ -37,6 +42,9 @@ DEFAULT_INHERITED_ENV_VARS = (
     if sys.platform == "win32"
     else ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"]
 )
+
+# Timeout for process termination before falling back to force kill
+PROCESS_TERMINATION_TIMEOUT = 2.0
 
 
 def get_default_environment() -> dict[str, str]:
@@ -178,12 +186,25 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         try:
             yield read_stream, write_stream
         finally:
-            # Clean up process to prevent any dangling orphaned processes
+            # MCP spec: stdio shutdown sequence
+            # 1. Close input stream to server
+            # 2. Wait for server to exit, or send SIGTERM if it doesn't exit in time
+            # 3. Send SIGKILL if still not exited
+            if process.stdin:
+                try:
+                    await process.stdin.aclose()
+                except Exception:
+                    # stdin might already be closed, which is fine
+                    pass
+
             try:
-                if sys.platform == "win32":
-                    await terminate_windows_process(process)
-                else:
-                    process.terminate()
+                # Give the process time to exit gracefully after stdin closes
+                with anyio.fail_after(PROCESS_TERMINATION_TIMEOUT):
+                    await process.wait()
+            except TimeoutError:
+                # Process didn't exit from stdin closure, use platform-specific termination
+                # which handles SIGTERM -> SIGKILL escalation
+                await _terminate_process_tree(process)
             except ProcessLookupError:
                 # Process already exited, which is fine
                 pass
@@ -218,11 +239,38 @@ async def _create_platform_compatible_process(
 ):
     """
     Creates a subprocess in a platform-compatible way.
-    Returns a process handle.
+
+    Unix: Creates process in a new session/process group for killpg support
+    Windows: Creates process in a Job Object for reliable child termination
     """
     if sys.platform == "win32":
         process = await create_windows_process(command, args, env, errlog, cwd)
     else:
-        process = await anyio.open_process([command, *args], env=env, stderr=errlog, cwd=cwd)
+        process = await anyio.open_process(
+            [command, *args],
+            env=env,
+            stderr=errlog,
+            cwd=cwd,
+            start_new_session=True,
+        )
 
     return process
+
+
+async def _terminate_process_tree(process: Process | FallbackProcess, timeout_seconds: float = 2.0) -> None:
+    """
+    Terminate a process and all its children using platform-specific methods.
+
+    Unix: Uses os.killpg() for atomic process group termination
+    Windows: Uses Job Objects via pywin32 for reliable child process cleanup
+
+    Args:
+        process: The process to terminate
+        timeout_seconds: Timeout in seconds before force killing (default: 2.0)
+    """
+    if sys.platform == "win32":
+        await terminate_windows_process_tree(process, timeout_seconds)
+    else:
+        # FallbackProcess should only be used for Windows compatibility
+        assert isinstance(process, Process)
+        await terminate_posix_process_tree(process, timeout_seconds)

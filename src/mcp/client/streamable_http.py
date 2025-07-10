@@ -308,7 +308,7 @@ class StreamableHTTPTransport:
             session_message = SessionMessage(message)
             await read_stream_writer.send(session_message)
         except Exception as exc:
-            logger.error(f"Error parsing JSON response: {exc}")
+            logger.exception("Error parsing JSON response")
             await read_stream_writer.send(exc)
 
     async def _handle_sse_response(
@@ -410,8 +410,8 @@ class StreamableHTTPTransport:
                     else:
                         await handle_request_async()
 
-        except Exception as exc:
-            logger.error(f"Error in post_writer: {exc}")
+        except Exception:
+            logger.exception("Error in post_writer")
         finally:
             await read_stream_writer.aclose()
             await write_stream.aclose()

@@ -72,7 +72,7 @@ class RegistrationHandler:
             return PydanticJSONResponse(
                 content=RegistrationErrorResponse(
                     error="invalid_client_metadata",
-                    error_description="grant_types must be authorization_code " "and refresh_token",
+                    error_description="grant_types must be authorization_code and refresh_token",
                 ),
                 status_code=400,
             )

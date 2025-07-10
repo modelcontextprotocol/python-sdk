@@ -7,6 +7,20 @@ repos:
       - id: prettier
         types_or: [yaml, json5]
 
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.45.0
+    hooks:
+      - id: markdownlint
+        args:
+          [
+            "--fix",
+            "--config",
+            "pyproject.toml",
+            "--configPointer",
+            "/tool/markdown/lint",
+          ]
+        types: [markdown]
+
   - repo: local
     hooks:
       - id: ruff-format
@@ -23,10 +37,10 @@ repos:
         types: [python]
         language: system
         pass_filenames: false
+        exclude: ^README\.md$
       - id: pyright
         name: pyright
         entry: uv run pyright
-        args: [src]
         language: system
         types: [python]
         pass_filenames: false
@@ -35,4 +49,10 @@ repos:
         entry: uv lock --check
         language: system
         files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
+      - id: readme-snippets
+        name: Check README snippets are up to date
+        entry: uv run scripts/update_readme_snippets.py --check
+        language: system
+        files: ^(README\.md|examples/.*\.py|scripts/update_readme_snippets\.py)$
         pass_filenames: false

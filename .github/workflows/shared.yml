@@ -3,6 +3,9 @@ name: Shared Checks
 on:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   pre-commit:
     runs-on: ubuntu-latest
@@ -26,6 +29,7 @@ jobs:
   test:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+    continue-on-error: true
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
@@ -45,4 +49,26 @@ jobs:
 
       - name: Run pytest
         run: uv run --frozen --no-sync pytest
-    continue-on-error: true
+
+      # This must run last as it modifies the environment!
+      - name: Run pytest with lowest versions
+        run: |
+          uv sync --all-extras --upgrade
+          uv run --no-sync pytest
+        env:
+          UV_RESOLUTION: lowest-direct
+  readme-snippets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: 0.7.2
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras --python 3.10
+
+      - name: Check README snippets are up to date
+        run: uv run --frozen scripts/update_readme_snippets.py --check

@@ -19,23 +19,23 @@ class TestAddTools:
     def test_basic_function(self):
         """Test registering and running a basic function."""
 
-        def add(a: int, b: int) -> int:
+        def sum(a: int, b: int) -> int:
             """Add two numbers."""
             return a + b
 
         manager = ToolManager()
-        manager.add_tool(add)
+        manager.add_tool(sum)
 
-        tool = manager.get_tool("add")
+        tool = manager.get_tool("sum")
         assert tool is not None
-        assert tool.name == "add"
+        assert tool.name == "sum"
         assert tool.description == "Add two numbers."
         assert tool.is_async is False
         assert tool.parameters["properties"]["a"]["type"] == "integer"
         assert tool.parameters["properties"]["b"]["type"] == "integer"
 
     def test_init_with_tools(self, caplog):
-        def add(a: int, b: int) -> int:
+        def sum(a: int, b: int) -> int:
             return a + b
 
         class AddArguments(ArgModelBase):
@@ -45,10 +45,10 @@ class TestAddTools:
         fn_metadata = FuncMetadata(arg_model=AddArguments)
 
         original_tool = Tool(
-            name="add",
+            name="sum",
             title="Add Tool",
             description="Add two numbers.",
-            fn=add,
+            fn=sum,
             fn_metadata=fn_metadata,
             is_async=False,
             parameters=AddArguments.model_json_schema(),
@@ -56,13 +56,13 @@ class TestAddTools:
             annotations=None,
         )
         manager = ToolManager(tools=[original_tool])
-        saved_tool = manager.get_tool("add")
+        saved_tool = manager.get_tool("sum")
         assert saved_tool == original_tool
 
         # warn on duplicate tools
         with caplog.at_level(logging.WARNING):
             manager = ToolManager(True, tools=[original_tool, original_tool])
-            assert "Tool already exists: add" in caplog.text
+            assert "Tool already exists: sum" in caplog.text
 
     @pytest.mark.anyio
     async def test_async_function(self):
@@ -182,13 +182,13 @@ class TestAddTools:
 class TestCallTools:
     @pytest.mark.anyio
     async def test_call_tool(self):
-        def add(a: int, b: int) -> int:
+        def sum(a: int, b: int) -> int:
             """Add two numbers."""
             return a + b
 
         manager = ToolManager()
-        manager.add_tool(add)
-        result = await manager.call_tool("add", {"a": 1, "b": 2})
+        manager.add_tool(sum)
+        result = await manager.call_tool("sum", {"a": 1, "b": 2})
         assert result == 3
 
     @pytest.mark.anyio
@@ -232,25 +232,25 @@ class TestCallTools:
 
     @pytest.mark.anyio
     async def test_call_tool_with_default_args(self):
-        def add(a: int, b: int = 1) -> int:
+        def sum(a: int, b: int = 1) -> int:
             """Add two numbers."""
             return a + b
 
         manager = ToolManager()
-        manager.add_tool(add)
-        result = await manager.call_tool("add", {"a": 1})
+        manager.add_tool(sum)
+        result = await manager.call_tool("sum", {"a": 1})
         assert result == 2
 
     @pytest.mark.anyio
     async def test_call_tool_with_missing_args(self):
-        def add(a: int, b: int) -> int:
+        def sum(a: int, b: int) -> int:
             """Add two numbers."""
             return a + b
 
         manager = ToolManager()
-        manager.add_tool(add)
+        manager.add_tool(sum)
         with pytest.raises(ToolError):
-            await manager.call_tool("add", {"a": 1})
+            await manager.call_tool("sum", {"a": 1})
 
     @pytest.mark.anyio
     async def test_call_unknown_tool(self):

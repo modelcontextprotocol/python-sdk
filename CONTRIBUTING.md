@@ -9,6 +9,7 @@ Thank you for your interest in contributing to the MCP Python SDK! This document
 3. Fork the repository
 4. Clone your fork: `git clone https://github.com/YOUR-USERNAME/python-sdk.git`
 5. Install dependencies:
+
 ```bash
 uv sync --frozen --all-extras --dev
 ```
@@ -25,22 +26,31 @@ uv sync --frozen --all-extras --dev
 3. Make your changes
 
 4. Ensure tests pass:
-```bash 
+
+```bash
 uv run pytest
 ```
 
 5. Run type checking:
+
 ```bash
 uv run pyright
 ```
 
 6. Run linting:
+
 ```bash
 uv run ruff check .
 uv run ruff format .
 ```
 
-7. Submit a pull request to the same branch you branched from
+7. Update README snippets if you modified example code:
+
+```bash
+uv run scripts/update_readme_snippets.py
+```
+
+8. Submit a pull request to the same branch you branched from
 
 ## Code Style
 

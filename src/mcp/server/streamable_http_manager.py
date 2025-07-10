@@ -52,7 +52,6 @@ class StreamableHTTPSessionManager:
         json_response: Whether to use JSON responses instead of SSE streams
         stateless: If True, creates a completely fresh transport for each request
                    with no session tracking or state persistence between requests.
-
     """
 
     def __init__(
@@ -173,12 +172,15 @@ class StreamableHTTPSessionManager:
             async with http_transport.connect() as streams:
                 read_stream, write_stream = streams
                 task_status.started()
-                await self.app.run(
-                    read_stream,
-                    write_stream,
-                    self.app.create_initialization_options(),
-                    stateless=True,
-                )
+                try:
+                    await self.app.run(
+                        read_stream,
+                        write_stream,
+                        self.app.create_initialization_options(),
+                        stateless=True,
+                    )
+                except Exception:
+                    logger.exception("Stateless session crashed")
 
         # Assert task group is not None for type checking
         assert self._task_group is not None
@@ -233,12 +235,31 @@ class StreamableHTTPSessionManager:
                     async with http_transport.connect() as streams:
                         read_stream, write_stream = streams
                         task_status.started()
-                        await self.app.run(
-                            read_stream,
-                            write_stream,
-                            self.app.create_initialization_options(),
-                            stateless=False,  # Stateful mode
-                        )
+                        try:
+                            await self.app.run(
+                                read_stream,
+                                write_stream,
+                                self.app.create_initialization_options(),
+                                stateless=False,  # Stateful mode
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Session {http_transport.mcp_session_id} crashed: {e}",
+                                exc_info=True,
+                            )
+                        finally:
+                            # Only remove from instances if not terminated
+                            if (
+                                http_transport.mcp_session_id
+                                and http_transport.mcp_session_id in self._server_instances
+                                and not http_transport.is_terminated
+                            ):
+                                logger.info(
+                                    "Cleaning up crashed session "
+                                    f"{http_transport.mcp_session_id} from "
+                                    "active instances."
+                                )
+                                del self._server_instances[http_transport.mcp_session_id]
 
                 # Assert task group is not None for type checking
                 assert self._task_group is not None

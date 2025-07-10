@@ -658,7 +658,7 @@ class TestAuthEndpoints:
         assert "error" in error_data
         assert error_data["error"] == "invalid_client_metadata"
         assert error_data["error_description"] == (
-            "redirect_uris.0: Input should be a valid URL, " "relative URL without a base"
+            "redirect_uris.0: Input should be a valid URL, relative URL without a base"
         )
 
     @pytest.mark.anyio

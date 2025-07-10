@@ -55,7 +55,7 @@ def main(
         for i in range(count):
             # Include more detailed message for resumability demonstration
             notification_msg = (
-                f"[{i+1}/{count}] Event from '{caller}' - "
+                f"[{i + 1}/{count}] Event from '{caller}' - "
                 f"Use Last-Event-ID to resume if disconnected"
             )
             await ctx.session.send_log_message(
@@ -69,7 +69,7 @@ def main(
                 # - nowhere (if GET request isn't supported)
                 related_request_id=ctx.request_id,
             )
-            logger.debug(f"Sent notification {i+1}/{count} for caller: {caller}")
+            logger.debug(f"Sent notification {i + 1}/{count} for caller: {caller}")
             if i < count - 1:  # Don't wait after the last notification
                 await anyio.sleep(interval)
 

@@ -27,7 +27,7 @@ class Tool(BaseModel):
     description: str = Field(description="Description of what the tool does")
     parameters: dict[str, Any] = Field(description="JSON schema for tool parameters")
     fn_metadata: FuncMetadata = Field(
-        description="Metadata about the function including a pydantic model for tool" " arguments"
+        description="Metadata about the function including a pydantic model for tool arguments"
     )
     is_async: bool = Field(description="Whether the tool is async")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
