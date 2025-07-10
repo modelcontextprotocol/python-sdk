@@ -132,24 +132,10 @@ filterwarnings = [
 
 [tool.markdown.lint]
 default=true
-
-# MD004 ul-style - Unordered list style
-MD004=false
-
-# MD007 ul-indent - Unordered list indentation
-MD007.indent=2
-
-# MD013 line-length - Line length
-MD013=false
-
-# MD029 ol-prefix - Ordered list item prefix
-MD029=false
-
-# MD033 no-inline-html Inline HTML
-MD033=false
-
-# MD041 first-line-heading/first-line-h1
-MD041=false
-
-# MD059 descriptive-link-text
-MD059=false
+MD004=false  # ul-style - Unordered list style
+MD007.indent=2  # ul-indent - Unordered list indentation
+MD013=false  # line-length - Line length
+MD029=false  # ol-prefix - Ordered list item prefix
+MD033=false  # no-inline-html Inline HTML
+MD041=false  # first-line-heading/first-line-h1
+MD059=false  # descriptive-link-text
