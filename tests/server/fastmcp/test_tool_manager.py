@@ -502,3 +502,65 @@ class TestToolEnableDisable:
         # Disable an already disabled tool (should not change state)
         await tool.disable()
         assert tool.enabled is False
+
+    @pytest.mark.anyio
+    async def test_list_tools_filters_disabled(self):
+        """Test that list_tools only returns enabled tools."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        def subtract(a: int, b: int) -> int:
+            """Subtract two numbers."""
+            return a - b
+
+        manager = ToolManager()
+        tool1 = manager.add_tool(add)
+        tool2 = manager.add_tool(subtract)
+
+        # Both tools should be listed initially
+        tools = manager.list_tools()
+        assert len(tools) == 2
+        assert tool1 in tools
+        assert tool2 in tools
+
+        # Disable one tool
+        await tool1.disable()
+
+        # Only enabled tool should be listed
+        tools = manager.list_tools()
+        assert len(tools) == 1
+        assert tool1 not in tools
+        assert tool2 in tools
+
+        # Re-enable the tool
+        await tool1.enable()
+
+        # Both tools should be listed again
+        tools = manager.list_tools()
+        assert len(tools) == 2
+        assert tool1 in tools
+        assert tool2 in tools
+
+    @pytest.mark.anyio
+    async def test_call_disabled_tool_raises_error(self):
+        """Test that calling a disabled tool raises an error."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        manager = ToolManager()
+        tool = manager.add_tool(add)
+
+        # Tool should work normally when enabled
+        result = await manager.call_tool("add", {"a": 1, "b": 2})
+        assert result == 3
+
+        # Disable the tool
+        await tool.disable()
+
+        # Calling disabled tool should raise error
+        with pytest.raises(ToolError, match="Tool is disabled: add"):
+            await manager.call_tool("add", {"a": 1, "b": 2})
