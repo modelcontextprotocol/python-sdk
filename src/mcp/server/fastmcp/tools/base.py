@@ -107,7 +107,7 @@ class Tool(BaseModel):
                 result = self.fn_metadata.convert_result(result)
 
             return result
-        except httpx.HTTPStatusException as e:
+        except httpx.HTTPStatusError as e:
             try:
                 error_detail = e.response.json()
             except:
