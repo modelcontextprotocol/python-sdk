@@ -308,6 +308,7 @@ class OAuthClientProvider(httpx.Auth):
     async def _handle_registration_response(self, response: httpx.Response) -> None:
         """Handle registration response."""
         if response.status_code not in (200, 201):
+            await response.aread()
             raise OAuthRegistrationError(f"Registration failed: {response.status_code} {response.text}")
 
         try:

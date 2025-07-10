@@ -130,7 +130,7 @@ class FuncMetadata(BaseModel):
         for field_name in self.arg_model.model_fields.keys():
             if field_name not in data.keys():
                 continue
-            if isinstance(data[field_name], str):
+            if isinstance(data[field_name], str) and self.arg_model.model_fields[field_name].annotation is not str:
                 try:
                     pre_parsed = json.loads(data[field_name])
                 except json.JSONDecodeError:

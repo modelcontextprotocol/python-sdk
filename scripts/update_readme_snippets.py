@@ -59,6 +59,7 @@ def process_snippet_block(match: re.Match, check_mode: bool = False) -> str:
 {indent}```python
 {indent}{indented_code}
 {indent}```
+
 {indent}_Full example: [{file_path}]({github_url})_
 {indent}<!-- /snippet-source -->"""
 
