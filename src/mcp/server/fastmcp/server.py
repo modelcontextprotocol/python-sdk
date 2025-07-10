@@ -44,7 +44,7 @@ from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.session import ServerSession, ServerSessionT
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
-from mcp.server.streamable_http import EventStore
+from mcp.server.streamable_http import EventStore, StreamableHTTPASGIApp
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
@@ -828,7 +828,6 @@ class FastMCP:
     def streamable_http_app(self) -> Starlette:
         """Return an instance of the StreamableHTTP server app."""
         from starlette.middleware import Middleware
-        from starlette.routing import Mount
 
         # Create session manager on first call (lazy initialization)
         if self._session_manager is None:
@@ -841,8 +840,7 @@ class FastMCP:
             )
 
         # Create the ASGI handler
-        async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
-            await self.session_manager.handle_request(scope, receive, send)
+        streamable_http_app = StreamableHTTPASGIApp(self._session_manager)
 
         # Create routes
         routes: list[Route | Mount] = []
@@ -889,17 +887,17 @@ class FastMCP:
                 )
 
             routes.append(
-                Mount(
+                Route(
                     self.settings.streamable_http_path,
-                    app=RequireAuthMiddleware(handle_streamable_http, required_scopes, resource_metadata_url),
+                    endpoint=RequireAuthMiddleware(streamable_http_app, required_scopes, resource_metadata_url),
                 )
             )
         else:
             # Auth is disabled, no wrapper needed
             routes.append(
-                Mount(
+                Route(
                     self.settings.streamable_http_path,
-                    app=handle_streamable_http,
+                    endpoint=streamable_http_app,
                 )
             )
 
