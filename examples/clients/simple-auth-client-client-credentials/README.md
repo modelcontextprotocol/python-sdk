@@ -48,7 +48,7 @@ The client will automatically authenticate using dummy client credentials for th
 
 ## Example
 
-```
+```markdown
 🚀 Simple MCP Auth Client
 Connecting to: http://localhost:8001/mcp
 Transport type: streamable_http
@@ -63,12 +63,13 @@ Session ID: ...
 
 🎯 Interactive MCP Client
 Commands:
-  list - List available tools
-  call <tool_name> [args] - Call a tool
-  quit - Exit the client
+list - List available tools
+call <tool_name> [args] - Call a tool
+quit - Exit the client
 
 mcp> list
 📋 Available tools:
+
 1. echo - Echo back the input text
 
 mcp> call echo {"text": "Hello, world!"}
