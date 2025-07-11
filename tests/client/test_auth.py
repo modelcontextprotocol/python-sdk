@@ -516,6 +516,42 @@ class TestProtectedResourceMetadata:
         assert "resource=" in content
 
 
+class TestRegistrationResponse:
+    """Test client registration response handling."""
+
+    @pytest.mark.anyio
+    async def test_handle_registration_response_reads_before_accessing_text(self, oauth_provider):
+        """Test that response.aread() is called before accessing response.text."""
+
+        # Track if aread() was called
+        class MockResponse:
+            def __init__(self):
+                self.status_code = 400
+                self._aread_called = False
+                self._text = "Registration failed with error"
+
+            async def aread(self):
+                self._aread_called = True
+                return b"test content"
+
+            @property
+            def text(self):
+                if not self._aread_called:
+                    raise RuntimeError("Response.text accessed before response.aread()")
+                return self._text
+
+        mock_response = MockResponse()
+
+        # This should call aread() before accessing text
+        with pytest.raises(Exception) as exc_info:
+            await oauth_provider._handle_registration_response(mock_response)
+
+        # Verify aread() was called
+        assert mock_response._aread_called
+        # Verify the error message includes the response text
+        assert "Registration failed: 400" in str(exc_info.value)
+
+
 class TestAuthFlow:
     """Test the auth flow in httpx."""
 
