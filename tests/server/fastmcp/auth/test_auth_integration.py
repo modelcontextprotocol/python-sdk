@@ -50,6 +50,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider):
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
         # toy authorize implementation which just immediately generates an authorization
         # code and completes the redirect
+        assert client.client_id is not None
         code = AuthorizationCode(
             code=f"code_{int(time.time())}",
             client_id=client.client_id,
@@ -78,6 +79,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider):
         refresh_token = f"refresh_{secrets.token_hex(32)}"
 
         # Store the tokens
+        assert client.client_id is not None
         self.tokens[access_token] = AccessToken(
             token=access_token,
             client_id=client.client_id,
@@ -139,6 +141,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider):
         new_refresh_token = f"refresh_{secrets.token_hex(32)}"
 
         # Store the new tokens
+        assert client.client_id is not None
         self.tokens[new_access_token] = AccessToken(
             token=new_access_token,
             client_id=client.client_id,
