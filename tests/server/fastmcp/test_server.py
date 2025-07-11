@@ -1073,16 +1073,21 @@ class TestServerPrompts:
             with pytest.raises(McpError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
 
-    @pytest.mark.anyio
-    @pytest.mark.filterwarnings("ignore::DeprecationWarning:httpx")
-    async def test_streamable_http_no_redirect(self):
-        """Test that /mcp endpoint does not cause 307 redirect (PR #1115)."""
-        from starlette.testclient import TestClient
 
-        mcp = FastMCP("test-redirect")
-        app = mcp.streamable_http_app()
+def test_streamable_http_no_redirect() -> None:
+    """Test that streamable HTTP routes are correctly configured."""
+    mcp = FastMCP()
+    app = mcp.streamable_http_app()
 
-        with TestClient(app, raise_server_exceptions=False) as client:
-            # Test POST to /mcp - should NOT redirect
-            response = client.post("/mcp", json={"test": "data"}, follow_redirects=False)
-            assert response.status_code != 307
+    # Find routes by type - streamable_http_app creates Route objects, not Mount objects
+    streamable_routes = [
+        r
+        for r in app.routes
+        if isinstance(r, Route) and hasattr(r, "path") and r.path == mcp.settings.streamable_http_path
+    ]
+
+    # Verify routes exist
+    assert len(streamable_routes) == 1, "Should have one streamable route"
+
+    # Verify path values
+    assert streamable_routes[0].path == "/mcp", "Streamable route path should be /mcp"
