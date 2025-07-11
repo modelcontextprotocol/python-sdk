@@ -1285,7 +1285,11 @@ This ensures your client UI shows the most user-friendly names that servers prov
 The SDK includes [authorization support](https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization) for connecting to protected MCP servers:
 
 ```python
-from mcp.client.auth import OAuthClientProvider, TokenStorage
+from mcp.client.auth import (
+    OAuthClientProvider,
+    TokenExchangeProvider,
+    TokenStorage,
+)
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
@@ -1320,6 +1324,24 @@ async def main():
         storage=CustomTokenStorage(),
         redirect_handler=lambda url: print(f"Visit: {url}"),
         callback_handler=lambda: ("auth_code", None),
+    )
+
+    # For machine-to-machine scenarios, use ClientCredentialsProvider
+    # instead of OAuthClientProvider.
+
+    # If you already have a user token from another provider, you can
+    # exchange it for an MCP token using the token_exchange grant
+    # implemented by TokenExchangeProvider.
+    token_exchange_auth = TokenExchangeProvider(
+        server_url="https://api.example.com",
+        client_metadata=OAuthClientMetadata(
+            client_name="My Client",
+            redirect_uris=["http://localhost:3000/callback"],
+            grant_types=["client_credentials", "token_exchange"],
+            response_types=["code"],
+        ),
+        storage=CustomTokenStorage(),
+        subject_token_supplier=lambda: "user_token",
     )
 
     # Use with streamable HTTP client
