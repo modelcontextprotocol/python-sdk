@@ -1072,3 +1072,15 @@ class TestServerPrompts:
         async with client_session(mcp._mcp_server) as client:
             with pytest.raises(McpError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
+
+    def test_streamable_http_no_redirect(self):
+        """Test that /mcp endpoint does not cause 307 redirect (PR #1115)."""
+        from starlette.testclient import TestClient
+
+        mcp = FastMCP("test-redirect")
+        app = mcp.streamable_http_app()
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            # Test POST to /mcp - should NOT redirect
+            response = client.post("/mcp", json={"test": "data"}, follow_redirects=False)
+            assert response.status_code != 307

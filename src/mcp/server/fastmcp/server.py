@@ -969,6 +969,7 @@ class FastMCP:
             logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e))
 
+
 class StreamableHTTPASGIApp:
     """
     ASGI application for Streamable HTTP server transport.
@@ -979,6 +980,7 @@ class StreamableHTTPASGIApp:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         await self.session_manager.handle_request(scope, receive, send)
+
 
 class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     """Context object providing access to MCP capabilities.
