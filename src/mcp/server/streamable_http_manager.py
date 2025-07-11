@@ -22,6 +22,7 @@ from mcp.server.streamable_http import (
     EventStore,
     StreamableHTTPServerTransport,
 )
+from mcp.server.transport_security import TransportSecuritySettings
 
 logger = logging.getLogger(__name__)
 
@@ -51,20 +52,21 @@ class StreamableHTTPSessionManager:
         json_response: Whether to use JSON responses instead of SSE streams
         stateless: If True, creates a completely fresh transport for each request
                    with no session tracking or state persistence between requests.
-
     """
 
     def __init__(
         self,
-        app: MCPServer[Any],
+        app: MCPServer[Any, Any],
         event_store: EventStore | None = None,
         json_response: bool = False,
         stateless: bool = False,
+        security_settings: TransportSecuritySettings | None = None,
     ):
         self.app = app
         self.event_store = event_store
         self.json_response = json_response
         self.stateless = stateless
+        self.security_settings = security_settings
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
@@ -162,21 +164,23 @@ class StreamableHTTPSessionManager:
             mcp_session_id=None,  # No session tracking in stateless mode
             is_json_response_enabled=self.json_response,
             event_store=None,  # No event store in stateless mode
+            security_settings=self.security_settings,
         )
 
         # Start server in a new task
-        async def run_stateless_server(
-            *, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED
-        ):
+        async def run_stateless_server(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED):
             async with http_transport.connect() as streams:
                 read_stream, write_stream = streams
                 task_status.started()
-                await self.app.run(
-                    read_stream,
-                    write_stream,
-                    self.app.create_initialization_options(),
-                    stateless=True,
-                )
+                try:
+                    await self.app.run(
+                        read_stream,
+                        write_stream,
+                        self.app.create_initialization_options(),
+                        stateless=True,
+                    )
+                except Exception:
+                    logger.exception("Stateless session crashed")
 
         # Assert task group is not None for type checking
         assert self._task_group is not None
@@ -204,10 +208,7 @@ class StreamableHTTPSessionManager:
         request_mcp_session_id = request.headers.get(MCP_SESSION_ID_HEADER)
 
         # Existing session case
-        if (
-            request_mcp_session_id is not None
-            and request_mcp_session_id in self._server_instances
-        ):
+        if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:
             transport = self._server_instances[request_mcp_session_id]
             logger.debug("Session already exists, handling request directly")
             await transport.handle_request(scope, receive, send)
@@ -222,6 +223,7 @@ class StreamableHTTPSessionManager:
                     mcp_session_id=new_session_id,
                     is_json_response_enabled=self.json_response,
                     event_store=self.event_store,  # May be None (no resumability)
+                    security_settings=self.security_settings,
                 )
 
                 assert http_transport.mcp_session_id is not None
@@ -229,18 +231,35 @@ class StreamableHTTPSessionManager:
                 logger.info(f"Created new transport with session ID: {new_session_id}")
 
                 # Define the server runner
-                async def run_server(
-                    *, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED
-                ) -> None:
+                async def run_server(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED) -> None:
                     async with http_transport.connect() as streams:
                         read_stream, write_stream = streams
                         task_status.started()
-                        await self.app.run(
-                            read_stream,
-                            write_stream,
-                            self.app.create_initialization_options(),
-                            stateless=False,  # Stateful mode
-                        )
+                        try:
+                            await self.app.run(
+                                read_stream,
+                                write_stream,
+                                self.app.create_initialization_options(),
+                                stateless=False,  # Stateful mode
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Session {http_transport.mcp_session_id} crashed: {e}",
+                                exc_info=True,
+                            )
+                        finally:
+                            # Only remove from instances if not terminated
+                            if (
+                                http_transport.mcp_session_id
+                                and http_transport.mcp_session_id in self._server_instances
+                                and not http_transport.is_terminated
+                            ):
+                                logger.info(
+                                    "Cleaning up crashed session "
+                                    f"{http_transport.mcp_session_id} from "
+                                    "active instances."
+                                )
+                                del self._server_instances[http_transport.mcp_session_id]
 
                 # Assert task group is not None for type checking
                 assert self._task_group is not None
