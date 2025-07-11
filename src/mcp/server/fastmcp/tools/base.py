@@ -73,7 +73,7 @@ class Tool(BaseModel):
             skip_names=[context_kwarg] if context_kwarg is not None else [],
             structured_output=structured_output,
         )
-        parameters = func_arg_metadata.arg_model.model_json_schema()
+        parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
 
         return cls(
             fn=fn,

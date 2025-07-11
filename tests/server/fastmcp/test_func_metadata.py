@@ -976,3 +976,115 @@ def test_structured_output_aliases():
     assert "field_second" not in structured_content_defaults
     assert structured_content_defaults["first"] is None
     assert structured_content_defaults["second"] is None
+
+
+def test_basemodel_reserved_names():
+    """Test that functions with parameters named after BaseModel methods work correctly"""
+
+    def func_with_reserved_names(
+        model_dump: str,
+        model_validate: int,
+        dict: list[str],
+        json: dict[str, Any],
+        validate: bool,
+        copy: float,
+        normal_param: str,
+    ) -> str:
+        return f"{model_dump}, {model_validate}, {dict}, {json}, {validate}, {copy}, {normal_param}"
+
+    meta = func_metadata(func_with_reserved_names)
+
+    # Check that the schema has all the original parameter names (using aliases)
+    schema = meta.arg_model.model_json_schema(by_alias=True)
+    assert "model_dump" in schema["properties"]
+    assert "model_validate" in schema["properties"]
+    assert "dict" in schema["properties"]
+    assert "json" in schema["properties"]
+    assert "validate" in schema["properties"]
+    assert "copy" in schema["properties"]
+    assert "normal_param" in schema["properties"]
+
+
+@pytest.mark.anyio
+async def test_basemodel_reserved_names_validation():
+    """Test that validation and calling works with reserved parameter names"""
+
+    def func_with_reserved_names(
+        model_dump: str,
+        model_validate: int,
+        dict: list[str],
+        json: dict[str, Any],
+        validate: bool,
+        normal_param: str,
+    ) -> str:
+        return f"{model_dump}|{model_validate}|{len(dict)}|{json}|{validate}|{normal_param}"
+
+    meta = func_metadata(func_with_reserved_names)
+
+    # Test validation with reserved names
+    result = await meta.call_fn_with_arg_validation(
+        func_with_reserved_names,
+        fn_is_async=False,
+        arguments_to_validate={
+            "model_dump": "test_dump",
+            "model_validate": 42,
+            "dict": ["a", "b", "c"],
+            "json": {"key": "value"},
+            "validate": True,
+            "normal_param": "normal",
+        },
+        arguments_to_pass_directly=None,
+    )
+
+    assert result == "test_dump|42|3|{'key': 'value'}|True|normal"
+
+    # Test that the model can still call its own methods
+    model_instance = meta.arg_model.model_validate(
+        {
+            "model_dump": "dump_value",
+            "model_validate": 123,
+            "dict": ["x", "y"],
+            "json": {"foo": "bar"},
+            "validate": False,
+            "normal_param": "test",
+        }
+    )
+
+    # The model should still have its methods accessible
+    assert hasattr(model_instance, "model_dump")
+    assert callable(model_instance.model_dump)
+
+    # model_dump_one_level should return the original parameter names
+    dumped = model_instance.model_dump_one_level()
+    assert dumped["model_dump"] == "dump_value"
+    assert dumped["model_validate"] == 123
+    assert dumped["dict"] == ["x", "y"]
+    assert dumped["json"] == {"foo": "bar"}
+    assert dumped["validate"] is False
+    assert dumped["normal_param"] == "test"
+
+
+def test_basemodel_reserved_names_with_json_preparsing():
+    """Test that pre_parse_json works correctly with reserved parameter names"""
+
+    def func_with_reserved_json(
+        json: dict[str, Any],
+        model_dump: list[int],
+        normal: str,
+    ) -> str:
+        return "ok"
+
+    meta = func_metadata(func_with_reserved_json)
+
+    # Test pre-parsing with reserved names
+    result = meta.pre_parse_json(
+        {
+            "json": '{"nested": "data"}',  # JSON string that should be parsed
+            "model_dump": "[1, 2, 3]",  # JSON string that should be parsed
+            "normal": "plain string",  # Should remain as string
+        }
+    )
+
+    assert result["json"] == {"nested": "data"}
+    assert result["model_dump"] == [1, 2, 3]
+    assert result["normal"] == "plain string"
