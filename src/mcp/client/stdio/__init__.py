@@ -69,6 +69,9 @@ def get_default_environment() -> dict[str, str]:
 
 
 class StdioServerParameters(BaseModel):
+    type: Literal["stdio"] = "stdio"
+    """The type of server connection."""
+
     command: str
     """The executable to run to start the server."""
 

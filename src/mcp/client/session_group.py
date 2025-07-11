@@ -13,7 +13,7 @@ import logging
 from collections.abc import Callable
 from datetime import timedelta
 from types import TracebackType
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 import anyio
 from pydantic import BaseModel
@@ -30,6 +30,9 @@ from mcp.shared.exceptions import McpError
 class SseServerParameters(BaseModel):
     """Parameters for intializing a sse_client."""
 
+    # The type of server connection.
+    type: Literal["sse"] = "sse"
+
     # The endpoint URL.
     url: str
 
@@ -45,6 +48,9 @@ class SseServerParameters(BaseModel):
 
 class StreamableHttpParameters(BaseModel):
     """Parameters for intializing a streamablehttp_client."""
+
+    # The type of server connection.
+    type: Literal["streamable_http"] = "streamable_http"
 
     # The endpoint URL.
     url: str
