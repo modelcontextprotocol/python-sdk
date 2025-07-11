@@ -848,10 +848,12 @@ class Tool(BaseMetadata):
     inputSchema: dict[str, Any]
     """A JSON Schema object defining the expected parameters for the tool."""
     outputSchema: dict[str, Any] | None = None
+      
     """
     An optional JSON Schema object defining the structure of the tool's output 
     returned in the structuredContent field of a CallToolResult.
     """
+    
     annotations: ToolAnnotations | None = None
     """Optional additional tool information."""
     meta: dict[str, Any] | None = Field(alias="_meta", default=None)
