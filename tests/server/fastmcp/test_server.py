@@ -1073,8 +1073,9 @@ class TestServerPrompts:
             with pytest.raises(McpError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
 
+    @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::DeprecationWarning:httpx")
-    def test_streamable_http_no_redirect(self):
+    async def test_streamable_http_no_redirect(self):
         """Test that /mcp endpoint does not cause 307 redirect (PR #1115)."""
         from starlette.testclient import TestClient
 
