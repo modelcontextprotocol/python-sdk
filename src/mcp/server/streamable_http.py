@@ -173,6 +173,11 @@ class StreamableHTTPServerTransport:
         ] = {}
         self._terminated = False
 
+    @property
+    def is_terminated(self) -> bool:
+        """Check if this transport has been explicitly terminated."""
+        return self._terminated
+
     def _create_error_response(
         self,
         error_message: str,
