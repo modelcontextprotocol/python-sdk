@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
@@ -1318,3 +1319,11 @@ class ServerResult(
     ]
 ):
     pass
+
+
+class StreamalbeHttpClientParams(BaseModel):
+    name: str
+    url: str
+    headers: dict[str, Any] | None = None
+    timeout: timedelta = timedelta(seconds=30)
+    terminate_on_close: bool = True
