@@ -6,6 +6,7 @@ providing support for HTTP POST requests with optional SSE streaming responses
 and session management.
 """
 
+import json
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -299,14 +300,22 @@ class StreamableHTTPTransport:
         """Handle JSON response from the server."""
         try:
             content = await response.aread()
-            message = JSONRPCMessage.model_validate_json(content)
 
-            # Extract protocol version from initialization response
-            if is_initialization:
-                self._maybe_extract_protocol_version_from_message(message)
+            # Parse JSON first to determine structure
+            data = json.loads(content)
 
-            session_message = SessionMessage(message)
-            await read_stream_writer.send(session_message)
+            if isinstance(data, list):
+                messages = [JSONRPCMessage.model_validate(item) for item in data]  # type: ignore
+            else:
+                message = JSONRPCMessage.model_validate(data)
+                messages = [message]
+
+            for message in messages:
+                if is_initialization:
+                    self._maybe_extract_protocol_version_from_message(message)
+
+                session_message = SessionMessage(message)
+                await read_stream_writer.send(session_message)
         except Exception as exc:
             logger.exception("Error parsing JSON response")
             await read_stream_writer.send(exc)
