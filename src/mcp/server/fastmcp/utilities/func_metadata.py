@@ -21,7 +21,7 @@ from pydantic_core import PydanticUndefined
 
 from mcp.server.fastmcp.exceptions import InvalidSignature
 from mcp.server.fastmcp.utilities.logging import get_logger
-from mcp.server.fastmcp.utilities.types import Image
+from mcp.server.fastmcp.utilities.types import Audio, Image
 from mcp.types import ContentBlock, TextContent
 
 logger = get_logger(__name__)
@@ -479,6 +479,9 @@ def _convert_to_content(
 
     if isinstance(result, Image):
         return [result.to_image_content()]
+
+    if isinstance(result, Audio):
+        return [result.to_audio_content()]
 
     if isinstance(result, list | tuple):
         return list(
