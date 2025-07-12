@@ -307,14 +307,14 @@ class ClientSession(
         request_id: types.RequestId,
         progress_callback: ProgressFnT | None = None,
         request_read_timeout_seconds: timedelta | None = None,
-        fail_on_timeout: bool = True,
+        done_on_timeout: bool = True,
     ) -> types.CallToolResult | None:
         return await self.join_request(
             request_id,
             types.CallToolResult,
             request_read_timeout_seconds=request_read_timeout_seconds,
             progress_callback=progress_callback,
-            fail_on_timeout=fail_on_timeout,
+            done_on_timeout=done_on_timeout,
         )
 
     async def cancel_call_tool(

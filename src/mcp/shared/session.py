@@ -176,8 +176,10 @@ class RequestStateManager(
     ): ...
 
     async def receive_response(
-        self, request_id: RequestId, timeout: float | None = None, fail_on_timeout: bool = True
-    ) -> JSONRPCResponse | JSONRPCError | None: ...
+        self,
+        request_id: RequestId,
+        timeout: float | None = None,
+    ) -> JSONRPCResponse | JSONRPCError: ...
 
     async def handle_response(self, message: JSONRPCResponse | JSONRPCError) -> bool: ...
 
@@ -242,8 +244,10 @@ class ImMemoryRequestStateManager(
                 )
 
     async def receive_response(
-        self, request_id: RequestId, timeout: float | None = None, fail_on_timeout: bool = True
-    ) -> JSONRPCResponse | JSONRPCError | None:
+        self,
+        request_id: RequestId,
+        timeout: float | None = None,
+    ) -> JSONRPCResponse | JSONRPCError:
         request, _, response_stream_reader = self._response_streams.get(request_id, [None, None, None])
 
         if response_stream_reader is None:
@@ -254,24 +258,20 @@ class ImMemoryRequestStateManager(
                 )
             )
 
-        if fail_on_timeout:
-            try:
-                with anyio.fail_after(timeout):
-                    return await response_stream_reader.receive()
-            except TimeoutError:
-                raise McpError(
-                    ErrorData(
-                        code=httpx.codes.REQUEST_TIMEOUT,
-                        message=(
-                            f"Timed out while waiting for response to "
-                            f"{request.__class__.__name__}. Waited "
-                            f"{timeout} seconds."
-                        ),
-                    )
-                )
-        else:
-            with anyio.move_on_after(timeout):
+        try:
+            with anyio.fail_after(timeout):
                 return await response_stream_reader.receive()
+        except TimeoutError:
+            raise McpError(
+                ErrorData(
+                    code=httpx.codes.REQUEST_TIMEOUT,
+                    message=(
+                        f"Timed out while waiting for response to "
+                        f"{request.__class__.__name__}. Waited "
+                        f"{timeout} seconds."
+                    ),
+                )
+            )
 
     async def handle_response(self, message: JSONRPCResponse | JSONRPCError) -> bool:
         _, stream, _ = self._response_streams.get(message.id, [None, None, None])
@@ -405,8 +405,8 @@ class BaseSession(
         result_type: type[ReceiveResultT],
         request_read_timeout_seconds: timedelta | None = None,
         progress_callback: ProgressFnT | None = None,
-        fail_on_timeout: bool = True,
-    ) -> ReceiveResultT | None:
+        done_on_timeout: bool = True,
+    ) -> ReceiveResultT:
         """
         Joins a request previously started via start_request
         """
@@ -420,16 +420,18 @@ class BaseSession(
         elif self._session_read_timeout_seconds is not None:
             timeout = self._session_read_timeout_seconds.total_seconds()
 
-        response_or_error = await self._request_state_manager.receive_response(request_id, timeout, fail_on_timeout)
+        response_or_error = await self._request_state_manager.receive_response(request_id, timeout)
 
-        if response_or_error is None:
-            return None
+        if isinstance(response_or_error, JSONRPCError):
+            if response_or_error.error.code == httpx.codes.REQUEST_TIMEOUT.value:
+                if done_on_timeout:
+                    await self._request_state_manager.close_request(request_id)
+            else:
+                await self._request_state_manager.close_request(request_id)
+            raise McpError(response_or_error.error)
         else:
             await self._request_state_manager.close_request(request_id)
-            if isinstance(response_or_error, JSONRPCError):
-                raise McpError(response_or_error.error)
-            else:
-                return result_type.model_validate(response_or_error.result)
+            return result_type.model_validate(response_or_error.result)
 
     async def cancel_request(self, request_id: RequestId) -> bool:
         """
@@ -464,10 +466,10 @@ class BaseSession(
         instead.
         """
         request_id = await self.start_request(request, metadata, progress_callback)
-        result = await self.join_request(request_id, result_type, request_read_timeout_seconds)
-        if result is None:
-            raise RuntimeError("Should not be possible")
-        return result
+        try:
+            return await self.join_request(request_id, result_type, request_read_timeout_seconds)
+        finally:
+            await self._request_state_manager.close_request(request_id)
 
     async def send_notification(
         self,

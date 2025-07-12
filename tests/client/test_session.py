@@ -2,11 +2,13 @@ from datetime import timedelta
 from typing import Any
 
 import anyio
+import httpx
 import pytest
 
 import mcp.types as types
 from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
 from mcp.shared.context import RequestContext
+from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import ImMemoryRequestStateManager, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
@@ -636,13 +638,17 @@ async def test_client_session_request_call_tool_join_timeout():
         request_id = await session.request_call_tool("hello", {"name": "world"})
 
         with anyio.fail_after(1):
-            result = await session.join_call_tool(
-                request_id, request_read_timeout_seconds=timedelta(microseconds=1), fail_on_timeout=False
-            )
-            assert result is None
+            try:
+                result = await session.join_call_tool(
+                    request_id, request_read_timeout_seconds=timedelta(microseconds=1), done_on_timeout=False
+                )
+            except McpError as e:
+                if not e.error.code == httpx.codes.REQUEST_TIMEOUT:
+                    raise e
+
             send_result.set()
             result = await session.join_call_tool(
-                request_id, request_read_timeout_seconds=timedelta(seconds=1), fail_on_timeout=False
+                request_id, request_read_timeout_seconds=timedelta(seconds=1), done_on_timeout=False
             )
 
             # Assert the result
