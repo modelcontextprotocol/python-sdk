@@ -10,7 +10,7 @@ from pydantic import AnyUrl, TypeAdapter
 import mcp.types as types
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
-from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
+from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder, RequestStateManager
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
@@ -118,6 +118,7 @@ class ClientSession(
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
+        request_state_manager: RequestStateManager[types.ClientRequest, types.ClientResult] | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -125,6 +126,7 @@ class ClientSession(
             types.ServerRequest,
             types.ServerNotification,
             read_timeout_seconds=read_timeout_seconds,
+            request_state_manager=request_state_manager,
         )
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
@@ -280,6 +282,46 @@ class ClientSession(
             ),
             types.EmptyResult,
         )
+
+    async def request_call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        progress_callback: ProgressFnT | None = None,
+    ) -> types.RequestId:
+        return await self.start_request(
+            types.ClientRequest(
+                types.CallToolRequest(
+                    method="tools/call",
+                    params=types.CallToolRequestParams(
+                        name=name,
+                        arguments=arguments,
+                    ),
+                )
+            ),
+            progress_callback=progress_callback,
+        )
+
+    async def join_call_tool(
+        self,
+        request_id: types.RequestId,
+        progress_callback: ProgressFnT | None = None,
+        request_read_timeout_seconds: timedelta | None = None,
+        fail_on_timeout: bool = True,
+    ) -> types.CallToolResult | None:
+        return await self.join_request(
+            request_id,
+            types.CallToolResult,
+            request_read_timeout_seconds=request_read_timeout_seconds,
+            progress_callback=progress_callback,
+            fail_on_timeout=fail_on_timeout,
+        )
+
+    async def cancel_call_tool(
+        self,
+        request_id: types.RequestId,
+    ) -> bool:
+        return await self.cancel_request(request_id)
 
     async def call_tool(
         self,

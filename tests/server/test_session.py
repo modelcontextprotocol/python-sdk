@@ -13,12 +13,13 @@ from mcp.types import (
     ClientNotification,
     Completion,
     CompletionArgument,
+    CompletionContext,
     CompletionsCapability,
     InitializedNotification,
     PromptReference,
     PromptsCapability,
-    ResourceReference,
     ResourcesCapability,
+    ResourceTemplateReference,
     ServerCapabilities,
 )
 
@@ -109,7 +110,11 @@ async def test_server_capabilities():
 
     # Add a complete handler
     @server.completion()
-    async def complete(ref: PromptReference | ResourceReference, argument: CompletionArgument):
+    async def complete(
+        ref: PromptReference | ResourceTemplateReference,
+        argument: CompletionArgument,
+        context: CompletionContext | None,
+    ):
         return Completion(
             values=["completion1", "completion2"],
         )

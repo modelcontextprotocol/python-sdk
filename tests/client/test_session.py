@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 import anyio
@@ -7,10 +8,13 @@ import mcp.types as types
 from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
-from mcp.shared.session import RequestResponder
+from mcp.shared.session import ImMemoryRequestStateManager, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
+    CallToolRequest,
+    CallToolResult,
+    CancelledNotification,
     ClientNotification,
     ClientRequest,
     Implementation,
@@ -23,6 +27,7 @@ from mcp.types import (
     JSONRPCResponse,
     ServerCapabilities,
     ServerResult,
+    TextContent,
 )
 
 
@@ -495,3 +500,491 @@ async def test_client_capabilities_with_custom_callbacks():
     assert received_capabilities.roots is not None  # Custom list_roots callback provided
     assert isinstance(received_capabilities.roots, types.RootsCapability)
     assert received_capabilities.roots.listChanged is True  # Should be True for custom callback
+
+
+@pytest.mark.anyio
+async def test_client_session_request_call_tool():
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    async def mock_server():
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        request = ClientRequest.model_validate(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(request.root, CallToolRequest)
+
+        request = request.root
+        assert "hello" == request.params.name
+        assert request.params.arguments is not None
+        assert "name" in request.params.arguments
+        name = request.params.arguments["name"]
+
+        result = ServerResult(CallToolResult(content=[TextContent(type="text", text=f"hello {name}")]))
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=jsonrpc_request.root.id,
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                        )
+                    )
+                )
+            )
+
+    # Create a message handler to catch exceptions
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=message_handler,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+
+        async def progress_callback(progress: float, total: float | None, message: str | None) -> None:
+            pass
+
+        request_id = await session.request_call_tool("hello", {"name": "world"}, progress_callback)
+
+        with anyio.fail_after(1):
+            result = await session.join_call_tool(request_id)
+
+            # Assert the result
+            assert isinstance(result, CallToolResult)
+            assert len(result.content) == 1
+            assert isinstance(result.content[0], TextContent)
+            assert result.content[0].text == "hello world"
+
+
+@pytest.mark.anyio
+async def test_client_session_request_call_tool_join_timeout():
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    send_result = anyio.Event()
+
+    async def mock_server():
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        request = ClientRequest.model_validate(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(request.root, CallToolRequest)
+
+        request = request.root
+        assert "hello" == request.params.name
+        assert request.params.arguments is not None
+        assert "name" in request.params.arguments
+        name = request.params.arguments["name"]
+
+        await send_result.wait()
+
+        result = ServerResult(CallToolResult(content=[TextContent(type="text", text=f"hello {name}")]))
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=jsonrpc_request.root.id,
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                        )
+                    )
+                )
+            )
+
+    # Create a message handler to catch exceptions
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=message_handler,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+
+        request_id = await session.request_call_tool("hello", {"name": "world"})
+
+        with anyio.fail_after(1):
+            result = await session.join_call_tool(
+                request_id, request_read_timeout_seconds=timedelta(microseconds=1), fail_on_timeout=False
+            )
+            assert result is None
+            send_result.set()
+            result = await session.join_call_tool(
+                request_id, request_read_timeout_seconds=timedelta(seconds=1), fail_on_timeout=False
+            )
+
+            # Assert the result
+            assert isinstance(result, CallToolResult)
+            assert len(result.content) == 1
+            assert isinstance(result.content[0], TextContent)
+            assert result.content[0].text == "hello world"
+
+            # Assert resources tidied up
+            assert len(session._request_state_manager._response_streams) == 0  # type: ignore
+
+
+@pytest.mark.anyio
+async def test_client_session_request_call_tool_with_progress():
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    client_2_joined = anyio.Event()
+
+    async def mock_server():
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        request = ClientRequest.model_validate(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(request.root, CallToolRequest)
+
+        request = request.root
+
+        assert "hello" == request.params.name
+        assert request.params.arguments is not None
+        assert "name" in request.params.arguments
+        name = request.params.arguments["name"]
+        assert request.params.meta is not None
+        assert request.params.meta.progressToken is not None
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCNotification(
+                            jsonrpc="2.0",
+                            method="notifications/progress",
+                            params=types.ProgressNotificationParams(
+                                progressToken=request.params.meta.progressToken,
+                                progress=1,
+                                total=2,
+                                message="event 1",
+                            ).model_dump(),
+                        )
+                    )
+                )
+            )
+
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCNotification(
+                            jsonrpc="2.0",
+                            method="notifications/progress",
+                            params=types.ProgressNotificationParams(
+                                progressToken=request.params.meta.progressToken,
+                                progress=2,
+                                total=2,
+                                message="event 2",
+                            ).model_dump(),
+                        )
+                    )
+                )
+            )
+
+            result = ServerResult(CallToolResult(content=[TextContent(type="text", text=f"hello {name}")]))
+
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=jsonrpc_request.root.id,
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                        )
+                    )
+                )
+            )
+
+    # Create a message handler to catch exceptions
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=message_handler,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+
+        progress_1 = anyio.Event()
+        progress_2 = anyio.Event()
+
+        async def progress_callback1(progress: float, total: float | None, message: str | None) -> None:
+            if progress == 1:
+                progress_1.set()
+            elif progress == 2:
+                progress_2.set()
+            else:
+                raise RuntimeError("Unexpected progress value")
+
+        request_id = await session.request_call_tool("hello", {"name": "world"}, progress_callback1)
+
+        with anyio.fail_after(3):
+            await progress_1.wait()
+            result = await session.join_call_tool(request_id)
+            client_2_joined.set()
+            await progress_2.wait()
+
+            # Assert the result
+            assert isinstance(result, CallToolResult)
+            assert len(result.content) == 1
+            assert isinstance(result.content[0], TextContent)
+            assert result.content[0].text == "hello world"
+
+
+@pytest.mark.anyio
+async def test_client_session_request_call_tool_with_rejoin():
+    client_1_to_server_send, client_1_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_1_send, server_to_client_1_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_2_to_server_send, client_2_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_2_send, server_to_client_2_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    async def mock_server():
+        session_message = await client_1_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        request = ClientRequest.model_validate(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(request.root, CallToolRequest)
+
+        request = request.root
+
+        assert "hello" == request.params.name
+        assert request.params.arguments is not None
+        assert "name" in request.params.arguments
+        name = request.params.arguments["name"]
+        assert request.params.meta is not None
+        assert request.params.meta.progressToken is not None
+
+        async with server_to_client_1_send, server_to_client_2_send:
+            await server_to_client_1_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCNotification(
+                            jsonrpc="2.0",
+                            method="notifications/progress",
+                            params=types.ProgressNotificationParams(
+                                progressToken=request.params.meta.progressToken,
+                                progress=1,
+                                total=2,
+                                message="event 1",
+                            ).model_dump(),
+                        )
+                    )
+                )
+            )
+
+            await server_to_client_2_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCNotification(
+                            jsonrpc="2.0",
+                            method="notifications/progress",
+                            params=types.ProgressNotificationParams(
+                                progressToken=request.params.meta.progressToken,
+                                progress=2,
+                                total=2,
+                                message="event 2",
+                            ).model_dump(),
+                        )
+                    )
+                )
+            )
+
+            result = ServerResult(CallToolResult(content=[TextContent(type="text", text=f"hello {name}")]))
+
+            await server_to_client_2_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=jsonrpc_request.root.id,
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                        )
+                    )
+                )
+            )
+
+    # Create a message handler to catch exceptions
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
+
+    request_state_manager_1 = ImMemoryRequestStateManager()
+    request_state_manager_2 = ImMemoryRequestStateManager()
+
+    async with (
+        ClientSession(
+            server_to_client_1_receive,
+            client_1_to_server_send,
+            message_handler=message_handler,
+            request_state_manager=request_state_manager_1,
+        ) as session1,
+        ClientSession(
+            server_to_client_2_receive,
+            client_2_to_server_send,
+            message_handler=message_handler,
+            request_state_manager=request_state_manager_2,
+        ) as session2,
+        anyio.create_task_group() as tg,
+        client_1_to_server_send,
+        client_1_to_server_receive,
+        server_to_client_1_send,
+        server_to_client_1_receive,
+        client_2_to_server_send,
+        client_2_to_server_receive,
+        server_to_client_2_send,
+        server_to_client_2_receive,
+    ):
+        tg.start_soon(mock_server)
+
+        progress_1_1 = anyio.Event()
+        progress_1_2 = anyio.Event()
+        progress_2_1 = anyio.Event()
+        progress_2_2 = anyio.Event()
+
+        async def progress_callback1(progress: float, total: float | None, message: str | None) -> None:
+            if progress == 1:
+                progress_1_1.set()
+            elif progress == 2:
+                progress_1_2.set()
+            else:
+                raise RuntimeError("Unexpected progress value")
+
+        async def progress_callback2(progress: float, total: float | None, message: str | None) -> None:
+            if progress == 1:
+                progress_2_1.set()
+            elif progress == 2:
+                progress_2_2.set()
+            else:
+                raise RuntimeError("Unexpected progress value")
+
+        request_id = await session1.request_call_tool("hello", {"name": "world"}, progress_callback1)
+        with anyio.fail_after(1):
+            await progress_1_1.wait()
+
+            # initialise io manager 2 to state of io manager 1
+            for request, _, _ in request_state_manager_1._response_streams.values():
+                request_state_manager_2.new_request(request)
+
+            # simulate network disconnect and rejoin
+            await request_state_manager_1.close_request(request_id)
+            result = await session2.join_call_tool(request_id, progress_callback2)
+
+            await progress_2_2.wait()
+
+            assert not progress_1_2.is_set()
+            assert not progress_2_1.is_set()
+            # Assert the result
+            assert isinstance(result, CallToolResult)
+            assert len(result.content) == 1
+            assert isinstance(result.content[0], TextContent)
+            assert result.content[0].text == "hello world"
+
+
+@pytest.mark.anyio
+async def test_client_session_cancel_call_tool():
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    cancelled = anyio.Event()
+
+    async def mock_server():
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        request = ClientRequest.model_validate(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(request.root, CallToolRequest)
+
+        request = request.root
+        assert "hello" == request.params.name
+        assert request.params.arguments is not None
+        assert "name" in request.params.arguments
+
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCNotification)
+        notification = ClientNotification.model_validate(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(notification.root, CancelledNotification)
+        cancelled.set()
+
+    # Create a message handler to catch exceptions
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=message_handler,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+
+        async def progress_callback(progress: float, total: float | None, message: str | None) -> None:
+            pass
+
+        request_id = await session.request_call_tool("hello", {"name": "world"}, progress_callback)
+        assert await session.cancel_call_tool(request_id)
+        with anyio.fail_after(1):
+            await cancelled.wait()
+        assert not await session.cancel_call_tool(request_id)
