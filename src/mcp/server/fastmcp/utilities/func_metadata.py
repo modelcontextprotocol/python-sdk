@@ -59,6 +59,14 @@ class ArgModelBase(BaseModel):
     )
 
 
+class OutputModelBase(BaseModel):
+    """A model representing the output of a function."""
+
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
+
+
 class FuncMetadata(BaseModel):
     arg_model: Annotated[type[ArgModelBase], WithJsonSchema(None)]
     output_schema: dict[str, Any] | None = None
@@ -433,7 +441,7 @@ def _create_wrapped_model(func_name: str, annotation: Any, field_info: FieldInfo
     if annotation is None:
         annotation = type(None)
 
-    return create_model(model_name, result=(annotation, field_info), __base__=BaseModel)
+    return create_model(model_name, result=(annotation, field_info), __base__=OutputModelBase)
 
 
 def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:
