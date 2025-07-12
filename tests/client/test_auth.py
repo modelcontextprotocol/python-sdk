@@ -439,6 +439,29 @@ class TestProtectedResourceMetadata:
     """Test protected resource handling."""
 
     @pytest.mark.anyio
+    async def test_client_metadata_validate_scopes_none(self, client_metadata):
+        """Test that validate_scopes method handles None and empty string correctly."""
+        # Should return None
+        requested_scopes = client_metadata.validate_scope(None)
+        assert requested_scopes is None
+
+        # No scopes should be requested; this can happen when a client authorizes with "&scope=".
+        requested_scopes = client_metadata.validate_scope("")
+        assert requested_scopes == []
+
+    @pytest.mark.anyio
+    async def test_state_parameter_validation_uses_constant_time(
+        self, oauth_provider, oauth_metadata, oauth_client_info
+    ):
+        """Test that state parameter validation uses constant-time comparison."""
+        oauth_provider._metadata = oauth_metadata
+        oauth_provider._client_info = oauth_client_info
+
+        # Mock callback handler to return mismatched state
+        async def mock_callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "wrong_state"
+
+    @pytest.mark.anyio
     async def test_resource_param_included_with_recent_protocol_version(self, oauth_provider: OAuthClientProvider):
         """Test resource parameter is included for protocol version >= 2025-06-18."""
         # Set protocol version to 2025-06-18
