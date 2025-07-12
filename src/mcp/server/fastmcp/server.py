@@ -750,17 +750,7 @@ class FastMCP:
 
             # Add auth endpoints if auth server provider is configured
             if self._auth_server_provider:
-                from mcp.server.auth.routes import create_auth_routes
-
-                routes.extend(
-                    create_auth_routes(
-                        provider=self._auth_server_provider,
-                        issuer_url=self.settings.auth.issuer_url,
-                        service_documentation_url=self.settings.auth.service_documentation_url,
-                        client_registration_options=self.settings.auth.client_registration_options,
-                        revocation_options=self.settings.auth.revocation_options,
-                    )
-                )
+                routes.extend(_build_provider_auth_routes(self._auth_server_provider, self.settings.auth))
 
         # When auth is configured, require authentication
         if self._token_verifier:
@@ -863,17 +853,7 @@ class FastMCP:
 
             # Add auth endpoints if auth server provider is configured
             if self._auth_server_provider:
-                from mcp.server.auth.routes import create_auth_routes
-
-                routes.extend(
-                    create_auth_routes(
-                        provider=self._auth_server_provider,
-                        issuer_url=self.settings.auth.issuer_url,
-                        service_documentation_url=self.settings.auth.service_documentation_url,
-                        client_registration_options=self.settings.auth.client_registration_options,
-                        revocation_options=self.settings.auth.revocation_options,
-                    )
-                )
+                routes.extend(_build_provider_auth_routes(self._auth_server_provider, self.settings.auth))
 
         # Set up routes with or without auth
         if self._token_verifier:
@@ -1162,3 +1142,39 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     async def error(self, message: str, **extra: Any) -> None:
         """Send an error log message."""
         await self.log("error", message, **extra)
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+# pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
+def _build_provider_auth_routes(provider: OAuthAuthorizationServerProvider[Any, Any, Any], auth_settings: AuthSettings):
+    """Return the list of Starlette routes for the given provider.
+
+    This consolidates the custom-route fallback logic that previously appeared
+    twice in ``sse_app`` and ``streamable_http_app``.
+    """
+
+    from mcp.server.auth.routes import create_auth_routes  # local import to avoid cycles
+
+    # Allow provider to supply its own custom route list (e.g. proxy mode)
+    get_auth_routes = getattr(provider, "get_auth_routes", None)
+    if callable(get_auth_routes):
+        try:
+            custom = get_auth_routes()
+            if custom and hasattr(custom, "__iter__"):
+                return list(custom)  # type: ignore[return-value]
+        except Exception:
+            # Fall back to default factory on any error
+            pass
+
+    # Default behaviour – use shared route factory
+    return create_auth_routes(
+        provider=provider,
+        issuer_url=auth_settings.issuer_url,
+        service_documentation_url=auth_settings.service_documentation_url,
+        client_registration_options=auth_settings.client_registration_options,
+        revocation_options=auth_settings.revocation_options,
+    )
