@@ -160,9 +160,8 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
         mcp_server.run(transport=transport)
         logger.info("Server stopped")
         return 0
-    except Exception as e:
-        logger.error(f"Server error: {e}")
-        logger.exception("Exception details:")
+    except Exception:
+        logger.exception("Server error")
         return 1
 
 

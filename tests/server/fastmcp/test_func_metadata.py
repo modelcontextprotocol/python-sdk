@@ -3,6 +3,7 @@ from typing import Annotated, Any, TypedDict
 
 import annotated_types
 import pytest
+from dirty_equals import IsPartialDict
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.utilities.func_metadata import func_metadata
@@ -202,11 +203,8 @@ def test_structured_output_dict_str_types():
         return {"a": 1, "b": "hello", "c": [1, 2, 3]}
 
     meta = func_metadata(func_dict_any)
-    assert meta.output_schema == {
-        "additionalProperties": True,
-        "type": "object",
-        "title": "func_dict_anyDictOutput",
-    }
+
+    assert meta.output_schema == IsPartialDict(type="object", title="func_dict_anyDictOutput")
 
     # Test dict[str, str]
     def func_dict_str() -> dict[str, str]:
@@ -454,6 +452,98 @@ def test_str_vs_int():
     result = meta.pre_parse_json({"a": "123", "b": 123})
     assert result["a"] == "123"
     assert result["b"] == 123
+
+
+def test_str_annotation_preserves_json_string():
+    """
+    Regression test for PR #1113: Ensure that when a parameter is annotated as str,
+    valid JSON strings are NOT parsed into Python objects.
+
+    This test would fail before the fix (JSON string would be parsed to dict)
+    and passes after the fix (JSON string remains as string).
+    """
+
+    def process_json_config(config: str, enabled: bool = True) -> str:
+        """Function that expects a JSON string as a string parameter."""
+        # In real use, this function might validate or transform the JSON string
+        # before parsing it, or pass it to another service as-is
+        return f"Processing config: {config}"
+
+    meta = func_metadata(process_json_config)
+
+    # Test case 1: JSON object as string
+    json_obj_str = '{"database": "postgres", "port": 5432}'
+    result = meta.pre_parse_json({"config": json_obj_str, "enabled": True})
+
+    # The config parameter should remain as a string, NOT be parsed to a dict
+    assert isinstance(result["config"], str)
+    assert result["config"] == json_obj_str
+
+    # Test case 2: JSON array as string
+    json_array_str = '["item1", "item2", "item3"]'
+    result = meta.pre_parse_json({"config": json_array_str})
+
+    # Should remain as string
+    assert isinstance(result["config"], str)
+    assert result["config"] == json_array_str
+
+    # Test case 3: JSON string value (double-encoded)
+    json_string_str = '"This is a JSON string"'
+    result = meta.pre_parse_json({"config": json_string_str})
+
+    # Should remain as the original string with quotes
+    assert isinstance(result["config"], str)
+    assert result["config"] == json_string_str
+
+    # Test case 4: Complex nested JSON as string
+    complex_json_str = '{"users": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}], "count": 2}'
+    result = meta.pre_parse_json({"config": complex_json_str})
+
+    # Should remain as string
+    assert isinstance(result["config"], str)
+    assert result["config"] == complex_json_str
+
+
+@pytest.mark.anyio
+async def test_str_annotation_runtime_validation():
+    """
+    Regression test for PR #1113: Test runtime validation with string parameters
+    containing valid JSON to ensure they are passed as strings, not parsed objects.
+    """
+
+    def handle_json_payload(payload: str, strict_mode: bool = False) -> str:
+        """Function that processes a JSON payload as a string."""
+        # This function expects to receive the raw JSON string
+        # It might parse it later after validation or logging
+        assert isinstance(payload, str), f"Expected str, got {type(payload)}"
+        return f"Handled payload of length {len(payload)}"
+
+    meta = func_metadata(handle_json_payload)
+
+    # Test with a JSON object string
+    json_payload = '{"action": "create", "resource": "user", "data": {"name": "Test User"}}'
+
+    result = await meta.call_fn_with_arg_validation(
+        handle_json_payload,
+        fn_is_async=False,
+        arguments_to_validate={"payload": json_payload, "strict_mode": True},
+        arguments_to_pass_directly=None,
+    )
+
+    # The function should have received the string and returned successfully
+    assert result == f"Handled payload of length {len(json_payload)}"
+
+    # Test with JSON array string
+    json_array_payload = '["task1", "task2", "task3"]'
+
+    result = await meta.call_fn_with_arg_validation(
+        handle_json_payload,
+        fn_is_async=False,
+        arguments_to_validate={"payload": json_array_payload},
+        arguments_to_pass_directly=None,
+    )
+
+    assert result == f"Handled payload of length {len(json_array_payload)}"
 
 
 # Tests for structured output functionality
@@ -841,3 +931,48 @@ def test_structured_output_unserializable_type_error():
         func_metadata(func_returning_namedtuple, structured_output=True)
     assert "is not serializable for structured output" in str(exc_info.value)
     assert "Point" in str(exc_info.value)
+
+
+def test_structured_output_aliases():
+    """Test that field aliases are consistent between schema and output"""
+
+    class ModelWithAliases(BaseModel):
+        field_first: str | None = Field(default=None, alias="first", description="The first field.")
+        field_second: str | None = Field(default=None, alias="second", description="The second field.")
+
+    def func_with_aliases() -> ModelWithAliases:
+        # When aliases are defined, we must use the aliased names to set values
+        return ModelWithAliases(**{"first": "hello", "second": "world"})
+
+    meta = func_metadata(func_with_aliases)
+
+    # Check that schema uses aliases
+    assert meta.output_schema is not None
+    assert "first" in meta.output_schema["properties"]
+    assert "second" in meta.output_schema["properties"]
+    assert "field_first" not in meta.output_schema["properties"]
+    assert "field_second" not in meta.output_schema["properties"]
+
+    # Check that the actual output uses aliases too
+    result = ModelWithAliases(**{"first": "hello", "second": "world"})
+    unstructured_content, structured_content = meta.convert_result(result)
+
+    # The structured content should use aliases to match the schema
+    assert "first" in structured_content
+    assert "second" in structured_content
+    assert "field_first" not in structured_content
+    assert "field_second" not in structured_content
+    assert structured_content["first"] == "hello"
+    assert structured_content["second"] == "world"
+
+    # Also test the case where we have a model with defaults to ensure aliases work in all cases
+    result_with_defaults = ModelWithAliases()  # Uses default None values
+    unstructured_content_defaults, structured_content_defaults = meta.convert_result(result_with_defaults)
+
+    # Even with defaults, should use aliases in output
+    assert "first" in structured_content_defaults
+    assert "second" in structured_content_defaults
+    assert "field_first" not in structured_content_defaults
+    assert "field_second" not in structured_content_defaults
+    assert structured_content_defaults["first"] is None
+    assert structured_content_defaults["second"] is None

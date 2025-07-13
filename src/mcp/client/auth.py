@@ -308,6 +308,7 @@ class OAuthClientProvider(httpx.Auth):
     async def _handle_registration_response(self, response: httpx.Response) -> None:
         """Handle registration response."""
         if response.status_code not in (200, 201):
+            await response.aread()
             raise OAuthRegistrationError(f"Registration failed: {response.status_code} {response.text}")
 
         try:
@@ -464,8 +465,8 @@ class OAuthClientProvider(httpx.Auth):
             await self.context.storage.set_tokens(token_response)
 
             return True
-        except ValidationError as e:
-            logger.error(f"Invalid refresh response: {e}")
+        except ValidationError:
+            logger.exception("Invalid refresh response")
             self.context.clear_tokens()
             return False
 
@@ -522,8 +523,8 @@ class OAuthClientProvider(httpx.Auth):
                     token_request = await self._exchange_token(auth_code, code_verifier)
                     token_response = yield token_request
                     await self._handle_token_response(token_response)
-                except Exception as e:
-                    logger.error(f"OAuth flow error: {e}")
+                except Exception:
+                    logger.exception("OAuth flow error")
                     raise
 
             # Add authorization header and make request

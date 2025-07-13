@@ -25,25 +25,25 @@ dependencies = [
     "anyio>=4.5",
     "httpx>=0.27",
     "httpx-sse>=0.4",
-    "pydantic>=2.7.2,<3.0.0",
+    "pydantic>=2.8.0,<3.0.0",
     "starlette>=0.27",
     "python-multipart>=0.0.9",
     "sse-starlette>=1.6.1",
     "pydantic-settings>=2.5.2",
     "uvicorn>=0.23.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",
+    "pywin32>=310; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
 rich = ["rich>=13.9.4"]
-cli = ["typer>=0.12.4", "python-dotenv>=1.0.0"]
+cli = ["typer>=0.16.0", "python-dotenv>=1.0.0"]
 ws = ["websockets>=15.0.1"]
 
 [project.scripts]
 mcp = "mcp.cli:app [cli]"
 
 [tool.uv]
-resolution = "lowest-direct"
 default-groups = ["dev", "docs"]
 required-version = ">=0.7.2"
 
@@ -58,6 +58,7 @@ dev = [
     "pytest-examples>=0.0.14",
     "pytest-pretty>=1.2.0",
     "inline-snapshot>=0.23.0",
+    "dirty-equals>=0.9.0",
 ]
 docs = [
     "mkdocs>=1.6.1",
@@ -99,13 +100,14 @@ ignore = ["PERF203"]
 [tool.ruff]
 line-length = 120
 target-version = "py310"
+extend-exclude = ["README.md"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 "tests/server/fastmcp/test_func_metadata.py" = ["E501"]
 
 [tool.uv.workspace]
-members = ["examples/servers/*"]
+members = ["examples/servers/*", "examples/snippets"]
 
 [tool.uv.sources]
 mcp = { workspace = true }
@@ -123,5 +125,17 @@ filterwarnings = [
     # This should be fixed on Uvicorn's side.
     "ignore::DeprecationWarning:websockets",
     "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
-    "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel"
+    "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel",
+    # pywin32 internal deprecation warning
+    "ignore:getargs.*The 'u' format is deprecated:DeprecationWarning"
 ]
+
+[tool.markdown.lint]
+default=true
+MD004=false  # ul-style - Unordered list style
+MD007.indent=2  # ul-indent - Unordered list indentation
+MD013=false  # line-length - Line length
+MD029=false  # ol-prefix - Ordered list item prefix
+MD033=false  # no-inline-html Inline HTML
+MD041=false  # first-line-heading/first-line-h1
+MD059=false  # descriptive-link-text
