@@ -18,7 +18,7 @@ from mcp.shared.context import RequestContext
 server_params = StdioServerParameters(
     command="uv",  # Using uv to run the server
     args=["run", "server", "fastmcp_quickstart", "stdio"],  # We're already in snippets dir
-    env=os.environ.copy(),  # Pass environment variables
+    env={"UV_INDEX": os.environ.get("UV_INDEX", "")},
 )
 
 
