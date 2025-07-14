@@ -194,7 +194,7 @@ class RequestStateManager(
     async def close(self) -> None: ...
 
 
-class ImMemoryRequestStateManager(
+class InMemoryRequestStateManager(
     RequestStateManager[
         SendRequestT,
         SendResultT,
@@ -354,7 +354,7 @@ class BaseSession(
         self._session_read_timeout_seconds = read_timeout_seconds
         self._exit_stack = AsyncExitStack()
         self._in_flight = {}
-        self._request_state_manager = request_state_manager or ImMemoryRequestStateManager()
+        self._request_state_manager = request_state_manager or InMemoryRequestStateManager()
 
     async def __aenter__(self) -> Self:
         self._task_group = anyio.create_task_group()

@@ -329,7 +329,7 @@ class ClientSession(
         progress_callback: ProgressFnT | None = None,
         request_read_timeout_seconds: timedelta | None = None,
         done_on_timeout: bool = True,
-    ) -> types.CallToolResult | None:
+    ) -> types.CallToolResult:
         resume_token = self._request_state_manager.get_resume_token(request_id)
         metadata = ClientMessageMetadata(resumption_token=resume_token)
 

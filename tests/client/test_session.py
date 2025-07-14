@@ -10,7 +10,7 @@ from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
-from mcp.shared.session import ImMemoryRequestStateManager, RequestResponder
+from mcp.shared.session import InMemoryRequestStateManager, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
@@ -973,8 +973,8 @@ async def test_client_session_request_call_tool_with_rejoin():
         if isinstance(message, Exception):
             raise message
 
-    request_state_manager_1 = ImMemoryRequestStateManager()
-    request_state_manager_2 = ImMemoryRequestStateManager()
+    request_state_manager_1 = InMemoryRequestStateManager()
+    request_state_manager_2 = InMemoryRequestStateManager()
 
     async with (
         ClientSession(

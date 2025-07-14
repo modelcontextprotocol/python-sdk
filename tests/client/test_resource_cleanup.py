@@ -3,7 +3,7 @@ from unittest.mock import patch
 import anyio
 import pytest
 
-from mcp.shared.session import BaseSession, ImMemoryRequestStateManager
+from mcp.shared.session import BaseSession, InMemoryRequestStateManager
 from mcp.types import (
     ClientRequest,
     EmptyResult,
@@ -28,7 +28,7 @@ async def test_send_request_stream_cleanup():
     write_stream_send, write_stream_receive = anyio.create_memory_object_stream(1)
     read_stream_send, read_stream_receive = anyio.create_memory_object_stream(1)
 
-    request_io_manager = ImMemoryRequestStateManager()
+    request_io_manager = InMemoryRequestStateManager()
     # Create the session
     session = TestSession(
         read_stream_receive,
