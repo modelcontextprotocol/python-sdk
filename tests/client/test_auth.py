@@ -593,16 +593,20 @@ class TestAuthFlow:
         "revocation_endpoint",
     ),
     (
-        # TODO(Marcelo): Since we are using `AnyUrl`, the trailing slash is always added.
-        # pytest.param(
-        #     "https://auth.example.com",
-        #     "https://auth.example.com/docs",
-        #     "https://auth.example.com/authorize",
-        #     "https://auth.example.com/token",
-        #     "https://auth.example.com/register",
-        #     "https://auth.example.com/revoke",
-        #     id="simple-url",
-        # ),
+        # Pydantic's AnyUrl incorrectly adds trailing slash to base URLs
+        # This is being fixed in https://github.com/pydantic/pydantic-core/pull/1719 (Pydantic 2.12+)
+        pytest.param(
+            "https://auth.example.com",
+            "https://auth.example.com/docs",
+            "https://auth.example.com/authorize",
+            "https://auth.example.com/token",
+            "https://auth.example.com/register",
+            "https://auth.example.com/revoke",
+            id="simple-url",
+            marks=pytest.mark.xfail(
+                reason="Pydantic AnyUrl adds trailing slash to base URLs - fixed in Pydantic 2.12+"
+            ),
+        ),
         pytest.param(
             "https://auth.example.com/",
             "https://auth.example.com/docs",
@@ -631,7 +635,8 @@ def test_build_metadata(
     registration_endpoint: str,
     revocation_endpoint: str,
 ):
-    from mcp.server.auth import ClientRegistrationOptions, RevocationOptions, build_metadata
+    from mcp.server.auth.routes import build_metadata
+    from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 
     metadata = build_metadata(
         issuer_url=AnyHttpUrl(issuer_url),
