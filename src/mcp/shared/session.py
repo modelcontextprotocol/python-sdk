@@ -21,14 +21,12 @@ from mcp.types import (
     ClientNotification,
     ClientRequest,
     ClientResult,
-    EmptyResult,
     ErrorData,
     JSONRPCError,
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
-    PingRequest,
     ProgressNotification,
     RequestParams,
     ServerNotification,
@@ -167,9 +165,9 @@ class RequestStateManager(
 ):
     def new_request(self, request: SendRequestT) -> RequestId: ...
 
-    def update_resume_token(self, request_id: RequestId, token: str) -> None: ...
+    async def update_resume_token(self, token: str) -> None: ...
 
-    def get_resume_token(self, request_id: RequestId) -> str | None: ...
+    async def get_resume_token(self) -> str | None: ...
 
     def add_progress_callback(self, request_id: RequestId, progress_callback: ProgressFnT): ...
 
@@ -210,13 +208,13 @@ class InMemoryRequestStateManager(
         ],
     ]
     _progress_callbacks: dict[RequestId, list[ProgressFnT]]
-    _resume_tokens: dict[RequestId, str]
+    _resume_token: str | None
 
     def __init__(self):
         self._request_id = 0
         self._response_streams = {}
         self._progress_callbacks = {}
-        self._resume_tokens = {}
+        self._resume_token = None
 
     def new_request(self, request: SendRequestT) -> RequestId:
         request_id = self._request_id
@@ -227,11 +225,11 @@ class InMemoryRequestStateManager(
 
         return request_id
 
-    def update_resume_token(self, request_id: RequestId, token: str) -> None:
-        self._resume_tokens[request_id] = token
+    async def update_resume_token(self, token: str) -> None:
+        self._resume_token = token
 
-    def get_resume_token(self, request_id: RequestId) -> str | None:
-        return self._resume_tokens.get(request_id)
+    async def get_resume_token(self) -> str | None:
+        return self._resume_token
 
     def add_progress_callback(self, request_id: RequestId, progress_callback: ProgressFnT):
         progress_list = self._progress_callbacks.get(request_id)
@@ -303,7 +301,6 @@ class InMemoryRequestStateManager(
             await response_stream_reader.aclose()
 
         self._progress_callbacks.pop(request_id, None)
-        self._resume_tokens.pop(request_id, None)
 
         return response_stream is not None
 
@@ -388,61 +385,6 @@ class BaseSession(
         instead.
         """
         request_id = self._request_state_manager.new_request(request)
-        return await self._send_request(
-            request_id=request_id, request=request, metadata=metadata, progress_callback=progress_callback
-        )
-
-    async def join_request(
-        self,
-        request_id: RequestId,
-        result_type: type[ReceiveResultT],
-        request_read_timeout_seconds: timedelta | None = None,
-        progress_callback: ProgressFnT | None = None,
-        metadata: MessageMetadata | None = None,
-        done_on_timeout: bool = True,
-    ) -> ReceiveResultT:
-        """
-        Joins a request previously started via start_request
-        """
-        if progress_callback is not None:
-            self._request_state_manager.add_progress_callback(request_id, progress_callback)
-
-        # request read timeout takes precedence over session read timeout
-        timeout = None
-        if request_read_timeout_seconds is not None:
-            timeout = request_read_timeout_seconds.total_seconds()
-        elif self._session_read_timeout_seconds is not None:
-            timeout = self._session_read_timeout_seconds.total_seconds()
-
-        if metadata:
-            # need to resend metadata - primary use case is client resume support
-            await self.send_request(
-                request=PingRequest(method="ping"),  # type: ignore
-                result_type=EmptyResult,
-                request_read_timeout_seconds=None if timeout is None else timedelta(seconds=timeout),
-                metadata=metadata,
-            )
-
-        response_or_error = await self._request_state_manager.receive_response(request_id, timeout)
-
-        if isinstance(response_or_error, JSONRPCError):
-            if response_or_error.error.code == httpx.codes.REQUEST_TIMEOUT.value:
-                if done_on_timeout:
-                    await self._request_state_manager.close_request(request_id)
-            else:
-                await self._request_state_manager.close_request(request_id)
-            raise McpError(response_or_error.error)
-        else:
-            await self._request_state_manager.close_request(request_id)
-            return result_type.model_validate(response_or_error.result)
-
-    async def _send_request(
-        self,
-        request_id: RequestId,
-        request: SendRequestT,
-        metadata: MessageMetadata = None,
-        progress_callback: ProgressFnT | None = None,
-    ):
         # Set up progress token if progress callback is provided
         request_data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         if progress_callback is not None:
@@ -467,6 +409,41 @@ class BaseSession(
         except Exception as e:
             await self._request_state_manager.close_request(request_id)
             raise e
+
+    async def join_request(
+        self,
+        request_id: RequestId,
+        result_type: type[ReceiveResultT],
+        request_read_timeout_seconds: timedelta | None = None,
+        progress_callback: ProgressFnT | None = None,
+        done_on_timeout: bool = True,
+    ) -> ReceiveResultT:
+        """
+        Joins a request previously started via start_request
+        """
+        if progress_callback is not None:
+            self._request_state_manager.add_progress_callback(request_id, progress_callback)
+
+        # request read timeout takes precedence over session read timeout
+        timeout = None
+        if request_read_timeout_seconds is not None:
+            timeout = request_read_timeout_seconds.total_seconds()
+        elif self._session_read_timeout_seconds is not None:
+            timeout = self._session_read_timeout_seconds.total_seconds()
+
+        response_or_error = await self._request_state_manager.receive_response(request_id, timeout)
+
+        if isinstance(response_or_error, JSONRPCError):
+            if response_or_error.error.code == httpx.codes.REQUEST_TIMEOUT.value:
+                if done_on_timeout:
+                    await self._request_state_manager.close_request(request_id)
+            else:
+                await self._request_state_manager.close_request(request_id)
+            raise McpError(response_or_error.error)
+        else:
+            await self._request_state_manager.close_request(request_id)
+            return result_type.model_validate(response_or_error.result)
+
 
     async def cancel_request(self, request_id: RequestId) -> bool:
         """

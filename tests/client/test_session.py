@@ -526,30 +526,7 @@ async def test_client_session_request_call_tool():
         assert "name" in request.params.arguments
         name = request.params.arguments["name"]
 
-        session_message = await client_to_server_receive.receive()
-        jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-        ping_id = jsonrpc_request.root.id
-        request = ClientRequest.model_validate(
-            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
-        )
-        assert isinstance(request.root, PingRequest)
-
         async with server_to_client_send:
-            result = ServerResult(EmptyResult())
-
-            await server_to_client_send.send(
-                SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=ping_id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
-                    )
-                )
-            )
-
             result = ServerResult(CallToolResult(content=[TextContent(type="text", text=f"hello {name}")]))
 
             await server_to_client_send.send(
@@ -605,6 +582,8 @@ async def test_client_session_request_call_tool_join_timeout():
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
+    send_result = anyio.Event()
+
     async def mock_server():
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
@@ -620,51 +599,9 @@ async def test_client_session_request_call_tool_join_timeout():
         assert "name" in request.params.arguments
         name = request.params.arguments["name"]
 
-        session_message = await client_to_server_receive.receive()
-        jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-        ping_id_1 = jsonrpc_request.root.id
-        request = ClientRequest.model_validate(
-            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
-        )
-        assert isinstance(request.root, PingRequest)
+        await send_result.wait()
 
         async with server_to_client_send:
-            result = ServerResult(EmptyResult())
-
-            await server_to_client_send.send(
-                SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=ping_id_1,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
-                    )
-                )
-            )
-            session_message = await client_to_server_receive.receive()
-            jsonrpc_request = session_message.message
-            assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-            ping_id_2 = jsonrpc_request.root.id
-            request = ClientRequest.model_validate(
-                jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
-            )
-            assert isinstance(request.root, PingRequest)
-
-            result = ServerResult(EmptyResult())
-
-            await server_to_client_send.send(
-                SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=ping_id_2,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
-                    )
-                )
-            )
             result = ServerResult(CallToolResult(content=[TextContent(type="text", text=f"hello {name}")]))
 
             async with server_to_client_send:
@@ -708,10 +645,11 @@ async def test_client_session_request_call_tool_join_timeout():
                 result = await session.join_call_tool(
                     request_id, request_read_timeout_seconds=timedelta(seconds=0.5), done_on_timeout=False
                 )
+                # raise RuntimeError("Expected fail")
             except McpError as e:
                 if not e.error.code == httpx.codes.REQUEST_TIMEOUT:
                     raise e
-
+            send_result.set()
             result = await session.join_call_tool(
                 request_id, request_read_timeout_seconds=timedelta(seconds=1), done_on_timeout=False
             )
@@ -730,6 +668,8 @@ async def test_client_session_request_call_tool_join_timeout():
 async def test_client_session_request_call_tool_with_progress():
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    send_progress_2 = anyio.Event()
 
     async def mock_server():
         session_message = await client_to_server_receive.receive()
@@ -767,28 +707,7 @@ async def test_client_session_request_call_tool_with_progress():
                 )
             )
 
-            session_message = await client_to_server_receive.receive()
-            jsonrpc_request = session_message.message
-            assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-            ping_id = jsonrpc_request.root.id
-            request = ClientRequest.model_validate(
-                jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
-            )
-            assert isinstance(request.root, PingRequest)
-
-            result = ServerResult(EmptyResult())
-
-            await server_to_client_send.send(
-                SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=ping_id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
-                    )
-                )
-            )
+            # await send_progress_2.wait()
 
             await server_to_client_send.send(
                 SessionMessage(
@@ -858,6 +777,7 @@ async def test_client_session_request_call_tool_with_progress():
         with anyio.fail_after(3):
             await progress_1.wait()
             result = await session.join_call_tool(request_id)
+            send_progress_2.set()
             await progress_2.wait()
 
             # Assert the result
@@ -907,29 +827,6 @@ async def test_client_session_request_call_tool_with_rejoin():
                                 total=2,
                                 message="event 1",
                             ).model_dump(),
-                        )
-                    )
-                )
-            )
-
-            session_message = await client_2_to_server_receive.receive()
-            jsonrpc_request = session_message.message
-            assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-            ping_id = jsonrpc_request.root.id
-            request = ClientRequest.model_validate(
-                jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
-            )
-            assert isinstance(request.root, PingRequest)
-
-            result = ServerResult(EmptyResult())
-
-            await server_to_client_2_send.send(
-                SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=ping_id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                         )
                     )
                 )
@@ -1029,9 +926,7 @@ async def test_client_session_request_call_tool_with_rejoin():
             # initialise io manager 2 to state of io manager 1
             for request, _, _ in request_state_manager_1._response_streams.values():
                 request_state_manager_2.new_request(request)
-            for request, token in request_state_manager_1._resume_tokens.items():
-                request_state_manager_2._resume_tokens[request] = token
-
+            
             # simulate network disconnect and rejoin
             await request_state_manager_1.close_request(request_id)
             result = await session2.join_call_tool(request_id, progress_callback2)
