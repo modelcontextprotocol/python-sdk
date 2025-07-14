@@ -9,7 +9,7 @@ from pydantic import AnyUrl, TypeAdapter
 
 import mcp.types as types
 from mcp.shared.context import RequestContext
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder, RequestStateManager
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
@@ -289,7 +289,11 @@ class ClientSession(
         arguments: dict[str, Any] | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> types.RequestId:
-        return await self.start_request(
+        write, read = anyio.create_memory_object_stream[str]()
+
+        metadata = ClientMessageMetadata(on_resumption_token_update=write.send)
+
+        request_id = await self.start_request(
             types.ClientRequest(
                 types.CallToolRequest(
                     method="tools/call",
@@ -300,7 +304,24 @@ class ClientSession(
                 )
             ),
             progress_callback=progress_callback,
+            metadata=metadata,
         )
+
+        async def update_token() -> None:
+            try:
+                async for token in read:
+                    self._request_state_manager.update_resume_token(request_id, token)
+            except anyio.ClosedResourceError:
+                pass
+
+        async def close() -> None:
+            await write.aclose()
+            await read.aclose()
+
+        self._exit_stack.push_async_callback(update_token)
+        self._exit_stack.push_async_callback(close)
+
+        return request_id
 
     async def join_call_tool(
         self,
@@ -309,9 +330,13 @@ class ClientSession(
         request_read_timeout_seconds: timedelta | None = None,
         done_on_timeout: bool = True,
     ) -> types.CallToolResult | None:
+        resume_token = self._request_state_manager.get_resume_token(request_id)
+        metadata = ClientMessageMetadata(resumption_token=resume_token)
+
         return await self.join_request(
             request_id,
             types.CallToolResult,
+            metadata=metadata,
             request_read_timeout_seconds=request_read_timeout_seconds,
             progress_callback=progress_callback,
             done_on_timeout=done_on_timeout,
