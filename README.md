@@ -579,18 +579,14 @@ async def run():
 
                 # Complete without context
                 result = await session.complete(
-                    ref=ResourceTemplateReference(
-                        type="ref/resource", uri=template.uriTemplate
-                    ),
+                    ref=ResourceTemplateReference(type="ref/resource", uri=template.uriTemplate),
                     argument={"name": "owner", "value": "model"},
                 )
                 print(f"Completions for 'owner' starting with 'model': {result.completion.values}")
 
                 # Complete with context - repo suggestions based on owner
                 result = await session.complete(
-                    ref=ResourceTemplateReference(
-                        type="ref/resource", uri=template.uriTemplate
-                    ),
+                    ref=ResourceTemplateReference(type="ref/resource", uri=template.uriTemplate),
                     argument={"name": "repo", "value": ""},
                     context_arguments={"owner": "modelcontextprotocol"},
                 )
