@@ -438,8 +438,6 @@ def get_temperature(city: str) -> float:
 _Full example: [examples/snippets/servers/structured_output.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/structured_output.py)_
 <!-- /snippet-source -->
 
-
-
 ### Prompts
 
 Prompts are reusable templates that help LLMs interact with your server effectively:
