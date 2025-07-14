@@ -338,6 +338,8 @@ to the `@tool` decorator.
 ```python
 """Example showing structured output with tools."""
 
+from typing import TypedDict
+
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp import FastMCP
@@ -365,12 +367,8 @@ def get_weather(city: str) -> WeatherData:
         condition="sunny",
         wind_speed=5.2,
     )
-```
 
-_Full example: [examples/snippets/servers/structured_output.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/structured_output.py)_
-<!-- /snippet-source -->
 
-```python
 # Using TypedDict for simpler structures
 class LocationInfo(TypedDict):
     latitude: float
@@ -436,6 +434,11 @@ def get_temperature(city: str) -> float:
     return 22.5
     # Returns: {"result": 22.5}
 ```
+
+_Full example: [examples/snippets/servers/structured_output.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/structured_output.py)_
+<!-- /snippet-source -->
+
+
 
 ### Prompts
 
@@ -814,21 +817,46 @@ uv run mcp install server.py -f .env
 
 For advanced scenarios like custom deployments:
 
+<!-- snippet-source examples/snippets/servers/direct_execution.py -->
 ```python
+"""Example showing direct execution of an MCP server.
+
+This is the simplest way to run an MCP server directly.
+cd to the `examples/snippets` directory and run:
+    uv run direct-execution-server
+    or
+    python servers/direct_execution.py
+"""
+
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("My App")
 
-if __name__ == "__main__":
+
+@mcp.tool()
+def hello(name: str = "World") -> str:
+    """Say hello to someone."""
+    return f"Hello, {name}!"
+
+
+def main():
+    """Entry point for the direct execution server."""
     mcp.run()
+
+
+if __name__ == "__main__":
+    main()
 ```
+
+_Full example: [examples/snippets/servers/direct_execution.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/direct_execution.py)_
+<!-- /snippet-source -->
 
 Run it with:
 
 ```bash
-python server.py
+python servers/direct_execution.py
 # or
-uv run mcp run server.py
+uv run mcp run servers/direct_execution.py
 ```
 
 Note that `uv run mcp run` or `uv run mcp dev` only supports server using FastMCP and not the low-level server variant.
@@ -1277,9 +1305,30 @@ async def main():
 
 When building MCP clients, the SDK provides utilities to help display human-readable names for tools, resources, and prompts:
 
+<!-- snippet-source examples/snippets/clients/display_utilities.py -->
 ```python
+"""Client display utilities example.
+
+This example shows how to use the SDK's display utilities to show
+human-readable names for tools, resources, and prompts.
+
+cd to the `examples/snippets` directory and run:
+    uv run display-utilities-client
+"""
+
+import asyncio
+import os
+
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 from mcp.shared.metadata_utils import get_display_name
-from mcp.client.session import ClientSession
+
+# Create server parameters for stdio connection
+server_params = StdioServerParameters(
+    command="uv",  # Using uv to run the server
+    args=["run", "server", "fastmcp_quickstart", "stdio"],
+    env={"UV_INDEX": os.environ.get("UV_INDEX", "")},
+)
 
 
 async def display_tools(session: ClientSession):
@@ -1301,7 +1350,38 @@ async def display_resources(session: ClientSession):
     for resource in resources_response.resources:
         display_name = get_display_name(resource)
         print(f"Resource: {display_name} ({resource.uri})")
+
+    templates_response = await session.list_resource_templates()
+    for template in templates_response.resourceTemplates:
+        display_name = get_display_name(template)
+        print(f"Resource Template: {display_name}")
+
+
+async def run():
+    """Run the display utilities example."""
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            # Initialize the connection
+            await session.initialize()
+
+            print("=== Available Tools ===")
+            await display_tools(session)
+
+            print("\n=== Available Resources ===")
+            await display_resources(session)
+
+
+def main():
+    """Entry point for the display utilities client."""
+    asyncio.run(run())
+
+
+if __name__ == "__main__":
+    main()
 ```
+
+_Full example: [examples/snippets/clients/display_utilities.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/display_utilities.py)_
+<!-- /snippet-source -->
 
 The `get_display_name()` function implements the proper precedence rules for displaying names:
 
