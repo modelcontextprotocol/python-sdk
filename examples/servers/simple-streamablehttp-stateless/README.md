@@ -10,7 +10,6 @@ A stateless MCP server example demonstrating the StreamableHttp transport withou
 - Task lifecycle scoped to individual requests
 - Suitable for deployment in multi-node environments
 
-
 ## Usage
 
 Start the server:
@@ -34,7 +33,6 @@ The server exposes a tool named "start-notification-stream" that accepts three a
 - `interval`: Time between notifications in seconds (e.g., 1.0)
 - `count`: Number of notifications to send (e.g., 5)
 - `caller`: Identifier string for the caller
-
 
 ## Client
 

@@ -1072,3 +1072,22 @@ class TestServerPrompts:
         async with client_session(mcp._mcp_server) as client:
             with pytest.raises(McpError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
+
+
+def test_streamable_http_no_redirect() -> None:
+    """Test that streamable HTTP routes are correctly configured."""
+    mcp = FastMCP()
+    app = mcp.streamable_http_app()
+
+    # Find routes by type - streamable_http_app creates Route objects, not Mount objects
+    streamable_routes = [
+        r
+        for r in app.routes
+        if isinstance(r, Route) and hasattr(r, "path") and r.path == mcp.settings.streamable_http_path
+    ]
+
+    # Verify routes exist
+    assert len(streamable_routes) == 1, "Should have one streamable route"
+
+    # Verify path values
+    assert streamable_routes[0].path == "/mcp", "Streamable route path should be /mcp"
