@@ -201,6 +201,16 @@ class TestOAuthFlow:
         request = await oauth_provider._discover_protected_resource()
 
         assert request.method == "GET"
+        assert str(request.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
+        assert "mcp-protocol-version" in request.headers
+
+    @pytest.mark.anyio
+    async def test_discover_protected_resource_request_fallback(self, oauth_provider):
+        """Test protected resource discovery request building after a failure to discover metadata at the standard endpoint."""
+        request = await oauth_provider._discover_protected_resource(is_fallback=True)
+
+        assert request.method == "GET"
+        # Falls back to the root
         assert str(request.url) == "https://api.example.com/.well-known/oauth-protected-resource"
         assert "mcp-protocol-version" in request.headers
 
