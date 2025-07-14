@@ -612,7 +612,7 @@ class StreamableHTTPServerTransport:
         if not await self._validate_request_headers(request, send):
             return
 
-        await self._terminate_session()
+        await self.terminate()
 
         response = self._create_json_response(
             None,
@@ -620,7 +620,7 @@ class StreamableHTTPServerTransport:
         )
         await response(request.scope, request.receive, send)
 
-    async def _terminate_session(self) -> None:
+    async def terminate(self) -> None:
         """Terminate the current session, closing all streams.
 
         Once terminated, all requests with this session ID will receive 404 Not Found.
