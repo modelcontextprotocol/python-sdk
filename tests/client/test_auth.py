@@ -197,12 +197,41 @@ class TestOAuthFlow:
     """Test OAuth flow methods."""
 
     @pytest.mark.anyio
-    async def test_discover_protected_resource_request(self, oauth_provider):
-        """Test protected resource discovery request building."""
-        request = await oauth_provider._discover_protected_resource()
+    async def test_discover_protected_resource_request(self, client_metadata, mock_storage):
+        """Test protected resource discovery request building maintains backward compatibility."""
 
+        async def redirect_handler(url: str) -> None:
+            pass
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        # Test without WWW-Authenticate (fallback)
+        init_response = httpx.Response(
+            status_code=401, headers={}, request=httpx.Request("GET", "https://request-api.example.com")
+        )
+
+        request = await provider._discover_protected_resource(init_response)
         assert request.method == "GET"
         assert str(request.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+        assert "mcp-protocol-version" in request.headers
+
+        # Test with WWW-Authenticate header
+        init_response.headers["WWW-Authenticate"] = (
+            'Bearer resource_metadata="https://prm.example.com/.well-known/oauth-protected-resource/path"'
+        )
+
+        request = await provider._discover_protected_resource(init_response)
+        assert request.method == "GET"
+        assert str(request.url) == "https://prm.example.com/.well-known/oauth-protected-resource/path"
         assert "mcp-protocol-version" in request.headers
 
     @pytest.mark.anyio
@@ -660,3 +689,114 @@ def test_build_metadata(
             "code_challenge_methods_supported": ["S256"],
         }
     )
+
+
+class TestProtectedResourceWWWAuthenticate:
+    """Test RFC9728 WWW-Authenticate header parsing functionality for protected resource."""
+
+    @pytest.mark.parametrize(
+        "www_auth_header,expected_url",
+        [
+            # Quoted URL
+            (
+                'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"',
+                "https://api.example.com/.well-known/oauth-protected-resource",
+            ),
+            # Unquoted URL
+            (
+                "Bearer resource_metadata=https://api.example.com/.well-known/oauth-protected-resource",
+                "https://api.example.com/.well-known/oauth-protected-resource",
+            ),
+            # Complex header with multiple parameters
+            (
+                'Bearer realm="api", resource_metadata="https://api.example.com/.well-known/oauth-protected-resource", '
+                'error="insufficient_scope"',
+                "https://api.example.com/.well-known/oauth-protected-resource",
+            ),
+            # Different URL format
+            ('Bearer resource_metadata="https://custom.domain.com/metadata"', "https://custom.domain.com/metadata"),
+            # With path and query params
+            (
+                'Bearer resource_metadata="https://api.example.com/auth/metadata?version=1"',
+                "https://api.example.com/auth/metadata?version=1",
+            ),
+        ],
+    )
+    def test_extract_resource_metadata_from_www_auth_valid_cases(
+        self, client_metadata, mock_storage, www_auth_header, expected_url
+    ):
+        """Test extraction of resource_metadata URL from various valid WWW-Authenticate headers."""
+
+        async def redirect_handler(url: str) -> None:
+            pass
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        init_response = httpx.Response(
+            status_code=401,
+            headers={"WWW-Authenticate": www_auth_header},
+            request=httpx.Request("GET", "https://api.example.com/test"),
+        )
+
+        result = provider._extract_resource_metadata_from_www_auth(init_response)
+        assert result == expected_url
+
+    @pytest.mark.parametrize(
+        "status_code,www_auth_header,description",
+        [
+            # No header
+            (401, None, "no WWW-Authenticate header"),
+            # Empty header
+            (401, "", "empty WWW-Authenticate header"),
+            # Header without resource_metadata
+            (401, 'Bearer realm="api", error="insufficient_scope"', "no resource_metadata parameter"),
+            # Malformed header
+            (401, "Bearer resource_metadata=", "malformed resource_metadata parameter"),
+            # Non-401 status code
+            (
+                200,
+                'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"',
+                "200 OK response",
+            ),
+            (
+                500,
+                'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"',
+                "500 error response",
+            ),
+        ],
+    )
+    def test_extract_resource_metadata_from_www_auth_invalid_cases(
+        self, client_metadata, mock_storage, status_code, www_auth_header, description
+    ):
+        """Test extraction returns None for invalid cases."""
+
+        async def redirect_handler(url: str) -> None:
+            pass
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        headers = {"WWW-Authenticate": www_auth_header} if www_auth_header is not None else {}
+        init_response = httpx.Response(
+            status_code=status_code, headers=headers, request=httpx.Request("GET", "https://api.example.com/test")
+        )
+
+        result = provider._extract_resource_metadata_from_www_auth(init_response)
+        assert result is None, f"Should return None for {description}"
