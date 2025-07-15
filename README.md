@@ -951,12 +951,11 @@ The following example shows how to use `streamable_http_app()`, a method that re
 You can then append additional routes to that application as needed.
 
 ```python
-from starlette.routing import Route
-
 mcp = FastMCP("My App")
 
 app = mcp.streamable_http_app()
 # Additional non-MCP routes can be added like so:
+# from starlette.routing import Route
 # app.router.routes.append(Route("/", endpoint=other_route_function))
 ```
 
