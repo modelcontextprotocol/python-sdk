@@ -73,7 +73,15 @@ async def sse_client(
                                 logger.debug(f"Received SSE event: {sse.event}")
                                 match sse.event:
                                     case "endpoint":
-                                        endpoint_url = urljoin(url, sse.data)
+                                        # endpoint_url = urljoin(url, sse.data)
+
+                                        parsed_url = urlparse(url)
+                                        if parsed_url.path.endswith('/'):
+                                            base_url = url
+                                        else:
+                                            base_path = '/'.join(parsed_url.path.split('/')[:-1]) + '/'
+                                            base_url = f"{parsed_url.scheme}://{parsed_url.netloc}{base_path}"
+                                        endpoint_url = urljoin(base_url, sse.data.lstrip('/'))
                                         logger.debug(f"Received endpoint URL: {endpoint_url}")
 
                                         url_parsed = urlparse(url)
