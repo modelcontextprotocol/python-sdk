@@ -570,7 +570,7 @@ class OAuthClientProvider(httpx.Auth):
                         token_request = await self._exchange_token(auth_code, code_verifier)
                         token_response = yield token_request
                         await self._handle_token_response(token_response)
-                    except Exception as e:
+                    except Exception:
                         logger.exception("OAuth flow error")
                         raise
 
