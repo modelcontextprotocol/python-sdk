@@ -602,24 +602,25 @@ class Server(Generic[LifespanResultT, RequestT]):
         raise_exceptions: bool = False,
     ):
         with warnings.catch_warnings(record=True) as w:
-            # TODO(Marcelo): We should be checking if message is Exception here.
-            match message:  # type: ignore[reportMatchNotExhaustive]
+            match message:
                 case RequestResponder(request=types.ClientRequest(root=req)) as responder:
                     with responder:
                         await self._handle_request(message, req, session, lifespan_context, raise_exceptions)
                 case types.ClientNotification(root=notify):
                     await self._handle_notification(notify)
                 case Exception():
-                    logger.error(f"Received error message: {message}")
+                    logger.error(f"Received exception from stream: {message}")
                     if raise_exceptions:
                         raise message
-                    # Send the error as a notification
-                    # as we don't have a request context
                     await session.send_log_message(
                         level="error",
-                        data=types.ErrorData(
-                            code=types.INTERNAL_ERROR, message=str(message), data=None
-                        ),
+                        data={
+                            "message": str(message),
+                            "type": type(message).__name__,
+                            "module": type(message).__module__,
+                            "args": getattr(message, "args", None),
+                        },
+                        logger="mcp.server.exception_handler",
                     )
 
             for warning in w:
