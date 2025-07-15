@@ -207,7 +207,8 @@ class TestOAuthFlow:
 
     @pytest.mark.anyio
     async def test_discover_protected_resource_request_fallback(self, oauth_provider):
-        """Test protected resource discovery request building after a failure to discover metadata at the standard endpoint."""
+        """Test protected resource discovery request building after a failure to discover metadata at the
+        standard endpoint."""
         request = await oauth_provider._discover_protected_resource(is_fallback=True)
 
         assert request.method == "GET"
