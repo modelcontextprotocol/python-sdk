@@ -950,7 +950,7 @@ By default, SSE servers are mounted at `/sse` and Streamable HTTP servers are mo
 The following example shows how to use `streamable_http_app()`, a method that returns a `Starlette` application object.
 You can then append additional routes to that application as needed.
 
-```
+```python
 from starlette.routing import Route
 
 mcp = FastMCP("My App")
