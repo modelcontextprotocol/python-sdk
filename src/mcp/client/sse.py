@@ -83,7 +83,7 @@ async def sse_client(
                                             or url_parsed.scheme != endpoint_parsed.scheme
                                         ):
                                             error_msg = (
-                                                "Endpoint origin does not match " f"connection origin: {endpoint_url}"
+                                                f"Endpoint origin does not match connection origin: {endpoint_url}"
                                             )
                                             logger.error(error_msg)
                                             raise ValueError(error_msg)
@@ -97,7 +97,7 @@ async def sse_client(
                                             )
                                             logger.debug(f"Received server message: {message}")
                                         except Exception as exc:
-                                            logger.error(f"Error parsing server message: {exc}")
+                                            logger.exception("Error parsing server message")
                                             await read_stream_writer.send(exc)
                                             continue
 
@@ -106,7 +106,7 @@ async def sse_client(
                                     case _:
                                         logger.warning(f"Unknown SSE event: {sse.event}")
                         except Exception as exc:
-                            logger.error(f"Error in sse_reader: {exc}")
+                            logger.exception("Error in sse_reader")
                             await read_stream_writer.send(exc)
                         finally:
                             await read_stream_writer.aclose()
@@ -125,9 +125,9 @@ async def sse_client(
                                         ),
                                     )
                                     response.raise_for_status()
-                                    logger.debug("Client message sent successfully: " f"{response.status_code}")
-                        except Exception as exc:
-                            logger.error(f"Error in post_writer: {exc}")
+                                    logger.debug(f"Client message sent successfully: {response.status_code}")
+                        except Exception:
+                            logger.exception("Error in post_writer")
                         finally:
                             await write_stream.aclose()
 
