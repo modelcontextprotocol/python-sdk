@@ -54,8 +54,9 @@ async def stdio_server(
     write_stream: MemoryObjectSendStream[SessionMessage]
     write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
 
-    read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
-    write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
+    # FIXED: Changed from 0 to 10 to create buffered streams
+    read_stream_writer, read_stream = anyio.create_memory_object_stream(10)
+    write_stream, write_stream_reader = anyio.create_memory_object_stream(10)
 
     async def stdin_reader():
         try:
