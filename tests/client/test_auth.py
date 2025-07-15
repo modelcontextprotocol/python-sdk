@@ -6,6 +6,7 @@ import time
 
 import httpx
 import pytest
+from inline_snapshot import Is, snapshot
 from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
@@ -580,3 +581,82 @@ class TestAuthFlow:
             await auth_flow.asend(response)
         except StopAsyncIteration:
             pass  # Expected
+
+
+@pytest.mark.parametrize(
+    (
+        "issuer_url",
+        "service_documentation_url",
+        "authorization_endpoint",
+        "token_endpoint",
+        "registration_endpoint",
+        "revocation_endpoint",
+    ),
+    (
+        # Pydantic's AnyUrl incorrectly adds trailing slash to base URLs
+        # This is being fixed in https://github.com/pydantic/pydantic-core/pull/1719 (Pydantic 2.12+)
+        pytest.param(
+            "https://auth.example.com",
+            "https://auth.example.com/docs",
+            "https://auth.example.com/authorize",
+            "https://auth.example.com/token",
+            "https://auth.example.com/register",
+            "https://auth.example.com/revoke",
+            id="simple-url",
+            marks=pytest.mark.xfail(
+                reason="Pydantic AnyUrl adds trailing slash to base URLs - fixed in Pydantic 2.12+"
+            ),
+        ),
+        pytest.param(
+            "https://auth.example.com/",
+            "https://auth.example.com/docs",
+            "https://auth.example.com/authorize",
+            "https://auth.example.com/token",
+            "https://auth.example.com/register",
+            "https://auth.example.com/revoke",
+            id="with-trailing-slash",
+        ),
+        pytest.param(
+            "https://auth.example.com/v1/mcp",
+            "https://auth.example.com/v1/mcp/docs",
+            "https://auth.example.com/v1/mcp/authorize",
+            "https://auth.example.com/v1/mcp/token",
+            "https://auth.example.com/v1/mcp/register",
+            "https://auth.example.com/v1/mcp/revoke",
+            id="with-path-param",
+        ),
+    ),
+)
+def test_build_metadata(
+    issuer_url: str,
+    service_documentation_url: str,
+    authorization_endpoint: str,
+    token_endpoint: str,
+    registration_endpoint: str,
+    revocation_endpoint: str,
+):
+    from mcp.server.auth.routes import build_metadata
+    from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
+
+    metadata = build_metadata(
+        issuer_url=AnyHttpUrl(issuer_url),
+        service_documentation_url=AnyHttpUrl(service_documentation_url),
+        client_registration_options=ClientRegistrationOptions(enabled=True, valid_scopes=["read", "write", "admin"]),
+        revocation_options=RevocationOptions(enabled=True),
+    )
+
+    assert metadata.model_dump(exclude_defaults=True, mode="json") == snapshot(
+        {
+            "issuer": Is(issuer_url),
+            "authorization_endpoint": Is(authorization_endpoint),
+            "token_endpoint": Is(token_endpoint),
+            "registration_endpoint": Is(registration_endpoint),
+            "scopes_supported": ["read", "write", "admin"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
+            "token_endpoint_auth_methods_supported": ["client_secret_post"],
+            "service_documentation": Is(service_documentation_url),
+            "revocation_endpoint": Is(revocation_endpoint),
+            "revocation_endpoint_auth_methods_supported": ["client_secret_post"],
+            "code_challenge_methods_supported": ["S256"],
+        }
+    )

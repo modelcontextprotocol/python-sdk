@@ -18,3 +18,5 @@ packages = ["servers", "clients"]
 server = "servers:run_server"
 client = "clients.stdio_client:main"
 completion-client = "clients.completion_client:main"
+direct-execution-server = "servers.direct_execution:main"
+display-utilities-client = "clients.display_utilities:main"
