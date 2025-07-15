@@ -659,6 +659,7 @@ class TestAuthFlow:
         except StopAsyncIteration:
             pass  # Expected
 
+
 class TestClientCredentialsProvider:
     @pytest.mark.anyio
     async def test_request_token_success(
@@ -739,6 +740,7 @@ class TestTokenExchangeProvider:
             assert kwargs["data"]["resource"] == "https://api.example.com/v1/mcp"
             assert token_exchange_provider._current_tokens.access_token == oauth_token.access_token
 
+
 @pytest.mark.parametrize(
     (
         "issuer_url",
@@ -808,7 +810,12 @@ def test_build_metadata(
             "token_endpoint": Is(token_endpoint),
             "registration_endpoint": Is(registration_endpoint),
             "scopes_supported": ["read", "write", "admin"],
-            "grant_types_supported": ["authorization_code", "refresh_token"],
+            "grant_types_supported": [
+                "authorization_code",
+                "refresh_token",
+                "client_credentials",
+                "token_exchange",
+            ],
             "token_endpoint_auth_methods_supported": ["client_secret_post"],
             "service_documentation": Is(service_documentation_url),
             "revocation_endpoint": Is(revocation_endpoint),
