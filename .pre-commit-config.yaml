@@ -44,6 +44,13 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+        exclude: ^examples/snippets/
+      - id: pyright-snippets
+        name: pyright (snippets)
+        entry: bash -c "cd examples/snippets && uv run pyright ."
+        language: system
+        files: ^examples/snippets/.*\.py$
+        pass_filenames: false
       - id: uv-lock-check
         name: Check uv.lock is up to date
         entry: uv lock --check
