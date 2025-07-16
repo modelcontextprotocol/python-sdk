@@ -934,7 +934,7 @@ def add_two(n: int) -> int:
 
 # Create a combined lifespan to manage both session managers
 @contextlib.asynccontextmanager
-async def lifespan(app):
+async def lifespan(app: Starlette):
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(echo_mcp.session_manager.run())
         await stack.enter_async_context(math_mcp.session_manager.run())
