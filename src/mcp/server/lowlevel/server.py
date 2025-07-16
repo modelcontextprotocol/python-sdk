@@ -452,6 +452,14 @@ class Server(Generic[LifespanResultT, RequestT]):
                     arguments = req.params.arguments or {}
                     tool = await self._get_cached_tool_definition(tool_name)
 
+                    # Check if tool exists - return protocol error if not found
+                    if tool is None:
+                        raise McpError(
+                            types.ErrorData(
+                                code=types.METHOD_NOT_FOUND,
+                                message=f"Unknown tool: {tool_name}",
+                            )
+                        )
                     # input validation
                     if validate_input and tool:
                         try:
@@ -499,6 +507,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                             isError=False,
                         )
                     )
+                except McpError:
+                    raise
                 except Exception as e:
                     return self._make_error_result(str(e))
 
