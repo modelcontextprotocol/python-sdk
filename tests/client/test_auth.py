@@ -9,7 +9,7 @@ import pytest
 from inline_snapshot import Is, snapshot
 from pydantic import AnyHttpUrl, AnyUrl
 
-from mcp.client.auth import OAuthClientProvider, OAuthDiscoveryStack, PKCEParameters
+from mcp.client.auth import OAuthClientProvider, PKCEParameters
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -235,245 +235,34 @@ class TestOAuthFlow:
         assert "mcp-protocol-version" in request.headers
 
     @pytest.mark.anyio
-    async def test_discover_oauth_metadata_request(self, oauth_provider):
+    def test_create_oauth_metadata_request(self, oauth_provider):
         """Test OAuth metadata discovery request building."""
-        request = await oauth_provider._discover_oauth_metadata()
+        request = oauth_provider._create_oauth_metadata_request("https://example.com")
 
+        # Ensure correct method and headers, and that the URL is unmodified
         assert request.method == "GET"
-        assert str(request.url) == "https://api.example.com/.well-known/oauth-authorization-server/v1/mcp"
-        assert "mcp-protocol-version" in request.headers
-
-    @pytest.mark.anyio
-    async def test_discover_oauth_metadata_request_no_path(self, client_metadata, mock_storage):
-        """Test OAuth metadata discovery request building when server has no path."""
-
-        async def redirect_handler(url: str) -> None:
-            pass
-
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
-
-        provider = OAuthClientProvider(
-            server_url="https://api.example.com",
-            client_metadata=client_metadata,
-            storage=mock_storage,
-            redirect_handler=redirect_handler,
-            callback_handler=callback_handler,
-        )
-
-        request = await provider._discover_oauth_metadata()
-
-        assert request.method == "GET"
-        assert str(request.url) == "https://api.example.com/.well-known/oauth-authorization-server"
-        assert "mcp-protocol-version" in request.headers
-
-    @pytest.mark.anyio
-    async def test_discover_oauth_metadata_request_trailing_slash(self, client_metadata, mock_storage):
-        """Test OAuth metadata discovery request building when server path has trailing slash."""
-
-        async def redirect_handler(url: str) -> None:
-            pass
-
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
-
-        provider = OAuthClientProvider(
-            server_url="https://api.example.com/v1/mcp/",
-            client_metadata=client_metadata,
-            storage=mock_storage,
-            redirect_handler=redirect_handler,
-            callback_handler=callback_handler,
-        )
-
-        request = await provider._discover_oauth_metadata()
-
-        assert request.method == "GET"
-        assert str(request.url) == "https://api.example.com/.well-known/oauth-authorization-server/v1/mcp"
+        assert str(request.url) == "https://example.com"
         assert "mcp-protocol-version" in request.headers
 
 
 class TestOAuthFallback:
     """Test OAuth discovery fallback behavior for legacy (act as AS not RS) servers."""
 
-    def _create_discovery_stack(self, oauth_provider, executed_requests=0) -> OAuthDiscoveryStack:
-        oauth_discovery_stack = oauth_provider._create_oauth_discovery_stack()
-        for _ in range(executed_requests):
-            oauth_discovery_stack.pop()  # Simulate execution of a discovery request
-        return oauth_discovery_stack
-
-    @pytest.mark.anyio
-    async def test_fallback_discovery_request(self, client_metadata, mock_storage):
-        """Test fallback discovery request building."""
-
-        async def redirect_handler(url: str) -> None:
-            pass
-
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
-
-        provider = OAuthClientProvider(
-            server_url="https://api.example.com/v1/mcp",
-            client_metadata=client_metadata,
-            storage=mock_storage,
-            redirect_handler=redirect_handler,
-            callback_handler=callback_handler,
-        )
-
-        # Set up discovery state manually as if path-aware discovery was attempted
-        provider.context.discovery_base_url = "https://api.example.com"
-        provider.context.discovery_pathname = "/v1/mcp"
-
-        # Test fallback request building
-        request = await provider._discover_oauth_metadata_fallback()
-
-        assert request.method == "GET"
-        assert str(request.url) == "https://api.example.com/.well-known/oauth-authorization-server"
-        assert "mcp-protocol-version" in request.headers
-
-    @pytest.mark.anyio
-    async def test_fallback_oidc_discovery_request(self, client_metadata, mock_storage):
-        """Test fallback OIDC discovery request building."""
-
-        async def redirect_handler(url: str) -> None:
-            pass
-
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
-
-        provider = OAuthClientProvider(
-            server_url="https://api.example.com/v1/mcp",
-            client_metadata=client_metadata,
-            storage=mock_storage,
-            redirect_handler=redirect_handler,
-            callback_handler=callback_handler,
-        )
-
-        # Set up discovery state manually
-        provider.context.discovery_base_url = "https://api.example.com"
-        provider.context.discovery_pathname = "/v1/mcp"
-
-        # Test fallback request building
-        request = await provider._discover_oidc_metadata()
-
-        assert request.method == "GET"
-        assert str(request.url) == "https://api.example.com/.well-known/openid-configuration/v1/mcp"
-        assert "mcp-protocol-version" in request.headers
-
-    @pytest.mark.anyio
-    async def test_fallback_oidc_legacy_discovery_request(self, client_metadata, mock_storage):
-        """Test fallback legacy OIDC discovery request building."""
-
-        async def redirect_handler(url: str) -> None:
-            pass
-
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
-
-        provider = OAuthClientProvider(
-            server_url="https://api.example.com/v1/mcp",
-            client_metadata=client_metadata,
-            storage=mock_storage,
-            redirect_handler=redirect_handler,
-            callback_handler=callback_handler,
-        )
-
-        # Set up discovery state manually
-        provider.context.discovery_base_url = "https://api.example.com"
-        provider.context.discovery_pathname = "/v1/mcp"
-
-        # Test fallback request building
-        request = await provider._discover_oidc_metadata_fallback()
-
-        assert request.method == "GET"
-        assert str(request.url) == "https://api.example.com/v1/mcp/.well-known/openid-configuration"
-        assert "mcp-protocol-version" in request.headers
-
-    @pytest.mark.anyio
-    async def test_fallback_oidc_legacy_discovery_request_root(self, client_metadata, mock_storage):
-        """Test fallback legacy OIDC discovery request building at the root path."""
-
-        async def redirect_handler(url: str) -> None:
-            pass
-
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
-
-        provider = OAuthClientProvider(
-            server_url="https://api.example.com/",
-            client_metadata=client_metadata,
-            storage=mock_storage,
-            redirect_handler=redirect_handler,
-            callback_handler=callback_handler,
-        )
-
-        # Set up discovery state manually
-        provider.context.discovery_base_url = "https://api.example.com"
-        provider.context.discovery_pathname = "/"
-
-        # Test fallback request building
-        request = await provider._discover_oidc_metadata_fallback()
-
-        assert request.method == "GET"
-        # No prefixing or suffixing at the root
-        assert str(request.url) == "https://api.example.com/.well-known/openid-configuration"
-        assert "mcp-protocol-version" in request.headers
-
     @pytest.mark.anyio
     async def test_oauth_discovery_fallback_order(self, oauth_provider):
         """Test fallback URL construction order."""
-        oauth_discovery_stack = self._create_discovery_stack(oauth_provider)
+        discovery_urls = oauth_provider._get_discovery_urls()
 
-        request = await oauth_discovery_stack.pop()()
-        assert request.url.path == "/.well-known/oauth-authorization-server/v1/mcp"
-
-        request = await oauth_discovery_stack.pop()()
-        assert request.url.path == "/.well-known/oauth-authorization-server"
-
-        request = await oauth_discovery_stack.pop()()
-        assert request.url.path == "/.well-known/openid-configuration/v1/mcp"
-
-        request = await oauth_discovery_stack.pop()()
-        assert request.url.path == "/v1/mcp/.well-known/openid-configuration"
-
-        assert len(oauth_discovery_stack) == 0
-
-    @pytest.mark.anyio
-    async def test_should_attempt_fallback(self, oauth_provider):
-        """Test fallback decision logic."""
-        # Simulate path-aware OAuth discovery execution
-        oauth_discovery_stack = self._create_discovery_stack(oauth_provider, executed_requests=1)
-
-        # Should attempt fallback on 404 with path-aware OAuth discovery
-        assert oauth_provider._should_attempt_fallback(404, oauth_discovery_stack)
-        oauth_discovery_stack.pop(0)  # Simulate root OAuth discovery execution
-
-        # Should attempt fallback to path-aware OIDC on 404 with root path
-        assert oauth_provider._should_attempt_fallback(404, oauth_discovery_stack)
-        oauth_discovery_stack.pop(0)  # Simulate path-aware OIDC discovery execution
-
-        # Should attempt fallback on OIDC 404 with non-root path
-        assert oauth_provider._should_attempt_fallback(404, oauth_discovery_stack)
-        oauth_discovery_stack.pop(0)  # Simulate root OIDC discovery execution
-
-        # Should NOT attempt fallback on OIDC 404 with root path
-        assert not oauth_provider._should_attempt_fallback(404, oauth_discovery_stack)
-
-    @pytest.mark.anyio
-    async def test_should_attempt_fallback_by_status_codes(self, oauth_provider):
-        """Test fallback decision logic according to status codes."""
-        # Simulate path-aware OAuth discovery execution
-        oauth_discovery_stack = self._create_discovery_stack(oauth_provider, executed_requests=1)
-
-        # Should NOT attempt fallback on status codes other than 404
-        assert not oauth_provider._should_attempt_fallback(200, oauth_discovery_stack)
-        assert not oauth_provider._should_attempt_fallback(500, oauth_discovery_stack)
+        assert discovery_urls == [
+            "https://api.example.com/.well-known/oauth-authorization-server/v1/mcp",
+            "https://api.example.com/.well-known/oauth-authorization-server",
+            "https://api.example.com/.well-known/openid-configuration/v1/mcp",
+            "https://api.example.com/v1/mcp/.well-known/openid-configuration",
+        ]
 
     @pytest.mark.anyio
     async def test_handle_metadata_response_success(self, oauth_provider):
         """Test successful metadata response handling."""
-        # Simulate path-aware OAuth discovery execution
-        oauth_discovery_stack = self._create_discovery_stack(oauth_provider, executed_requests=1)
-
         # Create minimal valid OAuth metadata
         content = b"""{
             "issuer": "https://auth.example.com",
@@ -482,45 +271,10 @@ class TestOAuthFallback:
         }"""
         response = httpx.Response(200, content=content)
 
-        # Should return True (success) and set metadata
-        result = await oauth_provider._handle_oauth_metadata_response(response, oauth_discovery_stack)
-        assert result is True
+        # Should set metadata
+        await oauth_provider._handle_oauth_metadata_response(response)
         assert oauth_provider.context.oauth_metadata is not None
         assert str(oauth_provider.context.oauth_metadata.issuer) == "https://auth.example.com/"
-
-    @pytest.mark.anyio
-    async def test_handle_metadata_response_404_needs_fallback(self, oauth_provider):
-        """Test 404 response handling that should trigger fallback."""
-        # Simulate path-aware OAuth discovery execution
-        oauth_discovery_stack = self._create_discovery_stack(oauth_provider, executed_requests=1)
-
-        # Set up discovery state for non-root path
-        oauth_provider.context.discovery_base_url = "https://api.example.com"
-        oauth_provider.context.discovery_pathname = "/v1/mcp"
-
-        # Mock 404 response
-        response = httpx.Response(404)
-
-        # Should return False (needs fallback)
-        result = await oauth_provider._handle_oauth_metadata_response(response, oauth_discovery_stack)
-        assert result is False
-
-    @pytest.mark.anyio
-    async def test_handle_metadata_response_404_no_fallback_needed(self, oauth_provider):
-        """Test 404 response handling when no fallback is needed."""
-        # Simulate exhausted discovery stack
-        oauth_discovery_stack = []
-
-        # Set up discovery state for root path
-        oauth_provider.context.discovery_base_url = "https://api.example.com"
-        oauth_provider.context.discovery_pathname = "/"
-
-        # Mock 404 response
-        response = httpx.Response(404)
-
-        # Should return True (no fallback needed)
-        result = await oauth_provider._handle_oauth_metadata_response(response, oauth_discovery_stack)
-        assert result is True
 
     @pytest.mark.anyio
     async def test_register_client_request(self, oauth_provider):
