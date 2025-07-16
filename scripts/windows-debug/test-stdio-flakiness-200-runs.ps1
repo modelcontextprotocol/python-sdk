@@ -1,13 +1,21 @@
 #!/usr/bin/env pwsh
 # Script to run test_stdio_context_manager_exiting 200 times to detect flakiness
 # Usage: .\test-stdio-flakiness-200-runs.ps1
+#
+# Prerequisites: Run . .\setup-environment.ps1 first to ensure tee is available
 
 Write-Host "Running test_stdio_context_manager_exiting 200 times to detect flakiness..." -ForegroundColor Cyan
 Write-Host "Test: tests/client/test_stdio.py::test_stdio_context_manager_exiting" -ForegroundColor Yellow
 Write-Host ""
 
-# Disable pytest plugin autoload to avoid xdist issues
-$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = ""
+# Check if tee is available
+$teeCheck = python -c "import shutil; print(shutil.which('tee'))"
+if (-not $teeCheck -or $teeCheck -eq "None") {
+    Write-Host "ERROR: tee command not found!" -ForegroundColor Red
+    Write-Host "Please run: . .\setup-environment.ps1" -ForegroundColor Yellow
+    Write-Host "(Note the dot at the beginning to source the script)" -ForegroundColor Yellow
+    exit 1
+}
 
 $startTime = Get-Date
 $count = 0
@@ -17,10 +25,7 @@ $failedRuns = @()
 for ($i = 1; $i -le 200; $i++) {
     Write-Host "Run $i of 200..." -NoNewline
     
-    $output = & {
-        $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = ""
-        uv run --frozen pytest tests/client/test_stdio.py::test_stdio_context_manager_exiting -xvs --no-cov -p no:xdist 2>&1
-    }
+    $output = uv run --frozen pytest tests/client/test_stdio.py::test_stdio_context_manager_exiting -xvs -o addopts="" 2>&1
     $exitCode = $LASTEXITCODE
     
     if ($exitCode -ne 0) {
@@ -48,6 +53,3 @@ if ($failures -gt 0) {
 }
 Write-Host "Duration: $($duration.ToString())"
 Write-Host "Failure rate: $([math]::Round(($failures / 200) * 100, 2))%"
-
-# Clean up environment variable
-Remove-Item Env:PYTEST_DISABLE_PLUGIN_AUTOLOAD -ErrorAction SilentlyContinue
