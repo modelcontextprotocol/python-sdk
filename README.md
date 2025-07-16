@@ -1054,12 +1054,7 @@ For more control, you can use the low-level server implementation directly. This
 
 <!-- snippet-source examples/snippets/servers/lowlevel/lifespan.py -->
 ```python
-"""Low-level server example showing lifespan management.
-
-This example demonstrates how to use the lifespan API to manage
-server startup and shutdown, including resource initialization
-and cleanup.
-
+"""
 Run from the repository root:
     uv run examples/snippets/servers/lowlevel/lifespan.py
 """
@@ -1175,13 +1170,9 @@ The lifespan API provides:
 
 <!-- snippet-source examples/snippets/servers/lowlevel/basic.py -->
 ```python
-"""Basic low-level server example.
-
-This example demonstrates the low-level server API with minimal setup,
-showing how to implement basic prompts using the raw protocol handlers.
-
+"""
 Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/basic.py
+uv run examples/snippets/servers/lowlevel/basic.py
 """
 
 import asyncio
@@ -1213,7 +1204,7 @@ async def handle_get_prompt(name: str, arguments: dict[str, str] | None) -> type
     if name != "example-prompt":
         raise ValueError(f"Unknown prompt: {name}")
 
-    arg1_value = arguments.get("arg1", "default") if arguments else "default"
+    arg1_value = (arguments or {}).get("arg1", "default")
 
     return types.GetPromptResult(
         description="Example prompt",
@@ -1258,11 +1249,7 @@ The low-level server supports structured output for tools, allowing you to retur
 
 <!-- snippet-source examples/snippets/servers/lowlevel/structured_output.py -->
 ```python
-"""Low-level server example showing structured output support.
-
-This example demonstrates how to use the low-level server API to return
-structured data from tools, with automatic validation against output schemas.
-
+"""
 Run from the repository root:
     uv run examples/snippets/servers/lowlevel/structured_output.py
 """
@@ -1283,20 +1270,22 @@ async def list_tools() -> list[types.Tool]:
     """List available tools with structured output schemas."""
     return [
         types.Tool(
-            name="calculate",
-            description="Perform mathematical calculations",
+            name="get_weather",
+            description="Get current weather for a city",
             inputSchema={
                 "type": "object",
-                "properties": {"expression": {"type": "string", "description": "Math expression"}},
-                "required": ["expression"],
+                "properties": {"city": {"type": "string", "description": "City name"}},
+                "required": ["city"],
             },
             outputSchema={
                 "type": "object",
                 "properties": {
-                    "result": {"type": "number"},
-                    "expression": {"type": "string"},
+                    "temperature": {"type": "number", "description": "Temperature in Celsius"},
+                    "condition": {"type": "string", "description": "Weather condition"},
+                    "humidity": {"type": "number", "description": "Humidity percentage"},
+                    "city": {"type": "string", "description": "City name"},
                 },
-                "required": ["result", "expression"],
+                "required": ["temperature", "condition", "humidity", "city"],
             },
         )
     ]
@@ -1305,19 +1294,21 @@ async def list_tools() -> list[types.Tool]:
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Handle tool calls with structured output."""
-    if name == "calculate":
-        expression = arguments["expression"]
-        try:
-            # WARNING: eval() is dangerous! Use a safe math parser in production
-            result = eval(expression)
-            structured = {"result": result, "expression": expression}
+    if name == "get_weather":
+        city = arguments["city"]
 
-            # low-level server will validate structured output against the tool's
-            # output schema, and automatically serialize it into a TextContent block
-            # for backwards compatibility with pre-2025-06-18 clients.
-            return structured
-        except Exception as e:
-            raise ValueError(f"Calculation error: {str(e)}")
+        # Simulated weather data - in production, call a weather API
+        weather_data = {
+            "temperature": 22.5,
+            "condition": "partly cloudy",
+            "humidity": 65,
+            "city": city,  # Include the requested city
+        }
+
+        # low-level server will validate structured output against the tool's
+        # output schema, and additionally serialize it into a TextContent block
+        # for backwards compatibility with pre-2025-06-18 clients.
+        return weather_data
     else:
         raise ValueError(f"Unknown tool: {name}")
 

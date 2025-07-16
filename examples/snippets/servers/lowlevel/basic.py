@@ -1,10 +1,6 @@
-"""Basic low-level server example.
-
-This example demonstrates the low-level server API with minimal setup,
-showing how to implement basic prompts using the raw protocol handlers.
-
+"""
 Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/basic.py
+uv run examples/snippets/servers/lowlevel/basic.py
 """
 
 import asyncio
@@ -36,7 +32,7 @@ async def handle_get_prompt(name: str, arguments: dict[str, str] | None) -> type
     if name != "example-prompt":
         raise ValueError(f"Unknown prompt: {name}")
 
-    arg1_value = arguments.get("arg1", "default") if arguments else "default"
+    arg1_value = (arguments or {}).get("arg1", "default")
 
     return types.GetPromptResult(
         description="Example prompt",
