@@ -6,6 +6,9 @@ Write-Host "Running test_stdio_context_manager_exiting 200 times to detect flaki
 Write-Host "Test: tests/client/test_stdio.py::test_stdio_context_manager_exiting" -ForegroundColor Yellow
 Write-Host ""
 
+# Disable pytest plugin autoload to avoid xdist issues
+$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = ""
+
 $startTime = Get-Date
 $count = 0
 $failures = 0
@@ -14,7 +17,10 @@ $failedRuns = @()
 for ($i = 1; $i -le 200; $i++) {
     Write-Host "Run $i of 200..." -NoNewline
     
-    $output = uv run --frozen pytest tests/client/test_stdio.py::test_stdio_context_manager_exiting -xvs -n 0 2>&1
+    $output = & {
+        $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = ""
+        uv run --frozen pytest tests/client/test_stdio.py::test_stdio_context_manager_exiting -xvs --no-cov -p no:xdist 2>&1
+    }
     $exitCode = $LASTEXITCODE
     
     if ($exitCode -ne 0) {
@@ -42,3 +48,6 @@ if ($failures -gt 0) {
 }
 Write-Host "Duration: $($duration.ToString())"
 Write-Host "Failure rate: $([math]::Round(($failures / 200) * 100, 2))%"
+
+# Clean up environment variable
+Remove-Item Env:PYTEST_DISABLE_PLUGIN_AUTOLOAD -ErrorAction SilentlyContinue

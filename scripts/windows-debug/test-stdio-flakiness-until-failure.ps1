@@ -7,6 +7,9 @@ Write-Host "Test: tests/client/test_stdio.py::test_stdio_context_manager_exiting
 Write-Host "Press Ctrl+C to stop" -ForegroundColor Gray
 Write-Host ""
 
+# Disable pytest plugin autoload to avoid xdist issues
+$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = ""
+
 $startTime = Get-Date
 $i = 0
 
@@ -14,7 +17,10 @@ while ($true) {
     $i++
     Write-Host "Run $i..." -NoNewline
     
-    $output = uv run --frozen pytest tests/client/test_stdio.py::test_stdio_context_manager_exiting -xvs -n 0 2>&1
+    $output = & {
+        $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = ""
+        uv run --frozen pytest tests/client/test_stdio.py::test_stdio_context_manager_exiting -xvs --no-cov -p no:xdist 2>&1
+    }
     $exitCode = $LASTEXITCODE
     
     if ($exitCode -ne 0) {
@@ -40,3 +46,6 @@ while ($true) {
 
 Write-Host ""
 Write-Host "Exiting after failure detection." -ForegroundColor Cyan
+
+# Clean up environment variable
+Remove-Item Env:PYTEST_DISABLE_PLUGIN_AUTOLOAD -ErrorAction SilentlyContinue
