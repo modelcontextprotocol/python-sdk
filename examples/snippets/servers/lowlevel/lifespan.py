@@ -1,9 +1,4 @@
-"""Low-level server example showing lifespan management.
-
-This example demonstrates how to use the lifespan API to manage
-server startup and shutdown, including resource initialization
-and cleanup.
-
+"""
 Run from the repository root:
     uv run examples/snippets/servers/lowlevel/lifespan.py
 """
