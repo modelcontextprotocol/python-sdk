@@ -902,22 +902,23 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/servers/streamable_config.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_config.py)_
 <!-- /snippet-source -->
 
-You can mount multiple FastMCP servers in a FastAPI application:
+You can mount multiple FastMCP servers in a Starlette application:
 
-<!-- snippet-source examples/snippets/servers/streamable_fastapi_mount.py -->
+<!-- snippet-source examples/snippets/servers/streamable_starlette_mount.py -->
 ```python
-"""Example of mounting multiple FastMCP servers in a FastAPI application.
+"""Example of mounting multiple FastMCP servers in a Starlette application.
 
 This example shows how to create multiple MCP servers and mount them
-at different endpoints in a single FastAPI application.
+at different endpoints in a single Starlette application.
 
 Run from the repository root:
-    uvicorn examples.snippets.servers.streamable_fastapi_mount:app --reload
+    uvicorn examples.snippets.servers.streamable_starlette_mount:app --reload
 """
 
 import contextlib
 
-from fastapi import FastAPI
+from starlette.applications import Starlette
+from starlette.routing import Mount
 
 from mcp.server.fastmcp import FastMCP
 
@@ -943,20 +944,24 @@ def add_two(n: int) -> int:
 
 # Create a combined lifespan to manage both session managers
 @contextlib.asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app):
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(echo_mcp.session_manager.run())
         await stack.enter_async_context(math_mcp.session_manager.run())
         yield
 
 
-# Create the FastAPI app and mount the MCP servers
-app = FastAPI(lifespan=lifespan)
-app.mount("/echo", echo_mcp.streamable_http_app())
-app.mount("/math", math_mcp.streamable_http_app())
+# Create the Starlette app and mount the MCP servers
+app = Starlette(
+    routes=[
+        Mount("/echo", echo_mcp.streamable_http_app()),
+        Mount("/math", math_mcp.streamable_http_app()),
+    ],
+    lifespan=lifespan,
+)
 ```
 
-_Full example: [examples/snippets/servers/streamable_fastapi_mount.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_fastapi_mount.py)_
+_Full example: [examples/snippets/servers/streamable_starlette_mount.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_starlette_mount.py)_
 <!-- /snippet-source -->
 
 For low level server with Streamable HTTP implementations, see:

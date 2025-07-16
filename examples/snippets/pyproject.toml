@@ -5,7 +5,6 @@ description = "MCP Example Snippets"
 requires-python = ">=3.10"
 dependencies = [
     "mcp",
-    "fastapi",
 ]
 
 [build-system]
