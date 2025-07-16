@@ -37,12 +37,6 @@ uv run pytest
 uv run pyright
 ```
 
-Note: The `examples/snippets` directory has its own pyright configuration and is checked separately by pre-commit. If you're modifying examples in that directory, you can test locally with:
-
-```bash
-cd examples/snippets && uv run pyright
-```
-
 6. Run linting:
 
 ```bash
