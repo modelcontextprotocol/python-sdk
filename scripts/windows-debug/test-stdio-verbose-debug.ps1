@@ -20,6 +20,7 @@ Write-Host ""
 uv run --frozen pytest `
     tests/client/test_stdio.py::test_stdio_context_manager_exiting `
     -xvs `
+    -n 0 `
     --log-cli-level=DEBUG `
     --log-cli-format="%(asctime)s [%(levelname)s] %(name)s: %(message)s" `
     --capture=no `

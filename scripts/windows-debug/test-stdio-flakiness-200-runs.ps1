@@ -14,7 +14,7 @@ $failedRuns = @()
 for ($i = 1; $i -le 200; $i++) {
     Write-Host "Run $i of 200..." -NoNewline
     
-    $output = uv run --frozen pytest tests/client/test_stdio.py::test_stdio_context_manager_exiting -xvs 2>&1
+    $output = uv run --frozen pytest tests/client/test_stdio.py::test_stdio_context_manager_exiting -xvs -n 0 2>&1
     $exitCode = $LASTEXITCODE
     
     if ($exitCode -ne 0) {
@@ -35,7 +35,7 @@ $duration = $endTime - $startTime
 Write-Host ""
 Write-Host "========== SUMMARY ==========" -ForegroundColor Cyan
 Write-Host "Total runs: 200"
-Write-Host "Successful runs: $($count - $failures)" -ForegroundColor Green
+Write-Host "Successful runs: $(200 - $failures)" -ForegroundColor Green
 Write-Host "Failed runs: $failures" -ForegroundColor Red
 if ($failures -gt 0) {
     Write-Host "Failed on runs: $($failedRuns -join ', ')" -ForegroundColor Red

@@ -14,7 +14,7 @@ while ($true) {
     $i++
     Write-Host "Run $i..." -NoNewline
     
-    $output = uv run --frozen pytest tests/client/test_stdio.py::test_stdio_context_manager_exiting -xvs 2>&1
+    $output = uv run --frozen pytest tests/client/test_stdio.py::test_stdio_context_manager_exiting -xvs -n 0 2>&1
     $exitCode = $LASTEXITCODE
     
     if ($exitCode -ne 0) {
