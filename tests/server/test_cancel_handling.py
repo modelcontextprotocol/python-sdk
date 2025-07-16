@@ -7,7 +7,7 @@ import pytest
 
 import mcp.types as types
 from mcp.server.lowlevel.server import Server
-from mcp.types import PingRequest, ServerResult
+from mcp.types import PingRequest
 
 
 # Shared mock class
