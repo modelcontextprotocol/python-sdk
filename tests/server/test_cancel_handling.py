@@ -28,7 +28,7 @@ class MockRequestResponder:
 
     def cancel(self):
         """Simulate the cancel() method sending an error response."""
-        asyncio.create_task(self.send(ServerResult(error=types.ErrorData(code=-32800, message="Request cancelled"))))
+        asyncio.create_task(self.send(types.ErrorData(code=-32800, message="Request cancelled")))
 
 
 @pytest.mark.anyio
@@ -67,7 +67,7 @@ async def test_cancelled_request_no_double_response():
 
     # Start the request
     handle_task = asyncio.create_task(
-        server._handle_request(mock_message, mock_req, mock_session, mock_context, raise_exceptions=False)
+        server._handle_request(mock_message, mock_req, mock_session, mock_context, raise_exceptions=False)  # type: ignore
     )
 
     # Give it time to start
@@ -112,7 +112,7 @@ async def test_server_remains_functional_after_cancel():
     mock_req1 = PingRequest(method="ping", params={})
 
     handle_task = asyncio.create_task(
-        server._handle_request(mock_message1, mock_req1, MagicMock(), None, raise_exceptions=False)
+        server._handle_request(mock_message1, mock_req1, MagicMock(), None, raise_exceptions=False)  # type: ignore
     )
 
     await asyncio.sleep(0.1)
@@ -132,7 +132,7 @@ async def test_server_remains_functional_after_cancel():
     mock_req2 = PingRequest(method="ping", params={})
 
     # This should complete successfully
-    await server._handle_request(mock_message2, mock_req2, MagicMock(), None, raise_exceptions=False)
+    await server._handle_request(mock_message2, mock_req2, MagicMock(), None, raise_exceptions=False)  # type: ignore
 
     # Server handled the second request successfully
     assert mock_message2._responded
