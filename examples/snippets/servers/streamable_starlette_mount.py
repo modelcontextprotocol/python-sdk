@@ -1,8 +1,4 @@
-"""Example of mounting multiple FastMCP servers in a Starlette application.
-
-This example shows how to create multiple MCP servers and mount them
-at different endpoints in a single Starlette application.
-
+"""
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_starlette_mount:app --reload
 """

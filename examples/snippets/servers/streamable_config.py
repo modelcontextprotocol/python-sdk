@@ -1,8 +1,4 @@
-"""Streamable HTTP server configuration examples.
-
-This example shows different configuration options for
-streamable HTTP servers.
-
+"""
 Run from the repository root:
     uv run examples/snippets/servers/streamable_config.py
 """

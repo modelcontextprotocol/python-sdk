@@ -1,8 +1,4 @@
-"""Basic streamable HTTP client example.
-
-This example shows the minimal code needed to connect to
-a streamable HTTP server and call a tool.
-
+"""
 Run from the repository root:
     uv run examples/snippets/clients/streamable_basic.py
 """

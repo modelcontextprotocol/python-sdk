@@ -1,6 +1,4 @@
-"""MCP client example using stdio transport.
-
-This is a documentation example showing how to write an MCP client.
+"""
 cd to the `examples/snippets/clients` directory and run:
     uv run client
 """

@@ -532,9 +532,7 @@ Client usage:
 
 <!-- snippet-source examples/snippets/clients/completion_client.py -->
 ```python
-"""MCP client example showing completion usage.
-
-This example demonstrates how to use the completion feature in MCP clients.
+"""
 cd to the `examples/snippets` directory and run:
     uv run completion-client
 """
@@ -865,11 +863,7 @@ Note that `uv run mcp run` or `uv run mcp dev` only supports server using FastMC
 
 <!-- snippet-source examples/snippets/servers/streamable_config.py -->
 ```python
-"""Streamable HTTP server configuration examples.
-
-This example shows different configuration options for
-streamable HTTP servers.
-
+"""
 Run from the repository root:
     uv run examples/snippets/servers/streamable_config.py
 """
@@ -906,11 +900,7 @@ You can mount multiple FastMCP servers in a Starlette application:
 
 <!-- snippet-source examples/snippets/servers/streamable_starlette_mount.py -->
 ```python
-"""Example of mounting multiple FastMCP servers in a Starlette application.
-
-This example shows how to create multiple MCP servers and mount them
-at different endpoints in a single Starlette application.
-
+"""
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_starlette_mount:app --reload
 """
@@ -1351,9 +1341,7 @@ The SDK provides a high-level client interface for connecting to MCP servers usi
 
 <!-- snippet-source examples/snippets/clients/stdio_client.py -->
 ```python
-"""MCP client example using stdio transport.
-
-This is a documentation example showing how to write an MCP client.
+"""
 cd to the `examples/snippets/clients` directory and run:
     uv run client
 """
@@ -1445,11 +1433,7 @@ Clients can also connect using [Streamable HTTP transport](https://modelcontextp
 
 <!-- snippet-source examples/snippets/clients/streamable_basic.py -->
 ```python
-"""Basic streamable HTTP client example.
-
-This example shows the minimal code needed to connect to
-a streamable HTTP server and call a tool.
-
+"""
 Run from the repository root:
     uv run examples/snippets/clients/streamable_basic.py
 """
@@ -1489,11 +1473,7 @@ When building MCP clients, the SDK provides utilities to help display human-read
 
 <!-- snippet-source examples/snippets/clients/display_utilities.py -->
 ```python
-"""Client display utilities example.
-
-This example shows how to use the SDK's display utilities to show
-human-readable names for tools, resources, and prompts.
-
+"""
 cd to the `examples/snippets` directory and run:
     uv run display-utilities-client
 """
