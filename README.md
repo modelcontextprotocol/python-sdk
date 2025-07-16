@@ -1037,17 +1037,44 @@ For more information on mounting applications in Starlette, see the [Starlette d
 
 For more control, you can use the low-level server implementation directly. This gives you full access to the protocol and allows you to customize every aspect of your server, including lifecycle management through the lifespan API:
 
+<!-- snippet-source examples/snippets/servers/lowlevel/lifespan.py -->
 ```python
-from contextlib import asynccontextmanager
+"""
+Run from the repository root:
+    uv run examples/snippets/servers/lowlevel/lifespan.py
+"""
+
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-from fake_database import Database  # Replace with your actual DB type
+import mcp.server.stdio
+import mcp.types as types
+from mcp.server.lowlevel import NotificationOptions, Server
+from mcp.server.models import InitializationOptions
 
-from mcp.server import Server
+
+# Mock database class for example
+class Database:
+    """Mock database class for example."""
+
+    @classmethod
+    async def connect(cls) -> "Database":
+        """Connect to database."""
+        print("Database connected")
+        return cls()
+
+    async def disconnect(self) -> None:
+        """Disconnect from database."""
+        print("Database disconnected")
+
+    async def query(self, query_str: str) -> list[dict[str, str]]:
+        """Execute a query."""
+        # Simulate database query
+        return [{"id": "1", "name": "Example", "query": query_str}]
 
 
 @asynccontextmanager
-async def server_lifespan(server: Server) -> AsyncIterator[dict]:
+async def server_lifespan(_server: Server) -> AsyncIterator[dict]:
     """Manage server startup and shutdown lifecycle."""
     # Initialize resources on startup
     db = await Database.connect()
@@ -1062,13 +1089,63 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 server = Server("example-server", lifespan=server_lifespan)
 
 
-# Access lifespan context in handlers
+@server.list_tools()
+async def handle_list_tools() -> list[types.Tool]:
+    """List available tools."""
+    return [
+        types.Tool(
+            name="query_db",
+            description="Query the database",
+            inputSchema={
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "SQL query to execute"}},
+                "required": ["query"],
+            },
+        )
+    ]
+
+
 @server.call_tool()
-async def query_db(name: str, arguments: dict) -> list:
+async def query_db(name: str, arguments: dict) -> list[types.TextContent]:
+    """Handle database query tool call."""
+    if name != "query_db":
+        raise ValueError(f"Unknown tool: {name}")
+
+    # Access lifespan context
     ctx = server.request_context
     db = ctx.lifespan_context["db"]
-    return await db.query(arguments["query"])
+
+    # Execute query
+    results = await db.query(arguments["query"])
+
+    return [types.TextContent(type="text", text=f"Query results: {results}")]
+
+
+async def run():
+    """Run the server with lifespan management."""
+    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+        await server.run(
+            read_stream,
+            write_stream,
+            InitializationOptions(
+                server_name="example-server",
+                server_version="0.1.0",
+                capabilities=server.get_capabilities(
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={},
+                ),
+            ),
+        )
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(run())
 ```
+
+_Full example: [examples/snippets/servers/lowlevel/lifespan.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/lifespan.py)_
+<!-- /snippet-source -->
 
 The lifespan API provides:
 
@@ -1076,7 +1153,15 @@ The lifespan API provides:
 - Access to initialized resources through the request context in handlers
 - Type-safe context passing between lifespan and request handlers
 
+<!-- snippet-source examples/snippets/servers/lowlevel/basic.py -->
 ```python
+"""
+Run from the repository root:
+uv run examples/snippets/servers/lowlevel/basic.py
+"""
+
+import asyncio
+
 import mcp.server.stdio
 import mcp.types as types
 from mcp.server.lowlevel import NotificationOptions, Server
@@ -1088,38 +1173,37 @@ server = Server("example-server")
 
 @server.list_prompts()
 async def handle_list_prompts() -> list[types.Prompt]:
+    """List available prompts."""
     return [
         types.Prompt(
             name="example-prompt",
             description="An example prompt template",
-            arguments=[
-                types.PromptArgument(
-                    name="arg1", description="Example argument", required=True
-                )
-            ],
+            arguments=[types.PromptArgument(name="arg1", description="Example argument", required=True)],
         )
     ]
 
 
 @server.get_prompt()
-async def handle_get_prompt(
-    name: str, arguments: dict[str, str] | None
-) -> types.GetPromptResult:
+async def handle_get_prompt(name: str, arguments: dict[str, str] | None) -> types.GetPromptResult:
+    """Get a specific prompt by name."""
     if name != "example-prompt":
         raise ValueError(f"Unknown prompt: {name}")
+
+    arg1_value = (arguments or {}).get("arg1", "default")
 
     return types.GetPromptResult(
         description="Example prompt",
         messages=[
             types.PromptMessage(
                 role="user",
-                content=types.TextContent(type="text", text="Example prompt text"),
+                content=types.TextContent(type="text", text=f"Example prompt text with argument: {arg1_value}"),
             )
         ],
     )
 
 
 async def run():
+    """Run the basic low-level server."""
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,
@@ -1136,10 +1220,11 @@ async def run():
 
 
 if __name__ == "__main__":
-    import asyncio
-
     asyncio.run(run())
 ```
+
+_Full example: [examples/snippets/servers/lowlevel/basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/basic.py)_
+<!-- /snippet-source -->
 
 Caution: The `uv run mcp run` and `uv run mcp dev` tool doesn't support low-level server.
 
@@ -1147,35 +1232,45 @@ Caution: The `uv run mcp run` and `uv run mcp dev` tool doesn't support low-leve
 
 The low-level server supports structured output for tools, allowing you to return both human-readable content and machine-readable structured data. Tools can define an `outputSchema` to validate their structured output:
 
+<!-- snippet-source examples/snippets/servers/lowlevel/structured_output.py -->
 ```python
-from types import Any
+"""
+Run from the repository root:
+    uv run examples/snippets/servers/lowlevel/structured_output.py
+"""
 
+import asyncio
+from typing import Any
+
+import mcp.server.stdio
 import mcp.types as types
-from mcp.server.lowlevel import Server
+from mcp.server.lowlevel import NotificationOptions, Server
+from mcp.server.models import InitializationOptions
 
 server = Server("example-server")
 
 
 @server.list_tools()
 async def list_tools() -> list[types.Tool]:
+    """List available tools with structured output schemas."""
     return [
         types.Tool(
-            name="calculate",
-            description="Perform mathematical calculations",
+            name="get_weather",
+            description="Get current weather for a city",
             inputSchema={
                 "type": "object",
-                "properties": {
-                    "expression": {"type": "string", "description": "Math expression"}
-                },
-                "required": ["expression"],
+                "properties": {"city": {"type": "string", "description": "City name"}},
+                "required": ["city"],
             },
             outputSchema={
                 "type": "object",
                 "properties": {
-                    "result": {"type": "number"},
-                    "expression": {"type": "string"},
+                    "temperature": {"type": "number", "description": "Temperature in Celsius"},
+                    "condition": {"type": "string", "description": "Weather condition"},
+                    "humidity": {"type": "number", "description": "Humidity percentage"},
+                    "city": {"type": "string", "description": "City name"},
                 },
-                "required": ["result", "expression"],
+                "required": ["temperature", "condition", "humidity", "city"],
             },
         )
     ]
@@ -1183,19 +1278,49 @@ async def list_tools() -> list[types.Tool]:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    if name == "calculate":
-        expression = arguments["expression"]
-        try:
-            result = eval(expression)  # Use a safe math parser
-            structured = {"result": result, "expression": expression}
+    """Handle tool calls with structured output."""
+    if name == "get_weather":
+        city = arguments["city"]
 
-            # low-level server will validate structured output against the tool's
-            # output schema, and automatically serialize it into a TextContent block
-            # for backwards compatibility with pre-2025-06-18 clients.
-            return structured
-        except Exception as e:
-            raise ValueError(f"Calculation error: {str(e)}")
+        # Simulated weather data - in production, call a weather API
+        weather_data = {
+            "temperature": 22.5,
+            "condition": "partly cloudy",
+            "humidity": 65,
+            "city": city,  # Include the requested city
+        }
+
+        # low-level server will validate structured output against the tool's
+        # output schema, and additionally serialize it into a TextContent block
+        # for backwards compatibility with pre-2025-06-18 clients.
+        return weather_data
+    else:
+        raise ValueError(f"Unknown tool: {name}")
+
+
+async def run():
+    """Run the structured output server."""
+    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+        await server.run(
+            read_stream,
+            write_stream,
+            InitializationOptions(
+                server_name="structured-output-example",
+                server_version="0.1.0",
+                capabilities=server.get_capabilities(
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={},
+                ),
+            ),
+        )
+
+
+if __name__ == "__main__":
+    asyncio.run(run())
 ```
+
+_Full example: [examples/snippets/servers/lowlevel/structured_output.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/structured_output.py)_
+<!-- /snippet-source -->
 
 Tools can return data in three ways:
 
