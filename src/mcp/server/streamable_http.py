@@ -15,6 +15,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from http import HTTPStatus
+from types import TracebackType
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -23,6 +24,7 @@ from sse_starlette import EventSourceResponse
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
+from typing_extensions import Self
 
 from mcp.server.transport_security import (
     TransportSecurityMiddleware,
@@ -140,6 +142,7 @@ class StreamableHTTPServerTransport:
         is_json_response_enabled: bool = False,
         event_store: EventStore | None = None,
         security_settings: TransportSecuritySettings | None = None,
+        timeout: float | None = None,
     ) -> None:
         """
         Initialize a new StreamableHTTP server transport.
@@ -153,6 +156,9 @@ class StreamableHTTPServerTransport:
                         resumability will be enabled, allowing clients to
                         reconnect and resume messages.
             security_settings: Optional security settings for DNS rebinding protection.
+            timeout: Optional idle timeout for transport. If provided, the transport will
+                     terminate if it remains idle for longer than the defined timeout
+                     duration in seconds.
 
         Raises:
             ValueError: If the session ID contains invalid characters.
@@ -172,6 +178,12 @@ class StreamableHTTPServerTransport:
             ],
         ] = {}
         self._terminated = False
+        self._timeout = timeout
+
+        # for idle detection
+        self._processing_request_count = 0
+        self._idle_condition = anyio.Condition()
+        self._has_request = False
 
     @property
     def is_terminated(self) -> bool:
@@ -626,6 +638,9 @@ class StreamableHTTPServerTransport:
         Once terminated, all requests with this session ID will receive 404 Not Found.
         """
 
+        if self._terminated:
+            return
+
         self._terminated = True
         logger.info(f"Terminating session: {self.mcp_session_id}")
 
@@ -796,6 +811,42 @@ class StreamableHTTPServerTransport:
             )
             await response(request.scope, request.receive, send)
 
+    async def __aenter__(self) -> Self:
+        async with self._idle_condition:
+            self._processing_request_count += 1
+            self._has_request = True
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        async with self._idle_condition:
+            self._processing_request_count -= 1
+            if self._processing_request_count == 0:
+                self._idle_condition.notify_all()
+
+    async def _idle_timeout_terminate(self, timeout: float) -> None:
+        """
+        Terminate the transport if it remains idle for longer than the defined timeout duration.
+        """
+        while not self._terminated:
+            # wait for transport to be idle
+            async with self._idle_condition:
+                if self._processing_request_count > 0:
+                    await self._idle_condition.wait()
+                self._has_request = False
+
+            # wait for idle timeout
+            await anyio.sleep(timeout)
+
+            # If there are no requests during the wait period, terminate the transport
+            if not self._has_request:
+                logger.debug(f"Terminating transport due to idle timeout: {self.mcp_session_id}")
+                await self.terminate()
+
     @asynccontextmanager
     async def connect(
         self,
@@ -811,6 +862,10 @@ class StreamableHTTPServerTransport:
         Yields:
             Tuple of (read_stream, write_stream) for bidirectional communication
         """
+
+        # Terminated transports should not be connected again
+        if self._terminated:
+            raise RuntimeError("Transport is terminated")
 
         # Create the memory streams for this connection
 
@@ -884,20 +939,13 @@ class StreamableHTTPServerTransport:
             # Start the message router
             tg.start_soon(message_router)
 
+            # Start idle timeout task if timeout is set
+            if self._timeout is not None:
+                tg.start_soon(self._idle_timeout_terminate, self._timeout)
+
             try:
                 # Yield the streams for the caller to use
                 yield read_stream, write_stream
             finally:
-                for stream_id in list(self._request_streams.keys()):
-                    await self._clean_up_memory_streams(stream_id)
-                self._request_streams.clear()
-
-                # Clean up the read and write streams
-                try:
-                    await read_stream_writer.aclose()
-                    await read_stream.aclose()
-                    await write_stream_reader.aclose()
-                    await write_stream.aclose()
-                except Exception as e:
-                    # During cleanup, we catch all exceptions since streams might be in various states
-                    logger.debug(f"Error closing streams: {e}")
+                # Terminate the transport when the context manager exits
+                await self.terminate()

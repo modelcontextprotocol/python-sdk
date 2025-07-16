@@ -260,3 +260,70 @@ async def test_stateless_requests_memory_cleanup():
 
             # Verify internal state is cleaned up
             assert len(transport._request_streams) == 0, "Transport should have no active request streams"
+
+
+@pytest.mark.anyio
+async def test_stateful_session_cleanup_on_idle_timeout():
+    """Test that stateful sessions are cleaned up when idle timeout with real transports and sessions."""
+    app = Server("test-stateful-idle-timeout")
+    manager = StreamableHTTPSessionManager(app=app, timeout=0.01)
+
+    created_transports: list[streamable_http_manager.StreamableHTTPServerTransport] = []
+
+    original_transport_constructor = streamable_http_manager.StreamableHTTPServerTransport
+
+    def track_transport(*args, **kwargs):
+        transport = original_transport_constructor(*args, **kwargs)
+        created_transports.append(transport)
+        return transport
+
+    with patch.object(streamable_http_manager, "StreamableHTTPServerTransport", side_effect=track_transport):
+        async with manager.run():
+            sent_messages = []
+
+            async def mock_send(message):
+                sent_messages.append(message)
+
+            scope = {
+                "type": "http",
+                "method": "POST",
+                "path": "/mcp",
+                "headers": [(b"content-type", b"application/json")],
+            }
+
+            async def mock_receive():
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+            # Trigger session creation
+            await manager.handle_request(scope, mock_receive, mock_send)
+
+            session_id = None
+            for msg in sent_messages:
+                if msg["type"] == "http.response.start":
+                    for header_name, header_value in msg.get("headers", []):
+                        if header_name.decode().lower() == MCP_SESSION_ID_HEADER.lower():
+                            session_id = header_value.decode()
+                            break
+                    if session_id:  # Break outer loop if session_id is found
+                        break
+
+            assert session_id is not None, "Session ID not found in response headers"
+
+            assert len(created_transports) == 1, "Should have created one transport"
+
+            transport = created_transports[0]
+
+            # the transport should not be terminated before idle timeout
+            assert not transport.is_terminated, "Transport should not be terminated before idle timeout"
+            assert session_id in manager._server_instances, (
+                "Session ID should be tracked in _server_instances before idle timeout"
+            )
+
+            # wait for idle timeout
+            await anyio.sleep(0.1)
+
+            assert transport.is_terminated, "Transport should be terminated after idle timeout"
+            assert session_id not in manager._server_instances, (
+                "Session ID should be removed from _server_instances after idle timeout"
+            )
+            assert not manager._server_instances, "No sessions should be tracked after the only session idle timeout"

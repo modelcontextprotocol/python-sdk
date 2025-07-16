@@ -52,6 +52,9 @@ class StreamableHTTPSessionManager:
         json_response: Whether to use JSON responses instead of SSE streams
         stateless: If True, creates a completely fresh transport for each request
                    with no session tracking or state persistence between requests.
+        timeout: Optional idle timeout for the stateful transport. If specified,
+                 the stateful transport will terminate if it remains idle for longer
+                 than the defined timeout duration in seconds.
     """
 
     def __init__(
@@ -60,12 +63,14 @@ class StreamableHTTPSessionManager:
         event_store: EventStore | None = None,
         json_response: bool = False,
         stateless: bool = False,
+        timeout: float | None = None,
         security_settings: TransportSecuritySettings | None = None,
     ):
         self.app = app
         self.event_store = event_store
         self.json_response = json_response
         self.stateless = stateless
+        self.timeout = timeout
         self.security_settings = security_settings
 
         # Session tracking (only used if not stateless)
@@ -187,11 +192,12 @@ class StreamableHTTPSessionManager:
         # Start the server task
         await self._task_group.start(run_stateless_server)
 
-        # Handle the HTTP request and return the response
-        await http_transport.handle_request(scope, receive, send)
-
-        # Terminate the transport after the request is handled
-        await http_transport.terminate()
+        try:
+            # Handle the HTTP request and return the response
+            await http_transport.handle_request(scope, receive, send)
+        finally:
+            # Terminate the transport after the request is handled
+            await http_transport.terminate()
 
     async def _handle_stateful_request(
         self,
@@ -214,7 +220,8 @@ class StreamableHTTPSessionManager:
         if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:
             transport = self._server_instances[request_mcp_session_id]
             logger.debug("Session already exists, handling request directly")
-            await transport.handle_request(scope, receive, send)
+            async with transport:
+                await transport.handle_request(scope, receive, send)
             return
 
         if request_mcp_session_id is None:
@@ -227,6 +234,7 @@ class StreamableHTTPSessionManager:
                     is_json_response_enabled=self.json_response,
                     event_store=self.event_store,  # May be None (no resumability)
                     security_settings=self.security_settings,
+                    timeout=self.timeout,
                 )
 
                 assert http_transport.mcp_session_id is not None
@@ -251,11 +259,11 @@ class StreamableHTTPSessionManager:
                                 exc_info=True,
                             )
                         finally:
-                            # Only remove from instances if not terminated
+                            # remove from instances, we do not need to terminate the transport
+                            # as it will be terminated when the context manager exits
                             if (
                                 http_transport.mcp_session_id
                                 and http_transport.mcp_session_id in self._server_instances
-                                and not http_transport.is_terminated
                             ):
                                 logger.info(
                                     "Cleaning up crashed session "
@@ -270,11 +278,13 @@ class StreamableHTTPSessionManager:
                 await self._task_group.start(run_server)
 
                 # Handle the HTTP request and return the response
-                await http_transport.handle_request(scope, receive, send)
+                async with http_transport:
+                    await http_transport.handle_request(scope, receive, send)
         else:
-            # Invalid session ID
+            # Client may send a outdated session ID
+            # We should return 404 to notify the client to start a new session
             response = Response(
-                "Bad Request: No valid session ID provided",
-                status_code=HTTPStatus.BAD_REQUEST,
+                "Not Found: Session has been terminated",
+                status_code=HTTPStatus.NOT_FOUND,
             )
             await response(scope, receive, send)
