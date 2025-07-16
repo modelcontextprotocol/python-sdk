@@ -31,7 +31,7 @@ class MockRequestResponder:
         asyncio.create_task(self.send(ServerResult(error=types.ErrorData(code=-32800, message="Request cancelled"))))
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_cancelled_request_no_double_response():
     """Verify server handles cancelled requests without double response."""
 
@@ -90,7 +90,7 @@ async def test_cancelled_request_no_double_response():
     assert response_count == 1, f"Expected 1 response, got {response_count}"
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_server_remains_functional_after_cancel():
     """Verify server can handle new requests after a cancellation."""
 
