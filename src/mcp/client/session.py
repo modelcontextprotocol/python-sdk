@@ -184,7 +184,7 @@ class ClientSession(
                 timeout = self._session_read_timeout_seconds.total_seconds()
 
             await self.send_request(
-                request=PingRequest(method="ping"),  # type: ignore
+                request=types.PingRequest(method="ping"),  # type: ignore
                 result_type=types.EmptyResult,
                 request_read_timeout_seconds=None if timeout is None else timedelta(seconds=timeout),
                 metadata=metadata,
