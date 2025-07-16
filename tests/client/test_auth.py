@@ -430,7 +430,7 @@ class TestOAuthFallback:
     @pytest.mark.anyio
     async def test_register_client_with_provider_initial_access_token(self, client_metadata, mock_storage):
         """Test client registration with provider method initial access token."""
-        
+
         class CustomOAuthProvider(OAuthClientProvider):
             async def initial_access_token(self) -> str | None:
                 return "provider-token"
@@ -460,7 +460,7 @@ class TestOAuthFallback:
     @pytest.mark.anyio
     async def test_register_client_explicit_overrides_provider(self, client_metadata, mock_storage):
         """Test explicit initial access token overrides provider method."""
-        
+
         class CustomOAuthProvider(OAuthClientProvider):
             async def initial_access_token(self) -> str | None:
                 return "provider-token"
@@ -511,7 +511,7 @@ class TestOAuthFallback:
     @pytest.mark.anyio
     async def test_initial_access_token_constructor_parameter(self, client_metadata, mock_storage):
         """Test OAuthClientProvider with initial access token constructor parameter."""
-        
+
         async def redirect_handler(url: str) -> None:
             pass
 

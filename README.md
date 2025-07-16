@@ -1497,6 +1497,7 @@ class CustomOAuthProvider(OAuthClientProvider):
 ```
 
 The fallback order is:
+
 1. Explicit `initial_access_token` parameter
 2. Provider's `initial_access_token()` method
 3. `OAUTH_INITIAL_ACCESS_TOKEN` environment variable

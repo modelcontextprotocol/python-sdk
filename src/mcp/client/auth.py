@@ -323,10 +323,10 @@ class OAuthClientProvider(httpx.Auth):
 
     async def _register_client(self, initial_access_token: str | None = None) -> httpx.Request | None:
         """Build registration request or skip if already registered.
-        
+
         Supports initial access tokens for OAuth 2.0 Dynamic Client Registration according to RFC 7591.
         Uses multi-level fallback approach:
-        
+
         1. Explicit parameter (highest priority)
         2. Provider's initial_access_token() method
         3. OAUTH_INITIAL_ACCESS_TOKEN environment variable
@@ -541,7 +541,7 @@ class OAuthClientProvider(httpx.Auth):
         # Return constructor parameter if available
         if self._initial_access_token:
             return self._initial_access_token
-        
+
         # Subclasses can override this method to provide tokens from other sources
         return None
 
