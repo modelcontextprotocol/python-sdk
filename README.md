@@ -1452,6 +1452,8 @@ async def main():
         storage=CustomTokenStorage(),
         redirect_handler=lambda url: print(f"Visit: {url}"),
         callback_handler=lambda: ("auth_code", None),
+        # Optional: Initial access token for RFC 7591 Dynamic Client Registration
+        initial_access_token="your-initial-access-token",
     )
 
     # Use with streamable HTTP client
@@ -1464,6 +1466,41 @@ async def main():
 ```
 
 For a complete working example, see [`examples/clients/simple-auth-client/`](examples/clients/simple-auth-client/).
+
+#### Initial Access Tokens
+
+The SDK supports RFC 7591 Dynamic Client Registration with initial access tokens. This feature provides a multi-level fallback system for obtaining initial access tokens:
+
+```python
+# Method 1: Explicit parameter (highest priority)
+oauth_auth = OAuthClientProvider(
+    server_url="https://api.example.com",
+    client_metadata=client_metadata,
+    storage=storage,
+    redirect_handler=redirect_handler,
+    callback_handler=callback_handler,
+    initial_access_token="your-token",
+)
+
+# Method 2: Provider method override
+class CustomOAuthProvider(OAuthClientProvider):
+    async def initial_access_token(self) -> str | None:
+        # Custom logic to retrieve token
+        return await get_token_from_secure_store()
+
+# Method 3: Environment variable fallback
+# Set OAUTH_INITIAL_ACCESS_TOKEN environment variable
+# The SDK will automatically use this if no other method provides a token
+
+# Method 4: No token (default behavior)
+# Client registration will proceed without initial access token
+```
+
+The fallback order is:
+1. Explicit `initial_access_token` parameter
+2. Provider's `initial_access_token()` method
+3. `OAUTH_INITIAL_ACCESS_TOKEN` environment variable
+4. No token (proceeds with standard registration)
 
 ### MCP Primitives
 

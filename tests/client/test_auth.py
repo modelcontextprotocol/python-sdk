@@ -417,6 +417,124 @@ class TestOAuthFallback:
         assert request is None
 
     @pytest.mark.anyio
+    async def test_register_client_with_explicit_initial_access_token(self, oauth_provider):
+        """Test client registration with explicit initial access token (highest priority)."""
+        request = await oauth_provider._register_client(initial_access_token="explicit-token")
+
+        assert request is not None
+        assert request.method == "POST"
+        assert str(request.url) == "https://api.example.com/register"
+        assert request.headers["Content-Type"] == "application/json"
+        assert request.headers["Authorization"] == "Bearer explicit-token"
+
+    @pytest.mark.anyio
+    async def test_register_client_with_provider_initial_access_token(self, client_metadata, mock_storage):
+        """Test client registration with provider method initial access token."""
+        
+        class CustomOAuthProvider(OAuthClientProvider):
+            async def initial_access_token(self) -> str | None:
+                return "provider-token"
+
+        async def redirect_handler(url: str) -> None:
+            pass
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"
+
+        provider = CustomOAuthProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        request = await provider._register_client()
+
+        assert request is not None
+        assert request.method == "POST"
+        assert str(request.url) == "https://api.example.com/register"
+        assert request.headers["Content-Type"] == "application/json"
+        assert request.headers["Authorization"] == "Bearer provider-token"
+
+    @pytest.mark.anyio
+    async def test_register_client_explicit_overrides_provider(self, client_metadata, mock_storage):
+        """Test explicit initial access token overrides provider method."""
+        
+        class CustomOAuthProvider(OAuthClientProvider):
+            async def initial_access_token(self) -> str | None:
+                return "provider-token"
+
+        async def redirect_handler(url: str) -> None:
+            pass
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"
+
+        provider = CustomOAuthProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        request = await provider._register_client(initial_access_token="explicit-token")
+
+        assert request is not None
+        assert request.headers["Authorization"] == "Bearer explicit-token"
+
+    @pytest.mark.anyio
+    async def test_register_client_with_environment_variable(self, oauth_provider, monkeypatch):
+        """Test client registration with environment variable initial access token."""
+        monkeypatch.setenv("OAUTH_INITIAL_ACCESS_TOKEN", "env-token")
+
+        request = await oauth_provider._register_client()
+
+        assert request is not None
+        assert request.method == "POST"
+        assert str(request.url) == "https://api.example.com/register"
+        assert request.headers["Content-Type"] == "application/json"
+        assert request.headers["Authorization"] == "Bearer env-token"
+
+    @pytest.mark.anyio
+    async def test_register_client_without_initial_access_token(self, oauth_provider):
+        """Test client registration without initial access token (backward compatibility)."""
+        request = await oauth_provider._register_client()
+
+        assert request is not None
+        assert request.method == "POST"
+        assert str(request.url) == "https://api.example.com/register"
+        assert request.headers["Content-Type"] == "application/json"
+        assert "Authorization" not in request.headers
+
+    @pytest.mark.anyio
+    async def test_initial_access_token_constructor_parameter(self, client_metadata, mock_storage):
+        """Test OAuthClientProvider with initial access token constructor parameter."""
+        
+        async def redirect_handler(url: str) -> None:
+            pass
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+            initial_access_token="constructor-token",
+        )
+
+        token = await provider.initial_access_token()
+        assert token == "constructor-token"
+
+        request = await provider._register_client()
+        assert request is not None
+        assert request.headers["Authorization"] == "Bearer constructor-token"
+
+    @pytest.mark.anyio
     async def test_token_exchange_request(self, oauth_provider):
         """Test token exchange request building."""
         # Set up required context

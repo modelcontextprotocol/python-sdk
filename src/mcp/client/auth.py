@@ -7,6 +7,7 @@ Implements authorization code flow with PKCE and automatic token refresh.
 import base64
 import hashlib
 import logging
+import os
 import re
 import secrets
 import string
@@ -192,6 +193,7 @@ class OAuthClientProvider(httpx.Auth):
         redirect_handler: Callable[[str], Awaitable[None]],
         callback_handler: Callable[[], Awaitable[tuple[str, str | None]]],
         timeout: float = 300.0,
+        initial_access_token: str | None = None,
     ):
         """Initialize OAuth2 authentication."""
         self.context = OAuthContext(
@@ -203,6 +205,7 @@ class OAuthClientProvider(httpx.Auth):
             timeout=timeout,
         )
         self._initialized = False
+        self._initial_access_token = initial_access_token
 
     def _extract_resource_metadata_from_www_auth(self, init_response: httpx.Response) -> str | None:
         """
@@ -318,8 +321,17 @@ class OAuthClientProvider(httpx.Auth):
 
         return True  # Signal no fallback needed (either success or non-404 error)
 
-    async def _register_client(self) -> httpx.Request | None:
-        """Build registration request or skip if already registered."""
+    async def _register_client(self, initial_access_token: str | None = None) -> httpx.Request | None:
+        """Build registration request or skip if already registered.
+        
+        Supports initial access tokens for OAuth 2.0 Dynamic Client Registration according to RFC 7591.
+        Uses multi-level fallback approach:
+        
+        1. Explicit parameter (highest priority)
+        2. Provider's initial_access_token() method
+        3. OAUTH_INITIAL_ACCESS_TOKEN environment variable
+        4. None (existing behavior for servers that don't require pre-authorization)
+        """
         if self.context.client_info:
             return None
 
@@ -329,11 +341,29 @@ class OAuthClientProvider(httpx.Auth):
             auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             registration_url = urljoin(auth_base_url, "/register")
 
+        # Multi-level fallback for initial access token
+        # Level 1: Explicit parameter
+        token = initial_access_token
+
+        # Level 2: Provider method
+        if not token:
+            token = await self.initial_access_token()
+
+        # Level 3: Environment variable
+        if not token:
+            token = os.getenv("OAUTH_INITIAL_ACCESS_TOKEN")
+
+        # Level 4: None (current behavior) - no token needed
+
         registration_data = self.context.client_metadata.model_dump(by_alias=True, mode="json", exclude_none=True)
 
-        return httpx.Request(
-            "POST", registration_url, json=registration_data, headers={"Content-Type": "application/json"}
-        )
+        headers = {"Content-Type": "application/json"}
+
+        # Add initial access token if available (RFC 7591)
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        return httpx.Request("POST", registration_url, json=registration_data, headers=headers)
 
     async def _handle_registration_response(self, response: httpx.Response) -> None:
         """Handle registration response."""
@@ -505,6 +535,15 @@ class OAuthClientProvider(httpx.Auth):
         self.context.current_tokens = await self.context.storage.get_tokens()
         self.context.client_info = await self.context.storage.get_client_info()
         self._initialized = True
+
+    async def initial_access_token(self) -> str | None:
+        """Provide initial access token for OAuth 2.0 Dynamic Client Registration (RFC 7591)."""
+        # Return constructor parameter if available
+        if self._initial_access_token:
+            return self._initial_access_token
+        
+        # Subclasses can override this method to provide tokens from other sources
+        return None
 
     def _add_auth_header(self, request: httpx.Request) -> None:
         """Add authorization header to request if we have valid tokens."""

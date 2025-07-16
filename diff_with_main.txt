@@ -1,0 +1,577 @@
+diff --git a/package-lock.json b/package-lock.json
+index 01bc095..fa1bde0 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+   "name": "@modelcontextprotocol/sdk",
+-  "version": "1.15.0",
++  "version": "1.15.1",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "@modelcontextprotocol/sdk",
+-      "version": "1.15.0",
++      "version": "1.15.1",
+       "license": "MIT",
+       "dependencies": {
+         "ajv": "^6.12.6",
+diff --git a/src/client/auth.test.ts b/src/client/auth.test.ts
+index ce0cc70..eb26abc 100644
+--- a/src/client/auth.test.ts
++++ b/src/client/auth.test.ts
+@@ -1158,6 +1158,140 @@ describe("OAuth Authorization", () => {
+         })
+       ).rejects.toThrow("Dynamic client registration failed");
+     });
++
++    describe("initial access token support", () => {
++      it("includes initial access token from explicit parameter", async () => {
++        mockFetch.mockResolvedValueOnce({
++          ok: true,
++          status: 200,
++          json: async () => validClientInfo,
++        });
++
++        await registerClient("https://auth.example.com", {
++          clientMetadata: validClientMetadata,
++          initialAccessToken: "explicit-token",
++        });
++
++        expect(mockFetch).toHaveBeenCalledWith(
++          expect.objectContaining({
++            href: "https://auth.example.com/register",
++          }),
++          expect.objectContaining({
++            method: "POST",
++            headers: {
++              "Content-Type": "application/json",
++              "Authorization": "Bearer explicit-token",
++            },
++            body: JSON.stringify(validClientMetadata),
++          })
++        );
++      });
++
++      it("includes initial access token from provider method", async () => {
++        const mockProvider: OAuthClientProvider = {
++          get redirectUrl() { return "http://localhost:3000/callback"; },
++          get clientMetadata() { return validClientMetadata; },
++          clientInformation: jest.fn(),
++          tokens: jest.fn(),
++          saveTokens: jest.fn(),
++          redirectToAuthorization: jest.fn(),
++          saveCodeVerifier: jest.fn(),
++          codeVerifier: jest.fn(),
++          initialAccessToken: jest.fn().mockResolvedValue("provider-token"),
++        };
++
++        mockFetch.mockResolvedValueOnce({
++          ok: true,
++          status: 200,
++          json: async () => validClientInfo,
++        });
++
++        await registerClient("https://auth.example.com", {
++          clientMetadata: validClientMetadata,
++          provider: mockProvider,
++        });
++
++        expect(mockFetch).toHaveBeenCalledWith(
++          expect.objectContaining({
++            href: "https://auth.example.com/register",
++          }),
++          expect.objectContaining({
++            method: "POST",
++            headers: {
++              "Content-Type": "application/json",
++              "Authorization": "Bearer provider-token",
++            },
++            body: JSON.stringify(validClientMetadata),
++          })
++        );
++      });
++
++      it("prioritizes explicit parameter over provider method", async () => {
++        const mockProvider: OAuthClientProvider = {
++          get redirectUrl() { return "http://localhost:3000/callback"; },
++          get clientMetadata() { return validClientMetadata; },
++          clientInformation: jest.fn(),
++          tokens: jest.fn(),
++          saveTokens: jest.fn(),
++          redirectToAuthorization: jest.fn(),
++          saveCodeVerifier: jest.fn(),
++          codeVerifier: jest.fn(),
++          initialAccessToken: jest.fn().mockResolvedValue("provider-token"),
++        };
++
++        mockFetch.mockResolvedValueOnce({
++          ok: true,
++          status: 200,
++          json: async () => validClientInfo,
++        });
++
++        await registerClient("https://auth.example.com", {
++          clientMetadata: validClientMetadata,
++          initialAccessToken: "explicit-token",
++          provider: mockProvider,
++        });
++
++        expect(mockProvider.initialAccessToken).not.toHaveBeenCalled();
++        expect(mockFetch).toHaveBeenCalledWith(
++          expect.objectContaining({
++            href: "https://auth.example.com/register",
++          }),
++          expect.objectContaining({
++            method: "POST",
++            headers: {
++              "Content-Type": "application/json",
++              "Authorization": "Bearer explicit-token",
++            },
++            body: JSON.stringify(validClientMetadata),
++          })
++        );
++      });
++
++      it("registers without authorization header when no token available", async () => {
++        mockFetch.mockResolvedValueOnce({
++          ok: true,
++          status: 200,
++          json: async () => validClientInfo,
++        });
++
++        await registerClient("https://auth.example.com", {
++          clientMetadata: validClientMetadata,
++        });
++
++        expect(mockFetch).toHaveBeenCalledWith(
++          expect.objectContaining({
++            href: "https://auth.example.com/register",
++          }),
++          expect.objectContaining({
++            method: "POST",
++            headers: {
++              "Content-Type": "application/json",
++            },
++            body: JSON.stringify(validClientMetadata),
++          })
++        );
++      });
++    });
+   });
+ 
+   describe("auth function", () => {
+diff --git a/src/client/auth.ts b/src/client/auth.ts
+index 4a8bbe2..a3e937c 100644
+--- a/src/client/auth.ts
++++ b/src/client/auth.ts
+@@ -124,6 +124,17 @@ export interface OAuthClientProvider {
+    * This avoids requiring the user to intervene manually.
+    */
+   invalidateCredentials?(scope: 'all' | 'client' | 'tokens' | 'verifier'): void | Promise<void>;
++
++  /**
++   * If implemented, provides an initial access token for OAuth 2.0 Dynamic Client Registration
++   * according to RFC 7591. This token is used to authorize the client registration request.
++   * 
++   * The initial access token allows the client to register with authorization servers that
++   * require pre-authorization for dynamic client registration.
++   * 
++   * @returns The initial access token string, or undefined if none is available
++   */
++  initialAccessToken?(): string | undefined | Promise<string | undefined>;
+ }
+ 
+ export type AuthResult = "AUTHORIZED" | "REDIRECT";
+@@ -281,7 +292,8 @@ export async function auth(
+     serverUrl: string | URL;
+     authorizationCode?: string;
+     scope?: string;
+-    resourceMetadataUrl?: URL }): Promise<AuthResult> {
++    resourceMetadataUrl?: URL;
++    initialAccessToken?: string; }): Promise<AuthResult> {
+ 
+   try {
+     return await authInternal(provider, options);
+@@ -305,12 +317,14 @@ async function authInternal(
+   { serverUrl,
+     authorizationCode,
+     scope,
+-    resourceMetadataUrl
++    resourceMetadataUrl,
++    initialAccessToken
+   }: {
+     serverUrl: string | URL;
+     authorizationCode?: string;
+     scope?: string;
+-    resourceMetadataUrl?: URL
++    resourceMetadataUrl?: URL;
++    initialAccessToken?: string;
+   }): Promise<AuthResult> {
+ 
+   let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
+@@ -344,6 +358,8 @@ async function authInternal(
+     const fullInformation = await registerClient(authorizationServerUrl, {
+       metadata,
+       clientMetadata: provider.clientMetadata,
++      initialAccessToken,
++      provider,
+     });
+ 
+     await provider.saveClientInformation(fullInformation);
+@@ -877,15 +893,28 @@ export async function refreshAuthorization(
+ 
+ /**
+  * Performs OAuth 2.0 Dynamic Client Registration according to RFC 7591.
++ * 
++ * Supports initial access tokens for authorization servers that require 
++ * pre-authorization for dynamic client registration. The initial access token
++ * is resolved using a multi-level fallback approach:
++ * 
++ * 1. Explicit `initialAccessToken` parameter (highest priority)
++ * 2. Provider's `initialAccessToken()` method (if implemented)
++ * 3. `OAUTH_INITIAL_ACCESS_TOKEN` environment variable
++ * 4. None (current behavior for servers that don't require pre-authorization)
+  */
+ export async function registerClient(
+   authorizationServerUrl: string | URL,
+   {
+     metadata,
+     clientMetadata,
++    initialAccessToken,
++    provider,
+   }: {
+     metadata?: OAuthMetadata;
+     clientMetadata: OAuthClientMetadata;
++    initialAccessToken?: string;
++    provider?: OAuthClientProvider;
+   },
+ ): Promise<OAuthClientInformationFull> {
+   let registrationUrl: URL;
+@@ -900,11 +929,33 @@ export async function registerClient(
+     registrationUrl = new URL("/register", authorizationServerUrl);
+   }
+ 
++  // Multi-level fallback for initial access token
++  let token = initialAccessToken; // Level 1: Explicit parameter
++
++  if (!token && provider?.initialAccessToken) {
++    // Level 2: Provider method
++    token = await Promise.resolve(provider.initialAccessToken());
++  }
++
++  // Level 3: Environment variable (Node.js environments only)
++  if (!token && typeof globalThis !== 'undefined' && (globalThis as any).process?.env) {
++    token = (globalThis as any).process.env.OAUTH_INITIAL_ACCESS_TOKEN;
++  }
++
++  // Level 4: None (current behavior) - no token needed
++
++  const headers: Record<string, string> = {
++    "Content-Type": "application/json",
++  };
++
++  // Add initial access token if available (RFC 7591)
++  if (token) {
++    headers["Authorization"] = `Bearer ${token}`;
++  }
++
+   const response = await fetch(registrationUrl, {
+     method: "POST",
+-    headers: {
+-      "Content-Type": "application/json",
+-    },
++    headers,
+     body: JSON.stringify(clientMetadata),
+   });
+ 
+diff --git a/src/client/sse.test.ts b/src/client/sse.test.ts
+index 2cc4a1d..d8cadfb 100644
+--- a/src/client/sse.test.ts
++++ b/src/client/sse.test.ts
+@@ -1107,5 +1107,80 @@ describe("SSEClientTransport", () => {
+       await expect(() => transport.start()).rejects.toThrow(InvalidGrantError);
+       expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
+     });
++
++    describe("initialAccessToken support", () => {
++      it("stores initialAccessToken from constructor options", () => {
++        const transport = new SSEClientTransport(
++          new URL("http://localhost:1234/mcp"), 
++          { initialAccessToken: "test-initial-token" }
++        );
++        
++        // Access private property for testing
++        const transportInstance = transport as unknown as { _initialAccessToken?: string };
++        expect(transportInstance._initialAccessToken).toBe("test-initial-token");
++      });
++
++      it("works without initialAccessToken (backward compatibility)", async () => {
++        const transport = new SSEClientTransport(
++          new URL("http://localhost:1234/mcp"), 
++          { authProvider: mockAuthProvider }
++        );
++        
++        const transportInstance = transport as unknown as { _initialAccessToken?: string };
++        expect(transportInstance._initialAccessToken).toBeUndefined();
++
++        // Should not throw when no initial access token provided
++        expect(() => transport).not.toThrow();
++      });
++
++      it("includes initialAccessToken in auth calls", async () => {
++        // Create a spy on the auth module
++        const authModule = await import("./auth.js");
++        const authSpy = jest.spyOn(authModule, "auth").mockResolvedValue("REDIRECT");
++
++        const transport = new SSEClientTransport(
++          resourceBaseUrl, 
++          { 
++            authProvider: mockAuthProvider,
++            initialAccessToken: "test-initial-token" 
++          }
++        );
++
++        // Start the transport first
++        await transport.start();
++
++        // Mock fetch to return 401 and trigger auth on send
++        const originalFetch = global.fetch;
++        global.fetch = jest.fn().mockResolvedValueOnce({
++          ok: false,
++          status: 401,
++          headers: new Headers(),
++        });
++
++        const message = {
++          jsonrpc: "2.0" as const,
++          method: "test",
++          params: {},
++          id: "test-id"
++        };
++
++        try {
++          await transport.send(message);
++        } catch {
++          // Expected to fail due to mock setup, we're just testing auth call
++        }
++
++        expect(authSpy).toHaveBeenCalledWith(
++          mockAuthProvider,
++          expect.objectContaining({
++            initialAccessToken: "test-initial-token"
++          })
++        );
++
++        // Restore fetch and spy
++        global.fetch = originalFetch;
++        authSpy.mockRestore();
++      });
++    });
+   });
+ });
+diff --git a/src/client/sse.ts b/src/client/sse.ts
+index 568a515..98484bf 100644
+--- a/src/client/sse.ts
++++ b/src/client/sse.ts
+@@ -52,6 +52,16 @@ export type SSEClientTransportOptions = {
+    * Custom fetch implementation used for all network requests.
+    */
+   fetch?: FetchLike;
++
++  /**
++   * Initial access token for OAuth 2.0 Dynamic Client Registration (RFC 7591).
++   * This token is used to authorize the client registration request with authorization servers
++   * that require pre-authorization for dynamic client registration.
++   * 
++   * If not provided, the system will fall back to the provider's `initialAccessToken()` method
++   * and then to the `OAUTH_INITIAL_ACCESS_TOKEN` environment variable.
++   */
++  initialAccessToken?: string;
+ };
+ 
+ /**
+@@ -69,6 +79,7 @@ export class SSEClientTransport implements Transport {
+   private _authProvider?: OAuthClientProvider;
+   private _fetch?: FetchLike;
+   private _protocolVersion?: string;
++  private _initialAccessToken?: string;
+ 
+   onclose?: () => void;
+   onerror?: (error: Error) => void;
+@@ -84,6 +95,7 @@ export class SSEClientTransport implements Transport {
+     this._requestInit = opts?.requestInit;
+     this._authProvider = opts?.authProvider;
+     this._fetch = opts?.fetch;
++    this._initialAccessToken = opts?.initialAccessToken;
+   }
+ 
+   private async _authThenStart(): Promise<void> {
+@@ -93,7 +105,7 @@ export class SSEClientTransport implements Transport {
+ 
+     let result: AuthResult;
+     try {
+-      result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl });
++      result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, initialAccessToken: this._initialAccessToken });
+     } catch (error) {
+       this.onerror?.(error as Error);
+       throw error;
+@@ -218,7 +230,7 @@ export class SSEClientTransport implements Transport {
+       throw new UnauthorizedError("No auth provider");
+     }
+ 
+-    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl });
++    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl, initialAccessToken: this._initialAccessToken });
+     if (result !== "AUTHORIZED") {
+       throw new UnauthorizedError("Failed to authorize");
+     }
+@@ -252,7 +264,7 @@ const response = await (this._fetch ?? fetch)(this._endpoint, init);
+ 
+           this._resourceMetadataUrl = extractResourceMetadataUrl(response);
+ 
+-          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl });
++          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, initialAccessToken: this._initialAccessToken });
+           if (result !== "AUTHORIZED") {
+             throw new UnauthorizedError();
+           }
+diff --git a/src/client/streamableHttp.test.ts b/src/client/streamableHttp.test.ts
+index c54cf28..baeb955 100644
+--- a/src/client/streamableHttp.test.ts
++++ b/src/client/streamableHttp.test.ts
+@@ -855,4 +855,73 @@ describe("StreamableHTTPClientTransport", () => {
+     await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+     expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
+   });
++
++  describe("initialAccessToken support", () => {
++    it("stores initialAccessToken from constructor options", () => {
++      const transport = new StreamableHTTPClientTransport(
++        new URL("http://localhost:1234/mcp"), 
++        { initialAccessToken: "test-initial-token" }
++      );
++      
++      // Access private property for testing
++      const transportInstance = transport as unknown as { _initialAccessToken?: string };
++      expect(transportInstance._initialAccessToken).toBe("test-initial-token");
++    });
++
++    it("works without initialAccessToken (backward compatibility)", async () => {
++      const transport = new StreamableHTTPClientTransport(
++        new URL("http://localhost:1234/mcp"), 
++        { authProvider: mockAuthProvider }
++      );
++      
++      const transportInstance = transport as unknown as { _initialAccessToken?: string };
++      expect(transportInstance._initialAccessToken).toBeUndefined();
++
++      // Should not throw when no initial access token provided
++      expect(() => transport).not.toThrow();
++    });
++
++    it("includes initialAccessToken in auth calls", async () => {
++      // Create a spy on the auth module
++      const authModule = await import("./auth.js");
++      const authSpy = jest.spyOn(authModule, "auth").mockResolvedValue("REDIRECT");
++
++      const transport = new StreamableHTTPClientTransport(
++        new URL("http://localhost:1234/mcp"), 
++        { 
++          authProvider: mockAuthProvider,
++          initialAccessToken: "test-initial-token" 
++        }
++      );
++
++      // Mock fetch to trigger auth flow on send (401 response)
++      (global.fetch as jest.Mock).mockResolvedValueOnce({
++        ok: false,
++        status: 401,
++        headers: new Headers(),
++      });
++
++      const message = {
++        jsonrpc: "2.0" as const,
++        method: "test",
++        params: {},
++        id: "test-id"
++      };
++
++      try {
++        await transport.send(message);
++      } catch {
++        // Expected to fail due to mock setup, we're just testing auth call
++      }
++
++      expect(authSpy).toHaveBeenCalledWith(
++        mockAuthProvider,
++        expect.objectContaining({
++          initialAccessToken: "test-initial-token"
++        })
++      );
++
++      authSpy.mockRestore();
++    });
++  });
+ });
+diff --git a/src/client/streamableHttp.ts b/src/client/streamableHttp.ts
+index b0894fc..a790372 100644
+--- a/src/client/streamableHttp.ts
++++ b/src/client/streamableHttp.ts
+@@ -114,6 +114,14 @@ export type StreamableHTTPClientTransportOptions = {
+    * When not provided and connecting to a server that supports session IDs, the server will generate a new session ID.
+    */
+   sessionId?: string;
++
++  /**
++   * Initial access token for OAuth 2.0 Dynamic Client Registration (RFC 7591).
++   * This token is used to authorize the client registration request with authorization servers that require pre-authorization for dynamic client registration.
++   * 
++   * If not provided, the system will fall back to the provider's `initialAccessToken()` method and then to the `OAUTH_INITIAL_ACCESS_TOKEN` environment variable.
++   */
++  initialAccessToken?: string;
+ };
+ 
+ /**
+@@ -131,6 +139,7 @@ export class StreamableHTTPClientTransport implements Transport {
+   private _sessionId?: string;
+   private _reconnectionOptions: StreamableHTTPReconnectionOptions;
+   private _protocolVersion?: string;
++  private _initialAccessToken?: string;
+ 
+   onclose?: () => void;
+   onerror?: (error: Error) => void;
+@@ -147,6 +156,7 @@ export class StreamableHTTPClientTransport implements Transport {
+     this._fetch = opts?.fetch;
+     this._sessionId = opts?.sessionId;
+     this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
++    this._initialAccessToken = opts?.initialAccessToken;
+   }
+ 
+   private async _authThenStart(): Promise<void> {
+@@ -156,7 +166,7 @@ export class StreamableHTTPClientTransport implements Transport {
+ 
+     let result: AuthResult;
+     try {
+-      result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl });
++      result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, initialAccessToken: this._initialAccessToken });
+     } catch (error) {
+       this.onerror?.(error as Error);
+       throw error;
+@@ -392,7 +402,7 @@ const response = await (this._fetch ?? fetch)(this._url, {
+       throw new UnauthorizedError("No auth provider");
+     }
+ 
+-    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl });
++    const result = await auth(this._authProvider, { serverUrl: this._url, authorizationCode, resourceMetadataUrl: this._resourceMetadataUrl, initialAccessToken: this._initialAccessToken });
+     if (result !== "AUTHORIZED") {
+       throw new UnauthorizedError("Failed to authorize");
+     }
+@@ -440,7 +450,7 @@ const response = await (this._fetch ?? fetch)(this._url, init);
+ 
+           this._resourceMetadataUrl = extractResourceMetadataUrl(response);
+ 
+-          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl });
++          const result = await auth(this._authProvider, { serverUrl: this._url, resourceMetadataUrl: this._resourceMetadataUrl, initialAccessToken: this._initialAccessToken });
+           if (result !== "AUTHORIZED") {
+             throw new UnauthorizedError();
+           }

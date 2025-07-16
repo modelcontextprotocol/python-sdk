@@ -72,3 +72,4 @@ mcp> quit
 
 - `MCP_SERVER_PORT` - Server URL (default: 8000)
 - `MCP_TRANSPORT_TYPE` - Transport type: `streamable_http` (default) or `sse`
+- `OAUTH_INITIAL_ACCESS_TOKEN` - Initial access token for RFC 7591 Dynamic Client Registration (optional)
