@@ -863,71 +863,101 @@ Note that `uv run mcp run` or `uv run mcp dev` only supports server using FastMC
 
 > **Note**: Streamable HTTP transport is superseding SSE transport for production deployments.
 
+<!-- snippet-source examples/snippets/servers/streamable_config.py -->
 ```python
+"""Streamable HTTP server configuration examples.
+
+This example shows different configuration options for
+streamable HTTP servers.
+
+Run from the repository root:
+    uv run examples/snippets/servers/streamable_config.py
+"""
+
 from mcp.server.fastmcp import FastMCP
 
 # Stateful server (maintains session state)
 mcp = FastMCP("StatefulServer")
 
+# Other configuration options:
 # Stateless server (no session persistence)
-mcp = FastMCP("StatelessServer", stateless_http=True)
+# mcp = FastMCP("StatelessServer", stateless_http=True)
 
 # Stateless server (no session persistence, no sse stream with supported client)
-mcp = FastMCP("StatelessServer", stateless_http=True, json_response=True)
+# mcp = FastMCP("StatelessServer", stateless_http=True, json_response=True)
+
+
+# Add a simple tool to demonstrate the server
+@mcp.tool()
+def greet(name: str = "World") -> str:
+    """Greet someone by name."""
+    return f"Hello, {name}!"
+
 
 # Run server with streamable_http transport
-mcp.run(transport="streamable-http")
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http")
 ```
+
+_Full example: [examples/snippets/servers/streamable_config.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_config.py)_
+<!-- /snippet-source -->
 
 You can mount multiple FastMCP servers in a FastAPI application:
 
+<!-- snippet-source examples/snippets/servers/streamable_fastapi_mount.py -->
 ```python
-# echo.py
+"""Example of mounting multiple FastMCP servers in a FastAPI application.
+
+This example shows how to create multiple MCP servers and mount them
+at different endpoints in a single FastAPI application.
+
+Run from the repository root:
+    uvicorn examples.snippets.servers.streamable_fastapi_mount:app --reload
+"""
+
+import contextlib
+
+from fastapi import FastAPI
+
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP(name="EchoServer", stateless_http=True)
+# Create the Echo server
+echo_mcp = FastMCP(name="EchoServer", stateless_http=True)
 
 
-@mcp.tool()
+@echo_mcp.tool()
 def echo(message: str) -> str:
     """A simple echo tool"""
     return f"Echo: {message}"
-```
-
-```python
-# math.py
-from mcp.server.fastmcp import FastMCP
-
-mcp = FastMCP(name="MathServer", stateless_http=True)
 
 
-@mcp.tool()
+# Create the Math server
+math_mcp = FastMCP(name="MathServer", stateless_http=True)
+
+
+@math_mcp.tool()
 def add_two(n: int) -> int:
     """Tool to add two to the input"""
     return n + 2
-```
-
-```python
-# main.py
-import contextlib
-from fastapi import FastAPI
-from mcp.echo import echo
-from mcp.math import math
 
 
 # Create a combined lifespan to manage both session managers
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     async with contextlib.AsyncExitStack() as stack:
-        await stack.enter_async_context(echo.mcp.session_manager.run())
-        await stack.enter_async_context(math.mcp.session_manager.run())
+        await stack.enter_async_context(echo_mcp.session_manager.run())
+        await stack.enter_async_context(math_mcp.session_manager.run())
         yield
 
 
+# Create the FastAPI app and mount the MCP servers
 app = FastAPI(lifespan=lifespan)
-app.mount("/echo", echo.mcp.streamable_http_app())
-app.mount("/math", math.mcp.streamable_http_app())
+app.mount("/echo", echo_mcp.streamable_http_app())
+app.mount("/math", math_mcp.streamable_http_app())
 ```
+
+_Full example: [examples/snippets/servers/streamable_fastapi_mount.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_fastapi_mount.py)_
+<!-- /snippet-source -->
 
 For low level server with Streamable HTTP implementations, see:
 
@@ -944,26 +974,6 @@ The streamable HTTP transport supports:
 ### Mounting to an Existing ASGI Server
 
 By default, SSE servers are mounted at `/sse` and Streamable HTTP servers are mounted at `/mcp`. You can customize these paths using the methods described below.
-
-#### Streamable HTTP servers
-
-The following example shows how to use `streamable_http_app()`, a method that returns a `Starlette` application object.
-You can then append additional routes to that application as needed.
-
-```python
-mcp = FastMCP("My App")
-
-app = mcp.streamable_http_app()
-# Additional non-MCP routes can be added like so:
-# from starlette.routing import Route
-# app.router.routes.append(Route("/", endpoint=other_route_function))
-```
-
-To customize the route from the default of "/mcp", either specify the `streamable_http_path` option for the `FastMCP` constructor,
-or set `FASTMCP_STREAMABLE_HTTP_PATH` environment variable.
-
-Note that in Starlette and FastAPI (which is based on Starlette), the "/mcp" route will redirect to "/mcp/",
-so you may need to use "/mcp/" when pointing MCP clients at your servers.
 
 For more information on mounting applications in Starlette, see the [Starlette documentation](https://www.starlette.io/routing/#submounting-routes).
 
@@ -1437,14 +1447,26 @@ _Full example: [examples/snippets/clients/stdio_client.py](https://github.com/mo
 
 Clients can also connect using [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http):
 
+<!-- snippet-source examples/snippets/clients/streamable_basic.py -->
 ```python
-from mcp.client.streamable_http import streamablehttp_client
+"""Basic streamable HTTP client example.
+
+This example shows the minimal code needed to connect to
+a streamable HTTP server and call a tool.
+
+Run from the repository root:
+    uv run examples/snippets/clients/streamable_basic.py
+"""
+
+import asyncio
+
 from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
 
 
 async def main():
     # Connect to a streamable HTTP server
-    async with streamablehttp_client("example/mcp") as (
+    async with streamablehttp_client("http://localhost:8000/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -1453,9 +1475,17 @@ async def main():
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the connection
             await session.initialize()
-            # Call a tool
-            tool_result = await session.call_tool("echo", {"message": "hello"})
+            # List available tools
+            tools = await session.list_tools()
+            print(f"Available tools: {[tool.name for tool in tools.tools]}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
+
+_Full example: [examples/snippets/clients/streamable_basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/streamable_basic.py)_
+<!-- /snippet-source -->
 
 ### Client Display Utilities
 
