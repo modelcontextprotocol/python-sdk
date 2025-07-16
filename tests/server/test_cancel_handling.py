@@ -61,7 +61,7 @@ async def test_cancelled_request_no_double_response():
     server.request_handlers[types.PingRequest] = slow_handler
 
     # Create mock message and session
-    mock_req = PingRequest(method="ping", params={})
+    mock_req = PingRequest(method="ping")
     mock_session = MagicMock()
     mock_context = None
 
@@ -109,7 +109,7 @@ async def test_server_remains_functional_after_cancel():
 
     # First request (will be cancelled)
     mock_message1 = MockRequestResponder()
-    mock_req1 = PingRequest(method="ping", params={})
+    mock_req1 = PingRequest(method="ping")
 
     handle_task = asyncio.create_task(
         server._handle_request(mock_message1, mock_req1, MagicMock(), None, raise_exceptions=False)  # type: ignore
@@ -129,7 +129,7 @@ async def test_server_remains_functional_after_cancel():
 
     # Second request (should work normally)
     mock_message2 = MockRequestResponder()
-    mock_req2 = PingRequest(method="ping", params={})
+    mock_req2 = PingRequest(method="ping")
 
     # This should complete successfully
     await server._handle_request(mock_message2, mock_req2, MagicMock(), None, raise_exceptions=False)  # type: ignore
