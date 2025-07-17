@@ -12,11 +12,12 @@ Thank you for your interest in contributing to the MCP Python SDK! This document
 ```bash
 uv sync --frozen --all-extras --dev
 ```
+
 6. Set up pre-commit hooks:
 
-   ```bash
-   uv tool install pre-commit --with pre-commit-uv --force-reinstall
-   ```
+```bash
+uv tool install pre-commit --with pre-commit-uv --force-reinstall
+```
 
 ## Development Workflow
 
