@@ -40,6 +40,7 @@ class AccessToken(BaseModel):
     scopes: list[str]
     expires_at: int | None = None
     resource: str | None = None  # RFC 8707 resource indicator
+    claims: dict[str, any] | None = None  # Additional token claims
 
 
 RegistrationErrorCode = Literal[
