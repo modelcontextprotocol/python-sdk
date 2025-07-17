@@ -712,7 +712,7 @@ class AudioContent(BaseModel):
     for notes on _meta usage.
     """
     model_config = ConfigDict(extra="allow")
-    
+
 
 class DictContent(BaseModel):
     """Dict content for a message."""
