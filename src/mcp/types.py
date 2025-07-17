@@ -712,13 +712,28 @@ class AudioContent(BaseModel):
     for notes on _meta usage.
     """
     model_config = ConfigDict(extra="allow")
+    
+
+class JsonContent(BaseModel):
+    """Json content for a message."""
+
+    type: Literal["json"]
+    data: dict[str, Any]
+    """The json content of the message."""
+    annotations: Annotations | None = None
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
+    model_config = ConfigDict(extra="allow")
 
 
 class SamplingMessage(BaseModel):
     """Describes a message issued to or received from an LLM API."""
 
     role: Role
-    content: TextContent | ImageContent | AudioContent
+    content: TextContent | ImageContent | AudioContent | JsonContent
     model_config = ConfigDict(extra="allow")
 
 
@@ -751,7 +766,7 @@ class ResourceLink(Resource):
     type: Literal["resource_link"]
 
 
-ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
+ContentBlock = TextContent | ImageContent | AudioContent | JsonContent | ResourceLink | EmbeddedResource
 """A content block that can be used in prompts and tool results."""
 
 Content: TypeAlias = ContentBlock
@@ -1044,7 +1059,7 @@ class CreateMessageResult(Result):
     """The client's response to a sampling/create_message request from the server."""
 
     role: Role
-    content: TextContent | ImageContent | AudioContent
+    content: TextContent | ImageContent | AudioContent | JsonContent
     model: str
     """The name of the model that generated the message."""
     stopReason: StopReason | None = None
