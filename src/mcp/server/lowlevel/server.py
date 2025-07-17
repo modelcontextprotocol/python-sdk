@@ -93,7 +93,7 @@ from mcp.shared.session import RequestResponder
 
 logger = logging.getLogger(__name__)
 
-LifespanResultT = TypeVar("LifespanResultT")
+LifespanResultT = TypeVar("LifespanResultT", default=Any)
 RequestT = TypeVar("RequestT", default=Any)
 
 # type aliases for tool call results
