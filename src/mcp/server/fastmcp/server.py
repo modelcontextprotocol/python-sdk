@@ -828,7 +828,6 @@ class FastMCP:
     def streamable_http_app(self) -> Starlette:
         """Return an instance of the StreamableHTTP server app."""
         from starlette.middleware import Middleware
-        from starlette.routing import Mount
 
         # Create session manager on first call (lazy initialization)
         if self._session_manager is None:
@@ -841,8 +840,7 @@ class FastMCP:
             )
 
         # Create the ASGI handler
-        async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
-            await self.session_manager.handle_request(scope, receive, send)
+        streamable_http_app = StreamableHTTPASGIApp(self._session_manager)
 
         # Create routes
         routes: list[Route | Mount] = []
@@ -889,17 +887,17 @@ class FastMCP:
                 )
 
             routes.append(
-                Mount(
+                Route(
                     self.settings.streamable_http_path,
-                    app=RequireAuthMiddleware(handle_streamable_http, required_scopes, resource_metadata_url),
+                    endpoint=RequireAuthMiddleware(streamable_http_app, required_scopes, resource_metadata_url),
                 )
             )
         else:
             # Auth is disabled, no wrapper needed
             routes.append(
-                Mount(
+                Route(
                     self.settings.streamable_http_path,
-                    app=handle_streamable_http,
+                    endpoint=streamable_http_app,
                 )
             )
 
@@ -970,6 +968,18 @@ class FastMCP:
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e))
+
+
+class StreamableHTTPASGIApp:
+    """
+    ASGI application for Streamable HTTP server transport.
+    """
+
+    def __init__(self, session_manager: StreamableHTTPSessionManager):
+        self.session_manager = session_manager
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        await self.session_manager.handle_request(scope, receive, send)
 
 
 class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
