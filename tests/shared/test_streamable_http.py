@@ -124,10 +124,7 @@ class SimpleEventStore(EventStore):
 class ServerTest(Server):
     def __init__(self):
         super().__init__(SERVER_NAME)
-        self._lock = anyio.Event()
-        # Reset the lock for each new server instance
-        self._lock.set()
-        self._lock = anyio.Event()
+        self._lock = None  # Will be initialized in async context
 
         @self.read_resource()
         async def handle_read_resource(uri: AnyUrl) -> str | bytes:
@@ -229,6 +226,10 @@ class ServerTest(Server):
                 ]
 
             elif name == "wait_for_lock_with_notification":
+                # Initialize lock if not already done
+                if self._lock is None:
+                    self._lock = anyio.Event()
+
                 # First send a notification
                 await ctx.session.send_log_message(
                     level="info",
@@ -251,6 +252,8 @@ class ServerTest(Server):
                 return [TextContent(type="text", text="Completed")]
 
             elif name == "release_lock":
+                assert self._lock is not None, "Lock must be initialized before releasing"
+
                 # Release the lock
                 self._lock.set()
                 return [TextContent(type="text", text="Lock released")]
