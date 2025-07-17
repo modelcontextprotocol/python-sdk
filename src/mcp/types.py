@@ -714,12 +714,12 @@ class AudioContent(BaseModel):
     model_config = ConfigDict(extra="allow")
     
 
-class JsonContent(BaseModel):
-    """Json content for a message."""
+class DictContent(BaseModel):
+    """Dict content for a message."""
 
-    type: Literal["json"]
+    type: Literal["dict"]
     data: dict[str, Any]
-    """The json content of the message."""
+    """The dict content of the message."""
     annotations: Annotations | None = None
     meta: dict[str, Any] | None = Field(alias="_meta", default=None)
     """
@@ -733,7 +733,7 @@ class SamplingMessage(BaseModel):
     """Describes a message issued to or received from an LLM API."""
 
     role: Role
-    content: TextContent | ImageContent | AudioContent | JsonContent
+    content: TextContent | ImageContent | AudioContent | DictContent
     model_config = ConfigDict(extra="allow")
 
 
@@ -766,7 +766,7 @@ class ResourceLink(Resource):
     type: Literal["resource_link"]
 
 
-ContentBlock = TextContent | ImageContent | AudioContent | JsonContent | ResourceLink | EmbeddedResource
+ContentBlock = TextContent | ImageContent | AudioContent | DictContent | ResourceLink | EmbeddedResource
 """A content block that can be used in prompts and tool results."""
 
 Content: TypeAlias = ContentBlock
@@ -1059,7 +1059,7 @@ class CreateMessageResult(Result):
     """The client's response to a sampling/create_message request from the server."""
 
     role: Role
-    content: TextContent | ImageContent | AudioContent | JsonContent
+    content: TextContent | ImageContent | AudioContent | DictContent
     model: str
     """The name of the model that generated the message."""
     stopReason: StopReason | None = None
