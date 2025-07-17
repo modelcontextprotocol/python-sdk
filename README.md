@@ -784,7 +784,7 @@ async def get_weather(city: str = "London") -> dict[str, str]:
     """Get weather data for a city"""
     return {
         "city": city,
-        "temperature": "22°C",
+        "temperature": "22",
         "condition": "Partly cloudy",
         "humidity": "65%",
     }
