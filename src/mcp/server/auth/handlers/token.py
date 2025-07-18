@@ -40,16 +40,39 @@ class RefreshTokenRequest(BaseModel):
     resource: str | None = Field(None, description="Resource indicator for the token")
 
 
+class ClientCredentialsRequest(BaseModel):
+    # See https://datatracker.ietf.org/doc/html/rfc6749#section-4.4
+    grant_type: Literal["client_credentials"]
+    scope: str | None = Field(None, description="Optional scope parameter")
+    client_id: str
+    client_secret: str | None = None
+
+
+class TokenExchangeRequest(BaseModel):
+    """RFC 8693 token exchange request."""
+
+    grant_type: Literal["token_exchange"]
+    subject_token: str = Field(..., description="Token to exchange")
+    subject_token_type: str = Field(..., description="Type of the subject token")
+    actor_token: str | None = Field(None, description="Optional actor token")
+    actor_token_type: str | None = Field(None, description="Type of the actor token if provided")
+    resource: str | None = None
+    audience: str | None = None
+    scope: str | None = None
+    client_id: str
+    client_secret: str | None = None
+
+
 class TokenRequest(
     RootModel[
         Annotated[
-            AuthorizationCodeRequest | RefreshTokenRequest,
+            AuthorizationCodeRequest | RefreshTokenRequest | ClientCredentialsRequest | TokenExchangeRequest,
             Field(discriminator="grant_type"),
         ]
     ]
 ):
     root: Annotated[
-        AuthorizationCodeRequest | RefreshTokenRequest,
+        AuthorizationCodeRequest | RefreshTokenRequest | ClientCredentialsRequest | TokenExchangeRequest,
         Field(discriminator="grant_type"),
     ]
 
@@ -192,10 +215,49 @@ class TokenHandler:
                         )
                     )
 
+            case ClientCredentialsRequest():
+                scopes = (
+                    token_request.scope.split(" ")
+                    if token_request.scope
+                    else client_info.scope.split(" ")
+                    if client_info.scope
+                    else []
+                )
+                try:
+                    tokens = await self.provider.exchange_client_credentials(client_info, scopes)
+                except TokenError as e:
+                    return self.response(
+                        TokenErrorResponse(
+                            error=e.error,
+                            error_description=e.error_description,
+                        )
+                    )
+
+            case TokenExchangeRequest():
+                scopes = token_request.scope.split(" ") if token_request.scope else []
+                try:
+                    tokens = await self.provider.exchange_token(
+                        client_info,
+                        token_request.subject_token,
+                        token_request.subject_token_type,
+                        token_request.actor_token,
+                        token_request.actor_token_type,
+                        scopes,
+                        token_request.audience,
+                        token_request.resource,
+                    )
+                except TokenError as e:
+                    return self.response(
+                        TokenErrorResponse(
+                            error=e.error,
+                            error_description=e.error_description,
+                        )
+                    )
+
             case RefreshTokenRequest():
                 refresh_token = await self.provider.load_refresh_token(client_info, token_request.refresh_token)
                 if refresh_token is None or refresh_token.client_id != token_request.client_id:
-                    # if token belongs to different client, pretend it doesn't exist
+                    # if token belongs to a different client, pretend it doesn't exist
                     return self.response(
                         TokenErrorResponse(
                             error="invalid_grant",
