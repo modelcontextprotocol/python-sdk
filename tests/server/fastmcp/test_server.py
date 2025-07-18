@@ -10,7 +10,7 @@ from starlette.routing import Mount, Route
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.prompts.base import Message, UserMessage
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
-from mcp.server.fastmcp.utilities.types import Image
+from mcp.server.fastmcp.utilities.types import Audio, Image
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import (
     create_connected_server_and_client_session as client_session,
@@ -194,6 +194,10 @@ def image_tool_fn(path: str) -> Image:
     return Image(path)
 
 
+def audio_tool_fn(path: str) -> Audio:
+    return Audio(path)
+
+
 def mixed_content_tool_fn() -> list[ContentBlock]:
     return [
         TextContent(type="text", text="Hello"),
@@ -300,6 +304,27 @@ class TestServerTools:
             assert result.structuredContent is None
 
     @pytest.mark.anyio
+    async def test_tool_audio_helper(self, tmp_path: Path):
+        # Create a test audio
+        audio_path = tmp_path / "test.wav"
+        audio_path.write_bytes(b"fake wav data")
+
+        mcp = FastMCP()
+        mcp.add_tool(audio_tool_fn)
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("audio_tool_fn", {"path": str(audio_path)})
+            assert len(result.content) == 1
+            content = result.content[0]
+            assert isinstance(content, AudioContent)
+            assert content.type == "audio"
+            assert content.mimeType == "audio/wav"
+            # Verify base64 encoding
+            decoded = base64.b64decode(content.data)
+            assert decoded == b"fake wav data"
+            # Check structured content - Image return type should NOT have structured output
+            assert result.structuredContent is None
+
+    @pytest.mark.anyio
     async def test_tool_mixed_content(self):
         mcp = FastMCP()
         mcp.add_tool(mixed_content_tool_fn)
@@ -369,6 +394,47 @@ class TestServerTools:
             assert isinstance(content4, TextContent)
             assert content4.text == "direct content"
             # Check structured content - untyped list with Image objects should NOT have structured output
+            assert result.structuredContent is None
+
+    @pytest.mark.anyio
+    async def test_tool_mixed_list_with_audio(self, tmp_path: Path):
+        """Test that lists containing Audio objects and other types are handled
+        correctly"""
+        # Create a test audio
+        audio_path = tmp_path / "test.wav"
+        audio_path.write_bytes(b"test audio data")
+
+        def mixed_list_fn() -> list:
+            return [
+                "text message",
+                Audio(audio_path),
+                {"key": "value"},
+                TextContent(type="text", text="direct content"),
+            ]
+
+        mcp = FastMCP()
+        mcp.add_tool(mixed_list_fn)
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("mixed_list_fn", {})
+            assert len(result.content) == 4
+            # Check text conversion
+            content1 = result.content[0]
+            assert isinstance(content1, TextContent)
+            assert content1.text == "text message"
+            # Check audio conversion
+            content2 = result.content[1]
+            assert isinstance(content2, AudioContent)
+            assert content2.mimeType == "audio/wav"
+            assert base64.b64decode(content2.data) == b"test audio data"
+            # Check dict conversion
+            content3 = result.content[2]
+            assert isinstance(content3, TextContent)
+            assert '"key": "value"' in content3.text
+            # Check direct TextContent
+            content4 = result.content[3]
+            assert isinstance(content4, TextContent)
+            assert content4.text == "direct content"
+            # Check structured content - untyped list with Audio objects should NOT have structured output
             assert result.structuredContent is None
 
     @pytest.mark.anyio
