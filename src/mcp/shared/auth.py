@@ -134,7 +134,9 @@ class OAuthMetadata(BaseModel):
         ]
         | None
     ) = None
-    token_endpoint_auth_methods_supported: list[Literal["none", "client_secret_post"]] | None = None
+    token_endpoint_auth_methods_supported: list[Literal["none", "client_secret_post", "client_secret_basic"]] | None = (
+        None
+    )
     token_endpoint_auth_signing_alg_values_supported: None = None
     service_documentation: AnyHttpUrl | None = None
     ui_locales_supported: list[str] | None = None
