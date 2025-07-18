@@ -1,0 +1,16 @@
+
+[tool.poetry]
+name = "python-sdk"
+version = "0.0.1"
+description = "Python SDK"
+authors = ["Your Name <youremail@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.13"
+pydantic = "^2.7"
+httpx = "^0.23"
+
+[tool.poetry.dev-dependencies]
+pytest = "^8.3.5"
+ruff = "^0.11.8"
+mypy = "^1.15.0"
