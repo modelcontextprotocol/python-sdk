@@ -44,6 +44,7 @@
   - [Advanced Usage](#advanced-usage)
     - [Low-Level Server](#low-level-server)
     - [Writing MCP Clients](#writing-mcp-clients)
+    - [Parsing Tool Results](#parsing-tool-results)
     - [MCP Primitives](#mcp-primitives)
     - [Server Capabilities](#server-capabilities)
   - [Documentation](#documentation)
@@ -744,29 +745,58 @@ Authentication can be used by servers that want to expose tools accessing protec
 
 MCP servers can use authentication by providing an implementation of the `TokenVerifier` protocol:
 
+<!-- snippet-source examples/snippets/servers/oauth_server.py -->
 ```python
-from mcp import FastMCP
-from mcp.server.auth.provider import TokenVerifier, TokenInfo
+"""
+Run from the repository root:
+    uv run examples/snippets/servers/oauth_server.py
+"""
+
+from pydantic import AnyHttpUrl
+
+from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
+from mcp.server.fastmcp import FastMCP
 
 
-class MyTokenVerifier(TokenVerifier):
-    # Implement token validation logic (typically via token introspection)
-    async def verify_token(self, token: str) -> TokenInfo:
-        # Verify with your authorization server
-        ...
+class SimpleTokenVerifier(TokenVerifier):
+    """Simple token verifier for demonstration."""
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        pass  # This is where you would implement actual token validation
 
 
+# Create FastMCP instance as a Resource Server
 mcp = FastMCP(
-    "My App",
-    token_verifier=MyTokenVerifier(),
+    "Weather Service",
+    # Token verifier for authentication
+    token_verifier=SimpleTokenVerifier(),
+    # Auth settings for RFC 9728 Protected Resource Metadata
     auth=AuthSettings(
-        issuer_url="https://auth.example.com",
-        resource_server_url="http://localhost:3001",
-        required_scopes=["mcp:read", "mcp:write"],
+        issuer_url=AnyHttpUrl("https://auth.example.com"),  # Authorization Server URL
+        resource_server_url=AnyHttpUrl("http://localhost:3001"),  # This server's URL
+        required_scopes=["user"],
     ),
 )
+
+
+@mcp.tool()
+async def get_weather(city: str = "London") -> dict[str, str]:
+    """Get weather data for a city"""
+    return {
+        "city": city,
+        "temperature": "22",
+        "condition": "Partly cloudy",
+        "humidity": "65%",
+    }
+
+
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http")
 ```
+
+_Full example: [examples/snippets/servers/oauth_server.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/oauth_server.py)_
+<!-- /snippet-source -->
 
 For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](examples/servers/simple-auth/).
 
@@ -1556,46 +1586,76 @@ This ensures your client UI shows the most user-friendly names that servers prov
 
 The SDK includes [authorization support](https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization) for connecting to protected MCP servers:
 
+<!-- snippet-source examples/snippets/clients/oauth_client.py -->
 ```python
-from mcp.client.auth import (
-    OAuthClientProvider,
-    TokenExchangeProvider,
-    TokenStorage,
-)
-from mcp.client.session import ClientSession
+"""
+Before running, specify running MCP RS server URL.
+To spin up RS server locally, see
+    examples/servers/simple-auth/README.md
+
+cd to the `examples/snippets` directory and run:
+    uv run oauth-client
+"""
+
+import asyncio
+from urllib.parse import parse_qs, urlparse
+
+from pydantic import AnyUrl
+
+from mcp import ClientSession
+from mcp.client.auth import OAuthClientProvider, TokenExchangeProvider, TokenStorage
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 
-class CustomTokenStorage(TokenStorage):
-    """Simple in-memory token storage implementation."""
+class InMemoryTokenStorage(TokenStorage):
+    """Demo In-memory token storage implementation."""
+
+    def __init__(self):
+        self.tokens: OAuthToken | None = None
+        self.client_info: OAuthClientInformationFull | None = None
 
     async def get_tokens(self) -> OAuthToken | None:
-        pass
+        """Get stored tokens."""
+        return self.tokens
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
-        pass
+        """Store tokens."""
+        self.tokens = tokens
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
-        pass
+        """Get stored client information."""
+        return self.client_info
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
-        pass
+        """Store client information."""
+        self.client_info = client_info
+
+
+async def handle_redirect(auth_url: str) -> None:
+    print(f"Visit: {auth_url}")
+
+
+async def handle_callback() -> tuple[str, str | None]:
+    callback_url = input("Paste callback URL: ")
+    params = parse_qs(urlparse(callback_url).query)
+    return params["code"][0], params.get("state", [None])[0]
 
 
 async def main():
-    # Set up OAuth authentication
+    """Run the OAuth client example."""
     oauth_auth = OAuthClientProvider(
-        server_url="https://api.example.com",
+        server_url="http://localhost:8001",
         client_metadata=OAuthClientMetadata(
-            client_name="My Client",
-            redirect_uris=["http://localhost:3000/callback"],
+            client_name="Example MCP Client",
+            redirect_uris=[AnyUrl("http://localhost:3000/callback")],
             grant_types=["authorization_code", "refresh_token"],
             response_types=["code"],
+            scope="user",
         ),
-        storage=CustomTokenStorage(),
-        redirect_handler=lambda url: print(f"Visit: {url}"),
-        callback_handler=lambda: ("auth_code", None),
+        storage=InMemoryTokenStorage(),
+        redirect_handler=handle_redirect,
+        callback_handler=handle_callback,
     )
 
     # For machine-to-machine scenarios, use ClientCredentialsProvider
@@ -1617,15 +1677,98 @@ async def main():
     )
 
     # Use with streamable HTTP client
-    async with streamablehttp_client(
-        "https://api.example.com/mcp", auth=oauth_auth
-    ) as (read, write, _):
+    async with streamablehttp_client("http://localhost:8001/mcp", auth=oauth_auth) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
-            # Authenticated session ready
+
+            tools = await session.list_tools()
+            print(f"Available tools: {[tool.name for tool in tools.tools]}")
+
+            resources = await session.list_resources()
+            print(f"Available resources: {[r.uri for r in resources.resources]}")
+
+
+def run():
+    asyncio.run(main())
+
+
+if __name__ == "__main__":
+    run()
 ```
 
+_Full example: [examples/snippets/clients/oauth_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/oauth_client.py)_
+<!-- /snippet-source -->
+
 For a complete working example, see [`examples/clients/simple-auth-client/`](examples/clients/simple-auth-client/).
+
+### Parsing Tool Results
+
+When calling tools through MCP, the `CallToolResult` object contains the tool's response in a structured format. Understanding how to parse this result is essential for properly handling tool outputs.
+
+```python
+"""examples/snippets/clients/parsing_tool_results.py"""
+
+import asyncio
+
+from mcp import ClientSession, StdioServerParameters, types
+from mcp.client.stdio import stdio_client
+
+
+async def parse_tool_results():
+    """Demonstrates how to parse different types of content in CallToolResult."""
+    server_params = StdioServerParameters(
+        command="python", args=["path/to/mcp_server.py"]
+    )
+
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+
+            # Example 1: Parsing text content
+            result = await session.call_tool("get_data", {"format": "text"})
+            for content in result.content:
+                if isinstance(content, types.TextContent):
+                    print(f"Text: {content.text}")
+
+            # Example 2: Parsing structured content from JSON tools
+            result = await session.call_tool("get_user", {"id": "123"})
+            if hasattr(result, "structuredContent") and result.structuredContent:
+                # Access structured data directly
+                user_data = result.structuredContent
+                print(f"User: {user_data.get('name')}, Age: {user_data.get('age')}")
+
+            # Example 3: Parsing embedded resources
+            result = await session.call_tool("read_config", {})
+            for content in result.content:
+                if isinstance(content, types.EmbeddedResource):
+                    resource = content.resource
+                    if isinstance(resource, types.TextResourceContents):
+                        print(f"Config from {resource.uri}: {resource.text}")
+                    elif isinstance(resource, types.BlobResourceContents):
+                        print(f"Binary data from {resource.uri}")
+
+            # Example 4: Parsing image content
+            result = await session.call_tool("generate_chart", {"data": [1, 2, 3]})
+            for content in result.content:
+                if isinstance(content, types.ImageContent):
+                    print(f"Image ({content.mimeType}): {len(content.data)} bytes")
+
+            # Example 5: Handling errors
+            result = await session.call_tool("failing_tool", {})
+            if result.isError:
+                print("Tool execution failed!")
+                for content in result.content:
+                    if isinstance(content, types.TextContent):
+                        print(f"Error: {content.text}")
+
+
+async def main():
+    await parse_tool_results()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
 
 ### MCP Primitives
 
