@@ -75,6 +75,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
             SendNotificationT,
             SendResultT,
             ReceiveRequestT,
+            ReceiveResultT,
             ReceiveNotificationT
         ]""",
         on_complete: Callable[["RequestResponder[ReceiveRequestT, SendResultT]"], Any],
@@ -162,6 +163,7 @@ class BaseSession(
         SendNotificationT,
         SendResultT,
         ReceiveRequestT,
+        ReceiveResultT,
         ReceiveNotificationT,
     ],
 ):
