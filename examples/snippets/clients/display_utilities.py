@@ -1,8 +1,4 @@
-"""Client display utilities example.
-
-This example shows how to use the SDK's display utilities to show
-human-readable names for tools, resources, and prompts.
-
+"""
 cd to the `examples/snippets` directory and run:
     uv run display-utilities-client
 """

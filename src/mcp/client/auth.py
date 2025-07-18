@@ -251,72 +251,32 @@ class OAuthClientProvider(httpx.Auth):
             except ValidationError:
                 pass
 
-    def _build_well_known_path(self, pathname: str) -> str:
-        """Construct well-known path for OAuth metadata discovery."""
-        well_known_path = f"/.well-known/oauth-authorization-server{pathname}"
-        if pathname.endswith("/"):
-            # Strip trailing slash from pathname to avoid double slashes
-            well_known_path = well_known_path[:-1]
-        return well_known_path
-
-    def _should_attempt_fallback(self, response_status: int, pathname: str) -> bool:
-        """Determine if fallback to root discovery should be attempted."""
-        return response_status == 404 and pathname != "/"
-
-    async def _try_metadata_discovery(self, url: str) -> httpx.Request:
-        """Build metadata discovery request for a specific URL."""
-        return httpx.Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
-
-    async def _discover_oauth_metadata(self) -> httpx.Request:
-        """Build OAuth metadata discovery request with fallback support."""
-        if self.context.auth_server_url:
-            auth_server_url = self.context.auth_server_url
-        else:
-            auth_server_url = self.context.server_url
-
-        # Per RFC 8414, try path-aware discovery first
+    def _get_discovery_urls(self) -> list[str]:
+        """Generate ordered list of (url, type) tuples for discovery attempts."""
+        urls: list[str] = []
+        auth_server_url = self.context.auth_server_url or self.context.server_url
         parsed = urlparse(auth_server_url)
-        well_known_path = self._build_well_known_path(parsed.path)
         base_url = f"{parsed.scheme}://{parsed.netloc}"
-        url = urljoin(base_url, well_known_path)
 
-        # Store fallback info for use in response handler
-        self.context.discovery_base_url = base_url
-        self.context.discovery_pathname = parsed.path
+        # RFC 8414: Path-aware OAuth discovery
+        if parsed.path and parsed.path != "/":
+            oauth_path = f"/.well-known/oauth-authorization-server{parsed.path.rstrip('/')}"
+            urls.append(urljoin(base_url, oauth_path))
 
-        return await self._try_metadata_discovery(url)
+        # OAuth root fallback
+        urls.append(urljoin(base_url, "/.well-known/oauth-authorization-server"))
 
-    async def _discover_oauth_metadata_fallback(self) -> httpx.Request:
-        """Build fallback OAuth metadata discovery request for legacy servers."""
-        base_url = getattr(self.context, "discovery_base_url", "")
-        if not base_url:
-            raise OAuthFlowError("No base URL available for fallback discovery")
+        # RFC 8414 section 5: Path-aware OIDC discovery
+        # See https://www.rfc-editor.org/rfc/rfc8414.html#section-5
+        if parsed.path and parsed.path != "/":
+            oidc_path = f"/.well-known/openid-configuration{parsed.path.rstrip('/')}"
+            urls.append(urljoin(base_url, oidc_path))
 
-        # Fallback to root discovery for legacy servers
-        url = urljoin(base_url, "/.well-known/oauth-authorization-server")
-        return await self._try_metadata_discovery(url)
+        # OIDC 1.0 fallback (appends to full URL per OIDC spec)
+        oidc_fallback = f"{auth_server_url.rstrip('/')}/.well-known/openid-configuration"
+        urls.append(oidc_fallback)
 
-    async def _handle_oauth_metadata_response(self, response: httpx.Response, is_fallback: bool = False) -> bool:
-        """Handle OAuth metadata response. Returns True if handled successfully."""
-        if response.status_code == 200:
-            try:
-                content = await response.aread()
-                metadata = OAuthMetadata.model_validate_json(content)
-                self.context.oauth_metadata = metadata
-                # Apply default scope if none specified
-                if self.context.client_metadata.scope is None and metadata.scopes_supported is not None:
-                    self.context.client_metadata.scope = " ".join(metadata.scopes_supported)
-                return True
-            except ValidationError:
-                pass
-
-        # Check if we should attempt fallback (404 on path-aware discovery)
-        if not is_fallback and self._should_attempt_fallback(
-            response.status_code, getattr(self.context, "discovery_pathname", "/")
-        ):
-            return False  # Signal that fallback should be attempted
-
-        return True  # Signal no fallback needed (either success or non-404 error)
+        return urls
 
     async def _register_client(self) -> httpx.Request | None:
         """Build registration request or skip if already registered."""
@@ -511,6 +471,17 @@ class OAuthClientProvider(httpx.Auth):
         if self.context.current_tokens and self.context.current_tokens.access_token:
             request.headers["Authorization"] = f"Bearer {self.context.current_tokens.access_token}"
 
+    def _create_oauth_metadata_request(self, url: str) -> httpx.Request:
+        return httpx.Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
+
+    async def _handle_oauth_metadata_response(self, response: httpx.Response) -> None:
+        content = await response.aread()
+        metadata = OAuthMetadata.model_validate_json(content)
+        self.context.oauth_metadata = metadata
+        # Apply default scope if needed
+        if self.context.client_metadata.scope is None and metadata.scopes_supported is not None:
+            self.context.client_metadata.scope = " ".join(metadata.scopes_supported)
+
     async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
         """HTTPX auth flow integration."""
         async with self.context.lock:
@@ -544,15 +515,19 @@ class OAuthClientProvider(httpx.Auth):
                     await self._handle_protected_resource_response(discovery_response)
 
                     # Step 2: Discover OAuth metadata (with fallback for legacy servers)
-                    oauth_request = await self._discover_oauth_metadata()
-                    oauth_response = yield oauth_request
-                    handled = await self._handle_oauth_metadata_response(oauth_response, is_fallback=False)
+                    discovery_urls = self._get_discovery_urls()
+                    for url in discovery_urls:
+                        request = self._create_oauth_metadata_request(url)
+                        response = yield request
 
-                    # If path-aware discovery failed with 404, try fallback to root
-                    if not handled:
-                        fallback_request = await self._discover_oauth_metadata_fallback()
-                        fallback_response = yield fallback_request
-                        await self._handle_oauth_metadata_response(fallback_response, is_fallback=True)
+                        if response.status_code == 200:
+                            try:
+                                await self._handle_oauth_metadata_response(response)
+                                break
+                            except ValidationError:
+                                continue
+                        elif response.status_code != 404:
+                            break  # Non-404 error, stop trying
 
                     # Step 3: Register client if needed
                     registration_request = await self._register_client()
@@ -571,6 +546,6 @@ class OAuthClientProvider(httpx.Auth):
                     logger.exception("OAuth flow error")
                     raise
 
-                # Retry with new tokens
-                self._add_auth_header(request)
-                yield request
+        # Retry with new tokens
+        self._add_auth_header(request)
+        yield request

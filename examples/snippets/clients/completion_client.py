@@ -1,6 +1,4 @@
-"""MCP client example showing completion usage.
-
-This example demonstrates how to use the completion feature in MCP clients.
+"""
 cd to the `examples/snippets` directory and run:
     uv run completion-client
 """
