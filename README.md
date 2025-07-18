@@ -1603,7 +1603,7 @@ from urllib.parse import parse_qs, urlparse
 from pydantic import AnyUrl
 
 from mcp import ClientSession
-from mcp.client.auth import OAuthClientProvider, TokenExchangeProvider, TokenStorage
+from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
@@ -1658,25 +1658,6 @@ async def main():
         callback_handler=handle_callback,
     )
 
-    # For machine-to-machine scenarios, use ClientCredentialsProvider
-    # instead of OAuthClientProvider.
-
-    # If you already have a user token from another provider, you can
-    # exchange it for an MCP token using the token_exchange grant
-    # implemented by TokenExchangeProvider.
-    token_exchange_auth = TokenExchangeProvider(
-        server_url="https://api.example.com",
-        client_metadata=OAuthClientMetadata(
-            client_name="My Client",
-            redirect_uris=["http://localhost:3000/callback"],
-            grant_types=["client_credentials", "token_exchange"],
-            response_types=["code"],
-        ),
-        storage=CustomTokenStorage(),
-        subject_token_supplier=lambda: "user_token",
-    )
-
-    # Use with streamable HTTP client
     async with streamablehttp_client("http://localhost:8001/mcp", auth=oauth_auth) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
