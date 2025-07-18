@@ -47,3 +47,8 @@ app = Starlette(
     ],
     lifespan=lifespan,
 )
+
+# Note: Clients connect to http://localhost:8000/echo/mcp and http://localhost:8000/math/mcp
+# To mount at the root of each path (e.g., /echo instead of /echo/mcp):
+# echo_mcp.settings.streamable_http_path = "/"
+# math_mcp.settings.streamable_http_path = "/"
