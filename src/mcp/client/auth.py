@@ -517,16 +517,16 @@ class OAuthClientProvider(httpx.Auth):
                     # Step 2: Discover OAuth metadata (with fallback for legacy servers)
                     discovery_urls = self._get_discovery_urls()
                     for url in discovery_urls:
-                        request = self._create_oauth_metadata_request(url)
-                        response = yield request
+                        oauth_metadata_request = self._create_oauth_metadata_request(url)
+                        oauth_metadata_response = yield oauth_metadata_request
 
-                        if response.status_code == 200:
+                        if oauth_metadata_response.status_code == 200:
                             try:
-                                await self._handle_oauth_metadata_response(response)
+                                await self._handle_oauth_metadata_response(oauth_metadata_response)
                                 break
                             except ValidationError:
                                 continue
-                        elif response.status_code != 404:
+                        elif oauth_metadata_response.status_code != 404:
                             break  # Non-404 error, stop trying
 
                     # Step 3: Register client if needed
