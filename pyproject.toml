@@ -33,6 +33,7 @@ dependencies = [
     "uvicorn>=0.23.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",
     "pywin32>=310; sys_platform == 'win32'",
+    "tiktoken>=0.9.0",
 ]
 
 [project.optional-dependencies]
@@ -59,6 +60,7 @@ dev = [
     "pytest-pretty>=1.2.0",
     "inline-snapshot>=0.23.0",
     "dirty-equals>=0.9.0",
+    "pytest-asyncio>=1.1.0",
 ]
 docs = [
     "mkdocs>=1.6.1",
