@@ -272,7 +272,7 @@ class TestClientSessionGroup:
             (
                 StreamableHttpParameters(url="http://test.com/stream", terminate_on_close=False),
                 "streamablehttp",
-                "mcp.client.session_group.streamablehttp_client",
+                "mcp.client.session_group.streamable_http_client",
             ),  # url, headers, timeout, sse_read_timeout, terminate_on_close
         ],
     )
@@ -288,7 +288,7 @@ class TestClientSessionGroup:
                 mock_read_stream = mock.AsyncMock(name=f"{client_type_name}Read")
                 mock_write_stream = mock.AsyncMock(name=f"{client_type_name}Write")
 
-                # streamablehttp_client's __aenter__ returns three values
+                # streamable_http_client's __aenter__ returns three values
                 if client_type_name == "streamablehttp":
                     mock_extra_stream_val = mock.AsyncMock(name="StreamableExtra")
                     mock_client_cm_instance.__aenter__.return_value = (

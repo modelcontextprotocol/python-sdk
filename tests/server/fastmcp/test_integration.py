@@ -34,10 +34,7 @@ from examples.snippets.servers import (
 )
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import GetSessionIdCallback, streamablehttp_client
-from mcp.shared.context import RequestContext
-from mcp.shared.message import SessionMessage
-from mcp.shared.session import RequestResponder
+from mcp.client.streamable_http import streamable_http_client
 from mcp.types import (
     ClientResult,
     CreateMessageRequestParams,
@@ -179,7 +176,7 @@ def create_client_for_transport(transport: str, server_url: str):
         return sse_client(endpoint)
     elif transport == "streamable-http":
         endpoint = f"{server_url}/mcp"
-        return streamablehttp_client(endpoint)
+        return streamable_http_client(endpoint)
     else:  # pragma: no cover
         raise ValueError(f"Invalid transport: {transport}")
 
