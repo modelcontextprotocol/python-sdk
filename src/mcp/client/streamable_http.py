@@ -522,6 +522,8 @@ async def streamablehttp_client(
     timeout: float | timedelta = 30,
     sse_read_timeout: float | timedelta = 60 * 5,
     terminate_on_close: bool = True,
+    httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
+    auth: httpx.Auth | None = None,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -530,5 +532,7 @@ async def streamablehttp_client(
     ],
     None,
 ]:
-    async with streamable_http_client(url, headers, timeout, sse_read_timeout, terminate_on_close) as streams:
+    async with streamable_http_client(
+        url, headers, timeout, sse_read_timeout, terminate_on_close, httpx_client_factory, auth
+    ) as streams:
         yield streams
