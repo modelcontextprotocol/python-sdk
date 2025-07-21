@@ -1175,21 +1175,23 @@ For more information on mounting applications in Starlette, see the [Starlette d
 
 You can mount the StreamableHTTP server to an existing ASGI server using the `streamable_http_app` method. This allows you to integrate the StreamableHTTP server with other ASGI applications.
 
-<!-- snippet-source examples/snippets/servers/streamable_http_mounting.py -->
+##### Basic mounting
+
+<!-- snippet-source examples/snippets/servers/streamable_http_basic_mounting.py -->
 ```python
 """
-Example showing how to mount StreamableHTTP servers in Starlette applications.
+Basic example showing how to mount StreamableHTTP server in Starlette.
 
 Run from the repository root:
-    uvicorn examples.snippets.servers.streamable_http_mounting:app --reload
+    uvicorn examples.snippets.servers.streamable_http_basic_mounting:app --reload
 """
 
 from starlette.applications import Starlette
-from starlette.routing import Host, Mount
+from starlette.routing import Mount
 
 from mcp.server.fastmcp import FastMCP
 
-# Basic example - mounting at root
+# Create MCP server
 mcp = FastMCP("My App")
 
 
@@ -1205,11 +1207,64 @@ app = Starlette(
         Mount("/", app=mcp.streamable_http_app()),
     ]
 )
+```
 
-# or dynamically mount as host
-app.router.routes.append(Host("mcp.acme.corp", app=mcp.streamable_http_app()))
+_Full example: [examples/snippets/servers/streamable_http_basic_mounting.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_basic_mounting.py)_
+<!-- /snippet-source -->
 
-# Advanced example - multiple servers with path configuration
+##### Host-based routing
+
+<!-- snippet-source examples/snippets/servers/streamable_http_host_mounting.py -->
+```python
+"""
+Example showing how to mount StreamableHTTP server using Host-based routing.
+
+Run from the repository root:
+    uvicorn examples.snippets.servers.streamable_http_host_mounting:app --reload
+"""
+
+from starlette.applications import Starlette
+from starlette.routing import Host
+
+from mcp.server.fastmcp import FastMCP
+
+# Create MCP server
+mcp = FastMCP("MCP Host App")
+
+
+@mcp.tool()
+def domain_info() -> str:
+    """Get domain-specific information"""
+    return "This is served from mcp.acme.corp"
+
+
+# Mount using Host-based routing
+app = Starlette(
+    routes=[
+        Host("mcp.acme.corp", app=mcp.streamable_http_app()),
+    ]
+)
+```
+
+_Full example: [examples/snippets/servers/streamable_http_host_mounting.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_host_mounting.py)_
+<!-- /snippet-source -->
+
+##### Multiple servers with path configuration
+
+<!-- snippet-source examples/snippets/servers/streamable_http_multiple_servers.py -->
+```python
+"""
+Example showing how to mount multiple StreamableHTTP servers with path configuration.
+
+Run from the repository root:
+    uvicorn examples.snippets.servers.streamable_http_multiple_servers:app --reload
+"""
+
+from starlette.applications import Starlette
+from starlette.routing import Mount
+
+from mcp.server.fastmcp import FastMCP
+
 # Create multiple MCP servers
 api_mcp = FastMCP("API Server")
 chat_mcp = FastMCP("Chat Server")
@@ -1227,31 +1282,59 @@ def send_message(message: str) -> str:
     return f"Message sent: {message}"
 
 
-# Default behavior: endpoints will be at /api/mcp and /chat/mcp
-default_app = Starlette(
-    routes=[
-        Mount("/api", app=api_mcp.streamable_http_app()),
-        Mount("/chat", app=chat_mcp.streamable_http_app()),
-    ]
-)
-
-# To mount at the root of each path (e.g., /api instead of /api/mcp):
-# Configure streamable_http_path before mounting
+# Configure servers to mount at the root of each path
+# This means endpoints will be at /api and /chat instead of /api/mcp and /chat/mcp
 api_mcp.settings.streamable_http_path = "/"
 chat_mcp.settings.streamable_http_path = "/"
 
-configured_app = Starlette(
+# Mount the servers
+app = Starlette(
     routes=[
         Mount("/api", app=api_mcp.streamable_http_app()),
         Mount("/chat", app=chat_mcp.streamable_http_app()),
     ]
 )
-
-# Or configure during initialization
-mcp_at_root = FastMCP("My Server", streamable_http_path="/")
 ```
 
-_Full example: [examples/snippets/servers/streamable_http_mounting.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_mounting.py)_
+_Full example: [examples/snippets/servers/streamable_http_multiple_servers.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_multiple_servers.py)_
+<!-- /snippet-source -->
+
+##### Path configuration at initialization
+
+<!-- snippet-source examples/snippets/servers/streamable_http_path_config.py -->
+```python
+"""
+Example showing path configuration during FastMCP initialization.
+
+Run from the repository root:
+    uvicorn examples.snippets.servers.streamable_http_path_config:app --reload
+"""
+
+from starlette.applications import Starlette
+from starlette.routing import Mount
+
+from mcp.server.fastmcp import FastMCP
+
+# Configure streamable_http_path during initialization
+# This server will mount at the root of wherever it's mounted
+mcp_at_root = FastMCP("My Server", streamable_http_path="/")
+
+
+@mcp_at_root.tool()
+def process_data(data: str) -> str:
+    """Process some data"""
+    return f"Processed: {data}"
+
+
+# Mount at /process - endpoints will be at /process instead of /process/mcp
+app = Starlette(
+    routes=[
+        Mount("/process", app=mcp_at_root.streamable_http_app()),
+    ]
+)
+```
+
+_Full example: [examples/snippets/servers/streamable_http_path_config.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_path_config.py)_
 <!-- /snippet-source -->
 
 #### SSE servers
