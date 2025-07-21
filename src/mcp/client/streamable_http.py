@@ -17,6 +17,7 @@ import httpx
 from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
+from typing_extensions import deprecated
 
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
@@ -442,7 +443,7 @@ class StreamableHTTPTransport:
 
 
 @asynccontextmanager
-async def streamablehttp_client(
+async def streamable_http_client(
     url: str,
     headers: dict[str, str] | None = None,
     timeout: float | timedelta = 30,
@@ -511,3 +512,23 @@ async def streamablehttp_client(
         finally:
             await read_stream_writer.aclose()
             await write_stream.aclose()
+
+
+@deprecated("Use `streamable_http_client` instead.")
+@asynccontextmanager
+async def streamablehttp_client(
+    url: str,
+    headers: dict[str, str] | None = None,
+    timeout: float | timedelta = 30,
+    sse_read_timeout: float | timedelta = 60 * 5,
+    terminate_on_close: bool = True,
+) -> AsyncGenerator[
+    tuple[
+        MemoryObjectReceiveStream[SessionMessage | Exception],
+        MemoryObjectSendStream[SessionMessage],
+        GetSessionIdCallback,
+    ],
+    None,
+]:
+    async with streamable_http_client(url, headers, timeout, sse_read_timeout, terminate_on_close) as streams:
+        yield streams
