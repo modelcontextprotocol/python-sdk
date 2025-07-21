@@ -466,11 +466,20 @@ async def test_request_context_isolation(context_server: None, server_url: str) 
 
 
 def test_sse_message_id_coercion():
-    """Test that string message IDs that look like integers are parsed as integers.
+    """Previously, the `RequestId` would coerce a string that looked like an integer into an integer.
 
     See <https://github.com/modelcontextprotocol/python-sdk/pull/851> for more details.
+
+    As per the JSON-RPC 2.0 specification, the id in the response object needs to be the same type as the id in the
+    request object. In other words, we can't perform the coercion.
+
+    See <https://www.jsonrpc.org/specification#response_object> for more details.
     """
     json_message = '{"jsonrpc": "2.0", "id": "123", "method": "ping", "params": null}'
+    msg = types.JSONRPCMessage.model_validate_json(json_message)
+    assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", jsonrpc="2.0", id="123")))
+
+    json_message = '{"jsonrpc": "2.0", "id": 123, "method": "ping", "params": null}'
     msg = types.JSONRPCMessage.model_validate_json(json_message)
     assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", jsonrpc="2.0", id=123)))
 

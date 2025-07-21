@@ -44,6 +44,7 @@
   - [Advanced Usage](#advanced-usage)
     - [Low-Level Server](#low-level-server)
     - [Writing MCP Clients](#writing-mcp-clients)
+    - [Parsing Tool Results](#parsing-tool-results)
     - [MCP Primitives](#mcp-primitives)
     - [Server Capabilities](#server-capabilities)
   - [Documentation](#documentation)
@@ -532,9 +533,7 @@ Client usage:
 
 <!-- snippet-source examples/snippets/clients/completion_client.py -->
 ```python
-"""MCP client example showing completion usage.
-
-This example demonstrates how to use the completion feature in MCP clients.
+"""
 cd to the `examples/snippets` directory and run:
     uv run completion-client
 """
@@ -746,29 +745,58 @@ Authentication can be used by servers that want to expose tools accessing protec
 
 MCP servers can use authentication by providing an implementation of the `TokenVerifier` protocol:
 
+<!-- snippet-source examples/snippets/servers/oauth_server.py -->
 ```python
-from mcp import FastMCP
-from mcp.server.auth.provider import TokenVerifier, TokenInfo
+"""
+Run from the repository root:
+    uv run examples/snippets/servers/oauth_server.py
+"""
+
+from pydantic import AnyHttpUrl
+
+from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
+from mcp.server.fastmcp import FastMCP
 
 
-class MyTokenVerifier(TokenVerifier):
-    # Implement token validation logic (typically via token introspection)
-    async def verify_token(self, token: str) -> TokenInfo:
-        # Verify with your authorization server
-        ...
+class SimpleTokenVerifier(TokenVerifier):
+    """Simple token verifier for demonstration."""
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        pass  # This is where you would implement actual token validation
 
 
+# Create FastMCP instance as a Resource Server
 mcp = FastMCP(
-    "My App",
-    token_verifier=MyTokenVerifier(),
+    "Weather Service",
+    # Token verifier for authentication
+    token_verifier=SimpleTokenVerifier(),
+    # Auth settings for RFC 9728 Protected Resource Metadata
     auth=AuthSettings(
-        issuer_url="https://auth.example.com",
-        resource_server_url="http://localhost:3001",
-        required_scopes=["mcp:read", "mcp:write"],
+        issuer_url=AnyHttpUrl("https://auth.example.com"),  # Authorization Server URL
+        resource_server_url=AnyHttpUrl("http://localhost:3001"),  # This server's URL
+        required_scopes=["user"],
     ),
 )
+
+
+@mcp.tool()
+async def get_weather(city: str = "London") -> dict[str, str]:
+    """Get weather data for a city"""
+    return {
+        "city": city,
+        "temperature": "22",
+        "condition": "Partly cloudy",
+        "humidity": "65%",
+    }
+
+
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http")
 ```
+
+_Full example: [examples/snippets/servers/oauth_server.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/oauth_server.py)_
+<!-- /snippet-source -->
 
 For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](examples/servers/simple-auth/).
 
@@ -863,71 +891,98 @@ Note that `uv run mcp run` or `uv run mcp dev` only supports server using FastMC
 
 > **Note**: Streamable HTTP transport is superseding SSE transport for production deployments.
 
+<!-- snippet-source examples/snippets/servers/streamable_config.py -->
 ```python
+"""
+Run from the repository root:
+    uv run examples/snippets/servers/streamable_config.py
+"""
+
 from mcp.server.fastmcp import FastMCP
 
 # Stateful server (maintains session state)
 mcp = FastMCP("StatefulServer")
 
+# Other configuration options:
 # Stateless server (no session persistence)
-mcp = FastMCP("StatelessServer", stateless_http=True)
+# mcp = FastMCP("StatelessServer", stateless_http=True)
 
 # Stateless server (no session persistence, no sse stream with supported client)
-mcp = FastMCP("StatelessServer", stateless_http=True, json_response=True)
+# mcp = FastMCP("StatelessServer", stateless_http=True, json_response=True)
+
+
+# Add a simple tool to demonstrate the server
+@mcp.tool()
+def greet(name: str = "World") -> str:
+    """Greet someone by name."""
+    return f"Hello, {name}!"
+
 
 # Run server with streamable_http transport
-mcp.run(transport="streamable-http")
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http")
 ```
 
-You can mount multiple FastMCP servers in a FastAPI application:
+_Full example: [examples/snippets/servers/streamable_config.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_config.py)_
+<!-- /snippet-source -->
 
+You can mount multiple FastMCP servers in a Starlette application:
+
+<!-- snippet-source examples/snippets/servers/streamable_starlette_mount.py -->
 ```python
-# echo.py
+"""
+Run from the repository root:
+    uvicorn examples.snippets.servers.streamable_starlette_mount:app --reload
+"""
+
+import contextlib
+
+from starlette.applications import Starlette
+from starlette.routing import Mount
+
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP(name="EchoServer", stateless_http=True)
+# Create the Echo server
+echo_mcp = FastMCP(name="EchoServer", stateless_http=True)
 
 
-@mcp.tool()
+@echo_mcp.tool()
 def echo(message: str) -> str:
     """A simple echo tool"""
     return f"Echo: {message}"
-```
-
-```python
-# math.py
-from mcp.server.fastmcp import FastMCP
-
-mcp = FastMCP(name="MathServer", stateless_http=True)
 
 
-@mcp.tool()
+# Create the Math server
+math_mcp = FastMCP(name="MathServer", stateless_http=True)
+
+
+@math_mcp.tool()
 def add_two(n: int) -> int:
     """Tool to add two to the input"""
     return n + 2
-```
-
-```python
-# main.py
-import contextlib
-from fastapi import FastAPI
-from mcp.echo import echo
-from mcp.math import math
 
 
 # Create a combined lifespan to manage both session managers
 @contextlib.asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: Starlette):
     async with contextlib.AsyncExitStack() as stack:
-        await stack.enter_async_context(echo.mcp.session_manager.run())
-        await stack.enter_async_context(math.mcp.session_manager.run())
+        await stack.enter_async_context(echo_mcp.session_manager.run())
+        await stack.enter_async_context(math_mcp.session_manager.run())
         yield
 
 
-app = FastAPI(lifespan=lifespan)
-app.mount("/echo", echo.mcp.streamable_http_app())
-app.mount("/math", math.mcp.streamable_http_app())
+# Create the Starlette app and mount the MCP servers
+app = Starlette(
+    routes=[
+        Mount("/echo", echo_mcp.streamable_http_app()),
+        Mount("/math", math_mcp.streamable_http_app()),
+    ],
+    lifespan=lifespan,
+)
 ```
+
+_Full example: [examples/snippets/servers/streamable_starlette_mount.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_starlette_mount.py)_
+<!-- /snippet-source -->
 
 For low level server with Streamable HTTP implementations, see:
 
@@ -944,26 +999,6 @@ The streamable HTTP transport supports:
 ### Mounting to an Existing ASGI Server
 
 By default, SSE servers are mounted at `/sse` and Streamable HTTP servers are mounted at `/mcp`. You can customize these paths using the methods described below.
-
-#### Streamable HTTP servers
-
-The following example shows how to use `streamable_http_app()`, a method that returns a `Starlette` application object.
-You can then append additional routes to that application as needed.
-
-```python
-mcp = FastMCP("My App")
-
-app = mcp.streamable_http_app()
-# Additional non-MCP routes can be added like so:
-# from starlette.routing import Route
-# app.router.routes.append(Route("/", endpoint=other_route_function))
-```
-
-To customize the route from the default of "/mcp", either specify the `streamable_http_path` option for the `FastMCP` constructor,
-or set `FASTMCP_STREAMABLE_HTTP_PATH` environment variable.
-
-Note that in Starlette and FastAPI (which is based on Starlette), the "/mcp" route will redirect to "/mcp/",
-so you may need to use "/mcp/" when pointing MCP clients at your servers.
 
 For more information on mounting applications in Starlette, see the [Starlette documentation](https://www.starlette.io/routing/#submounting-routes).
 
@@ -1037,17 +1072,44 @@ For more information on mounting applications in Starlette, see the [Starlette d
 
 For more control, you can use the low-level server implementation directly. This gives you full access to the protocol and allows you to customize every aspect of your server, including lifecycle management through the lifespan API:
 
+<!-- snippet-source examples/snippets/servers/lowlevel/lifespan.py -->
 ```python
-from contextlib import asynccontextmanager
+"""
+Run from the repository root:
+    uv run examples/snippets/servers/lowlevel/lifespan.py
+"""
+
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-from fake_database import Database  # Replace with your actual DB type
+import mcp.server.stdio
+import mcp.types as types
+from mcp.server.lowlevel import NotificationOptions, Server
+from mcp.server.models import InitializationOptions
 
-from mcp.server import Server
+
+# Mock database class for example
+class Database:
+    """Mock database class for example."""
+
+    @classmethod
+    async def connect(cls) -> "Database":
+        """Connect to database."""
+        print("Database connected")
+        return cls()
+
+    async def disconnect(self) -> None:
+        """Disconnect from database."""
+        print("Database disconnected")
+
+    async def query(self, query_str: str) -> list[dict[str, str]]:
+        """Execute a query."""
+        # Simulate database query
+        return [{"id": "1", "name": "Example", "query": query_str}]
 
 
 @asynccontextmanager
-async def server_lifespan(server: Server) -> AsyncIterator[dict]:
+async def server_lifespan(_server: Server) -> AsyncIterator[dict]:
     """Manage server startup and shutdown lifecycle."""
     # Initialize resources on startup
     db = await Database.connect()
@@ -1062,13 +1124,63 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 server = Server("example-server", lifespan=server_lifespan)
 
 
-# Access lifespan context in handlers
+@server.list_tools()
+async def handle_list_tools() -> list[types.Tool]:
+    """List available tools."""
+    return [
+        types.Tool(
+            name="query_db",
+            description="Query the database",
+            inputSchema={
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "SQL query to execute"}},
+                "required": ["query"],
+            },
+        )
+    ]
+
+
 @server.call_tool()
-async def query_db(name: str, arguments: dict) -> list:
+async def query_db(name: str, arguments: dict) -> list[types.TextContent]:
+    """Handle database query tool call."""
+    if name != "query_db":
+        raise ValueError(f"Unknown tool: {name}")
+
+    # Access lifespan context
     ctx = server.request_context
     db = ctx.lifespan_context["db"]
-    return await db.query(arguments["query"])
+
+    # Execute query
+    results = await db.query(arguments["query"])
+
+    return [types.TextContent(type="text", text=f"Query results: {results}")]
+
+
+async def run():
+    """Run the server with lifespan management."""
+    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+        await server.run(
+            read_stream,
+            write_stream,
+            InitializationOptions(
+                server_name="example-server",
+                server_version="0.1.0",
+                capabilities=server.get_capabilities(
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={},
+                ),
+            ),
+        )
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(run())
 ```
+
+_Full example: [examples/snippets/servers/lowlevel/lifespan.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/lifespan.py)_
+<!-- /snippet-source -->
 
 The lifespan API provides:
 
@@ -1076,7 +1188,15 @@ The lifespan API provides:
 - Access to initialized resources through the request context in handlers
 - Type-safe context passing between lifespan and request handlers
 
+<!-- snippet-source examples/snippets/servers/lowlevel/basic.py -->
 ```python
+"""
+Run from the repository root:
+uv run examples/snippets/servers/lowlevel/basic.py
+"""
+
+import asyncio
+
 import mcp.server.stdio
 import mcp.types as types
 from mcp.server.lowlevel import NotificationOptions, Server
@@ -1088,38 +1208,37 @@ server = Server("example-server")
 
 @server.list_prompts()
 async def handle_list_prompts() -> list[types.Prompt]:
+    """List available prompts."""
     return [
         types.Prompt(
             name="example-prompt",
             description="An example prompt template",
-            arguments=[
-                types.PromptArgument(
-                    name="arg1", description="Example argument", required=True
-                )
-            ],
+            arguments=[types.PromptArgument(name="arg1", description="Example argument", required=True)],
         )
     ]
 
 
 @server.get_prompt()
-async def handle_get_prompt(
-    name: str, arguments: dict[str, str] | None
-) -> types.GetPromptResult:
+async def handle_get_prompt(name: str, arguments: dict[str, str] | None) -> types.GetPromptResult:
+    """Get a specific prompt by name."""
     if name != "example-prompt":
         raise ValueError(f"Unknown prompt: {name}")
+
+    arg1_value = (arguments or {}).get("arg1", "default")
 
     return types.GetPromptResult(
         description="Example prompt",
         messages=[
             types.PromptMessage(
                 role="user",
-                content=types.TextContent(type="text", text="Example prompt text"),
+                content=types.TextContent(type="text", text=f"Example prompt text with argument: {arg1_value}"),
             )
         ],
     )
 
 
 async def run():
+    """Run the basic low-level server."""
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,
@@ -1136,10 +1255,11 @@ async def run():
 
 
 if __name__ == "__main__":
-    import asyncio
-
     asyncio.run(run())
 ```
+
+_Full example: [examples/snippets/servers/lowlevel/basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/basic.py)_
+<!-- /snippet-source -->
 
 Caution: The `uv run mcp run` and `uv run mcp dev` tool doesn't support low-level server.
 
@@ -1147,35 +1267,45 @@ Caution: The `uv run mcp run` and `uv run mcp dev` tool doesn't support low-leve
 
 The low-level server supports structured output for tools, allowing you to return both human-readable content and machine-readable structured data. Tools can define an `outputSchema` to validate their structured output:
 
+<!-- snippet-source examples/snippets/servers/lowlevel/structured_output.py -->
 ```python
-from types import Any
+"""
+Run from the repository root:
+    uv run examples/snippets/servers/lowlevel/structured_output.py
+"""
 
+import asyncio
+from typing import Any
+
+import mcp.server.stdio
 import mcp.types as types
-from mcp.server.lowlevel import Server
+from mcp.server.lowlevel import NotificationOptions, Server
+from mcp.server.models import InitializationOptions
 
 server = Server("example-server")
 
 
 @server.list_tools()
 async def list_tools() -> list[types.Tool]:
+    """List available tools with structured output schemas."""
     return [
         types.Tool(
-            name="calculate",
-            description="Perform mathematical calculations",
+            name="get_weather",
+            description="Get current weather for a city",
             inputSchema={
                 "type": "object",
-                "properties": {
-                    "expression": {"type": "string", "description": "Math expression"}
-                },
-                "required": ["expression"],
+                "properties": {"city": {"type": "string", "description": "City name"}},
+                "required": ["city"],
             },
             outputSchema={
                 "type": "object",
                 "properties": {
-                    "result": {"type": "number"},
-                    "expression": {"type": "string"},
+                    "temperature": {"type": "number", "description": "Temperature in Celsius"},
+                    "condition": {"type": "string", "description": "Weather condition"},
+                    "humidity": {"type": "number", "description": "Humidity percentage"},
+                    "city": {"type": "string", "description": "City name"},
                 },
-                "required": ["result", "expression"],
+                "required": ["temperature", "condition", "humidity", "city"],
             },
         )
     ]
@@ -1183,19 +1313,49 @@ async def list_tools() -> list[types.Tool]:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    if name == "calculate":
-        expression = arguments["expression"]
-        try:
-            result = eval(expression)  # Use a safe math parser
-            structured = {"result": result, "expression": expression}
+    """Handle tool calls with structured output."""
+    if name == "get_weather":
+        city = arguments["city"]
 
-            # low-level server will validate structured output against the tool's
-            # output schema, and automatically serialize it into a TextContent block
-            # for backwards compatibility with pre-2025-06-18 clients.
-            return structured
-        except Exception as e:
-            raise ValueError(f"Calculation error: {str(e)}")
+        # Simulated weather data - in production, call a weather API
+        weather_data = {
+            "temperature": 22.5,
+            "condition": "partly cloudy",
+            "humidity": 65,
+            "city": city,  # Include the requested city
+        }
+
+        # low-level server will validate structured output against the tool's
+        # output schema, and additionally serialize it into a TextContent block
+        # for backwards compatibility with pre-2025-06-18 clients.
+        return weather_data
+    else:
+        raise ValueError(f"Unknown tool: {name}")
+
+
+async def run():
+    """Run the structured output server."""
+    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+        await server.run(
+            read_stream,
+            write_stream,
+            InitializationOptions(
+                server_name="structured-output-example",
+                server_version="0.1.0",
+                capabilities=server.get_capabilities(
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={},
+                ),
+            ),
+        )
+
+
+if __name__ == "__main__":
+    asyncio.run(run())
 ```
+
+_Full example: [examples/snippets/servers/lowlevel/structured_output.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/structured_output.py)_
+<!-- /snippet-source -->
 
 Tools can return data in three ways:
 
@@ -1211,9 +1371,7 @@ The SDK provides a high-level client interface for connecting to MCP servers usi
 
 <!-- snippet-source examples/snippets/clients/stdio_client.py -->
 ```python
-"""MCP client example using stdio transport.
-
-This is a documentation example showing how to write an MCP client.
+"""
 cd to the `examples/snippets/clients` directory and run:
     uv run client
 """
@@ -1303,14 +1461,22 @@ _Full example: [examples/snippets/clients/stdio_client.py](https://github.com/mo
 
 Clients can also connect using [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http):
 
+<!-- snippet-source examples/snippets/clients/streamable_basic.py -->
 ```python
-from mcp.client.streamable_http import streamablehttp_client
+"""
+Run from the repository root:
+    uv run examples/snippets/clients/streamable_basic.py
+"""
+
+import asyncio
+
 from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
 
 
 async def main():
     # Connect to a streamable HTTP server
-    async with streamablehttp_client("example/mcp") as (
+    async with streamablehttp_client("http://localhost:8000/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -1319,9 +1485,17 @@ async def main():
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the connection
             await session.initialize()
-            # Call a tool
-            tool_result = await session.call_tool("echo", {"message": "hello"})
+            # List available tools
+            tools = await session.list_tools()
+            print(f"Available tools: {[tool.name for tool in tools.tools]}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
+
+_Full example: [examples/snippets/clients/streamable_basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/streamable_basic.py)_
+<!-- /snippet-source -->
 
 ### Client Display Utilities
 
@@ -1329,11 +1503,7 @@ When building MCP clients, the SDK provides utilities to help display human-read
 
 <!-- snippet-source examples/snippets/clients/display_utilities.py -->
 ```python
-"""Client display utilities example.
-
-This example shows how to use the SDK's display utilities to show
-human-readable names for tools, resources, and prompts.
-
+"""
 cd to the `examples/snippets` directory and run:
     uv run display-utilities-client
 """
@@ -1416,54 +1586,170 @@ This ensures your client UI shows the most user-friendly names that servers prov
 
 The SDK includes [authorization support](https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization) for connecting to protected MCP servers:
 
+<!-- snippet-source examples/snippets/clients/oauth_client.py -->
 ```python
+"""
+Before running, specify running MCP RS server URL.
+To spin up RS server locally, see
+    examples/servers/simple-auth/README.md
+
+cd to the `examples/snippets` directory and run:
+    uv run oauth-client
+"""
+
+import asyncio
+from urllib.parse import parse_qs, urlparse
+
+from pydantic import AnyUrl
+
+from mcp import ClientSession
 from mcp.client.auth import OAuthClientProvider, TokenStorage
-from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 
-class CustomTokenStorage(TokenStorage):
-    """Simple in-memory token storage implementation."""
+class InMemoryTokenStorage(TokenStorage):
+    """Demo In-memory token storage implementation."""
+
+    def __init__(self):
+        self.tokens: OAuthToken | None = None
+        self.client_info: OAuthClientInformationFull | None = None
 
     async def get_tokens(self) -> OAuthToken | None:
-        pass
+        """Get stored tokens."""
+        return self.tokens
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
-        pass
+        """Store tokens."""
+        self.tokens = tokens
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
-        pass
+        """Get stored client information."""
+        return self.client_info
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
-        pass
+        """Store client information."""
+        self.client_info = client_info
+
+
+async def handle_redirect(auth_url: str) -> None:
+    print(f"Visit: {auth_url}")
+
+
+async def handle_callback() -> tuple[str, str | None]:
+    callback_url = input("Paste callback URL: ")
+    params = parse_qs(urlparse(callback_url).query)
+    return params["code"][0], params.get("state", [None])[0]
 
 
 async def main():
-    # Set up OAuth authentication
+    """Run the OAuth client example."""
     oauth_auth = OAuthClientProvider(
-        server_url="https://api.example.com",
+        server_url="http://localhost:8001",
         client_metadata=OAuthClientMetadata(
-            client_name="My Client",
-            redirect_uris=["http://localhost:3000/callback"],
+            client_name="Example MCP Client",
+            redirect_uris=[AnyUrl("http://localhost:3000/callback")],
             grant_types=["authorization_code", "refresh_token"],
             response_types=["code"],
+            scope="user",
         ),
-        storage=CustomTokenStorage(),
-        redirect_handler=lambda url: print(f"Visit: {url}"),
-        callback_handler=lambda: ("auth_code", None),
+        storage=InMemoryTokenStorage(),
+        redirect_handler=handle_redirect,
+        callback_handler=handle_callback,
     )
 
-    # Use with streamable HTTP client
-    async with streamablehttp_client(
-        "https://api.example.com/mcp", auth=oauth_auth
-    ) as (read, write, _):
+    async with streamablehttp_client("http://localhost:8001/mcp", auth=oauth_auth) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
-            # Authenticated session ready
+
+            tools = await session.list_tools()
+            print(f"Available tools: {[tool.name for tool in tools.tools]}")
+
+            resources = await session.list_resources()
+            print(f"Available resources: {[r.uri for r in resources.resources]}")
+
+
+def run():
+    asyncio.run(main())
+
+
+if __name__ == "__main__":
+    run()
 ```
 
+_Full example: [examples/snippets/clients/oauth_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/oauth_client.py)_
+<!-- /snippet-source -->
+
 For a complete working example, see [`examples/clients/simple-auth-client/`](examples/clients/simple-auth-client/).
+
+### Parsing Tool Results
+
+When calling tools through MCP, the `CallToolResult` object contains the tool's response in a structured format. Understanding how to parse this result is essential for properly handling tool outputs.
+
+```python
+"""examples/snippets/clients/parsing_tool_results.py"""
+
+import asyncio
+
+from mcp import ClientSession, StdioServerParameters, types
+from mcp.client.stdio import stdio_client
+
+
+async def parse_tool_results():
+    """Demonstrates how to parse different types of content in CallToolResult."""
+    server_params = StdioServerParameters(
+        command="python", args=["path/to/mcp_server.py"]
+    )
+
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+
+            # Example 1: Parsing text content
+            result = await session.call_tool("get_data", {"format": "text"})
+            for content in result.content:
+                if isinstance(content, types.TextContent):
+                    print(f"Text: {content.text}")
+
+            # Example 2: Parsing structured content from JSON tools
+            result = await session.call_tool("get_user", {"id": "123"})
+            if hasattr(result, "structuredContent") and result.structuredContent:
+                # Access structured data directly
+                user_data = result.structuredContent
+                print(f"User: {user_data.get('name')}, Age: {user_data.get('age')}")
+
+            # Example 3: Parsing embedded resources
+            result = await session.call_tool("read_config", {})
+            for content in result.content:
+                if isinstance(content, types.EmbeddedResource):
+                    resource = content.resource
+                    if isinstance(resource, types.TextResourceContents):
+                        print(f"Config from {resource.uri}: {resource.text}")
+                    elif isinstance(resource, types.BlobResourceContents):
+                        print(f"Binary data from {resource.uri}")
+
+            # Example 4: Parsing image content
+            result = await session.call_tool("generate_chart", {"data": [1, 2, 3]})
+            for content in result.content:
+                if isinstance(content, types.ImageContent):
+                    print(f"Image ({content.mimeType}): {len(content.data)} bytes")
+
+            # Example 5: Handling errors
+            result = await session.call_tool("failing_tool", {})
+            if result.isError:
+                print("Tool execution failed!")
+                for content in result.content:
+                    if isinstance(content, types.TextContent):
+                        print(f"Error: {content.text}")
+
+
+async def main():
+    await parse_tool_results()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
 
 ### MCP Primitives
 
