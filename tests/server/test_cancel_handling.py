@@ -1,93 +1,97 @@
 """Test that cancelled requests don't cause double responses."""
 
-import asyncio
-from unittest.mock import MagicMock
-
+import anyio
 import pytest
 
 import mcp.types as types
 from mcp.server.lowlevel.server import Server
-from mcp.types import PingRequest
-
-
-# Shared mock class
-class MockRequestResponder:
-    def __init__(self):
-        self.request_id = "test-123"
-        self._responded = False
-        self.request_meta = {}
-        self.message_metadata = None
-
-    async def send(self, response):
-        if self._responded:
-            raise AssertionError(f"Request {self.request_id} already responded to")
-        self._responded = True
-
-    async def respond(self, response):
-        await self.send(response)
-
-    def cancel(self):
-        """Simulate the cancel() method sending an error response."""
-        asyncio.create_task(self.send(types.ErrorData(code=-32800, message="Request cancelled")))
+from mcp.shared.exceptions import McpError
+from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.types import (
+    CallToolRequest,
+    CallToolRequestParams,
+    CallToolResult,
+    CancelledNotification,
+    CancelledNotificationParams,
+    ClientNotification,
+    ClientRequest,
+    Tool,
+)
 
 
 @pytest.mark.anyio
 async def test_cancelled_request_no_double_response():
     """Verify server handles cancelled requests without double response."""
 
-    # Create a server instance
+    # Create server with a slow tool
     server = Server("test-server")
 
-    # Track if multiple responses are attempted
-    response_count = 0
+    # Track when tool is called
+    ev_tool_called = anyio.Event()
+    request_id = None
 
-    # Override the send method to track calls
-    mock_message = MockRequestResponder()
-    original_send = mock_message.send
+    @server.list_tools()
+    async def handle_list_tools() -> list[Tool]:
+        return [
+            Tool(
+                name="slow_tool",
+                description="A slow tool for testing cancellation",
+                inputSchema={},
+            )
+        ]
 
-    async def tracked_send(response):
-        nonlocal response_count
-        response_count += 1
-        await original_send(response)
+    @server.call_tool()
+    async def handle_call_tool(name: str, arguments: dict | None) -> list:
+        nonlocal request_id
+        if name == "slow_tool":
+            request_id = server.request_context.request_id
+            ev_tool_called.set()
+            await anyio.sleep(10)  # Long running operation
+            return [types.TextContent(type="text", text="Tool called")]
+        raise ValueError(f"Unknown tool: {name}")
 
-    mock_message.send = tracked_send
+    # Connect client to server
+    async with create_connected_server_and_client_session(server) as client:
+        # Start the slow tool call in a separate task
+        async def make_request():
+            try:
+                await client.send_request(
+                    ClientRequest(
+                        CallToolRequest(
+                            method="tools/call",
+                            params=CallToolRequestParams(name="slow_tool", arguments={}),
+                        )
+                    ),
+                    CallToolResult,
+                )
+                pytest.fail("Request should have been cancelled")
+            except McpError as e:
+                # Expected - request was cancelled
+                assert e.error.code == 0  # Request cancelled error code
 
-    # Create a slow handler that will be cancelled
-    async def slow_handler(req):
-        await asyncio.sleep(10)
-        return types.ServerResult(types.EmptyResult())
+        # Start the request
+        request_task = anyio.create_task_group()
+        async with request_task:
+            request_task.start_soon(make_request)
 
-    # Use PingRequest as it's a valid request type
-    server.request_handlers[types.PingRequest] = slow_handler
+            # Wait for tool to start executing
+            await ev_tool_called.wait()
 
-    # Create mock message and session
-    mock_req = PingRequest(method="ping")
-    mock_session = MagicMock()
-    mock_context = None
+            # Send cancellation notification
+            assert request_id is not None
+            await client.send_notification(
+                ClientNotification(
+                    CancelledNotification(
+                        method="notifications/cancelled",
+                        params=CancelledNotificationParams(
+                            requestId=request_id,
+                            reason="Test cancellation",
+                        ),
+                    )
+                )
+            )
 
-    # Start the request
-    handle_task = asyncio.create_task(
-        server._handle_request(mock_message, mock_req, mock_session, mock_context, raise_exceptions=False)  # type: ignore
-    )
-
-    # Give it time to start
-    await asyncio.sleep(0.1)
-
-    # Simulate cancellation
-    mock_message.cancel()
-    handle_task.cancel()
-
-    # Wait for cancellation to propagate
-    try:
-        await handle_task
-    except asyncio.CancelledError:
-        pass
-
-    # Give time for any duplicate response attempts
-    await asyncio.sleep(0.1)
-
-    # Should only have one response (from cancel())
-    assert response_count == 1, f"Expected 1 response, got {response_count}"
+            # The request should be cancelled and raise McpError
 
 
 @pytest.mark.anyio
@@ -96,43 +100,87 @@ async def test_server_remains_functional_after_cancel():
 
     server = Server("test-server")
 
-    # Add handlers
-    async def slow_handler(req):
-        await asyncio.sleep(5)
-        return types.ServerResult(types.EmptyResult())
+    # Track tool calls
+    call_count = 0
+    ev_first_call = anyio.Event()
+    first_request_id = None
 
-    async def fast_handler(req):
-        return types.ServerResult(types.EmptyResult())
+    @server.list_tools()
+    async def handle_list_tools() -> list[Tool]:
+        return [
+            Tool(
+                name="test_tool",
+                description="Tool for testing",
+                inputSchema={},
+            )
+        ]
 
-    # Override ping handler for our test
-    server.request_handlers[types.PingRequest] = slow_handler
+    @server.call_tool()
+    async def handle_call_tool(name: str, arguments: dict | None) -> list:
+        nonlocal call_count, first_request_id
+        if name == "test_tool":
+            call_count += 1
+            if call_count == 1:
+                first_request_id = server.request_context.request_id
+                ev_first_call.set()
+                await anyio.sleep(5)  # First call is slow
+            return [types.TextContent(type="text", text=f"Call number: {call_count}")]
+        raise ValueError(f"Unknown tool: {name}")
 
-    # First request (will be cancelled)
-    mock_message1 = MockRequestResponder()
-    mock_req1 = PingRequest(method="ping")
+    async with create_connected_server_and_client_session(server) as client:
+        # First request (will be cancelled)
+        async def first_request():
+            try:
+                await client.send_request(
+                    ClientRequest(
+                        CallToolRequest(
+                            method="tools/call",
+                            params=CallToolRequestParams(name="test_tool", arguments={}),
+                        )
+                    ),
+                    CallToolResult,
+                )
+                pytest.fail("First request should have been cancelled")
+            except McpError:
+                pass  # Expected
 
-    handle_task = asyncio.create_task(
-        server._handle_request(mock_message1, mock_req1, MagicMock(), None, raise_exceptions=False)  # type: ignore
-    )
+        # Start first request
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(first_request)
 
-    await asyncio.sleep(0.1)
-    mock_message1.cancel()
-    handle_task.cancel()
+            # Wait for it to start
+            await ev_first_call.wait()
 
-    try:
-        await handle_task
-    except asyncio.CancelledError:
-        pass
+            # Cancel it
+            assert first_request_id is not None
+            await client.send_notification(
+                ClientNotification(
+                    CancelledNotification(
+                        method="notifications/cancelled",
+                        params=CancelledNotificationParams(
+                            requestId=first_request_id,
+                            reason="Testing server recovery",
+                        ),
+                    )
+                )
+            )
 
-    # Change handler to fast one
-    server.request_handlers[types.PingRequest] = fast_handler
+        # Second request (should work normally)
+        result = await client.send_request(
+            ClientRequest(
+                CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="test_tool", arguments={}),
+                )
+            ),
+            CallToolResult,
+        )
 
-    # Second request (should work normally)
-    mock_message2 = MockRequestResponder()
-    mock_req2 = PingRequest(method="ping")
-
-    # This should complete successfully
-    await server._handle_request(mock_message2, mock_req2, MagicMock(), None, raise_exceptions=False)  # type: ignore
-
-    # Server handled the second request successfully
-    assert mock_message2._responded
+        # Verify second request completed successfully
+        assert len(result.content) == 1
+        # Type narrowing for pyright
+        content = result.content[0]
+        assert content.type == "text"
+        assert isinstance(content, types.TextContent)
+        assert content.text == "Call number: 2"
+        assert call_count == 2
