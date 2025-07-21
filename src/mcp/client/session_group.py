@@ -25,7 +25,7 @@ from mcp import types
 from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
 from mcp.shared.session import ProgressFnT
 
@@ -47,7 +47,7 @@ class SseServerParameters(BaseModel):
 
 
 class StreamableHttpParameters(BaseModel):
-    """Parameters for intializing a streamablehttp_client."""
+    """Parameters for intializing a streamable_http_client."""
 
     # The endpoint URL.
     url: str
@@ -309,7 +309,7 @@ class ClientSessionGroup:
                 )
                 read, write = await session_stack.enter_async_context(client)
             else:
-                client = streamablehttp_client(
+                client = streamable_http_client(
                     url=server_params.url,
                     headers=server_params.headers,
                     timeout=server_params.timeout,
