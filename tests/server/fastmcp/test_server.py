@@ -754,7 +754,7 @@ class TestServerResourceTemplates:
 
         assert hasattr(template, "mimeType")
         assert template.mimeType == "text/csv"
-        
+
         async with client_session(mcp._mcp_server) as client:
             result = await client.read_resource(AnyUrl("resource://bob/csv"))
             assert isinstance(result.contents[0], TextResourceContents)
