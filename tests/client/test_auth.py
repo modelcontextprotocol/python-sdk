@@ -642,7 +642,7 @@ class TestAuthFlow:
         )
 
         # Mock the authorization process
-        oauth_provider._perform_authorization = mock.AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
+        oauth_provider._perform_authorization = AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
 
         # Next request should be to exchange token
         token_request = await auth_flow.asend(registration_response)
