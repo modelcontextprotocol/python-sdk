@@ -290,7 +290,7 @@ async def test_progress_context_manager():
         # cast for type checker
         typed_context = cast(
             RequestContext[
-                BaseSession[Any, Any, Any, Any, Any],
+                BaseSession[Any, Any, Any, Any, Any, Any],
                 Any,
             ],
             request_context,

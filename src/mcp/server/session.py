@@ -74,6 +74,7 @@ class ServerSession(
         types.ServerNotification,
         types.ServerResult,
         types.ClientRequest,
+        Any,
         types.ClientNotification,
     ]
 ):
