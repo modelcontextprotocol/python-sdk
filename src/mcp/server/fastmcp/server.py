@@ -296,6 +296,7 @@ class FastMCP:
                 name=template.name,
                 title=template.title,
                 description=template.description,
+                mimeType=template.mime_type,
             )
             for template in templates
         ]
