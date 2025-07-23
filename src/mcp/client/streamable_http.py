@@ -266,7 +266,8 @@ class StreamableHTTPTransport:
                 logger.debug("Received 202 Accepted")
                 return
 
-            if response.status_code == 404:
+            # ensures that all HTTP error codes are handled
+            if response.status_code >= 400 and response.status_code <= 499:
                 if isinstance(message.root, JSONRPCRequest):
                     await self._send_session_terminated_error(
                         ctx.read_stream_writer,
