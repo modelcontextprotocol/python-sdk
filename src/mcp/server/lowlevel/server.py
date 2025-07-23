@@ -423,11 +423,12 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return tool
 
-    def call_tool(self, *, validate_input: bool = True):
+    def call_tool(self, *, validate_input: bool = True, validate_output: bool = True):
         """Register a tool call handler.
 
         Args:
             validate_input: If True, validates input against inputSchema. Default is True.
+            validate_output: If True, validates output against outputSchema. Default is True.
 
         The handler validates input against inputSchema (if validate_input=True), calls the tool function,
         and builds a CallToolResult with the results:
@@ -486,10 +487,11 @@ class Server(Generic[LifespanResultT, RequestT]):
                                 "Output validation error: outputSchema defined but no structured output returned"
                             )
                         else:
-                            try:
-                                jsonschema.validate(instance=maybe_structured_content, schema=tool.outputSchema)
-                            except jsonschema.ValidationError as e:
-                                return self._make_error_result(f"Output validation error: {e.message}")
+                            if validate_output:
+                                try:
+                                    jsonschema.validate(instance=maybe_structured_content, schema=tool.outputSchema)
+                                except jsonschema.ValidationError as e:
+                                    return self._make_error_result(f"Output validation error: {e.message}")
 
                     # result
                     return types.ServerResult(
