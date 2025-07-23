@@ -12,7 +12,12 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["servers"]
+packages = ["servers", "clients"]
 
 [project.scripts]
 server = "servers:run_server"
+client = "clients.stdio_client:main"
+completion-client = "clients.completion_client:main"
+direct-execution-server = "servers.direct_execution:main"
+display-utilities-client = "clients.display_utilities:main"
+oauth-client = "clients.oauth_client:run"
