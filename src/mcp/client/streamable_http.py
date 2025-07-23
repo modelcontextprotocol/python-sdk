@@ -273,7 +273,7 @@ class StreamableHTTPTransport:
                         message.root.id,
                     )
                 return
-            
+
             if response.status_code == 404:
                 if isinstance(message.root, JSONRPCRequest):
                     await self._send_session_terminated_error(
