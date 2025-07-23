@@ -266,8 +266,15 @@ class StreamableHTTPTransport:
                 logger.debug("Received 202 Accepted")
                 return
 
-            # ensures that all HTTP error codes are handled
-            if response.status_code >= 400 and response.status_code <= 499:
+            if response.status_code == 400:
+                if isinstance(message.root, JSONRPCRequest):
+                    await self._send_bad_request_error(
+                        ctx.read_stream_writer,
+                        message.root.id,
+                    )
+                return
+            
+            if response.status_code == 404:
                 if isinstance(message.root, JSONRPCRequest):
                     await self._send_session_terminated_error(
                         ctx.read_stream_writer,
@@ -356,6 +363,20 @@ class StreamableHTTPTransport:
             jsonrpc="2.0",
             id=request_id,
             error=ErrorData(code=32600, message="Session terminated"),
+        )
+        session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
+        await read_stream_writer.send(session_message)
+
+    async def _send_bad_request_error(
+        self,
+        read_stream_writer: StreamWriter,
+        request_id: RequestId,
+    ) -> None:
+        """Send a bad request error response."""
+        jsonrpc_error = JSONRPCError(
+            jsonrpc="2.0",
+            id=request_id,
+            error=ErrorData(code=32600, message="Bad request"),
         )
         session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
         await read_stream_writer.send(session_message)
