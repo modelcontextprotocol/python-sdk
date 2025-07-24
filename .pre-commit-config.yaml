@@ -39,6 +39,7 @@ repos:
         pass_filenames: false
         exclude: ^README\.md$
       - id: pyright
+        args: ["--skipunannotated"]
         name: pyright
         entry: uv run pyright
         language: system
