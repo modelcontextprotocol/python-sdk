@@ -597,6 +597,9 @@ cli = [
 rich = [
     { name = "rich" },
 ]
+test-timeout = [
+    { name = "pytest-timeout" },
+]
 ws = [
     { name = "websockets" },
 ]
@@ -629,6 +632,7 @@ requires-dist = [
     { name = "jsonschema", specifier = ">=4.20.0" },
     { name = "pydantic", specifier = ">=2.8.0,<3.0.0" },
     { name = "pydantic-settings", specifier = ">=2.5.2" },
+    { name = "pytest-timeout", marker = "extra == 'test-timeout'", specifier = ">=2.1.0" },
     { name = "python-dotenv", marker = "extra == 'cli'", specifier = ">=1.0.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "pywin32", marker = "sys_platform == 'win32'", specifier = ">=310" },
@@ -639,7 +643,7 @@ requires-dist = [
     { name = "uvicorn", marker = "sys_platform != 'emscripten'", specifier = ">=0.23.1" },
     { name = "websockets", marker = "extra == 'ws'", specifier = ">=15.0.1" },
 ]
-provides-extras = ["cli", "rich", "ws"]
+provides-extras = ["cli", "rich", "test-timeout", "ws"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1383,6 +1387,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ba/d7/c699e0be5401fe9ccad484562f0af9350b4e48c05acf39fb3dab1932128f/pytest_pretty-1.3.0.tar.gz", hash = "sha256:97e9921be40f003e40ae78db078d4a0c1ea42bf73418097b5077970c2cc43bf3", size = 219297, upload-time = "2025-06-04T12:54:37.322Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ab/85/2f97a1b65178b0f11c9c77c35417a4cc5b99a80db90dad4734a129844ea5/pytest_pretty-1.3.0-py3-none-any.whl", hash = "sha256:074b9d5783cef9571494543de07e768a4dda92a3e85118d6c7458c67297159b7", size = 5620, upload-time = "2025-06-04T12:54:36.229Z" },
+]
+
+[[package]]
+name = "pytest-timeout"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ac/82/4c9ecabab13363e72d880f2fb504c5f750433b2b6f16e99f4ec21ada284c/pytest_timeout-2.4.0.tar.gz", hash = "sha256:7e68e90b01f9eff71332b25001f85c75495fc4e3a836701876183c4bcfd0540a", size = 17973, upload-time = "2025-05-05T19:44:34.99Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fa/b6/3127540ecdf1464a00e5a01ee60a1b09175f6913f0644ac748494d9c4b21/pytest_timeout-2.4.0-py3-none-any.whl", hash = "sha256:c42667e5cdadb151aeb5b26d114aff6bdf5a907f176a007a30b940d3d865b5c2", size = 14382, upload-time = "2025-05-05T19:44:33.502Z" },
 ]
 
 [[package]]

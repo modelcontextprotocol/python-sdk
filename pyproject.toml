@@ -39,6 +39,9 @@ dependencies = [
 rich = ["rich>=13.9.4"]
 cli = ["typer>=0.16.0", "python-dotenv>=1.0.0"]
 ws = ["websockets>=15.0.1"]
+test-timeout = [
+    "pytest-timeout>=2.1.0",
+]
 
 [project.scripts]
 mcp = "mcp.cli:app [cli]"
@@ -57,6 +60,7 @@ dev = [
     "pytest-xdist>=3.6.1",
     "pytest-examples>=0.0.14",
     "pytest-pretty>=1.2.0",
+    "pytest-timeout>=2.1.0",
     "inline-snapshot>=0.23.0",
     "dirty-equals>=0.9.0",
 ]
@@ -119,6 +123,8 @@ addopts = """
     --color=yes
     --capture=fd
     --numprocesses auto
+    --timeout=60
+    --timeout-method=thread
 """
 # Disable parallelization for integration tests that spawn subprocesses
 # This prevents Windows issues with multiprocessing + subprocess conflicts
