@@ -265,7 +265,7 @@ class TestOAuthFallback:
         ]
 
     @pytest.mark.anyio
-    async def test_oauth_discovery_fallback_conditions(self, oauth_provider):
+    async def test_oauth_discovery_fallback_conditions(self, oauth_provider: OAuthClientProvider):
         """Test the conditions during which an AS metadata discovery fallback will be attempted."""
         # Ensure no tokens are stored
         oauth_provider.context.current_tokens = None
@@ -349,7 +349,9 @@ class TestOAuthFallback:
         )
 
         # Mock the authorization process to minimize unnecessary state in this test
-        oauth_provider._perform_authorization = mock.AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
+        oauth_provider._perform_authorization_code_grant = mock.AsyncMock(
+            return_value=("test_auth_code", "test_code_verifier")
+        )
 
         # Next request should fall back to legacy behavior and auth with the RS (mocked /authorize, next is /token)
         token_request = await auth_flow.asend(oauth_metadata_response_3)
@@ -662,7 +664,7 @@ class TestAuthFlow:
             pass  # Expected
 
     @pytest.mark.anyio
-    async def test_auth_flow_with_no_tokens(self, oauth_provider, mock_storage):
+    async def test_auth_flow_with_no_tokens(self, oauth_provider: OAuthClientProvider, mock_storage):
         """Test auth flow when no tokens are available, triggering the full OAuth flow."""
         # Ensure no tokens are stored
         oauth_provider.context.current_tokens = None
@@ -731,7 +733,9 @@ class TestAuthFlow:
         )
 
         # Mock the authorization process
-        oauth_provider._perform_authorization = mock.AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
+        oauth_provider._perform_authorization_code_grant = mock.AsyncMock(
+            return_value=("test_auth_code", "test_code_verifier")
+        )
 
         # Next request should be to exchange token
         token_request = await auth_flow.asend(registration_response)
