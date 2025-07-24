@@ -88,7 +88,9 @@ class SimpleEventStore(EventStore):
         self._events: list[tuple[StreamId, EventId, types.JSONRPCMessage]] = []
         self._event_id_counter = 0
 
-    async def store_event(self, stream_id: StreamId, message: types.JSONRPCMessage) -> EventId:
+    async def store_event(
+        self, stream_id: StreamId, message: types.JSONRPCMessage
+    ) -> EventId:
         """Store an event and return its ID."""
         self._event_id_counter += 1
         event_id = str(self._event_id_counter)
@@ -181,7 +183,9 @@ class ServerTest(Server):
 
             # When the tool is called, send a notification to test GET stream
             if name == "test_tool_with_standalone_notification":
-                await ctx.session.send_resource_updated(uri=AnyUrl("http://test_resource"))
+                await ctx.session.send_resource_updated(
+                    uri=AnyUrl("http://test_resource")
+                )
                 return [TextContent(type="text", text=f"Called {name}")]
 
             elif name == "long_running_with_checkpoints":
@@ -212,7 +216,9 @@ class ServerTest(Server):
                     messages=[
                         types.SamplingMessage(
                             role="user",
-                            content=types.TextContent(type="text", text="Server needs client sampling"),
+                            content=types.TextContent(
+                                type="text", text="Server needs client sampling"
+                            ),
                         )
                     ],
                     max_tokens=100,
@@ -220,7 +226,11 @@ class ServerTest(Server):
                 )
 
                 # Return the sampling result in the tool response
-                response = sampling_result.content.text if sampling_result.content.type == "text" else None
+                response = (
+                    sampling_result.content.text
+                    if sampling_result.content.type == "text"
+                    else None
+                )
                 return [
                     TextContent(
                         type="text",
@@ -255,7 +265,9 @@ class ServerTest(Server):
                 return [TextContent(type="text", text="Completed")]
 
             elif name == "release_lock":
-                assert self._lock is not None, "Lock must be initialized before releasing"
+                assert (
+                    self._lock is not None
+                ), "Lock must be initialized before releasing"
 
                 # Release the lock
                 self._lock.set()
@@ -264,7 +276,9 @@ class ServerTest(Server):
             return [TextContent(type="text", text=f"Called {name}")]
 
 
-def create_app(is_json_response_enabled=False, event_store: EventStore | None = None) -> Starlette:
+def create_app(
+    is_json_response_enabled=False, event_store: EventStore | None = None
+) -> Starlette:
     """Create a Starlette application for testing using the session manager.
 
     Args:
@@ -298,7 +312,9 @@ def create_app(is_json_response_enabled=False, event_store: EventStore | None = 
     return app
 
 
-def run_server(port: int, is_json_response_enabled=False, event_store: EventStore | None = None) -> None:
+def run_server(
+    port: int, is_json_response_enabled=False, event_store: EventStore | None = None
+) -> None:
     """Run the test server.
 
     Args:
@@ -351,19 +367,24 @@ def json_server_port() -> int:
 @pytest.fixture
 def basic_server(basic_server_port: int) -> Generator[None, None, None]:
     """Start a basic server."""
-    proc = multiprocessing.Process(target=run_server, kwargs={"port": basic_server_port}, daemon=True)
+    proc = multiprocessing.Process(
+        target=run_server, kwargs={"port": basic_server_port}, daemon=True
+    )
     proc.start()
 
-    # Wait for server to be running
-    max_attempts = 20
+    # Wait for server to be running - optimized for faster startup
+    max_attempts = 30
     attempt = 0
     while attempt < max_attempts:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1.0)
                 s.connect(("127.0.0.1", basic_server_port))
                 break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
+        except (ConnectionRefusedError, OSError):
+            # Use shorter initial delays, then increase
+            delay = 0.05 if attempt < 10 else 0.1
+            time.sleep(delay)
             attempt += 1
     else:
         raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
@@ -862,7 +883,9 @@ async def test_streamablehttp_client_basic_connection(basic_server, basic_server
 @pytest.mark.anyio
 async def test_streamablehttp_client_resource_read(initialized_client_session):
     """Test client resource read functionality."""
-    response = await initialized_client_session.read_resource(uri=AnyUrl("foobar://test-resource"))
+    response = await initialized_client_session.read_resource(
+        uri=AnyUrl("foobar://test-resource")
+    )
     assert len(response.contents) == 1
     assert response.contents[0].uri == AnyUrl("foobar://test-resource")
     assert response.contents[0].text == "Read test-resource"
@@ -887,13 +910,17 @@ async def test_streamablehttp_client_tool_invocation(initialized_client_session)
 async def test_streamablehttp_client_error_handling(initialized_client_session):
     """Test error handling in client."""
     with pytest.raises(McpError) as exc_info:
-        await initialized_client_session.read_resource(uri=AnyUrl("unknown://test-error"))
+        await initialized_client_session.read_resource(
+            uri=AnyUrl("unknown://test-error")
+        )
     assert exc_info.value.error.code == 0
     assert "Unknown resource: unknown://test-error" in exc_info.value.error.message
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_session_persistence(basic_server, basic_server_url):
+async def test_streamablehttp_client_session_persistence(
+    basic_server, basic_server_url
+):
     """Test that session ID persists across requests."""
     async with streamablehttp_client(f"{basic_server_url}/mcp") as (
         read_stream,
@@ -921,7 +948,9 @@ async def test_streamablehttp_client_session_persistence(basic_server, basic_ser
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_json_response(json_response_server, json_server_url):
+async def test_streamablehttp_client_json_response(
+    json_response_server, json_server_url
+):
     """Test client with JSON response mode."""
     async with streamablehttp_client(f"{json_server_url}/mcp") as (
         read_stream,
@@ -958,7 +987,11 @@ async def test_streamablehttp_client_get_stream(basic_server, basic_server_url):
 
     # Define message handler to capture notifications
     async def message_handler(
-        message: (RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception),
+        message: (
+            RequestResponder[types.ServerRequest, types.ClientResult]
+            | types.ServerNotification
+            | Exception
+        ),
     ) -> None:
         if isinstance(message, types.ServerNotification):
             notifications_received.append(message)
@@ -968,7 +1001,9 @@ async def test_streamablehttp_client_get_stream(basic_server, basic_server_url):
         write_stream,
         _,
     ):
-        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+        async with ClientSession(
+            read_stream, write_stream, message_handler=message_handler
+        ) as session:
             # Initialize the session - this triggers the GET stream setup
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -986,11 +1021,15 @@ async def test_streamablehttp_client_get_stream(basic_server, basic_server_url):
                     assert str(notif.root.params.uri) == "http://test_resource/"
                     resource_update_found = True
 
-            assert resource_update_found, "ResourceUpdatedNotification not received via GET stream"
+            assert (
+                resource_update_found
+            ), "ResourceUpdatedNotification not received via GET stream"
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_session_termination(basic_server, basic_server_url):
+async def test_streamablehttp_client_session_termination(
+    basic_server, basic_server_url
+):
     """Test client session termination functionality."""
 
     captured_session_id = None
@@ -1031,7 +1070,9 @@ async def test_streamablehttp_client_session_termination(basic_server, basic_ser
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_session_termination_204(basic_server, basic_server_url, monkeypatch):
+async def test_streamablehttp_client_session_termination_204(
+    basic_server, basic_server_url, monkeypatch
+):
     """Test client session termination functionality with a 204 response.
 
     This test patches the httpx client to return a 204 response for DELETEs.
@@ -1107,7 +1148,11 @@ async def test_streamablehttp_client_resumption(event_server):
     first_notification_received = False
 
     async def message_handler(
-        message: (RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception),
+        message: (
+            RequestResponder[types.ServerRequest, types.ClientResult]
+            | types.ServerNotification
+            | Exception
+        ),
     ) -> None:
         if isinstance(message, types.ServerNotification):
             captured_notifications.append(message)
@@ -1127,7 +1172,9 @@ async def test_streamablehttp_client_resumption(event_server):
         write_stream,
         get_session_id,
     ):
-        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+        async with ClientSession(
+            read_stream, write_stream, message_handler=message_handler
+        ) as session:
             # Initialize the session
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -1168,7 +1215,9 @@ async def test_streamablehttp_client_resumption(event_server):
     # Verify we received exactly one notification
     assert len(captured_notifications) == 1
     assert isinstance(captured_notifications[0].root, types.LoggingMessageNotification)
-    assert captured_notifications[0].root.params.data == "First notification before lock"
+    assert (
+        captured_notifications[0].root.params.data == "First notification before lock"
+    )
 
     # Clear notifications for the second phase
     captured_notifications = []
@@ -1184,12 +1233,16 @@ async def test_streamablehttp_client_resumption(event_server):
         write_stream,
         _,
     ):
-        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+        async with ClientSession(
+            read_stream, write_stream, message_handler=message_handler
+        ) as session:
             result = await session.send_request(
                 types.ClientRequest(
                     types.CallToolRequest(
                         method="tools/call",
-                        params=types.CallToolRequestParams(name="release_lock", arguments={}),
+                        params=types.CallToolRequestParams(
+                            name="release_lock", arguments={}
+                        ),
                     )
                 ),
                 types.CallToolResult,
@@ -1202,7 +1255,9 @@ async def test_streamablehttp_client_resumption(event_server):
                 types.ClientRequest(
                     types.CallToolRequest(
                         method="tools/call",
-                        params=types.CallToolRequestParams(name="wait_for_lock_with_notification", arguments={}),
+                        params=types.CallToolRequestParams(
+                            name="wait_for_lock_with_notification", arguments={}
+                        ),
                     )
                 ),
                 types.CallToolResult,
@@ -1215,7 +1270,10 @@ async def test_streamablehttp_client_resumption(event_server):
             # We should have received the remaining notifications
             assert len(captured_notifications) == 1
 
-            assert captured_notifications[0].root.params.data == "Second notification after lock"
+            assert (
+                captured_notifications[0].root.params.data
+                == "Second notification after lock"
+            )
 
 
 @pytest.mark.anyio
@@ -1233,7 +1291,11 @@ async def test_streamablehttp_server_sampling(basic_server, basic_server_url):
         nonlocal sampling_callback_invoked, captured_message_params
         sampling_callback_invoked = True
         captured_message_params = params
-        message_received = params.messages[0].content.text if params.messages[0].content.type == "text" else None
+        message_received = (
+            params.messages[0].content.text
+            if params.messages[0].content.type == "text"
+            else None
+        )
 
         return types.CreateMessageResult(
             role="assistant",
@@ -1266,13 +1328,19 @@ async def test_streamablehttp_server_sampling(basic_server, basic_server_url):
             # Verify the tool result contains the expected content
             assert len(tool_result.content) == 1
             assert tool_result.content[0].type == "text"
-            assert "Response from sampling: Received message from server" in tool_result.content[0].text
+            assert (
+                "Response from sampling: Received message from server"
+                in tool_result.content[0].text
+            )
 
             # Verify sampling callback was invoked
             assert sampling_callback_invoked
             assert captured_message_params is not None
             assert len(captured_message_params.messages) == 1
-            assert captured_message_params.messages[0].content.text == "Server needs client sampling"
+            assert (
+                captured_message_params.messages[0].content.text
+                == "Server needs client sampling"
+            )
 
 
 # Context-aware server implementation for testing request context propagation
@@ -1373,7 +1441,9 @@ def run_context_aware_server(port: int):
 @pytest.fixture
 def context_aware_server(basic_server_port: int) -> Generator[None, None, None]:
     """Start the context-aware server in a separate process."""
-    proc = multiprocessing.Process(target=run_context_aware_server, args=(basic_server_port,), daemon=True)
+    proc = multiprocessing.Process(
+        target=run_context_aware_server, args=(basic_server_port,), daemon=True
+    )
     proc.start()
 
     # Wait for server to be running
@@ -1388,7 +1458,9 @@ def context_aware_server(basic_server_port: int) -> Generator[None, None, None]:
             time.sleep(0.1)
             attempt += 1
     else:
-        raise RuntimeError(f"Context-aware server failed to start after {max_attempts} attempts")
+        raise RuntimeError(
+            f"Context-aware server failed to start after {max_attempts} attempts"
+        )
 
     yield
 
@@ -1399,7 +1471,9 @@ def context_aware_server(basic_server_port: int) -> Generator[None, None, None]:
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_request_context_propagation(context_aware_server: None, basic_server_url: str) -> None:
+async def test_streamablehttp_request_context_propagation(
+    context_aware_server: None, basic_server_url: str
+) -> None:
     """Test that request context is properly propagated through StreamableHTTP."""
     custom_headers = {
         "Authorization": "Bearer test-token",
@@ -1407,7 +1481,9 @@ async def test_streamablehttp_request_context_propagation(context_aware_server: 
         "X-Trace-Id": "trace-123",
     }
 
-    async with streamablehttp_client(f"{basic_server_url}/mcp", headers=custom_headers) as (
+    async with streamablehttp_client(
+        f"{basic_server_url}/mcp", headers=custom_headers
+    ) as (
         read_stream,
         write_stream,
         _,
@@ -1432,7 +1508,9 @@ async def test_streamablehttp_request_context_propagation(context_aware_server: 
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_request_context_isolation(context_aware_server: None, basic_server_url: str) -> None:
+async def test_streamablehttp_request_context_isolation(
+    context_aware_server: None, basic_server_url: str
+) -> None:
     """Test that request contexts are isolated between StreamableHTTP clients."""
     contexts = []
 
@@ -1444,12 +1522,16 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
             "Authorization": f"Bearer token-{i}",
         }
 
-        async with streamablehttp_client(f"{basic_server_url}/mcp", headers=headers) as (read_stream, write_stream, _):
+        async with streamablehttp_client(
+            f"{basic_server_url}/mcp", headers=headers
+        ) as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
 
                 # Call the tool that echoes context
-                tool_result = await session.call_tool("echo_context", {"request_id": f"request-{i}"})
+                tool_result = await session.call_tool(
+                    "echo_context", {"request_id": f"request-{i}"}
+                )
 
                 assert len(tool_result.content) == 1
                 assert isinstance(tool_result.content[0], TextContent)
@@ -1466,7 +1548,9 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
 
 
 @pytest.mark.anyio
-async def test_client_includes_protocol_version_header_after_init(context_aware_server, basic_server_url):
+async def test_client_includes_protocol_version_header_after_init(
+    context_aware_server, basic_server_url
+):
     """Test that client includes mcp-protocol-version header after initialization."""
     async with streamablehttp_client(f"{basic_server_url}/mcp") as (
         read_stream,
@@ -1516,7 +1600,10 @@ def test_server_validates_protocol_version_header(basic_server, basic_server_url
         json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-2"},
     )
     assert response.status_code == 400
-    assert MCP_PROTOCOL_VERSION_HEADER in response.text or "protocol version" in response.text.lower()
+    assert (
+        MCP_PROTOCOL_VERSION_HEADER in response.text
+        or "protocol version" in response.text.lower()
+    )
 
     # Test request with unsupported protocol version (should fail)
     response = requests.post(
@@ -1530,7 +1617,10 @@ def test_server_validates_protocol_version_header(basic_server, basic_server_url
         json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-3"},
     )
     assert response.status_code == 400
-    assert MCP_PROTOCOL_VERSION_HEADER in response.text or "protocol version" in response.text.lower()
+    assert (
+        MCP_PROTOCOL_VERSION_HEADER in response.text
+        or "protocol version" in response.text.lower()
+    )
 
     # Test request with valid protocol version (should succeed)
     negotiated_version = extract_protocol_version_from_sse(init_response)
@@ -1548,7 +1638,9 @@ def test_server_validates_protocol_version_header(basic_server, basic_server_url
     assert response.status_code == 200
 
 
-def test_server_backwards_compatibility_no_protocol_version(basic_server, basic_server_url):
+def test_server_backwards_compatibility_no_protocol_version(
+    basic_server, basic_server_url
+):
     """Test server accepts requests without protocol version header."""
     # First initialize a session to get a valid session ID
     init_response = requests.post(
