@@ -5,9 +5,6 @@ These tests validate the proper functioning of FastMCP features using focused,
 single-feature servers across different transports (SSE and StreamableHTTP).
 """
 
-# Mark all tests in this file as integration tests
-pytestmark = pytest.mark.integration
-
 import json
 import multiprocessing
 import socket
@@ -47,6 +44,9 @@ from mcp.types import (
     TextResourceContents,
     ToolListChangedNotification,
 )
+
+# Mark all tests in this file as integration tests
+pytestmark = [pytest.mark.integration]
 
 
 class NotificationCollector:
