@@ -413,22 +413,15 @@ class StreamableHTTPTransport:
         except Exception as exc:
             logger.error(f"Error in post_writer: {exc}")
         finally:
-            # Improved stream cleanup with comprehensive exception handling
-            try:
-                await read_stream_writer.aclose()
-            except (anyio.ClosedResourceError, anyio.BrokenResourceError):
-                # Stream already closed, ignore
-                pass
-            except Exception as exc:
-                logger.debug(f"Error closing read_stream_writer in cleanup: {exc}")
-
+            # Only close the write stream here, read_stream_writer is shared
+            # and will be closed in the main cleanup
             try:
                 await write_stream.aclose()
             except (anyio.ClosedResourceError, anyio.BrokenResourceError):
                 # Stream already closed, ignore
                 pass
             except Exception as exc:
-                logger.debug(f"Error closing write_stream in cleanup: {exc}")
+                logger.debug(f"Error closing write_stream in post_writer cleanup: {exc}")
 
     async def terminate_session(self, client: httpx.AsyncClient) -> None:
         """Terminate the session by sending a DELETE request."""
@@ -522,14 +515,14 @@ async def streamablehttp_client(
                             logger.debug(f"Error terminating session: {exc}")
                     tg.cancel_scope.cancel()
         finally:
-            # Improved stream cleanup with comprehensive exception handling
+            # Comprehensive stream cleanup with exception handling
             try:
                 await read_stream_writer.aclose()
             except (anyio.ClosedResourceError, anyio.BrokenResourceError):
                 # Stream already closed, ignore
                 pass
             except Exception as exc:
-                logger.debug(f"Error closing read_stream_writer in cleanup: {exc}")
+                logger.debug(f"Error closing read_stream_writer in main cleanup: {exc}")
 
             try:
                 await write_stream.aclose()
@@ -537,4 +530,20 @@ async def streamablehttp_client(
                 # Stream already closed, ignore
                 pass
             except Exception as exc:
-                logger.debug(f"Error closing write_stream in cleanup: {exc}")
+                logger.debug(f"Error closing write_stream in main cleanup: {exc}")
+
+            try:
+                await read_stream.aclose()
+            except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                # Stream already closed, ignore
+                pass
+            except Exception as exc:
+                logger.debug(f"Error closing read_stream in main cleanup: {exc}")
+
+            try:
+                await write_stream_reader.aclose()
+            except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                # Stream already closed, ignore
+                pass
+            except Exception as exc:
+                logger.debug(f"Error closing write_stream_reader in main cleanup: {exc}")
