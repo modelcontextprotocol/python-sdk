@@ -28,6 +28,7 @@
     - [Resources](#resources)
     - [Tools](#tools)
       - [Structured Output](#structured-output)
+      - [Runtime Tools](#runtime-tools)
     - [Prompts](#prompts)
     - [Images](#images)
     - [Context](#context)
@@ -438,6 +439,44 @@ def get_temperature(city: str) -> float:
 
 _Full example: [examples/snippets/servers/structured_output.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/structured_output.py)_
 <!-- /snippet-source -->
+
+#### Runtime tools
+
+It is also possible to define tools at runtime, allowing for dynamic modification of the available tools, for example, to display specific tools based on the user making the request. This is done passing a function dedicated to the tools generation:
+
+```python
+from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.tools.base import Tool
+from mcp.server.fastmcp.server import Context
+
+
+async def runtime_mcp_tools_generator(ctx: Context) -> list[Tool]:
+    """Generate runtime tools."""
+
+    def list_cities() -> list[str]:
+        """Get a list of cities"""
+        return ["London", "Paris", "Tokyo"]
+        # Returns: {"result": ["London", "Paris", "Tokyo"]}
+
+    def get_temperature(city: str) -> float:
+        """Get temperature as a simple float"""
+        return 22.5
+        # Returns: {"result": 22.5}
+
+    tools = [Tool.from_function(list_cities)]
+
+    # Tool added only after authorization
+    request = ctx.request_context.request
+    if request and request.header.get("Authorization") == "Bearer auth_token_123":
+        tools.append(Tool.from_function(get_temperature))
+
+    return tools
+
+
+mcp = FastMCP(
+    name="Weather Service", runtime_mcp_tools_generator=runtime_mcp_tools_generator
+)
+```
 
 ### Prompts
 
