@@ -36,7 +36,7 @@ DEFAULT_NEGOTIATED_VERSION = "2025-03-26"
 ProgressToken = str | int
 Cursor = str
 Role = Literal["user", "assistant"]
-RequestId = Annotated[int | str, Field(union_mode="left_to_right")]
+RequestId = Annotated[int, Field(strict=True)] | str
 AnyFunction: TypeAlias = Callable[..., Any]
 
 
@@ -849,7 +849,7 @@ class Tool(BaseMetadata):
     """A JSON Schema object defining the expected parameters for the tool."""
     outputSchema: dict[str, Any] | None = None
     """
-    An optional JSON Schema object defining the structure of the tool's output 
+    An optional JSON Schema object defining the structure of the tool's output
     returned in the structuredContent field of a CallToolResult.
     """
     annotations: ToolAnnotations | None = None
