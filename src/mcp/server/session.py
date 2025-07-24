@@ -93,7 +93,9 @@ class ServerSession(
         )
 
         self._init_options = init_options
-        self._incoming_message_stream_writer, self._incoming_message_stream_reader = anyio.create_memory_object_stream(0)
+        self._incoming_message_stream_writer, self._incoming_message_stream_reader = (
+            anyio.create_memory_object_stream(0)
+        )
         self._exit_stack.push_async_callback(lambda: self._incoming_message_stream_reader.aclose())
 
     @property
