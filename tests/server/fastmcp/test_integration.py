@@ -85,6 +85,29 @@ def server_url(server_port: int) -> str:
 
 def run_server_with_transport(module_name: str, port: int, transport: str) -> None:
     """Run server with specified transport."""
+    import sys
+    import os
+
+    # Add examples/snippets to Python path for multiprocessing context
+    snippets_path = os.path.join(
+        os.path.dirname(__file__), "..", "..", "..", "examples", "snippets"
+    )
+    sys.path.insert(0, os.path.abspath(snippets_path))
+
+    # Import the servers module in the multiprocessing context
+    from servers import (
+        basic_tool,
+        basic_resource,
+        basic_prompt,
+        tool_progress,
+        sampling,
+        elicitation,
+        completion,
+        notifications,
+        fastmcp_quickstart,
+        structured_output,
+    )
+
     # Get the MCP instance based on module name
     if module_name == "basic_tool":
         mcp = basic_tool.mcp
@@ -117,7 +140,9 @@ def run_server_with_transport(module_name: str, port: int, transport: str) -> No
     else:
         raise ValueError(f"Invalid transport for test server: {transport}")
 
-    server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=port, log_level="error"))
+    server = uvicorn.Server(
+        config=uvicorn.Config(app=app, host="127.0.0.1", port=port, log_level="error")
+    )
     print(f"Starting {transport} server on port {port}")
     server.run()
 
@@ -325,10 +350,14 @@ async def test_basic_prompts(server_transport: str, server_url: str) -> None:
 
             # Test review_code prompt
             prompts = await session.list_prompts()
-            review_prompt = next((p for p in prompts.prompts if p.name == "review_code"), None)
+            review_prompt = next(
+                (p for p in prompts.prompts if p.name == "review_code"), None
+            )
             assert review_prompt is not None
 
-            prompt_result = await session.get_prompt("review_code", {"code": "def hello():\n    print('Hello')"})
+            prompt_result = await session.get_prompt(
+                "review_code", {"code": "def hello():\n    print('Hello')"}
+            )
             assert isinstance(prompt_result, GetPromptResult)
             assert len(prompt_result.messages) == 1
             assert isinstance(prompt_result.messages[0].content, TextContent)
@@ -384,16 +413,18 @@ async def test_tool_progress(server_transport: str, server_url: str) -> None:
             assert result.capabilities.tools is not None
 
             # Test long_running_task tool that reports progress
-            tool_result = await session.call_tool("long_running_task", {"task_name": "test", "steps": 3})
+            tool_result = await session.call_tool(
+                "long_running_task", {"task_name": "test", "steps": 3}
+            )
             assert len(tool_result.content) == 1
             assert isinstance(tool_result.content[0], TextContent)
             assert "Task 'test' completed" in tool_result.content[0].text
 
             # Verify that progress notifications or log messages were sent
             # Progress can come through either progress notifications or log messages
-            total_notifications = len(notification_collector.progress_notifications) + len(
-                notification_collector.log_messages
-            )
+            total_notifications = len(
+                notification_collector.progress_notifications
+            ) + len(notification_collector.log_messages)
             assert total_notifications > 0
 
 
@@ -414,7 +445,9 @@ async def test_sampling(server_transport: str, server_url: str) -> None:
 
     async with client_cm as client_streams:
         read_stream, write_stream = unpack_streams(client_streams)
-        async with ClientSession(read_stream, write_stream, sampling_callback=sampling_callback) as session:
+        async with ClientSession(
+            read_stream, write_stream, sampling_callback=sampling_callback
+        ) as session:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -445,7 +478,9 @@ async def test_elicitation(server_transport: str, server_url: str) -> None:
 
     async with client_cm as client_streams:
         read_stream, write_stream = unpack_streams(client_streams)
-        async with ClientSession(read_stream, write_stream, elicitation_callback=elicitation_callback) as session:
+        async with ClientSession(
+            read_stream, write_stream, elicitation_callback=elicitation_callback
+        ) as session:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -491,7 +526,9 @@ async def test_completion(server_transport: str, server_url: str) -> None:
             assert len(prompts.prompts) > 0
 
             # Test getting a prompt
-            prompt_result = await session.get_prompt("review_code", {"language": "python", "code": "def test(): pass"})
+            prompt_result = await session.get_prompt(
+                "review_code", {"language": "python", "code": "def test(): pass"}
+            )
             assert len(prompt_result.messages) > 0
 
 
@@ -510,11 +547,35 @@ async def test_notifications(server_transport: str, server_url: str) -> None:
     transport = server_transport
     client_cm = create_client_for_transport(transport, server_url)
 
-            assert completion_result is not None
-            assert hasattr(completion_result, "completion")
-            assert completion_result.completion is not None
-            assert "python" in completion_result.completion.values
-            assert all(lang.startswith("py") for lang in completion_result.completion.values)
+    notification_collector = NotificationCollector()
+
+    async with client_cm as client_streams:
+        read_stream, write_stream = unpack_streams(client_streams)
+        async with ClientSession(
+            read_stream,
+            write_stream,
+            message_handler=notification_collector.handle_generic_notification,
+        ) as session:
+            # Test initialization
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "Notifications Example"
+            assert result.capabilities.tools is not None
+
+            # Test process_data tool that sends log notifications
+            tool_result = await session.call_tool("process_data", {"data": "test_data"})
+            assert len(tool_result.content) == 1
+            assert isinstance(tool_result.content[0], TextContent)
+            assert "Processed: test_data" in tool_result.content[0].text
+
+            # Verify log messages were sent at different levels
+            assert len(notification_collector.log_messages) >= 1
+            log_levels = {msg.level for msg in notification_collector.log_messages}
+            # Should have at least one of these log levels
+            assert log_levels & {"debug", "info", "warning", "error"}
+
+            # Verify resource list change notification was sent
+            assert len(notification_collector.resource_notifications) > 0
 
 
 # Test FastMCP quickstart example
@@ -579,7 +640,9 @@ async def test_structured_output(server_transport: str, server_url: str) -> None
             assert result.serverInfo.name == "Structured Output Example"
 
             # Test get_weather tool
-            weather_result = await session.call_tool("get_weather", {"city": "New York"})
+            weather_result = await session.call_tool(
+                "get_weather", {"city": "New York"}
+            )
             assert len(weather_result.content) == 1
             assert isinstance(weather_result.content[0], TextContent)
 
