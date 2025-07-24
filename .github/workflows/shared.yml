@@ -45,7 +45,7 @@ jobs:
           version: 0.7.2
 
       - name: Install the project
-        run: uv sync --frozen --all-extras --python ${{ matrix.python-version }}
+        run: uv sync --frozen --all-extras --group dev --python ${{ matrix.python-version }}
 
       - name: Run pytest
         run: |
