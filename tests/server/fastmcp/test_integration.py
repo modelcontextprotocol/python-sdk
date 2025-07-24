@@ -84,17 +84,17 @@ def run_server_with_transport(module_name: str, port: int, transport: str) -> No
     sys.path.insert(0, os.path.abspath(snippets_path))
 
     # Import the servers module in the multiprocessing context
-    from servers import (  # type: ignore
-        basic_prompt,
-        basic_resource,
-        basic_tool,
-        completion,
-        elicitation,
-        fastmcp_quickstart,
-        notifications,
-        sampling,
-        structured_output,
-        tool_progress,
+    from servers import (  # pyright: ignore[reportAttributeAccessIssue]
+        basic_prompt,  # pyright: ignore[reportAttributeAccessIssue]
+        basic_resource,  # pyright: ignore[reportAttributeAccessIssue]
+        basic_tool,  # pyright: ignore[reportAttributeAccessIssue]
+        completion,  # pyright: ignore[reportAttributeAccessIssue]
+        elicitation,  # pyright: ignore[reportAttributeAccessIssue]
+        fastmcp_quickstart,  # pyright: ignore[reportAttributeAccessIssue]
+        notifications,  # pyright: ignore[reportAttributeAccessIssue]
+        sampling,  # pyright: ignore[reportAttributeAccessIssue]
+        structured_output,  # pyright: ignore[reportAttributeAccessIssue]
+        tool_progress,  # pyright: ignore[reportAttributeAccessIssue]
     )
 
     # Get the MCP instance based on module name
