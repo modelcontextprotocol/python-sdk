@@ -5,6 +5,9 @@ These tests validate the proper functioning of FastMCP features using focused,
 single-feature servers across different transports (SSE and StreamableHTTP).
 """
 
+# Mark all tests in this file as integration tests
+pytestmark = pytest.mark.integration
+
 import json
 import multiprocessing
 import socket
@@ -89,7 +92,9 @@ def run_server_with_transport(module_name: str, port: int, transport: str) -> No
     import os
 
     # Add examples/snippets to Python path for multiprocessing context
-    snippets_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "examples", "snippets")
+    snippets_path = os.path.join(
+        os.path.dirname(__file__), "..", "..", "..", "examples", "snippets"
+    )
     sys.path.insert(0, os.path.abspath(snippets_path))
 
     # Import the servers module in the multiprocessing context
@@ -138,7 +143,9 @@ def run_server_with_transport(module_name: str, port: int, transport: str) -> No
     else:
         raise ValueError(f"Invalid transport for test server: {transport}")
 
-    server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=port, log_level="error"))
+    server = uvicorn.Server(
+        config=uvicorn.Config(app=app, host="127.0.0.1", port=port, log_level="error")
+    )
     print(f"Starting {transport} server on port {port}")
     server.run()
 
@@ -163,19 +170,24 @@ def server_transport(request, server_port: int) -> Generator[str, None, None]:
     )
     proc.start()
 
-    # Wait for server to be running
-    max_attempts = 20
+    # Wait for server to be running - optimized for faster startup
+    max_attempts = 30  # Increased attempts for Windows
     attempt = 0
     while attempt < max_attempts:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1.0)  # Add socket timeout
                 s.connect(("127.0.0.1", server_port))
                 break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
+        except (ConnectionRefusedError, OSError):
+            # Use shorter initial delays, then increase
+            delay = 0.05 if attempt < 10 else 0.1
+            time.sleep(delay)
             attempt += 1
     else:
-        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+        raise RuntimeError(
+            f"Server failed to start after {max_attempts} attempts (port {server_port})"
+        )
 
     yield transport
 
@@ -346,10 +358,14 @@ async def test_basic_prompts(server_transport: str, server_url: str) -> None:
 
             # Test review_code prompt
             prompts = await session.list_prompts()
-            review_prompt = next((p for p in prompts.prompts if p.name == "review_code"), None)
+            review_prompt = next(
+                (p for p in prompts.prompts if p.name == "review_code"), None
+            )
             assert review_prompt is not None
 
-            prompt_result = await session.get_prompt("review_code", {"code": "def hello():\n    print('Hello')"})
+            prompt_result = await session.get_prompt(
+                "review_code", {"code": "def hello():\n    print('Hello')"}
+            )
             assert isinstance(prompt_result, GetPromptResult)
             assert len(prompt_result.messages) == 1
             assert isinstance(prompt_result.messages[0].content, TextContent)
@@ -405,16 +421,18 @@ async def test_tool_progress(server_transport: str, server_url: str) -> None:
             assert result.capabilities.tools is not None
 
             # Test long_running_task tool that reports progress
-            tool_result = await session.call_tool("long_running_task", {"task_name": "test", "steps": 3})
+            tool_result = await session.call_tool(
+                "long_running_task", {"task_name": "test", "steps": 3}
+            )
             assert len(tool_result.content) == 1
             assert isinstance(tool_result.content[0], TextContent)
             assert "Task 'test' completed" in tool_result.content[0].text
 
             # Verify that progress notifications or log messages were sent
             # Progress can come through either progress notifications or log messages
-            total_notifications = len(notification_collector.progress_notifications) + len(
-                notification_collector.log_messages
-            )
+            total_notifications = len(
+                notification_collector.progress_notifications
+            ) + len(notification_collector.log_messages)
             assert total_notifications > 0
 
 
@@ -435,7 +453,9 @@ async def test_sampling(server_transport: str, server_url: str) -> None:
 
     async with client_cm as client_streams:
         read_stream, write_stream = unpack_streams(client_streams)
-        async with ClientSession(read_stream, write_stream, sampling_callback=sampling_callback) as session:
+        async with ClientSession(
+            read_stream, write_stream, sampling_callback=sampling_callback
+        ) as session:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -466,7 +486,9 @@ async def test_elicitation(server_transport: str, server_url: str) -> None:
 
     async with client_cm as client_streams:
         read_stream, write_stream = unpack_streams(client_streams)
-        async with ClientSession(read_stream, write_stream, elicitation_callback=elicitation_callback) as session:
+        async with ClientSession(
+            read_stream, write_stream, elicitation_callback=elicitation_callback
+        ) as session:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -512,7 +534,9 @@ async def test_completion(server_transport: str, server_url: str) -> None:
             assert len(prompts.prompts) > 0
 
             # Test getting a prompt
-            prompt_result = await session.get_prompt("review_code", {"language": "python", "code": "def test(): pass"})
+            prompt_result = await session.get_prompt(
+                "review_code", {"language": "python", "code": "def test(): pass"}
+            )
             assert len(prompt_result.messages) > 0
 
 
@@ -624,7 +648,9 @@ async def test_structured_output(server_transport: str, server_url: str) -> None
             assert result.serverInfo.name == "Structured Output Example"
 
             # Test get_weather tool
-            weather_result = await session.call_tool("get_weather", {"city": "New York"})
+            weather_result = await session.call_tool(
+                "get_weather", {"city": "New York"}
+            )
             assert len(weather_result.content) == 1
             assert isinstance(weather_result.content[0], TextContent)
 

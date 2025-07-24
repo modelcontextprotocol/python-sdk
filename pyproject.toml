@@ -120,6 +120,11 @@ addopts = """
     --capture=fd
     --numprocesses auto
 """
+# Disable parallelization for integration tests that spawn subprocesses
+# This prevents Windows issues with multiprocessing + subprocess conflicts
+markers = [
+    "integration: marks tests as integration tests (may run without parallelization)",
+]
 filterwarnings = [
     "error",
     # This should be fixed on Uvicorn's side.

@@ -28,7 +28,7 @@ jobs:
 
   test:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     continue-on-error: true
     strategy:
       matrix:
@@ -48,7 +48,15 @@ jobs:
         run: uv sync --frozen --all-extras --python ${{ matrix.python-version }}
 
       - name: Run pytest
-        run: uv run --frozen --no-sync pytest
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            # Run integration tests without parallelization on Windows to avoid multiprocessing issues
+            uv run --frozen --no-sync pytest -m "not integration" --numprocesses auto
+            uv run --frozen --no-sync pytest -m integration --numprocesses 1
+          else
+            uv run --frozen --no-sync pytest
+          fi
+        shell: bash
 
       # This must run last as it modifies the environment!
       - name: Run pytest with lowest versions
