@@ -19,6 +19,9 @@ from mcp.shared.message import SessionMessage
 from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 from tests.shared.test_win32_utils import escape_path_for_python
 
+# Mark all tests in this file as integration tests (spawn subprocesses)
+pytestmark = [pytest.mark.integration]
+
 # Timeout for cleanup of processes that ignore SIGTERM
 # This timeout ensures the test fails quickly if the cleanup logic doesn't have
 # proper fallback mechanisms (SIGINT/SIGKILL) for processes that ignore SIGTERM
@@ -63,14 +66,20 @@ async def test_stdio_client():
                     break
 
         assert len(read_messages) == 2
-        assert read_messages[0] == JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping"))
-        assert read_messages[1] == JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=2, result={}))
+        assert read_messages[0] == JSONRPCMessage(
+            root=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+        )
+        assert read_messages[1] == JSONRPCMessage(
+            root=JSONRPCResponse(jsonrpc="2.0", id=2, result={})
+        )
 
 
 @pytest.mark.anyio
 async def test_stdio_client_bad_path():
     """Check that the connection doesn't hang if process errors."""
-    server_params = StdioServerParameters(command="python", args=["-c", "non-existent-file.py"])
+    server_params = StdioServerParameters(
+        command="python", args=["-c", "non-existent-file.py"]
+    )
     async with stdio_client(server_params) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             # The session should raise an error when the connection closes
@@ -158,7 +167,9 @@ async def test_stdio_client_universal_cleanup():
 
 
 @pytest.mark.anyio
-@pytest.mark.skipif(sys.platform == "win32", reason="Windows signal handling is different")
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows signal handling is different"
+)
 async def test_stdio_client_sigint_only_process():
     """
     Test cleanup with a process that ignores SIGTERM but responds to SIGINT.
@@ -251,7 +262,9 @@ class TestChildProcessCleanup:
     """
 
     @pytest.mark.anyio
-    @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
+    @pytest.mark.filterwarnings(
+        "ignore::ResourceWarning" if sys.platform == "win32" else "default"
+    )
     async def test_basic_child_process_cleanup(self):
         """
         Test basic parent-child process cleanup.
@@ -300,7 +313,9 @@ class TestChildProcessCleanup:
             print("\nStarting child process termination test...")
 
             # Start the parent process
-            proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+            proc = await _create_platform_compatible_process(
+                sys.executable, ["-c", parent_script]
+            )
 
             # Wait for processes to start
             await anyio.sleep(0.5)
@@ -314,7 +329,9 @@ class TestChildProcessCleanup:
                 await anyio.sleep(0.3)
                 size_after_wait = os.path.getsize(marker_file)
                 assert size_after_wait > initial_size, "Child process should be writing"
-                print(f"Child is writing (file grew from {initial_size} to {size_after_wait} bytes)")
+                print(
+                    f"Child is writing (file grew from {initial_size} to {size_after_wait} bytes)"
+                )
 
             # Terminate using our function
             print("Terminating process and children...")
@@ -330,9 +347,9 @@ class TestChildProcessCleanup:
                 final_size = os.path.getsize(marker_file)
 
                 print(f"After cleanup: file size {size_after_cleanup} -> {final_size}")
-                assert final_size == size_after_cleanup, (
-                    f"Child process still running! File grew by {final_size - size_after_cleanup} bytes"
-                )
+                assert (
+                    final_size == size_after_cleanup
+                ), f"Child process still running! File grew by {final_size - size_after_cleanup} bytes"
 
             print("SUCCESS: Child process was properly terminated")
 
@@ -345,7 +362,9 @@ class TestChildProcessCleanup:
                     pass
 
     @pytest.mark.anyio
-    @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
+    @pytest.mark.filterwarnings(
+        "ignore::ResourceWarning" if sys.platform == "win32" else "default"
+    )
     async def test_nested_process_tree(self):
         """
         Test nested process tree cleanup (parent → child → grandchild).
@@ -405,13 +424,19 @@ class TestChildProcessCleanup:
             )
 
             # Start the parent process
-            proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+            proc = await _create_platform_compatible_process(
+                sys.executable, ["-c", parent_script]
+            )
 
             # Let all processes start
             await anyio.sleep(1.0)
 
             # Verify all are writing
-            for file_path, name in [(parent_file, "parent"), (child_file, "child"), (grandchild_file, "grandchild")]:
+            for file_path, name in [
+                (parent_file, "parent"),
+                (child_file, "child"),
+                (grandchild_file, "grandchild"),
+            ]:
                 if os.path.exists(file_path):
                     initial_size = os.path.getsize(file_path)
                     await anyio.sleep(0.3)
@@ -425,7 +450,11 @@ class TestChildProcessCleanup:
 
             # Verify all stopped
             await anyio.sleep(0.5)
-            for file_path, name in [(parent_file, "parent"), (child_file, "child"), (grandchild_file, "grandchild")]:
+            for file_path, name in [
+                (parent_file, "parent"),
+                (child_file, "child"),
+                (grandchild_file, "grandchild"),
+            ]:
                 if os.path.exists(file_path):
                     size1 = os.path.getsize(file_path)
                     await anyio.sleep(0.3)
@@ -443,7 +472,9 @@ class TestChildProcessCleanup:
                     pass
 
     @pytest.mark.anyio
-    @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
+    @pytest.mark.filterwarnings(
+        "ignore::ResourceWarning" if sys.platform == "win32" else "default"
+    )
     async def test_early_parent_exit(self):
         """
         Test cleanup when parent exits during termination sequence.
@@ -487,7 +518,9 @@ class TestChildProcessCleanup:
             )
 
             # Start the parent process
-            proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+            proc = await _create_platform_compatible_process(
+                sys.executable, ["-c", parent_script]
+            )
 
             # Let child start writing
             await anyio.sleep(0.5)

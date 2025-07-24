@@ -25,6 +25,9 @@ from mcp.types import (
     Tool,
 )
 
+# Mark all tests in this file as integration tests (spawn subprocesses)
+pytestmark = [pytest.mark.integration]
+
 SERVER_NAME = "test_server_for_WS"
 
 
@@ -54,7 +57,11 @@ class ServerTest(Server):
                 await anyio.sleep(2.0)
                 return f"Slow response from {uri.host}"
 
-            raise McpError(error=ErrorData(code=404, message="OOPS! no resource with that URI was found"))
+            raise McpError(
+                error=ErrorData(
+                    code=404, message="OOPS! no resource with that URI was found"
+                )
+            )
 
         @self.list_tools()
         async def handle_list_tools() -> list[Tool]:
@@ -77,8 +84,12 @@ def make_server_app() -> Starlette:
     server = ServerTest()
 
     async def handle_ws(websocket):
-        async with websocket_server(websocket.scope, websocket.receive, websocket.send) as streams:
-            await server.run(streams[0], streams[1], server.create_initialization_options())
+        async with websocket_server(
+            websocket.scope, websocket.receive, websocket.send
+        ) as streams:
+            await server.run(
+                streams[0], streams[1], server.create_initialization_options()
+            )
 
     app = Starlette(
         routes=[
@@ -91,7 +102,11 @@ def make_server_app() -> Starlette:
 
 def run_server(server_port: int) -> None:
     app = make_server_app()
-    server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
+    server = uvicorn.Server(
+        config=uvicorn.Config(
+            app=app, host="127.0.0.1", port=server_port, log_level="error"
+        )
+    )
     print(f"starting server on {server_port}")
     server.run()
 
@@ -103,7 +118,9 @@ def run_server(server_port: int) -> None:
 
 @pytest.fixture()
 def server(server_port: int) -> Generator[None, None, None]:
-    proc = multiprocessing.Process(target=run_server, kwargs={"server_port": server_port}, daemon=True)
+    proc = multiprocessing.Process(
+        target=run_server, kwargs={"server_port": server_port}, daemon=True
+    )
     print("starting process")
     proc.start()
 
@@ -133,7 +150,9 @@ def server(server_port: int) -> Generator[None, None, None]:
 
 
 @pytest.fixture()
-async def initialized_ws_client_session(server, server_url: str) -> AsyncGenerator[ClientSession, None]:
+async def initialized_ws_client_session(
+    server, server_url: str
+) -> AsyncGenerator[ClientSession, None]:
     """Create and initialize a WebSocket client session"""
     async with websocket_client(server_url + "/ws") as streams:
         async with ClientSession(*streams) as session:
@@ -170,7 +189,9 @@ async def test_ws_client_happy_request_and_response(
     initialized_ws_client_session: ClientSession,
 ) -> None:
     """Test a successful request and response via WebSocket"""
-    result = await initialized_ws_client_session.read_resource(AnyUrl("foobar://example"))
+    result = await initialized_ws_client_session.read_resource(
+        AnyUrl("foobar://example")
+    )
     assert isinstance(result, ReadResourceResult)
     assert isinstance(result.contents, list)
     assert len(result.contents) > 0
@@ -200,7 +221,9 @@ async def test_ws_client_timeout(
 
     # Now test that we can still use the session after a timeout
     with anyio.fail_after(5):  # Longer timeout to allow completion
-        result = await initialized_ws_client_session.read_resource(AnyUrl("foobar://example"))
+        result = await initialized_ws_client_session.read_resource(
+            AnyUrl("foobar://example")
+        )
         assert isinstance(result, ReadResourceResult)
         assert isinstance(result.contents, list)
         assert len(result.contents) > 0

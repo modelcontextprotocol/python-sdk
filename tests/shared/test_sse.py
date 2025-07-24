@@ -32,6 +32,9 @@ from mcp.types import (
     Tool,
 )
 
+# Mark all tests in this file as integration tests (spawn subprocesses)
+pytestmark = [pytest.mark.integration]
+
 SERVER_NAME = "test_server_for_SSE"
 
 
