@@ -44,7 +44,8 @@ DEFAULT_INHERITED_ENV_VARS = (
 )
 
 # Timeout for process termination before falling back to force kill
-PROCESS_TERMINATION_TIMEOUT = 2.0
+# Windows needs more time for process termination
+PROCESS_TERMINATION_TIMEOUT = 5.0 if sys.platform == "win32" else 2.0
 
 
 def get_default_environment() -> dict[str, str]:
@@ -123,7 +124,11 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         process = await _create_platform_compatible_process(
             command=command,
             args=server.args,
-            env=({**get_default_environment(), **server.env} if server.env is not None else get_default_environment()),
+            env=(
+                {**get_default_environment(), **server.env}
+                if server.env is not None
+                else get_default_environment()
+            ),
             errlog=errlog,
             cwd=server.cwd,
         )
@@ -167,7 +172,9 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         try:
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
-                    json = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+                    json = session_message.message.model_dump_json(
+                        by_alias=True, exclude_none=True
+                    )
                     await process.stdin.send(
                         (json + "\n").encode(
                             encoding=server.encoding,
@@ -253,7 +260,9 @@ async def _create_platform_compatible_process(
     return process
 
 
-async def _terminate_process_tree(process: Process | FallbackProcess, timeout_seconds: float = 2.0) -> None:
+async def _terminate_process_tree(
+    process: Process | FallbackProcess, timeout_seconds: float | None = None
+) -> None:
     """
     Terminate a process and all its children using platform-specific methods.
 
@@ -262,8 +271,10 @@ async def _terminate_process_tree(process: Process | FallbackProcess, timeout_se
 
     Args:
         process: The process to terminate
-        timeout_seconds: Timeout in seconds before force killing (default: 2.0)
+        timeout_seconds: Timeout in seconds before force killing (default: platform-specific)
     """
+    if timeout_seconds is None:
+        timeout_seconds = 4.0 if sys.platform == "win32" else 2.0
     if sys.platform == "win32":
         await terminate_windows_process_tree(process, timeout_seconds)
     else:

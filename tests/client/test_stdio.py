@@ -66,14 +66,20 @@ async def test_stdio_client():
                     break
 
         assert len(read_messages) == 2
-        assert read_messages[0] == JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping"))
-        assert read_messages[1] == JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=2, result={}))
+        assert read_messages[0] == JSONRPCMessage(
+            root=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+        )
+        assert read_messages[1] == JSONRPCMessage(
+            root=JSONRPCResponse(jsonrpc="2.0", id=2, result={})
+        )
 
 
 @pytest.mark.anyio
 async def test_stdio_client_bad_path():
     """Check that the connection doesn't hang if process errors."""
-    server_params = StdioServerParameters(command="python", args=["-c", "non-existent-file.py"])
+    server_params = StdioServerParameters(
+        command="python", args=["-c", "non-existent-file.py"]
+    )
     async with stdio_client(server_params) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             # The session should raise an error when the connection closes
@@ -147,8 +153,10 @@ async def test_stdio_client_universal_cleanup():
         elapsed = end_time - start_time
 
         # On Windows: 2s (stdin wait) + 2s (terminate wait) + overhead = ~5s expected
-        assert elapsed < 6.0, (
-            f"stdio_client cleanup took {elapsed:.1f} seconds, expected < 6.0 seconds. "
+        # Windows may need more time for process termination
+        max_cleanup_time = 10.0 if sys.platform == "win32" else 6.0
+        assert elapsed < max_cleanup_time, (
+            f"stdio_client cleanup took {elapsed:.1f} seconds, expected < {max_cleanup_time} seconds. "
             f"This suggests the timeout mechanism may not be working properly."
         )
 
@@ -161,7 +169,9 @@ async def test_stdio_client_universal_cleanup():
 
 
 @pytest.mark.anyio
-@pytest.mark.skipif(sys.platform == "win32", reason="Windows signal handling is different")
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows signal handling is different"
+)
 async def test_stdio_client_sigint_only_process():
     """
     Test cleanup with a process that ignores SIGTERM but responds to SIGINT.
@@ -254,7 +264,9 @@ class TestChildProcessCleanup:
     """
 
     @pytest.mark.anyio
-    @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
+    @pytest.mark.filterwarnings(
+        "ignore::ResourceWarning" if sys.platform == "win32" else "default"
+    )
     async def test_basic_child_process_cleanup(self):
         """
         Test basic parent-child process cleanup.
@@ -303,7 +315,9 @@ class TestChildProcessCleanup:
             print("\nStarting child process termination test...")
 
             # Start the parent process
-            proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+            proc = await _create_platform_compatible_process(
+                sys.executable, ["-c", parent_script]
+            )
 
             # Wait for processes to start
             await anyio.sleep(0.5)
@@ -317,7 +331,9 @@ class TestChildProcessCleanup:
                 await anyio.sleep(0.3)
                 size_after_wait = os.path.getsize(marker_file)
                 assert size_after_wait > initial_size, "Child process should be writing"
-                print(f"Child is writing (file grew from {initial_size} to {size_after_wait} bytes)")
+                print(
+                    f"Child is writing (file grew from {initial_size} to {size_after_wait} bytes)"
+                )
 
             # Terminate using our function
             print("Terminating process and children...")
@@ -333,9 +349,9 @@ class TestChildProcessCleanup:
                 final_size = os.path.getsize(marker_file)
 
                 print(f"After cleanup: file size {size_after_cleanup} -> {final_size}")
-                assert final_size == size_after_cleanup, (
-                    f"Child process still running! File grew by {final_size - size_after_cleanup} bytes"
-                )
+                assert (
+                    final_size == size_after_cleanup
+                ), f"Child process still running! File grew by {final_size - size_after_cleanup} bytes"
 
             print("SUCCESS: Child process was properly terminated")
 
@@ -348,7 +364,9 @@ class TestChildProcessCleanup:
                     pass
 
     @pytest.mark.anyio
-    @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
+    @pytest.mark.filterwarnings(
+        "ignore::ResourceWarning" if sys.platform == "win32" else "default"
+    )
     async def test_nested_process_tree(self):
         """
         Test nested process tree cleanup (parent → child → grandchild).
@@ -408,7 +426,9 @@ class TestChildProcessCleanup:
             )
 
             # Start the parent process
-            proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+            proc = await _create_platform_compatible_process(
+                sys.executable, ["-c", parent_script]
+            )
 
             # Let all processes start
             await anyio.sleep(1.0)
@@ -454,7 +474,9 @@ class TestChildProcessCleanup:
                     pass
 
     @pytest.mark.anyio
-    @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
+    @pytest.mark.filterwarnings(
+        "ignore::ResourceWarning" if sys.platform == "win32" else "default"
+    )
     async def test_early_parent_exit(self):
         """
         Test cleanup when parent exits during termination sequence.
@@ -498,7 +520,9 @@ class TestChildProcessCleanup:
             )
 
             # Start the parent process
-            proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+            proc = await _create_platform_compatible_process(
+                sys.executable, ["-c", parent_script]
+            )
 
             # Let child start writing
             await anyio.sleep(0.5)
@@ -625,7 +649,9 @@ async def test_stdio_client_stdin_close_ignored():
     start_time = time.time()
 
     # Use anyio timeout to prevent test from hanging forever
-    with anyio.move_on_after(7.0) as cancel_scope:
+    # Windows process termination can be slower, so give it more time
+    timeout_seconds = 12.0 if sys.platform == "win32" else 7.0
+    with anyio.move_on_after(timeout_seconds) as cancel_scope:
         async with stdio_client(server_params) as (read_stream, write_stream):
             # Let the process start
             await anyio.sleep(0.2)
@@ -634,7 +660,7 @@ async def test_stdio_client_stdin_close_ignored():
 
     if cancel_scope.cancelled_caught:
         pytest.fail(
-            "stdio_client cleanup timed out after 7.0 seconds. "
+            f"stdio_client cleanup timed out after {timeout_seconds} seconds. "
             "Process should have been terminated via SIGTERM escalation."
         )
 
@@ -642,8 +668,9 @@ async def test_stdio_client_stdin_close_ignored():
     elapsed = end_time - start_time
 
     # Should take ~2 seconds (stdin close timeout) before SIGTERM is sent
-    # Total time should be between 2-4 seconds
-    assert 1.5 < elapsed < 4.5, (
+    # Total time should be between 2-8 seconds (Windows needs more time)
+    max_expected = 8.0 if sys.platform == "win32" else 4.5
+    assert 1.5 < elapsed < max_expected, (
         f"stdio_client cleanup took {elapsed:.1f} seconds for stdin-ignoring process. "
-        f"Expected between 2-4 seconds (2s stdin timeout + termination time)."
+        f"Expected between 1.5-{max_expected} seconds (2s stdin timeout + termination time)."
     )
