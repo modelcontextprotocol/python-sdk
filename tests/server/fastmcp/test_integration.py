@@ -84,7 +84,7 @@ def run_server_with_transport(module_name: str, port: int, transport: str) -> No
     sys.path.insert(0, os.path.abspath(snippets_path))
 
     # Import the servers module in the multiprocessing context
-    from servers import (
+    from servers import (  # type: ignore
         basic_prompt,
         basic_resource,
         basic_tool,
