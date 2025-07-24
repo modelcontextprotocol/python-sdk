@@ -311,7 +311,7 @@ class FastMCP:
             content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type)]
         except Exception as e:
-            logger.error(f"Error reading resource {uri}: {e}")
+            logger.exception(f"Error reading resource {uri}")
             raise ResourceError(str(e))
 
     def add_tool(
@@ -828,7 +828,6 @@ class FastMCP:
     def streamable_http_app(self) -> Starlette:
         """Return an instance of the StreamableHTTP server app."""
         from starlette.middleware import Middleware
-        from starlette.routing import Mount
 
         # Create session manager on first call (lazy initialization)
         if self._session_manager is None:
@@ -841,8 +840,7 @@ class FastMCP:
             )
 
         # Create the ASGI handler
-        async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
-            await self.session_manager.handle_request(scope, receive, send)
+        streamable_http_app = StreamableHTTPASGIApp(self._session_manager)
 
         # Create routes
         routes: list[Route | Mount] = []
@@ -889,17 +887,17 @@ class FastMCP:
                 )
 
             routes.append(
-                Mount(
+                Route(
                     self.settings.streamable_http_path,
-                    app=RequireAuthMiddleware(handle_streamable_http, required_scopes, resource_metadata_url),
+                    endpoint=RequireAuthMiddleware(streamable_http_app, required_scopes, resource_metadata_url),
                 )
             )
         else:
             # Auth is disabled, no wrapper needed
             routes.append(
-                Mount(
+                Route(
                     self.settings.streamable_http_path,
-                    app=handle_streamable_http,
+                    endpoint=streamable_http_app,
                 )
             )
 
@@ -957,12 +955,31 @@ class FastMCP:
     async def get_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> GetPromptResult:
         """Get a prompt by name with arguments."""
         try:
-            messages = await self._prompt_manager.render_prompt(name, arguments)
+            prompt = self._prompt_manager.get_prompt(name)
+            if not prompt:
+                raise ValueError(f"Unknown prompt: {name}")
 
-            return GetPromptResult(messages=pydantic_core.to_jsonable_python(messages))
+            messages = await prompt.render(arguments)
+
+            return GetPromptResult(
+                description=prompt.description,
+                messages=pydantic_core.to_jsonable_python(messages),
+            )
         except Exception as e:
-            logger.error(f"Error getting prompt {name}: {e}")
+            logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e))
+
+
+class StreamableHTTPASGIApp:
+    """
+    ASGI application for Streamable HTTP server transport.
+    """
+
+    def __init__(self, session_manager: StreamableHTTPSessionManager):
+        self.session_manager = session_manager
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        await self.session_manager.handle_request(scope, receive, send)
 
 
 class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):

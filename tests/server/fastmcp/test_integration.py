@@ -21,8 +21,10 @@ from examples.snippets.servers import (
     basic_tool,
     completion,
     elicitation,
+    fastmcp_quickstart,
     notifications,
     sampling,
+    structured_output,
     tool_progress,
 )
 from mcp.client.session import ClientSession
@@ -100,6 +102,10 @@ def run_server_with_transport(module_name: str, port: int, transport: str) -> No
         mcp = completion.mcp
     elif module_name == "notifications":
         mcp = notifications.mcp
+    elif module_name == "fastmcp_quickstart":
+        mcp = fastmcp_quickstart.mcp
+    elif module_name == "structured_output":
+        mcp = structured_output.mcp
     else:
         raise ImportError(f"Unknown module: {module_name}")
 
@@ -504,32 +510,82 @@ async def test_notifications(server_transport: str, server_url: str) -> None:
     transport = server_transport
     client_cm = create_client_for_transport(transport, server_url)
 
-    notification_collector = NotificationCollector()
+            assert completion_result is not None
+            assert hasattr(completion_result, "completion")
+            assert completion_result.completion is not None
+            assert "python" in completion_result.completion.values
+            assert all(lang.startswith("py") for lang in completion_result.completion.values)
+
+
+# Test FastMCP quickstart example
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "server_transport",
+    [
+        ("fastmcp_quickstart", "sse"),
+        ("fastmcp_quickstart", "streamable-http"),
+    ],
+    indirect=True,
+)
+async def test_fastmcp_quickstart(server_transport: str, server_url: str) -> None:
+    """Test FastMCP quickstart example."""
+    transport = server_transport
+    client_cm = create_client_for_transport(transport, server_url)
 
     async with client_cm as client_streams:
         read_stream, write_stream = unpack_streams(client_streams)
-        async with ClientSession(
-            read_stream,
-            write_stream,
-            message_handler=notification_collector.handle_generic_notification,
-        ) as session:
+        async with ClientSession(read_stream, write_stream) as session:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Notifications Example"
-            assert result.capabilities.tools is not None
+            assert result.serverInfo.name == "Demo"
 
-            # Test process_data tool that sends log notifications
-            tool_result = await session.call_tool("process_data", {"data": "test_data"})
+            # Test add tool
+            tool_result = await session.call_tool("add", {"a": 10, "b": 20})
             assert len(tool_result.content) == 1
             assert isinstance(tool_result.content[0], TextContent)
-            assert "Processed: test_data" in tool_result.content[0].text
+            assert tool_result.content[0].text == "30"
 
-            # Verify log messages were sent at different levels
-            assert len(notification_collector.log_messages) >= 1
-            log_levels = {msg.level for msg in notification_collector.log_messages}
-            # Should have at least one of these log levels
-            assert log_levels & {"debug", "info", "warning", "error"}
+            # Test greeting resource directly
+            from pydantic import AnyUrl
 
-            # Verify resource list change notification was sent
-            assert len(notification_collector.resource_notifications) > 0
+            resource_result = await session.read_resource(AnyUrl("greeting://Alice"))
+            assert len(resource_result.contents) == 1
+            assert isinstance(resource_result.contents[0], TextResourceContents)
+            assert resource_result.contents[0].text == "Hello, Alice!"
+
+
+# Test structured output example
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "server_transport",
+    [
+        ("structured_output", "sse"),
+        ("structured_output", "streamable-http"),
+    ],
+    indirect=True,
+)
+async def test_structured_output(server_transport: str, server_url: str) -> None:
+    """Test structured output functionality."""
+    transport = server_transport
+    client_cm = create_client_for_transport(transport, server_url)
+
+    async with client_cm as client_streams:
+        read_stream, write_stream = unpack_streams(client_streams)
+        async with ClientSession(read_stream, write_stream) as session:
+            # Test initialization
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "Structured Output Example"
+
+            # Test get_weather tool
+            weather_result = await session.call_tool("get_weather", {"city": "New York"})
+            assert len(weather_result.content) == 1
+            assert isinstance(weather_result.content[0], TextContent)
+
+            # Check that the result contains expected weather data
+            result_text = weather_result.content[0].text
+            assert "72.5" in result_text  # temperature
+            assert "sunny" in result_text  # condition
+            assert "45" in result_text  # humidity
+            assert "5.2" in result_text  # wind_speed
