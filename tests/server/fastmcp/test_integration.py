@@ -15,18 +15,6 @@ import pytest
 import uvicorn
 from pydantic import AnyUrl
 
-from examples.snippets.servers import (
-    basic_prompt,
-    basic_resource,
-    basic_tool,
-    completion,
-    elicitation,
-    fastmcp_quickstart,
-    notifications,
-    sampling,
-    structured_output,
-    tool_progress,
-)
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
@@ -88,8 +76,8 @@ def server_url(server_port: int) -> str:
 
 def run_server_with_transport(module_name: str, port: int, transport: str) -> None:
     """Run server with specified transport."""
-    import sys
     import os
+    import sys
 
     # Add examples/snippets to Python path for multiprocessing context
     snippets_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "examples", "snippets")
@@ -97,16 +85,16 @@ def run_server_with_transport(module_name: str, port: int, transport: str) -> No
 
     # Import the servers module in the multiprocessing context
     from servers import (
-        basic_tool,
-        basic_resource,
         basic_prompt,
-        tool_progress,
-        sampling,
-        elicitation,
+        basic_resource,
+        basic_tool,
         completion,
-        notifications,
+        elicitation,
         fastmcp_quickstart,
+        notifications,
+        sampling,
         structured_output,
+        tool_progress,
     )
 
     # Get the MCP instance based on module name

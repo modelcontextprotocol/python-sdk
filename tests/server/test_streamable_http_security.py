@@ -17,10 +17,10 @@ from starlette.types import Receive, Scope, Send
 from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import Tool
 
 # Mark all tests in this file as integration tests (spawn subprocesses)
 pytestmark = [pytest.mark.integration]
-from mcp.types import Tool
 
 logger = logging.getLogger(__name__)
 SERVER_NAME = "test_streamable_http_security_server"
