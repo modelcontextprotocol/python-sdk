@@ -46,22 +46,16 @@ class SecurityTestServer(Server):
         return []
 
 
-def run_server_with_settings(
-    port: int, security_settings: TransportSecuritySettings | None = None
-):
+def run_server_with_settings(port: int, security_settings: TransportSecuritySettings | None = None):
     """Run the SSE server with specified security settings."""
     app = SecurityTestServer()
     sse_transport = SseServerTransport("/messages/", security_settings)
 
     async def handle_sse(request: Request):
         try:
-            async with sse_transport.connect_sse(
-                request.scope, request.receive, request._send
-            ) as streams:
+            async with sse_transport.connect_sse(request.scope, request.receive, request._send) as streams:
                 if streams:
-                    await app.run(
-                        streams[0], streams[1], app.create_initialization_options()
-                    )
+                    await app.run(streams[0], streams[1], app.create_initialization_options())
         except ValueError as e:
             # Validation error was already handled inside connect_sse
             logger.debug(f"SSE connection failed validation: {e}")
@@ -76,13 +70,9 @@ def run_server_with_settings(
     uvicorn.run(starlette_app, host="127.0.0.1", port=port, log_level="error")
 
 
-def start_server_process(
-    port: int, security_settings: TransportSecuritySettings | None = None
-):
+def start_server_process(port: int, security_settings: TransportSecuritySettings | None = None):
     """Start server in a separate process."""
-    process = multiprocessing.Process(
-        target=run_server_with_settings, args=(port, security_settings)
-    )
+    process = multiprocessing.Process(target=run_server_with_settings, args=(port, security_settings))
     process.start()
     # Give server time to start
     time.sleep(1)
@@ -98,9 +88,7 @@ async def test_sse_security_default_settings(server_port: int):
         headers = {"Host": "evil.com", "Origin": "http://evil.com"}
 
         async with httpx.AsyncClient(timeout=5.0) as client:
-            async with client.stream(
-                "GET", f"http://127.0.0.1:{server_port}/sse", headers=headers
-            ) as response:
+            async with client.stream("GET", f"http://127.0.0.1:{server_port}/sse", headers=headers) as response:
                 assert response.status_code == 200
     finally:
         process.terminate()
@@ -111,9 +99,7 @@ async def test_sse_security_default_settings(server_port: int):
 async def test_sse_security_invalid_host_header(server_port: int):
     """Test SSE with invalid Host header."""
     # Enable security by providing settings with an empty allowed_hosts list
-    security_settings = TransportSecuritySettings(
-        enable_dns_rebinding_protection=True, allowed_hosts=["example.com"]
-    )
+    security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=["example.com"])
     process = start_server_process(server_port, security_settings)
 
     try:
@@ -121,9 +107,7 @@ async def test_sse_security_invalid_host_header(server_port: int):
         headers = {"Host": "evil.com"}
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"http://127.0.0.1:{server_port}/sse", headers=headers
-            )
+            response = await client.get(f"http://127.0.0.1:{server_port}/sse", headers=headers)
             assert response.status_code == 421
             assert response.text == "Invalid Host header"
 
@@ -148,9 +132,7 @@ async def test_sse_security_invalid_origin_header(server_port: int):
         headers = {"Origin": "http://evil.com"}
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"http://127.0.0.1:{server_port}/sse", headers=headers
-            )
+            response = await client.get(f"http://127.0.0.1:{server_port}/sse", headers=headers)
             assert response.status_code == 400
             assert response.text == "Invalid Origin header"
 
@@ -207,9 +189,7 @@ async def test_sse_security_disabled(server_port: int):
 
         async with httpx.AsyncClient(timeout=5.0) as client:
             # For SSE endpoints, we need to use stream to avoid timeout
-            async with client.stream(
-                "GET", f"http://127.0.0.1:{server_port}/sse", headers=headers
-            ) as response:
+            async with client.stream("GET", f"http://127.0.0.1:{server_port}/sse", headers=headers) as response:
                 # Should connect successfully even with invalid host
                 assert response.status_code == 200
 
@@ -234,9 +214,7 @@ async def test_sse_security_custom_allowed_hosts(server_port: int):
 
         async with httpx.AsyncClient(timeout=5.0) as client:
             # For SSE endpoints, we need to use stream to avoid timeout
-            async with client.stream(
-                "GET", f"http://127.0.0.1:{server_port}/sse", headers=headers
-            ) as response:
+            async with client.stream("GET", f"http://127.0.0.1:{server_port}/sse", headers=headers) as response:
                 # Should connect successfully with custom host
                 assert response.status_code == 200
 
@@ -244,9 +222,7 @@ async def test_sse_security_custom_allowed_hosts(server_port: int):
         headers = {"Host": "evil.com"}
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"http://127.0.0.1:{server_port}/sse", headers=headers
-            )
+            response = await client.get(f"http://127.0.0.1:{server_port}/sse", headers=headers)
             assert response.status_code == 421
             assert response.text == "Invalid Host header"
 
@@ -272,9 +248,7 @@ async def test_sse_security_wildcard_ports(server_port: int):
 
             async with httpx.AsyncClient(timeout=5.0) as client:
                 # For SSE endpoints, we need to use stream to avoid timeout
-                async with client.stream(
-                    "GET", f"http://127.0.0.1:{server_port}/sse", headers=headers
-                ) as response:
+                async with client.stream("GET", f"http://127.0.0.1:{server_port}/sse", headers=headers) as response:
                     # Should connect successfully with any port
                     assert response.status_code == 200
 
@@ -282,9 +256,7 @@ async def test_sse_security_wildcard_ports(server_port: int):
 
             async with httpx.AsyncClient(timeout=5.0) as client:
                 # For SSE endpoints, we need to use stream to avoid timeout
-                async with client.stream(
-                    "GET", f"http://127.0.0.1:{server_port}/sse", headers=headers
-                ) as response:
+                async with client.stream("GET", f"http://127.0.0.1:{server_port}/sse", headers=headers) as response:
                     # Should connect successfully with any port
                     assert response.status_code == 200
 
