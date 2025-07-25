@@ -10,7 +10,7 @@ from typing import Any, Generic, Literal
 
 import anyio
 import pydantic_core
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
@@ -68,43 +68,42 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     )
 
     # Server settings
-    debug: bool = False
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    debug: bool
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
     # HTTP settings
-    host: str = "127.0.0.1"
-    port: int = 8000
-    mount_path: str = "/"  # Mount path (e.g. "/github", defaults to root path)
-    sse_path: str = "/sse"
-    message_path: str = "/messages/"
-    streamable_http_path: str = "/mcp"
+    host: str
+    port: int
+    mount_path: str
+    sse_path: str
+    message_path: str
+    streamable_http_path: str
 
     # StreamableHTTP settings
-    json_response: bool = False
-    stateless_http: bool = False  # If True, uses true stateless mode (new transport per request)
+    json_response: bool
+    stateless_http: bool
+    """Define if the server should create a new transport per request."""
 
     # resource settings
-    warn_on_duplicate_resources: bool = True
+    warn_on_duplicate_resources: bool
 
     # tool settings
-    warn_on_duplicate_tools: bool = True
+    warn_on_duplicate_tools: bool
 
     # prompt settings
-    warn_on_duplicate_prompts: bool = True
+    warn_on_duplicate_prompts: bool
 
-    dependencies: list[str] = Field(
-        default_factory=list,
-        description="List of dependencies to install in the server environment",
-    )
+    # TODO(Marcelo): Investigate if this is used. If it is, it's probably a good idea to remove it.
+    dependencies: list[str]
+    """A list of dependencies to install in the server environment."""
 
-    lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = Field(
-        None, description="Lifespan context manager"
-    )
+    lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None
+    """A async context manager that will be called when the server is started."""
 
-    auth: AuthSettings | None = None
+    auth: AuthSettings | None
 
     # Transport security settings (DNS rebinding protection)
-    transport_security: TransportSecuritySettings | None = None
+    transport_security: TransportSecuritySettings | None
 
 
 def lifespan_wrapper(
