@@ -647,6 +647,12 @@ class Server(Generic[LifespanResultT, RequestT]):
                 response = await handler(req)
             except McpError as err:
                 response = err.error
+            except anyio.get_cancelled_exc_class():
+                logger.info(
+                    "Request %s cancelled - duplicate response suppressed",
+                    message.request_id,
+                )
+                return
             except Exception as err:
                 if raise_exceptions:
                     raise err
