@@ -15,6 +15,9 @@ import pytest
 import uvicorn
 from pydantic import AnyUrl
 
+# Mark all tests in this file as integration tests
+pytestmark = [pytest.mark.integration]
+
 from examples.snippets.servers import (
     basic_prompt,
     basic_resource,
@@ -117,7 +120,9 @@ def run_server_with_transport(module_name: str, port: int, transport: str) -> No
     else:
         raise ValueError(f"Invalid transport for test server: {transport}")
 
-    server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=port, log_level="error"))
+    server = uvicorn.Server(
+        config=uvicorn.Config(app=app, host="127.0.0.1", port=port, log_level="error")
+    )
     print(f"Starting {transport} server on port {port}")
     server.run()
 
@@ -325,10 +330,14 @@ async def test_basic_prompts(server_transport: str, server_url: str) -> None:
 
             # Test review_code prompt
             prompts = await session.list_prompts()
-            review_prompt = next((p for p in prompts.prompts if p.name == "review_code"), None)
+            review_prompt = next(
+                (p for p in prompts.prompts if p.name == "review_code"), None
+            )
             assert review_prompt is not None
 
-            prompt_result = await session.get_prompt("review_code", {"code": "def hello():\n    print('Hello')"})
+            prompt_result = await session.get_prompt(
+                "review_code", {"code": "def hello():\n    print('Hello')"}
+            )
             assert isinstance(prompt_result, GetPromptResult)
             assert len(prompt_result.messages) == 1
             assert isinstance(prompt_result.messages[0].content, TextContent)
@@ -337,7 +346,8 @@ async def test_basic_prompts(server_transport: str, server_url: str) -> None:
 
             # Test debug_error prompt
             debug_result = await session.get_prompt(
-                "debug_error", {"error": "TypeError: 'NoneType' object is not subscriptable"}
+                "debug_error",
+                {"error": "TypeError: 'NoneType' object is not subscriptable"},
             )
             assert isinstance(debug_result, GetPromptResult)
             assert len(debug_result.messages) == 3
@@ -376,7 +386,9 @@ async def test_tool_progress(server_transport: str, server_url: str) -> None:
 
     async with client_cm as client_streams:
         read_stream, write_stream = unpack_streams(client_streams)
-        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+        async with ClientSession(
+            read_stream, write_stream, message_handler=message_handler
+        ) as session:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -385,7 +397,9 @@ async def test_tool_progress(server_transport: str, server_url: str) -> None:
             # Test progress callback
             progress_updates = []
 
-            async def progress_callback(progress: float, total: float | None, message: str | None) -> None:
+            async def progress_callback(
+                progress: float, total: float | None, message: str | None
+            ) -> None:
                 progress_updates.append((progress, total, message))
 
             # Call tool with progress
@@ -429,7 +443,9 @@ async def test_sampling(server_transport: str, server_url: str) -> None:
 
     async with client_cm as client_streams:
         read_stream, write_stream = unpack_streams(client_streams)
-        async with ClientSession(read_stream, write_stream, sampling_callback=sampling_callback) as session:
+        async with ClientSession(
+            read_stream, write_stream, sampling_callback=sampling_callback
+        ) as session:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -437,7 +453,9 @@ async def test_sampling(server_transport: str, server_url: str) -> None:
             assert result.capabilities.tools is not None
 
             # Test sampling tool
-            sampling_result = await session.call_tool("generate_poem", {"topic": "nature"})
+            sampling_result = await session.call_tool(
+                "generate_poem", {"topic": "nature"}
+            )
             assert len(sampling_result.content) == 1
             assert isinstance(sampling_result.content[0], TextContent)
             assert "This is a simulated LLM response" in sampling_result.content[0].text
@@ -460,7 +478,9 @@ async def test_elicitation(server_transport: str, server_url: str) -> None:
 
     async with client_cm as client_streams:
         read_stream, write_stream = unpack_streams(client_streams)
-        async with ClientSession(read_stream, write_stream, elicitation_callback=elicitation_callback) as session:
+        async with ClientSession(
+            read_stream, write_stream, elicitation_callback=elicitation_callback
+        ) as session:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -490,7 +510,10 @@ async def test_elicitation(server_transport: str, server_url: str) -> None:
             )
             assert len(booking_result.content) == 1
             assert isinstance(booking_result.content[0], TextContent)
-            assert "[SUCCESS] Booked for 2024-12-20 at 20:00" in booking_result.content[0].text
+            assert (
+                "[SUCCESS] Booked for 2024-12-20 at 20:00"
+                in booking_result.content[0].text
+            )
 
 
 # Test notifications
@@ -517,7 +540,9 @@ async def test_notifications(server_transport: str, server_url: str) -> None:
 
     async with client_cm as client_streams:
         read_stream, write_stream = unpack_streams(client_streams)
-        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+        async with ClientSession(
+            read_stream, write_stream, message_handler=message_handler
+        ) as session:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -570,7 +595,9 @@ async def test_completion(server_transport: str, server_url: str) -> None:
             from mcp.types import ResourceTemplateReference
 
             completion_result = await session.complete(
-                ref=ResourceTemplateReference(type="ref/resource", uri="github://repos/{owner}/{repo}"),
+                ref=ResourceTemplateReference(
+                    type="ref/resource", uri="github://repos/{owner}/{repo}"
+                ),
                 argument={"name": "repo", "value": ""},
                 context_arguments={"owner": "modelcontextprotocol"},
             )
@@ -595,7 +622,9 @@ async def test_completion(server_transport: str, server_url: str) -> None:
             assert hasattr(completion_result, "completion")
             assert completion_result.completion is not None
             assert "python" in completion_result.completion.values
-            assert all(lang.startswith("py") for lang in completion_result.completion.values)
+            assert all(
+                lang.startswith("py") for lang in completion_result.completion.values
+            )
 
 
 # Test FastMCP quickstart example
@@ -660,7 +689,9 @@ async def test_structured_output(server_transport: str, server_url: str) -> None
             assert result.serverInfo.name == "Structured Output Example"
 
             # Test get_weather tool
-            weather_result = await session.call_tool("get_weather", {"city": "New York"})
+            weather_result = await session.call_tool(
+                "get_weather", {"city": "New York"}
+            )
             assert len(weather_result.content) == 1
             assert isinstance(weather_result.content[0], TextContent)
 
