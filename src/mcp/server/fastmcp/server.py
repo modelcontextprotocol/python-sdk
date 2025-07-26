@@ -848,9 +848,10 @@ class FastMCP(Generic[LifespanResultT]):
 
         # Create Starlette app with routes and middleware
         app = Starlette(debug=self.settings.debug, routes=routes, middleware=middleware)
-        
+
         # Add CORS middleware for web frontend compatibility
         from starlette.middleware.cors import CORSMiddleware
+
         app.add_middleware(
             CORSMiddleware,
             allow_origins=["http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
@@ -858,7 +859,7 @@ class FastMCP(Generic[LifespanResultT]):
             allow_methods=["GET", "POST", "OPTIONS"],
             allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept"],
         )
-        
+
         return app
 
     def streamable_http_app(self) -> Starlette:
@@ -968,9 +969,10 @@ class FastMCP(Generic[LifespanResultT]):
             middleware=middleware,
             lifespan=lambda app: self.session_manager.run(),
         )
-        
+
         # Add CORS middleware for web frontend compatibility
         from starlette.middleware.cors import CORSMiddleware
+
         app.add_middleware(
             CORSMiddleware,
             allow_origins=["http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
@@ -978,7 +980,7 @@ class FastMCP(Generic[LifespanResultT]):
             allow_methods=["GET", "POST", "OPTIONS"],
             allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept"],
         )
-        
+
         return app
 
     async def list_prompts(self) -> list[MCPPrompt]:
