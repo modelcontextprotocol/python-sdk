@@ -2,7 +2,10 @@
 Tests for refactored OAuth client authentication implementation.
 """
 
+import base64
 import time
+import urllib
+import urllib.parse
 from unittest import mock
 
 import httpx
@@ -262,7 +265,7 @@ class TestOAuthFallback:
         ]
 
     @pytest.mark.anyio
-    async def test_oauth_discovery_fallback_conditions(self, oauth_provider):
+    async def test_oauth_discovery_fallback_conditions(self, oauth_provider: OAuthClientProvider):
         """Test the conditions during which an AS metadata discovery fallback will be attempted."""
         # Ensure no tokens are stored
         oauth_provider.context.current_tokens = None
@@ -346,7 +349,9 @@ class TestOAuthFallback:
         )
 
         # Mock the authorization process to minimize unnecessary state in this test
-        oauth_provider._perform_authorization = mock.AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
+        oauth_provider._perform_authorization_code_grant = mock.AsyncMock(
+            return_value=("test_auth_code", "test_code_verifier")
+        )
 
         # Next request should fall back to legacy behavior and auth with the RS (mocked /authorize, next is /token)
         token_request = await auth_flow.asend(oauth_metadata_response_3)
@@ -405,7 +410,7 @@ class TestOAuthFallback:
         assert request is None
 
     @pytest.mark.anyio
-    async def test_token_exchange_request(self, oauth_provider):
+    async def test_token_exchange_request_authorization_code(self, oauth_provider):
         """Test token exchange request building."""
         # Set up required context
         oauth_provider.context.client_info = OAuthClientInformationFull(
@@ -414,7 +419,7 @@ class TestOAuthFallback:
             redirect_uris=[AnyUrl("http://localhost:3030/callback")],
         )
 
-        request = await oauth_provider._exchange_token("test_auth_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_auth_code", "test_verifier")
 
         assert request.method == "POST"
         assert str(request.url) == "https://api.example.com/token"
@@ -425,6 +430,65 @@ class TestOAuthFallback:
         assert "grant_type=authorization_code" in content
         assert "code=test_auth_code" in content
         assert "code_verifier=test_verifier" in content
+        assert "client_id=test_client" in content
+        assert "client_secret=test_secret" in content
+
+    @pytest.mark.anyio
+    async def test_token_exchange_request_client_credentials_basic(self, oauth_provider):
+        """Test token exchange request building."""
+        # Set up required context
+        oauth_provider.context.client_info = oauth_provider.context.client_metadata = OAuthClientInformationFull(
+            grant_types=["client_credentials"],
+            token_endpoint_auth_method="client_secret_basic",
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=None,
+            scope="read write",
+        )
+
+        request = await oauth_provider._exchange_token_client_credentials()
+
+        assert request.method == "POST"
+        assert str(request.url) == "https://api.example.com/token"
+        assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
+
+        # Check form data
+        content = urllib.parse.unquote_plus(request.content.decode())
+        assert "grant_type=client_credentials" in content
+        assert "scope=read write" in content
+        assert "resource=https://api.example.com/v1/mcp" in content
+        assert "client_id=test_client" not in content
+        assert "client_secret=test_secret" not in content
+
+        # Check auth header
+        assert "Authorization" in request.headers
+        assert request.headers["Authorization"].startswith("Basic ")
+        assert base64.b64decode(request.headers["Authorization"].split(" ")[1]).decode() == "test_client:test_secret"
+
+    @pytest.mark.anyio
+    async def test_token_exchange_request_client_credentials_post(self, oauth_provider):
+        """Test token exchange request building."""
+        # Set up required context
+        oauth_provider.context.client_info = oauth_provider.context.client_metadata = OAuthClientInformationFull(
+            grant_types=["client_credentials"],
+            token_endpoint_auth_method="client_secret_post",
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=None,
+            scope="read write",
+        )
+
+        request = await oauth_provider._exchange_token_client_credentials()
+
+        assert request.method == "POST"
+        assert str(request.url) == "https://api.example.com/token"
+        assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
+
+        # Check form data
+        content = urllib.parse.unquote_plus(request.content.decode())
+        assert "grant_type=client_credentials" in content
+        assert "scope=read write" in content
+        assert "resource=https://api.example.com/v1/mcp" in content
         assert "client_id=test_client" in content
         assert "client_secret=test_secret" in content
 
@@ -468,7 +532,7 @@ class TestProtectedResourceMetadata:
         )
 
         # Test in token exchange
-        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" in content
         # Check URL-encoded resource parameter
@@ -499,7 +563,7 @@ class TestProtectedResourceMetadata:
         )
 
         # Test in token exchange
-        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" not in content
 
@@ -529,7 +593,7 @@ class TestProtectedResourceMetadata:
         )
 
         # Test in token exchange
-        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" in content
 
@@ -600,7 +664,7 @@ class TestAuthFlow:
             pass  # Expected
 
     @pytest.mark.anyio
-    async def test_auth_flow_with_no_tokens(self, oauth_provider, mock_storage):
+    async def test_auth_flow_with_no_tokens(self, oauth_provider: OAuthClientProvider, mock_storage):
         """Test auth flow when no tokens are available, triggering the full OAuth flow."""
         # Ensure no tokens are stored
         oauth_provider.context.current_tokens = None
@@ -669,7 +733,9 @@ class TestAuthFlow:
         )
 
         # Mock the authorization process
-        oauth_provider._perform_authorization = mock.AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
+        oauth_provider._perform_authorization_code_grant = mock.AsyncMock(
+            return_value=("test_auth_code", "test_code_verifier")
+        )
 
         # Next request should be to exchange token
         token_request = await auth_flow.asend(registration_response)
