@@ -847,7 +847,19 @@ class FastMCP(Generic[LifespanResultT]):
         routes.extend(self._custom_starlette_routes)
 
         # Create Starlette app with routes and middleware
-        return Starlette(debug=self.settings.debug, routes=routes, middleware=middleware)
+        app = Starlette(debug=self.settings.debug, routes=routes, middleware=middleware)
+        
+        # Add CORS middleware for web frontend compatibility
+        from starlette.middleware.cors import CORSMiddleware
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+        )
+        
+        return app
 
     def streamable_http_app(self) -> Starlette:
         """Return an instance of the StreamableHTTP server app."""
@@ -949,12 +961,25 @@ class FastMCP(Generic[LifespanResultT]):
 
         routes.extend(self._custom_starlette_routes)
 
-        return Starlette(
+        # Create Starlette app with routes and middleware
+        app = Starlette(
             debug=self.settings.debug,
             routes=routes,
             middleware=middleware,
             lifespan=lambda app: self.session_manager.run(),
         )
+        
+        # Add CORS middleware for web frontend compatibility
+        from starlette.middleware.cors import CORSMiddleware
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+        )
+        
+        return app
 
     async def list_prompts(self) -> list[MCPPrompt]:
         """List all available prompts."""
