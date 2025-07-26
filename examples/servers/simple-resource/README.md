@@ -38,6 +38,10 @@ async def main():
             resources = await session.list_resources()
             print(resources)
 
+            # List available resource templates
+            resource_templates = await session.list_resource_templates()
+            print(resource_templates)
+
             # Get a specific resource
             resource = await session.read_resource(AnyUrl("file:///greeting.txt"))
             print(resource)
