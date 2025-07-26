@@ -9,6 +9,7 @@ from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from pydantic import AnyUrl
 from starlette.applications import Starlette
+from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Mount
 from starlette.types import Receive, Scope, Send
 
@@ -158,6 +159,14 @@ def main(
             Mount("/mcp", app=handle_streamable_http),
         ],
         lifespan=lifespan,
+    )
+    
+    # Add CORS middleware to expose Mcp-Session-Id header for browser-based clients
+    starlette_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Allow all origins - adjust as needed for production
+        allow_methods=["GET", "POST", "DELETE"],  # MCP streamable HTTP methods
+        expose_headers=["Mcp-Session-Id"],
     )
 
     import uvicorn
