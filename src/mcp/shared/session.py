@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from typing_extensions import Self
 
 from mcp.shared.exceptions import McpError
-from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.message import ClientMessageMetadata, MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
@@ -27,6 +27,7 @@ from mcp.types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    PingRequest,
     ProgressNotification,
     RequestParams,
     ServerNotification,
@@ -165,9 +166,11 @@ class RequestStateManager(
 ):
     def new_request(self, request: SendRequestT) -> RequestId: ...
 
-    async def update_resume_token(self, token: str) -> None: ...
+    def resume(self, request_id: RequestId) -> bool: ...
 
-    async def get_resume_token(self) -> str | None: ...
+    async def update_resume_token(self, request_id: RequestId, token: str) -> None: ...
+
+    async def get_resume_token(self, request_id: RequestId) -> str | None: ...
 
     def add_progress_callback(self, request_id: RequestId, progress_callback: ProgressFnT): ...
 
@@ -199,37 +202,53 @@ class InMemoryRequestStateManager(
     ],
 ):
     _request_id: int
+    _requests: dict[
+        RequestId,
+        SendRequestT,
+    ]
     _response_streams: dict[
         RequestId,
         tuple[
-            SendRequestT,
             MemoryObjectSendStream[JSONRPCResponse | JSONRPCError],
             MemoryObjectReceiveStream[JSONRPCResponse | JSONRPCError],
         ],
     ]
     _progress_callbacks: dict[RequestId, list[ProgressFnT]]
-    _resume_token: str | None
+    _resume_tokens: dict[RequestId, str]
 
     def __init__(self):
         self._request_id = 0
+        self._requests = {}
         self._response_streams = {}
         self._progress_callbacks = {}
-        self._resume_token = None
+        self._resume_tokens = {}
 
     def new_request(self, request: SendRequestT) -> RequestId:
         request_id = self._request_id
         self._request_id = request_id + 1
 
-        response_stream, response_stream_reader = anyio.create_memory_object_stream[JSONRPCResponse | JSONRPCError](1)
-        self._response_streams[request_id] = request, response_stream, response_stream_reader
+        send_stream, receive_stream = anyio.create_memory_object_stream[JSONRPCResponse | JSONRPCError](1)
+        self._response_streams[request_id] = send_stream, receive_stream
+        self._requests[request_id] = request
 
         return request_id
 
-    async def update_resume_token(self, token: str) -> None:
-        self._resume_token = token
+    def resume(self, request_id: RequestId) -> bool:
+        if self._requests.get(request_id) is None:
+            raise RuntimeError(f"Unknown request {request_id}")
 
-    async def get_resume_token(self) -> str | None:
-        return self._resume_token
+        if request_id in self._response_streams:
+            return False
+        else:
+            send_stream, receive_stream = anyio.create_memory_object_stream[JSONRPCResponse | JSONRPCError](1)
+            self._response_streams[request_id] = send_stream, receive_stream
+            return True
+
+    async def update_resume_token(self, request_id: RequestId, token: str) -> None:
+        self._resume_tokens[request_id] = token
+
+    async def get_resume_token(self, request_id: RequestId) -> str | None:
+        return self._resume_tokens.get(request_id)
 
     def add_progress_callback(self, request_id: RequestId, progress_callback: ProgressFnT):
         progress_list = self._progress_callbacks.get(request_id)
@@ -260,9 +279,8 @@ class InMemoryRequestStateManager(
         request_id: RequestId,
         timeout: float | None = None,
     ) -> JSONRPCResponse | JSONRPCError:
-        request, _, response_stream_reader = self._response_streams.get(request_id, [None, None, None])
-
-        if response_stream_reader is None:
+        _, receive_stream = self._response_streams.get(request_id, [None, None])
+        if receive_stream is None:
             raise McpError(
                 ErrorData(
                     code=INVALID_PARAMS,
@@ -270,9 +288,19 @@ class InMemoryRequestStateManager(
                 )
             )
 
+        request = self._requests.get(request_id, None)
+        assert request is not None
+
         try:
             with anyio.fail_after(timeout):
-                return await response_stream_reader.receive()
+                return await receive_stream.receive()
+        except anyio.EndOfStream:
+            raise McpError(
+                ErrorData(
+                    code=CONNECTION_CLOSED,
+                    message=("Connection closed"),
+                )
+            )
         except TimeoutError:
             raise McpError(
                 ErrorData(
@@ -286,33 +314,41 @@ class InMemoryRequestStateManager(
             )
 
     async def handle_response(self, message: JSONRPCResponse | JSONRPCError) -> bool:
-        _, stream, _ = self._response_streams.get(message.id, [None, None, None])
-        if stream:
-            await stream.send(message)
+        send_stream, _ = self._response_streams.get(message.id, [None, None])
+        if send_stream:
+            await send_stream.send(message)
             return True
         else:
             return False
 
     async def close_request(self, request_id: RequestId) -> bool:
-        _, response_stream, response_stream_reader = self._response_streams.pop(request_id, [None, None, None])
-        if response_stream is not None:
-            await response_stream.aclose()
-        if response_stream_reader is not None:
-            await response_stream_reader.aclose()
+        send_stream, receive_stream = self._response_streams.pop(request_id, [None, None])
+        if send_stream is not None:
+            await send_stream.aclose()
+        if receive_stream is not None:
+            await receive_stream.aclose()
 
+        self._requests.pop(request_id, None)
+        self._resume_tokens.pop(request_id, None)
         self._progress_callbacks.pop(request_id, None)
 
-        return response_stream is not None
+        return send_stream is not None
 
     async def close(self):
-        for id, [_, stream, _] in self._response_streams.items():
-            error = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
+        for id, [send_stream, receive_stream] in self._response_streams.copy().items():
+            await receive_stream.aclose()
             try:
-                await stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))
-                await stream.aclose()
-            except Exception:
-                # Stream might already be closed
+                error = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
+                await send_stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))
+            except anyio.BrokenResourceError:
+                # Stream already be closed
                 pass
+            except anyio.ClosedResourceError:
+                # Stream already be closed
+                pass
+            finally:
+                await send_stream.aclose()
+                self._response_streams.pop(id)
 
 
 class BaseSession(
@@ -421,6 +457,8 @@ class BaseSession(
         """
         Joins a request previously started via start_request
         """
+        resume = self._request_state_manager.resume(request_id)
+
         if progress_callback is not None:
             self._request_state_manager.add_progress_callback(request_id, progress_callback)
 
@@ -430,6 +468,23 @@ class BaseSession(
             timeout = request_read_timeout_seconds.total_seconds()
         elif self._session_read_timeout_seconds is not None:
             timeout = self._session_read_timeout_seconds.total_seconds()
+
+        if resume:
+            resume_token = await self._request_state_manager.get_resume_token(request_id)
+            if resume_token is not None:
+                metadata = ClientMessageMetadata(resumption_token=resume_token)
+
+                request_data = PingRequest(method="ping").model_dump(by_alias=True, mode="json", exclude_none=True)
+
+                jsonrpc_request = JSONRPCRequest(
+                    jsonrpc="2.0",
+                    id=request_id,
+                    **request_data,
+                )
+
+                await self._write_stream.send(
+                    SessionMessage(message=JSONRPCMessage(jsonrpc_request), metadata=metadata)
+                )
 
         response_or_error = await self._request_state_manager.receive_response(request_id, timeout)
 
@@ -443,7 +498,6 @@ class BaseSession(
         else:
             await self._request_state_manager.close_request(request_id)
             return result_type.model_validate(response_or_error.result)
-
 
     async def cancel_request(self, request_id: RequestId) -> bool:
         """

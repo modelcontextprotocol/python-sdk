@@ -19,7 +19,6 @@ from mcp.types import (
     CancelledNotification,
     ClientNotification,
     ClientRequest,
-    EmptyResult,
     Implementation,
     InitializedNotification,
     InitializeRequest,
@@ -28,7 +27,6 @@ from mcp.types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
-    PingRequest,
     ServerCapabilities,
     ServerResult,
     TextContent,
@@ -562,11 +560,7 @@ async def test_client_session_request_call_tool():
     ):
         tg.start_soon(mock_server)
 
-        async def progress_callback(progress: float, total: float | None, message: str | None) -> None:
-            pass
-
-        request_id = await session.request_call_tool("hello", {"name": "world"}, progress_callback)
-
+        request_id = await session.request_call_tool("hello", {"name": "world"})
         with anyio.fail_after(1):
             result = await session.join_call_tool(request_id)
 
@@ -924,9 +918,8 @@ async def test_client_session_request_call_tool_with_rejoin():
             await progress_1_1.wait()
 
             # initialise io manager 2 to state of io manager 1
-            for request, _, _ in request_state_manager_1._response_streams.values():
-                request_state_manager_2.new_request(request)
-            
+            request_state_manager_2._requests = request_state_manager_1._requests.copy()
+
             # simulate network disconnect and rejoin
             await request_state_manager_1.close_request(request_id)
             result = await session2.join_call_tool(request_id, progress_callback2)

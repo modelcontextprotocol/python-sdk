@@ -135,6 +135,7 @@ class ClientSession(
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
+        self._resumable = False
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
@@ -172,23 +173,11 @@ class ClientSession(
         if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
             raise RuntimeError(f"Unsupported protocol version from the server: {result.protocolVersion}")
 
+        self._resumable = result.capabilities.resume and result.capabilities.resume.resumable
+
         await self.send_notification(
             types.ClientNotification(types.InitializedNotification(method="notifications/initialized"))
         )
-
-        resume_token = await self._request_state_manager.get_resume_token()
-        if resume_token:
-            metadata = ClientMessageMetadata(resumption_token=resume_token)
-            timeout = None
-            if self._session_read_timeout_seconds is not None:
-                timeout = self._session_read_timeout_seconds.total_seconds()
-
-            await self.send_request(
-                request=types.PingRequest(method="ping"),  # type: ignore
-                result_type=types.EmptyResult,
-                request_read_timeout_seconds=None if timeout is None else timedelta(seconds=timeout),
-                metadata=metadata,
-            )
 
         return result
 
@@ -303,21 +292,58 @@ class ClientSession(
         arguments: dict[str, Any] | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> types.RequestId:
-        metadata = ClientMessageMetadata(on_resumption_token_update=self._request_state_manager.update_resume_token)
+        if self._resumable:
+            send_stream, receive_stream = anyio.create_memory_object_stream[str](1)
 
-        return await self.start_request(
-            types.ClientRequest(
-                types.CallToolRequest(
-                    method="tools/call",
-                    params=types.CallToolRequestParams(
-                        name=name,
-                        arguments=arguments,
+            async def close() -> None:
+                await send_stream.aclose()
+                await receive_stream.aclose()
+
+            self._exit_stack.push_async_callback(close)
+
+            with send_stream, receive_stream:
+
+                async def send_token(token: str):
+                    try:
+                        await send_stream.send(token)
+                    except anyio.BrokenResourceError as e:
+                        raise e
+
+                metadata = ClientMessageMetadata(on_resumption_token_update=send_token)
+
+                request_id = await self.start_request(
+                    types.ClientRequest(
+                        types.CallToolRequest(
+                            method="tools/call",
+                            params=types.CallToolRequestParams(
+                                name=name,
+                                arguments=arguments,
+                            ),
+                        )
                     ),
+                    progress_callback=progress_callback,
+                    metadata=metadata,
                 )
-            ),
-            progress_callback=progress_callback,
-            metadata=metadata,
-        )
+
+                await anyio.lowlevel.checkpoint()
+
+                token = await receive_stream.receive()
+                await self._request_state_manager.update_resume_token(request_id, token)
+
+                return request_id
+        else:
+            return await self.start_request(
+                types.ClientRequest(
+                    types.CallToolRequest(
+                        method="tools/call",
+                        params=types.CallToolRequestParams(
+                            name=name,
+                            arguments=arguments,
+                        ),
+                    )
+                ),
+                progress_callback=progress_callback,
+            )
 
     async def join_call_tool(
         self,

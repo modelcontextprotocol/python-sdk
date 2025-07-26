@@ -262,6 +262,14 @@ class PromptsCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class ResumeCapability(BaseModel):
+    """Capability for resume operations."""
+
+    resumable: bool | None = None
+    """Whether this server supports resume operations."""
+    model_config = ConfigDict(extra="allow")
+
+
 class ResourcesCapability(BaseModel):
     """Capability for resources operations."""
 
@@ -303,6 +311,8 @@ class ServerCapabilities(BaseModel):
     """Present if the server offers any prompt templates."""
     resources: ResourcesCapability | None = None
     """Present if the server offers any resources to read."""
+    resume: ResumeCapability | None = None
+    """Present if the server offers resume capability."""
     tools: ToolsCapability | None = None
     """Present if the server offers any tools to call."""
     completions: CompletionsCapability | None = None

@@ -43,7 +43,7 @@ from mcp.shared.exceptions import McpError
 from mcp.shared.message import (
     ClientMessageMetadata,
 )
-from mcp.shared.session import RequestResponder
+from mcp.shared.session import InMemoryRequestStateManager, RequestResponder
 from mcp.types import (
     InitializeResult,
     TextContent,
@@ -1167,6 +1167,132 @@ async def test_streamablehttp_client_resumption(event_server):
             )
             # there is no intersection between pre and post notifications
             assert not any(n in captured_notifications_pre for n in captured_notifications)
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_client_resumption_non_blocking(event_server):
+    """Test client session to resume a long running tool via non blocking api."""
+    _, server_url = event_server
+
+    with anyio.fail_after(10):
+        # Variables to track the state
+        captured_session_id = None
+        captured_notifications = []
+        tool_started = False
+        captured_protocol_version = None
+        captured_request_id = None
+        request_state_manager_1 = InMemoryRequestStateManager()
+        request_state_manager_2 = InMemoryRequestStateManager()
+
+        async def message_handler(
+            message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+        ) -> None:
+            if isinstance(message, types.ServerNotification):
+                captured_notifications.append(message)
+                # Look for our special notification that indicates the tool is running
+                if isinstance(message.root, types.LoggingMessageNotification):
+                    if message.root.params.data == "Tool started":
+                        nonlocal tool_started
+                        tool_started = True
+
+        # First, start the client session and begin the long-running tool
+        async with streamablehttp_client(f"{server_url}/mcp", terminate_on_close=False) as (
+            read_stream,
+            write_stream,
+            get_session_id,
+        ):
+            async with ClientSession(
+                read_stream,
+                write_stream,
+                message_handler=message_handler,
+                request_state_manager=request_state_manager_1,
+            ) as session:
+                # Initialize the session
+                result = await session.initialize()
+                assert isinstance(result, InitializeResult)
+                captured_session_id = get_session_id()
+                assert captured_session_id is not None
+                # Capture the negotiated protocol version
+                captured_protocol_version = result.protocolVersion
+
+                # Start a long-running tool in a task
+                async with anyio.create_task_group() as tg:
+
+                    async def run_tool():
+                        nonlocal captured_request_id
+                        captured_request_id = await session.request_call_tool(
+                            "long_running_with_checkpoints", arguments={}
+                        )
+
+                    tg.start_soon(run_tool)
+
+                    # Wait for the tool to start and at least one notification
+                    # and then kill the task group
+                    while (
+                        not tool_started or not captured_request_id or len(request_state_manager_1._resume_tokens) == 0
+                    ):
+                        await anyio.sleep(0.1)
+
+                    tg.cancel_scope.cancel()
+
+        # Store pre notifications and clear the captured notifications
+        # for the post-resumption check
+        captured_notifications_pre = captured_notifications.copy()
+        captured_notifications = []
+
+        # Now resume the session with the same mcp-session-id and protocol version
+        headers = {}
+        if captured_session_id:
+            headers[MCP_SESSION_ID_HEADER] = captured_session_id
+        if captured_protocol_version:
+            headers[MCP_PROTOCOL_VERSION_HEADER] = captured_protocol_version
+
+        assert len(request_state_manager_1._requests) == 1, str(request_state_manager_1._requests)
+        assert len(request_state_manager_1._resume_tokens) == 1
+
+        request_state_manager_2._requests = request_state_manager_1._requests.copy()
+        request_state_manager_2._resume_tokens = request_state_manager_1._resume_tokens.copy()
+
+        async with streamablehttp_client(f"{server_url}/mcp", headers=headers) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(
+                read_stream,
+                write_stream,
+                message_handler=message_handler,
+                request_state_manager=request_state_manager_2,
+            ) as session:
+                # Don't initialize - just use the existing session
+
+                # Resume the tool with the resumption token
+                assert captured_request_id is not None
+
+                result = await session.join_call_tool(captured_request_id)
+
+                # We should get a complete result
+                assert len(result.content) == 1
+                assert result.content[0].type == "text"
+                assert "Completed" in result.content[0].text
+
+                # We should have received the remaining notifications
+                assert len(captured_notifications) > 0
+
+                # Should not have the first notification
+                # Check that "Tool started" notification isn't repeated when resuming
+                assert not any(
+                    isinstance(n.root, types.LoggingMessageNotification) and n.root.params.data == "Tool started"
+                    for n in captured_notifications
+                )
+                # there is no intersection between pre and post notifications
+                assert not any(n in captured_notifications_pre for n in captured_notifications)
+
+        assert len(request_state_manager_1._progress_callbacks) == 0
+        assert len(request_state_manager_1._response_streams) == 0
+        assert len(request_state_manager_2._progress_callbacks) == 0
+        assert len(request_state_manager_2._resume_tokens) == 0
+        assert len(request_state_manager_2._response_streams) == 0
 
 
 @pytest.mark.anyio
