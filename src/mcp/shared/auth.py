@@ -13,6 +13,7 @@ class OAuthToken(BaseModel):
     expires_in: int | None = None
     scope: str | None = None
     refresh_token: str | None = None
+    issued_token_type: str | None = None
 
     @field_validator("token_type", mode="before")
     @classmethod
@@ -46,8 +47,15 @@ class OAuthClientMetadata(BaseModel):
     # client_secret_post;
     # ie: we do not support client_secret_basic
     token_endpoint_auth_method: Literal["none", "client_secret_post"] = "client_secret_post"
-    # grant_types: this implementation only supports authorization_code & refresh_token
-    grant_types: list[Literal["authorization_code", "refresh_token"]] = [
+    # grant_types: this implementation supports authorization_code, refresh_token, client_credentials, & token_exchange
+    grant_types: list[
+        Literal[
+            "authorization_code",
+            "refresh_token",
+            "client_credentials",
+            "token_exchange",
+        ]
+    ] = [
         "authorization_code",
         "refresh_token",
     ]
@@ -115,8 +123,20 @@ class OAuthMetadata(BaseModel):
     scopes_supported: list[str] | None = None
     response_types_supported: list[str] = ["code"]
     response_modes_supported: list[Literal["query", "fragment", "form_post"]] | None = None
-    grant_types_supported: list[str] | None = None
-    token_endpoint_auth_methods_supported: list[str] | None = None
+    grant_types_supported: (
+        list[
+            Literal[
+                "authorization_code",
+                "refresh_token",
+                "client_credentials",
+                "token_exchange",
+            ]
+        ]
+        | None
+    ) = None
+    token_endpoint_auth_methods_supported: list[Literal["none", "client_secret_post", "client_secret_basic"]] | None = (
+        None
+    )
     token_endpoint_auth_signing_alg_values_supported: None = None
     service_documentation: AnyHttpUrl | None = None
     ui_locales_supported: list[str] | None = None
