@@ -173,7 +173,7 @@ class StreamableHTTPTransport:
 
                 # Extract protocol version from initialization response
                 if is_initialization:
-                    self._maybe_extract_protocol_version_from_message(message)
+                    message = self._maybe_extract_protocol_version_from_message(message)
 
                 # If this is a response and we have original_request_id, replace it
                 if original_request_id is not None and isinstance(message.root, JSONRPCResponse | JSONRPCError):
@@ -192,10 +192,7 @@ class StreamableHTTPTransport:
 
             except Exception as exc:
                 logger.exception("Error parsing SSE message")
-                try:
-                    await read_stream_writer.send(exc)
-                except anyio.BrokenResourceError:
-                    pass
+                await read_stream_writer.send(exc)
                 return False
         else:
             logger.warning(f"Unknown SSE event: {sse.event}")
@@ -486,8 +483,8 @@ async def streamablehttp_client(
     read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
-    async with anyio.create_task_group() as tg:
-        try:
+    try:
+        async with anyio.create_task_group() as tg:
             logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 
             async with httpx_client_factory(
@@ -519,6 +516,6 @@ async def streamablehttp_client(
                     if transport.session_id and terminate_on_close:
                         await transport.terminate_session(client)
                     tg.cancel_scope.cancel()
-        finally:
-            await read_stream_writer.aclose()
-            await write_stream.aclose()
+    finally:
+        await read_stream_writer.aclose()
+        await write_stream.aclose()

@@ -293,44 +293,36 @@ class ClientSession(
         progress_callback: ProgressFnT | None = None,
     ) -> types.RequestId:
         if self._resumable:
-            send_stream, receive_stream = anyio.create_memory_object_stream[str](1)
+            captured_token = None
+            captured = anyio.Event()
 
-            async def close() -> None:
-                await send_stream.aclose()
-                await receive_stream.aclose()
+            async def capture_token(token: str):
+                nonlocal captured_token
+                captured_token = token
+                captured.set()
 
-            self._exit_stack.push_async_callback(close)
+            metadata = ClientMessageMetadata(on_resumption_token_update=capture_token)
 
-            with send_stream, receive_stream:
+            request_id = await self.start_request(
+                types.ClientRequest(
+                    types.CallToolRequest(
+                        method="tools/call",
+                        params=types.CallToolRequestParams(
+                            name=name,
+                            arguments=arguments,
+                        ),
+                    )
+                ),
+                progress_callback=progress_callback,
+                metadata=metadata,
+            )
 
-                async def send_token(token: str):
-                    try:
-                        await send_stream.send(token)
-                    except anyio.BrokenResourceError as e:
-                        raise e
+            while captured_token is None:
+                await captured.wait()
 
-                metadata = ClientMessageMetadata(on_resumption_token_update=send_token)
+            await self._request_state_manager.update_resume_token(request_id, captured_token)
 
-                request_id = await self.start_request(
-                    types.ClientRequest(
-                        types.CallToolRequest(
-                            method="tools/call",
-                            params=types.CallToolRequestParams(
-                                name=name,
-                                arguments=arguments,
-                            ),
-                        )
-                    ),
-                    progress_callback=progress_callback,
-                    metadata=metadata,
-                )
-
-                await anyio.lowlevel.checkpoint()
-
-                token = await receive_stream.receive()
-                await self._request_state_manager.update_resume_token(request_id, token)
-
-                return request_id
+            return request_id
         else:
             return await self.start_request(
                 types.ClientRequest(
