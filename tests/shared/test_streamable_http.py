@@ -1351,13 +1351,13 @@ async def test_streamablehttp_client_resumption_timeout(event_server):
                         captured_request_id = await session.request_call_tool(
                             "long_running_with_checkpoints", arguments={}
                         )
-                        try:
-                            await session.join_call_tool(
-                                captured_request_id, request_read_timeout_seconds=timedelta(seconds=0.01)
-                            )
-                            raise RuntimeError("Expected timeout")
-                        except McpError as e:
-                            assert e.error.code == httpx.codes.REQUEST_TIMEOUT.value
+                        
+                        result = await session.join_call_tool(
+                            captured_request_id, request_read_timeout_seconds=timedelta(seconds=0.01),
+                            done_on_timeout=False
+                        )
+
+                        assert result is None
 
                         timed_out.set()
 
@@ -1409,6 +1409,7 @@ async def test_streamablehttp_client_resumption_timeout(event_server):
                 assert captured_request_id is not None
 
                 result = await session.join_call_tool(captured_request_id)
+                assert result is not None
 
                 # We should get a complete result
                 assert len(result.content) == 1

@@ -635,14 +635,10 @@ async def test_client_session_request_call_tool_join_timeout():
         request_id = await session.request_call_tool("hello", {"name": "world"})
 
         with anyio.fail_after(3):
-            try:
-                result = await session.join_call_tool(
-                    request_id, request_read_timeout_seconds=timedelta(seconds=0.5), done_on_timeout=False
-                )
-                # raise RuntimeError("Expected fail")
-            except McpError as e:
-                if not e.error.code == httpx.codes.REQUEST_TIMEOUT:
-                    raise e
+            result = await session.join_call_tool(
+                request_id, request_read_timeout_seconds=timedelta(seconds=0.5), done_on_timeout=False
+            )
+            assert result is None
             send_result.set()
             result = await session.join_call_tool(
                 request_id, request_read_timeout_seconds=timedelta(seconds=1), done_on_timeout=False

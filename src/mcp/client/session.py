@@ -343,7 +343,7 @@ class ClientSession(
         progress_callback: ProgressFnT | None = None,
         request_read_timeout_seconds: timedelta | None = None,
         done_on_timeout: bool = True,
-    ) -> types.CallToolResult:
+    ) -> types.CallToolResult | None:
         return await self.join_request(
             request_id,
             types.CallToolResult,

@@ -186,7 +186,7 @@ class RequestStateManager(
         self,
         request_id: RequestId,
         timeout: float | None = None,
-    ) -> JSONRPCResponse | JSONRPCError: ...
+    ) -> JSONRPCResponse | JSONRPCError | None: ...
 
     async def handle_response(self, message: JSONRPCResponse | JSONRPCError) -> bool: ...
 
@@ -278,7 +278,7 @@ class InMemoryRequestStateManager(
         self,
         request_id: RequestId,
         timeout: float | None = None,
-    ) -> JSONRPCResponse | JSONRPCError:
+    ) -> JSONRPCResponse | JSONRPCError | None:
         _, receive_stream = self._response_streams.get(request_id, [None, None])
         if receive_stream is None:
             raise McpError(
@@ -302,16 +302,7 @@ class InMemoryRequestStateManager(
                 )
             )
         except TimeoutError:
-            raise McpError(
-                ErrorData(
-                    code=httpx.codes.REQUEST_TIMEOUT,
-                    message=(
-                        f"Timed out while waiting for response to "
-                        f"{request.__class__.__name__}. Waited "
-                        f"{timeout} seconds."
-                    ),
-                )
-            )
+            return None
 
     async def handle_response(self, message: JSONRPCResponse | JSONRPCError) -> bool:
         send_stream, _ = self._response_streams.get(message.id, [None, None])
@@ -453,9 +444,11 @@ class BaseSession(
         request_read_timeout_seconds: timedelta | None = None,
         progress_callback: ProgressFnT | None = None,
         done_on_timeout: bool = True,
-    ) -> ReceiveResultT:
+    ) -> ReceiveResultT | None:
         """
-        Joins a request previously started via start_request
+        Joins a request previously started via start_request.
+        
+        Returns the result or None if timeout is reached.
         """
         resume = self._request_state_manager.resume(request_id)
 
@@ -488,16 +481,22 @@ class BaseSession(
 
         response_or_error = await self._request_state_manager.receive_response(request_id, timeout)
 
-        if isinstance(response_or_error, JSONRPCError):
+        if response_or_error is None:
+            if done_on_timeout:
+                await self._request_state_manager.close_request(request_id)  
+            return None
+        elif isinstance(response_or_error, JSONRPCError):
             if response_or_error.error.code == httpx.codes.REQUEST_TIMEOUT.value:
                 if done_on_timeout:
                     await self._request_state_manager.close_request(request_id)
+                return None
             else:
                 await self._request_state_manager.close_request(request_id)
-            raise McpError(response_or_error.error)
-        else:
+                raise McpError(response_or_error.error)
+        else :
             await self._request_state_manager.close_request(request_id)
             return result_type.model_validate(response_or_error.result)
+
 
     async def cancel_request(self, request_id: RequestId) -> bool:
         """
@@ -533,7 +532,20 @@ class BaseSession(
         """
         request_id = await self.start_request(request, metadata, progress_callback)
         try:
-            return await self.join_request(request_id, result_type, request_read_timeout_seconds)
+            result = await self.join_request(request_id, result_type, request_read_timeout_seconds)
+            if result is None:
+                raise McpError(
+                    ErrorData(
+                        code=httpx.codes.REQUEST_TIMEOUT,
+                        message=(
+                            f"Timed out while waiting for response to "
+                            f"{request.__class__.__name__}. Waited "
+                            f"{request_read_timeout_seconds} seconds."
+                        ),
+                    )
+                )
+            else:
+                return result
         finally:
             await self._request_state_manager.close_request(request_id)
 
