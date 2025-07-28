@@ -1344,7 +1344,7 @@ async def test_streamablehttp_client_resumption_non_blocking(event_server):
 
 @pytest.mark.anyio
 async def test_streamablehttp_client_resumption_timeout(event_server):
-    """Test client session to resume a long running tool via non blocking api."""
+    """Test client session to resume a long running tool via non blocking api with timeout."""
     _, server_url = event_server
 
     with anyio.fail_after(10):
