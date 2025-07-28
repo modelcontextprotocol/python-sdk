@@ -1316,6 +1316,7 @@ async def test_streamablehttp_client_resumption_non_blocking(event_server):
                 assert captured_request_id is not None
 
                 result = await session.join_call_tool(captured_request_id)
+                assert result is not None
 
                 # We should get a complete result
                 assert len(result.content) == 1
