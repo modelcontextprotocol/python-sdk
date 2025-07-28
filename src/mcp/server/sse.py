@@ -131,7 +131,6 @@ class SseServerTransport:
         # Remove automatic leading slash enforcement to support proper URL joining
         # Store the endpoint as-is, allowing both "/messages/" and "messages/" formats
         self._endpoint = endpoint
-        
         self._read_stream_writers = {}
         self._security = TransportSecurityMiddleware(security_settings)
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
@@ -139,19 +138,19 @@ class SseServerTransport:
     def _build_message_path(self, root_path: str) -> str:
         """
         Helper method to properly construct the message path
-        
+
         This method handles the path construction logic that was causing issues
         with urllib.parse.urljoin() when servers are proxied or mounted at subpaths.
-        
+
         Args:
             root_path: The root path from ASGI scope (e.g., "" or "/api_prefix")
-            
+
         Returns:
             The properly constructed path for client message posting
         """
         # Clean up the root path
         clean_root_path = root_path.rstrip("/")
-        
+
         # If endpoint starts with "/", it's meant to be absolute within the app
         # If endpoint doesn't start with "/", it's meant to be relative to root_path
         if self._endpoint.startswith("/"):
@@ -163,7 +162,7 @@ class SseServerTransport:
                 full_path = clean_root_path + "/" + self._endpoint
             else:
                 full_path = "/" + self._endpoint
-                
+
         return full_path
 
     @asynccontextmanager

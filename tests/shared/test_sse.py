@@ -489,7 +489,7 @@ def test_sse_message_id_coercion():
     [
         # These should all be valid - endpoint is stored as-is (no automatic normalization)
         ("/messages/", "/messages/"),
-        ("messages/", "messages/"), 
+        ("messages/", "messages/"),
         ("/", "/"),
         # Invalid endpoints - should raise ValueError
         ("http://example.com/messages/", ValueError),
