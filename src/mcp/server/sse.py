@@ -1,5 +1,5 @@
 """
-SSE Server Transport Module - Fixed Version
+SSE Server Transport Module
 
 This module implements a Server-Sent Events (SSE) transport layer for MCP servers.
 Fixes the URL path joining issue when using subpaths/proxied servers.
