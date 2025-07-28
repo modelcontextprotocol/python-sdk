@@ -291,3 +291,34 @@ async def test_sse_security_post_valid_content_type(server_port: int):
     finally:
         process.terminate()
         process.join()
+
+
+@pytest.mark.anyio
+async def test_endpoint_validation_rejects_absolute_urls():
+    """Test that SseServerTransport properly validates endpoint format."""
+    # These should all raise ValueError due to being absolute URLs or having invalid characters
+    invalid_endpoints = [
+        "http://example.com/messages/",
+        "https://example.com/messages/", 
+        "//example.com/messages/",
+        "/messages/?query=test",
+        "/messages/#fragment",
+    ]
+    
+    for invalid_endpoint in invalid_endpoints:
+        with pytest.raises(ValueError, match="is not a relative path"):
+            SseServerTransport(invalid_endpoint)
+    
+    # These should all be valid - endpoint is stored as-is (no automatic normalization)
+    valid_endpoints_and_expected = [
+        ("/messages/", "/messages/"),  # Absolute path format
+        ("messages/", "messages/"),    # Relative path format  
+        ("/api/v1/messages/", "/api/v1/messages/"),
+        ("api/v1/messages/", "api/v1/messages/"),
+    ]
+    
+    for valid_endpoint, expected_stored_value in valid_endpoints_and_expected:
+        # Should not raise an exception
+        transport = SseServerTransport(valid_endpoint)
+        # Endpoint should be stored exactly as provided (no normalization)
+        assert transport._endpoint == expected_stored_value

@@ -487,9 +487,9 @@ def test_sse_message_id_coercion():
 @pytest.mark.parametrize(
     "endpoint, expected_result",
     [
-        # Valid endpoints - should normalize and work
+        # These should all be valid - endpoint is stored as-is (no automatic normalization)
         ("/messages/", "/messages/"),
-        ("messages/", "/messages/"),
+        ("messages/", "messages/"), 
         ("/", "/"),
         # Invalid endpoints - should raise ValueError
         ("http://example.com/messages/", ValueError),
@@ -506,7 +506,6 @@ def test_sse_server_transport_endpoint_validation(endpoint: str, expected_result
         with pytest.raises(expected_result, match="is not a relative path.*expecting a relative path"):
             SseServerTransport(endpoint)
     else:
-        # Test valid endpoints that should normalize correctly
+        # Endpoint should be stored exactly as provided (no normalization)
         sse = SseServerTransport(endpoint)
         assert sse._endpoint == expected_result
-        assert sse._endpoint.startswith("/")
