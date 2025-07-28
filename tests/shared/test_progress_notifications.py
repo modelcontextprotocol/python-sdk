@@ -42,7 +42,7 @@ async def test_bidirectional_progress_notifications():
             serv_sesh = server_session
             async for message in server_session.incoming_messages:
                 try:
-                    await server._handle_message(message, server_session, ())
+                    await server._handle_message(message, server_session, {})
                 except Exception as e:
                     raise e
 
@@ -252,7 +252,7 @@ async def test_progress_context_manager():
         ) as server_session:
             async for message in server_session.incoming_messages:
                 try:
-                    await server._handle_message(message, server_session, ())
+                    await server._handle_message(message, server_session, {})
                 except Exception as e:
                     raise e
 
