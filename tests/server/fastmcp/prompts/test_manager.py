@@ -71,7 +71,8 @@ class TestPromptManager:
         manager = PromptManager()
         prompt = Prompt.from_function(fn)
         manager.add_prompt(prompt)
-        messages = await manager.render_prompt("fn")
+        prompt = await manager.render_prompt("fn")
+        messages = await prompt.render({})
         assert messages == [UserMessage(content=TextContent(type="text", text="Hello, world!"))]
 
     @pytest.mark.anyio
@@ -84,7 +85,8 @@ class TestPromptManager:
         manager = PromptManager()
         prompt = Prompt.from_function(fn)
         manager.add_prompt(prompt)
-        messages = await manager.render_prompt("fn", arguments={"name": "World"})
+        prompt = await manager.render_prompt("fn", arguments={"name": "World"})
+        messages = await prompt.render({"name": "World"})
         assert messages == [UserMessage(content=TextContent(type="text", text="Hello, World!"))]
 
     @pytest.mark.anyio
@@ -105,4 +107,5 @@ class TestPromptManager:
         prompt = Prompt.from_function(fn)
         manager.add_prompt(prompt)
         with pytest.raises(ValueError, match="Missing required arguments"):
-            await manager.render_prompt("fn")
+            prompt = await manager.render_prompt("fn")
+            await prompt.render({})

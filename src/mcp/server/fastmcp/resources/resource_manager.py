@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import AnyUrl
 from starlette.requests import Request
 
+from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.fastmcp.authorizer import AllowAllAuthorizer, Authorizer
 from mcp.server.fastmcp.resources.base import Resource
 from mcp.server.fastmcp.resources.templates import ResourceTemplate
@@ -81,7 +82,7 @@ class ResourceManager:
         return template
 
     async def get_resource(
-        self, uri: AnyUrl | str, context: Context[ServerSession, object, Request] | None = None
+        self, uri: AnyUrl | str, context: Context[ServerSession, LifespanResultT, Request] | None = None
     ) -> Resource | None:
         """Get resource by URI, checking concrete resources first, then templates."""
         uri_str = str(uri)
@@ -107,14 +108,14 @@ class ResourceManager:
 
         raise ValueError(f"Unknown resource: {uri}")
 
-    def list_resources(self, context: Context[ServerSession, object, Request] | None = None) -> list[Resource]:
+    def list_resources(self, context: Context[ServerSession, LifespanResultT, Request] | None = None) -> list[Resource]:
         """List all registered resources."""
         logger.debug("Listing resources", extra={"count": len(self._resources)})
         return [
             resource for uri, resource in self._resources.items() if self._authorizer.permit_list_resource(uri, context)
         ]
 
-    def list_templates(self, context: Context[ServerSession, object, Request] | None = None) -> list[ResourceTemplate]:
+    def list_templates(self, context: Context[ServerSession, LifespanResultT, Request] | None = None) -> list[ResourceTemplate]:
         """List all registered templates."""
         logger.debug("Listing templates", extra={"count": len(self._templates)})
         return [

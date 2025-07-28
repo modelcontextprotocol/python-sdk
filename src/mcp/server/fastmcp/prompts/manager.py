@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from starlette.requests import Request
 
 from mcp.server.fastmcp.authorizer import AllowAllAuthorizer, Authorizer
-from mcp.server.fastmcp.prompts.base import Message, Prompt
+from mcp.server.fastmcp.prompts.base import Prompt
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.server.session import ServerSession
 
@@ -29,7 +29,7 @@ class PromptManager:
         self._authorizer = authorizer
         self.warn_on_duplicate_prompts = warn_on_duplicate_prompts
 
-    def get_prompt(self, name: str, context: Context[ServerSession, object, Request] | None = None) -> Prompt | None:
+    def get_prompt(self, name: str, arguments: dict[str, Any] | None = None,context: Context[ServerSession, object, Request] | None = None) -> Prompt | None:
         """Get prompt by name."""
         if self._authorizer.permit_get_prompt(name, context):
             return self._prompts.get(name)
@@ -61,12 +61,12 @@ class PromptManager:
         name: str,
         arguments: dict[str, Any] | None = None,
         context: Context[ServerSession, object, Request] | None = None,
-    ) -> list[Message]:
+    ) -> Prompt:
         """Render a prompt by name with arguments."""
         prompt = self.get_prompt(name)
         if not prompt:
             raise ValueError(f"Unknown prompt: {name}")
         if self._authorizer.permit_render_prompt(name, arguments, context):
-            return await prompt.render(arguments)
+            return prompt
         else:
             raise ValueError(f"Unknown prompt: {name}")

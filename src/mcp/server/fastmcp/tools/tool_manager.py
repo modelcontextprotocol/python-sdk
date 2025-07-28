@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from starlette.requests import Request
 
+from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.fastmcp.authorizer import AllowAllAuthorizer, Authorizer
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools.base import Tool
@@ -38,14 +39,14 @@ class ToolManager:
         self.warn_on_duplicate_tools = (warn_on_duplicate_tools,)
         self._authorizer = authorizer
 
-    def get_tool(self, name: str, context: Context[ServerSession, object, Request] | None = None) -> Tool | None:
+    def get_tool(self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None) -> Tool | None:
         """Get tool by name."""
         if self._authorizer.permit_get_tool(name, context):
             return self._tools.get(name)
         else:
             return None
 
-    def list_tools(self, context: Context[ServerSession, object, Request] | None = None) -> list[Tool]:
+    def list_tools(self, context: Context[ServerSession, LifespanResultT, Request] | None = None) -> list[Tool]:
         """List all registered tools."""
         return [tool for name, tool in self._tools.items() if self._authorizer.permit_list_tool(name, context)]
 
@@ -79,7 +80,7 @@ class ToolManager:
         self,
         name: str,
         arguments: dict[str, Any],
-        context: Context[ServerSession, object, Request] | None = None,
+        context: Context[ServerSession, LifespanResultT, Request] | None = None,
         convert_result: bool = False,
     ) -> Any:
         """Call a tool by name with arguments."""
