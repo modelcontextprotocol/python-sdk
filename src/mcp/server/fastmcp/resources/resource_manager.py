@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, Any
 from pydantic import AnyUrl
 from starlette.requests import Request
 
-from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.fastmcp.authorizer import AllowAllAuthorizer, Authorizer
 from mcp.server.fastmcp.resources.base import Resource
 from mcp.server.fastmcp.resources.templates import ResourceTemplate
 from mcp.server.fastmcp.utilities.logging import get_logger
+from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.session import ServerSession
 
 if TYPE_CHECKING:
@@ -115,7 +115,9 @@ class ResourceManager:
             resource for uri, resource in self._resources.items() if self._authorizer.permit_list_resource(uri, context)
         ]
 
-    def list_templates(self, context: Context[ServerSession, LifespanResultT, Request] | None = None) -> list[ResourceTemplate]:
+    def list_templates(
+        self, context: Context[ServerSession, LifespanResultT, Request] | None = None
+    ) -> list[ResourceTemplate]:
         """List all registered templates."""
         logger.debug("Listing templates", extra={"count": len(self._templates)})
         return [

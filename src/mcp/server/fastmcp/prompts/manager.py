@@ -29,7 +29,12 @@ class PromptManager:
         self._authorizer = authorizer
         self.warn_on_duplicate_prompts = warn_on_duplicate_prompts
 
-    def get_prompt(self, name: str, arguments: dict[str, Any] | None = None,context: Context[ServerSession, object, Request] | None = None) -> Prompt | None:
+    def get_prompt(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        context: Context[ServerSession, object, Request] | None = None,
+    ) -> Prompt | None:
         """Get prompt by name."""
         if self._authorizer.permit_get_prompt(name, context):
             return self._prompts.get(name)

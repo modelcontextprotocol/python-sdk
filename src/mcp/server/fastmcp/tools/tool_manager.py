@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING, Any
 
 from starlette.requests import Request
 
-from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.fastmcp.authorizer import AllowAllAuthorizer, Authorizer
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools.base import Tool
 from mcp.server.fastmcp.utilities.logging import get_logger
+from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.session import ServerSession
 from mcp.types import ToolAnnotations
 
@@ -39,7 +39,9 @@ class ToolManager:
         self.warn_on_duplicate_tools = (warn_on_duplicate_tools,)
         self._authorizer = authorizer
 
-    def get_tool(self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None) -> Tool | None:
+    def get_tool(
+        self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None
+    ) -> Tool | None:
         """Get tool by name."""
         if self._authorizer.permit_get_tool(name, context):
             return self._tools.get(name)

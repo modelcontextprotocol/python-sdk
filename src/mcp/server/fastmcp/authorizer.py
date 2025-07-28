@@ -17,7 +17,9 @@ class Authorizer:
     __metaclass__ = abc.ABCMeta
 
     @abc.abstractmethod
-    def permit_get_tool(self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None) -> bool:
+    def permit_get_tool(
+        self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None
+    ) -> bool:
         """Check if the specified tool can be retrieved from the associated mcp server"""
         return False
 
@@ -69,12 +71,16 @@ class Authorizer:
         return False
 
     @abc.abstractmethod
-    def permit_get_prompt(self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None) -> bool:
+    def permit_get_prompt(
+        self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None
+    ) -> bool:
         """Check if the specified prompt can be retrieved from the associated mcp server"""
         return False
 
     @abc.abstractmethod
-    def permit_list_prompt(self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None) -> bool:
+    def permit_list_prompt(
+        self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None
+    ) -> bool:
         """Check if the specified prompt can be listed from the associated mcp server"""
         return False
 
@@ -90,10 +96,14 @@ class Authorizer:
 
 
 class AllowAllAuthorizer(Authorizer):
-    def permit_get_tool(self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None) -> bool:
+    def permit_get_tool(
+        self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None
+    ) -> bool:
         return True
 
-    def permit_list_tool(self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None) -> bool:
+    def permit_list_tool(
+        self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None
+    ) -> bool:
         return True
 
     def permit_call_tool(
@@ -124,10 +134,14 @@ class AllowAllAuthorizer(Authorizer):
     ) -> bool:
         return True
 
-    def permit_get_prompt(self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None) -> bool:
+    def permit_get_prompt(
+        self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None
+    ) -> bool:
         return True
 
-    def permit_list_prompt(self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None) -> bool:
+    def permit_list_prompt(
+        self, name: str, context: Context[ServerSession, LifespanResultT, Request] | None = None
+    ) -> bool:
         return True
 
     def permit_render_prompt(
