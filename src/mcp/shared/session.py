@@ -447,7 +447,7 @@ class BaseSession(
     ) -> ReceiveResultT | None:
         """
         Joins a request previously started via start_request.
-        
+
         Returns the result or None if timeout is reached.
         """
         resume = self._request_state_manager.resume(request_id)
@@ -483,7 +483,7 @@ class BaseSession(
 
         if response_or_error is None:
             if done_on_timeout:
-                await self._request_state_manager.close_request(request_id)  
+                await self._request_state_manager.close_request(request_id)
             return None
         elif isinstance(response_or_error, JSONRPCError):
             if response_or_error.error.code == httpx.codes.REQUEST_TIMEOUT.value:
@@ -493,10 +493,9 @@ class BaseSession(
             else:
                 await self._request_state_manager.close_request(request_id)
                 raise McpError(response_or_error.error)
-        else :
+        else:
             await self._request_state_manager.close_request(request_id)
             return result_type.model_validate(response_or_error.result)
-
 
     async def cancel_request(self, request_id: RequestId) -> bool:
         """

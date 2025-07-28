@@ -2,13 +2,11 @@ from datetime import timedelta
 from typing import Any
 
 import anyio
-import httpx
 import pytest
 
 import mcp.types as types
 from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
 from mcp.shared.context import RequestContext
-from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import InMemoryRequestStateManager, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS

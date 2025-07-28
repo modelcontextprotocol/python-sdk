@@ -1396,10 +1396,11 @@ async def test_streamablehttp_client_resumption_timeout(event_server):
                         captured_request_id = await session.request_call_tool(
                             "long_running_with_checkpoints", arguments={}
                         )
-                        
+
                         result = await session.join_call_tool(
-                            captured_request_id, request_read_timeout_seconds=timedelta(seconds=0.01),
-                            done_on_timeout=False
+                            captured_request_id,
+                            request_read_timeout_seconds=timedelta(seconds=0.01),
+                            done_on_timeout=False,
                         )
 
                         assert result is None
@@ -1474,7 +1475,7 @@ async def test_streamablehttp_client_resumption_timeout(event_server):
                 assert not any(n in captured_notifications_pre for n in captured_notifications), (
                     f"{captured_notifications_pre} -> {captured_notifications}"
                 )
-                
+
         assert len(request_state_manager_1._progress_callbacks) == 0
         assert len(request_state_manager_1._response_streams) == 0
         assert len(request_state_manager_2._progress_callbacks) == 0
