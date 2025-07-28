@@ -106,7 +106,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # Transport security settings (DNS rebinding protection)
     transport_security: TransportSecuritySettings | None
 
-    authorizer: Authorizer = AllowAllAuthorizer()
+    authorizer: Authorizer | None = None
 
 
 def lifespan_wrapper(
@@ -148,6 +148,7 @@ class FastMCP(Generic[LifespanResultT]):
         lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
         transport_security: TransportSecuritySettings | None = None,
+        authorizer: Authorizer | None = None,
     ):
         self.settings = Settings(
             debug=debug,
@@ -167,6 +168,7 @@ class FastMCP(Generic[LifespanResultT]):
             lifespan=lifespan,
             auth=auth,
             transport_security=transport_security,
+            authorizer=authorizer,
         )
 
         self._mcp_server = MCPServer(
@@ -176,18 +178,19 @@ class FastMCP(Generic[LifespanResultT]):
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
+        authorizer = self.settings.authorizer or AllowAllAuthorizer()
         self._tool_manager = ToolManager(
             tools=tools,
             warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools,
-            authorizer=self.settings.authorizer,
+            authorizer=authorizer,
         )
         self._resource_manager = ResourceManager(
             warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources,
-            authorizer=self.settings.authorizer,
+            authorizer=authorizer,
         )
         self._prompt_manager = PromptManager(
             warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts,
-            authorizer=self.settings.authorizer,
+            authorizer=authorizer,
         )
         # Validate auth configuration
         if self.settings.auth is not None:
