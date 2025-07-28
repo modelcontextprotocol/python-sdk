@@ -90,7 +90,7 @@ def get_weather_alerts(region: str) -> list[WeatherAlert]:
             WeatherAlert(
                 severity="high",
                 title="Heat Wave Warning",
-                description="Temperatures expected to exceed 40°C",
+                description="Temperatures expected to exceed 40 degrees",
                 affected_areas=["Los Angeles", "San Diego", "Riverside"],
                 valid_until=datetime(2024, 7, 15, 18, 0),
             ),

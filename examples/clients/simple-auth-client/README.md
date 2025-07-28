@@ -47,7 +47,7 @@ The client will open your browser for authentication. After completing OAuth, yo
 
 ## Example
 
-```
+```markdown
 🔐 Simple MCP Auth Client
 Connecting to: http://localhost:3001
 

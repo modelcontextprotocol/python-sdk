@@ -25,11 +25,12 @@ This example demonstrates how to integrate the Model Context Protocol (MCP) into
    ```plaintext
    LLM_API_KEY=your_api_key_here
    ```
+
    **Note:** The current implementation is configured to use the Groq API endpoint (`https://api.groq.com/openai/v1/chat/completions`) with the `llama-3.2-90b-vision-preview` model. If you plan to use a different LLM provider, you'll need to modify the `LLMClient` class in `main.py` to use the appropriate endpoint URL and model parameters.
 
 3. **Configure servers:**
 
-   The `servers_config.json` follows the same structure as Claude Desktop, allowing for easy integration of multiple servers. 
+   The `servers_config.json` follows the same structure as Claude Desktop, allowing for easy integration of multiple servers.
    Here's an example:
 
    ```json
@@ -46,9 +47,11 @@ This example demonstrates how to integrate the Model Context Protocol (MCP) into
      }
    }
    ```
+
    Environment variables are supported as well. Pass them as you would with the Claude Desktop App.
 
    Example:
+
    ```json
    {
      "mcpServers": {
@@ -72,7 +75,7 @@ This example demonstrates how to integrate the Model Context Protocol (MCP) into
    ```
 
 2. **Interact with the assistant:**
-   
+
    The assistant will automatically detect available tools and can respond to queries based on the tools provided by the configured servers.
 
 3. **Exit the session:**
@@ -86,6 +89,7 @@ This example demonstrates how to integrate the Model Context Protocol (MCP) into
 - **Server Integration**: Supports any MCP-compatible server, tested with various server implementations including Uvicorn and Node.js.
 
 ### Class Structure
+
 - **Configuration**: Manages environment variables and server configurations
 - **Server**: Handles MCP server initialization, tool discovery, and execution
 - **Tool**: Represents individual tools with their properties and formatting
@@ -107,5 +111,3 @@ This example demonstrates how to integrate the Model Context Protocol (MCP) into
      - If it's a direct response → return to user
    - Tool results are sent back to LLM for interpretation
    - Final response is presented to user
-
-
