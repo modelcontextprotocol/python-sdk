@@ -88,7 +88,7 @@ Issues = "https://github.com/modelcontextprotocol/python-sdk/issues"
 packages = ["src/mcp"]
 
 [tool.pyright]
-include = ["src/mcp", "tests", "examples/servers"]
+include = ["src/mcp", "tests", "examples/servers", "examples/snippets"]
 venvPath = "."
 venv = ".venv"
 strict = ["src/mcp/**/*.py"]
@@ -129,3 +129,13 @@ filterwarnings = [
     # pywin32 internal deprecation warning
     "ignore:getargs.*The 'u' format is deprecated:DeprecationWarning"
 ]
+
+[tool.markdown.lint]
+default=true
+MD004=false  # ul-style - Unordered list style
+MD007.indent=2  # ul-indent - Unordered list indentation
+MD013=false  # line-length - Line length
+MD029=false  # ol-prefix - Ordered list item prefix
+MD033=false  # no-inline-html Inline HTML
+MD041=false  # first-line-heading/first-line-h1
+MD059=false  # descriptive-link-text

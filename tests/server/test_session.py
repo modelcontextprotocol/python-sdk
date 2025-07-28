@@ -114,7 +114,7 @@ async def test_server_capabilities():
         ref: PromptReference | ResourceTemplateReference,
         argument: CompletionArgument,
         context: CompletionContext | None,
-    ):
+    ) -> Completion | None:
         return Completion(
             values=["completion1", "completion2"],
         )
