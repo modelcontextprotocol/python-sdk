@@ -37,7 +37,7 @@ class StateAwareToolManager:
             raise ValueError(f"Tool '{name}' not found.")
 
         try:
-            result = await tool.run(arguments, context=None)
+            result = await tool.run(arguments, context=None, convert_result=True)
         except Exception as e:
             logger.exception(f"Exception during execution of tool '{name}'")
             result = types.TextContent(type="text", text=str(e))
