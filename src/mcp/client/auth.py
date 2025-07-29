@@ -13,11 +13,13 @@ import string
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 from urllib.parse import urlencode, urljoin, urlparse
+from uuid import uuid4
 
 import anyio
 import httpx
+import jwt
 from pydantic import BaseModel, Field, ValidationError
 
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
@@ -61,6 +63,23 @@ class PKCEParameters(BaseModel):
         return cls(code_verifier=code_verifier, code_challenge=code_challenge)
 
 
+class JWTParameters(BaseModel):
+    """JWT parameters."""
+
+    assertion: str | None = Field(
+        default=None,
+        description="JWT assertion for JWT authentication. "
+        "Will be used instead of generating a new assertion if provided.",
+    )
+
+    issuer: str | None = Field(default=None, description="Issuer for JWT assertions.")
+    subject: str | None = Field(default=None, description="Subject identifier for JWT assertions.")
+    claims: dict[str, Any] | None = Field(default=None, description="Additional claims for JWT assertions.")
+    jwt_signing_algorithm: str | None = Field(default="RS256", description="Algorithm for signing JWT assertions.")
+    jwt_signing_key: str | None = Field(default=None, description="Private key for JWT signing.")
+    jwt_lifetime_seconds: int = Field(default=300, description="Lifetime of generated JWT in seconds.")
+
+
 class TokenStorage(Protocol):
     """Protocol for token storage implementations."""
 
@@ -91,6 +110,7 @@ class OAuthContext:
     redirect_handler: Callable[[str], Awaitable[None]] | None
     callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None
     timeout: float = 300.0
+    jwt_parameters: JWTParameters | None = None
 
     # Discovered metadata
     protected_resource_metadata: ProtectedResourceMetadata | None = None
@@ -192,6 +212,7 @@ class OAuthClientProvider(httpx.Auth):
         redirect_handler: Callable[[str], Awaitable[None]] | None = None,
         callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None = None,
         timeout: float = 300.0,
+        jwt_parameters: JWTParameters | None = None,
     ):
         """Initialize OAuth2 authentication."""
         self.context = OAuthContext(
@@ -201,6 +222,7 @@ class OAuthClientProvider(httpx.Auth):
             redirect_handler=redirect_handler,
             callback_handler=callback_handler,
             timeout=timeout,
+            jwt_parameters=jwt_parameters,
         )
         self._initialized = False
 
@@ -314,6 +336,9 @@ class OAuthClientProvider(httpx.Auth):
         if "client_credentials" in self.context.client_metadata.grant_types:
             token_request = await self._exchange_token_client_credentials()
             return token_request
+        elif "urn:ietf:params:oauth:grant-type:jwt-bearer" in self.context.client_metadata.grant_types:
+            token_request = await self._exchange_token_jwt_bearer()
+            return token_request
         else:
             auth_code, code_verifier = await self._perform_authorization_code_grant()
             token_request = await self._exchange_token_authorization_code(auth_code, code_verifier)
@@ -372,6 +397,14 @@ class OAuthClientProvider(httpx.Auth):
         # Return auth code and code verifier for token exchange
         return auth_code, pkce_params.code_verifier
 
+    def _get_token_endpoint(self) -> str:
+        if self.context.oauth_metadata and self.context.oauth_metadata.token_endpoint:
+            token_url = str(self.context.oauth_metadata.token_endpoint)
+        else:
+            auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
+            token_url = urljoin(auth_base_url, "/token")
+        return token_url
+
     async def _exchange_token_authorization_code(self, auth_code: str, code_verifier: str) -> httpx.Request:
         """Build token exchange request for authorization_code flow."""
         if self.context.client_metadata.redirect_uris is None:
@@ -379,12 +412,7 @@ class OAuthClientProvider(httpx.Auth):
         if not self.context.client_info:
             raise OAuthFlowError("Missing client info")
 
-        if self.context.oauth_metadata and self.context.oauth_metadata.token_endpoint:
-            token_url = str(self.context.oauth_metadata.token_endpoint)
-        else:
-            auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
-            token_url = urljoin(auth_base_url, "/token")
-
+        token_url = self._get_token_endpoint()
         token_data = {
             "grant_type": "authorization_code",
             "code": auth_code,
@@ -409,18 +437,16 @@ class OAuthClientProvider(httpx.Auth):
         if not self.context.client_info:
             raise OAuthFlowError("Missing client info")
 
-        if self.context.oauth_metadata and self.context.oauth_metadata.token_endpoint:
-            token_url = str(self.context.oauth_metadata.token_endpoint)
-        else:
-            auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
-            token_url = urljoin(auth_base_url, "/token")
-
+        token_url = self._get_token_endpoint()
         token_data = {
             "grant_type": "client_credentials",
-            "resource": self.context.get_resource_url(),  # RFC 8707
         }
 
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
+
+        # Only include resource param if conditions are met
+        if self.context.should_include_resource_param(self.context.protocol_version):
+            token_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
         if self.context.client_metadata.scope:
             token_data["scope"] = self.context.client_metadata.scope
@@ -441,6 +467,57 @@ class OAuthClientProvider(httpx.Auth):
             headers["Authorization"] = f"Basic {base64.b64encode(raw_auth.encode()).decode()}"
 
         return httpx.Request("POST", token_url, data=token_data, headers=headers)
+
+    async def _exchange_token_jwt_bearer(self) -> httpx.Request:
+        """Build token exchange request for JWT bearer grant."""
+        if not self.context.client_info:
+            raise OAuthFlowError("Missing client info")
+        if not self.context.jwt_parameters:
+            raise OAuthFlowError("Missing JWT parameters")
+
+        token_url = self._get_token_endpoint()
+
+        if self.context.jwt_parameters.assertion is not None:
+            assertion = self.context.jwt_parameters.assertion
+        else:
+            if not self.context.jwt_parameters.jwt_signing_key:
+                raise OAuthFlowError("Missing signing key for JWT bearer grant")
+            if not self.context.jwt_parameters.issuer:
+                raise OAuthFlowError("Missing issuer for JWT bearer grant")
+            if not self.context.jwt_parameters.subject:
+                raise OAuthFlowError("Missing subject for JWT bearer grant")
+
+            now = int(time.time())
+            claims = {
+                "iss": self.context.jwt_parameters.issuer,
+                "sub": self.context.jwt_parameters.subject,
+                "aud": token_url,
+                "exp": now + self.context.jwt_parameters.jwt_lifetime_seconds,
+                "iat": now,
+                "jti": str(uuid4()),
+            }
+            claims.update(self.context.jwt_parameters.claims or {})
+
+            assertion = jwt.encode(
+                claims,
+                self.context.jwt_parameters.jwt_signing_key,
+                algorithm=self.context.jwt_parameters.jwt_signing_algorithm or "RS256",
+            )
+
+        token_data = {
+            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            "assertion": assertion,
+        }
+
+        if self.context.should_include_resource_param(self.context.protocol_version):
+            token_data["resource"] = self.context.get_resource_url()
+
+        if self.context.client_metadata.scope:
+            token_data["scope"] = self.context.client_metadata.scope
+
+        return httpx.Request(
+            "POST", token_url, data=token_data, headers={"Content-Type": "application/x-www-form-urlencoded"}
+        )
 
     async def _handle_token_response(self, response: httpx.Response) -> None:
         """Handle token exchange response."""

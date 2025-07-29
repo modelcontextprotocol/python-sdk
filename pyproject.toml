@@ -33,6 +33,7 @@ dependencies = [
     "uvicorn>=0.23.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",
     "pywin32>=310; sys_platform == 'win32'",
+    "pyjwt[crypto]>=2.10.1",
 ]
 
 [project.optional-dependencies]
