@@ -11,27 +11,27 @@ from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     ClientNotification,
+    Completion,
+    CompletionArgument,
+    CompletionContext,
+    CompletionsCapability,
     InitializedNotification,
+    PromptReference,
     PromptsCapability,
     ResourcesCapability,
+    ResourceTemplateReference,
     ServerCapabilities,
 )
 
 
 @pytest.mark.anyio
 async def test_server_session_initialize():
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     # Create a message handler to catch exceptions
     async def message_handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult]
-        | types.ServerNotification
-        | Exception,
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
             raise message
@@ -54,9 +54,7 @@ async def test_server_session_initialize():
                 if isinstance(message, Exception):
                     raise message
 
-                if isinstance(message, ClientNotification) and isinstance(
-                    message.root, InitializedNotification
-                ):
+                if isinstance(message, ClientNotification) and isinstance(message.root, InitializedNotification):
                     received_initialized = True
                     return
 
@@ -88,6 +86,7 @@ async def test_server_capabilities():
     caps = server.get_capabilities(notification_options, experimental_capabilities)
     assert caps.prompts is None
     assert caps.resources is None
+    assert caps.completions is None
 
     # Add a prompts handler
     @server.list_prompts()
@@ -97,6 +96,7 @@ async def test_server_capabilities():
     caps = server.get_capabilities(notification_options, experimental_capabilities)
     assert caps.prompts == PromptsCapability(listChanged=False)
     assert caps.resources is None
+    assert caps.completions is None
 
     # Add a resources handler
     @server.list_resources()
@@ -106,17 +106,30 @@ async def test_server_capabilities():
     caps = server.get_capabilities(notification_options, experimental_capabilities)
     assert caps.prompts == PromptsCapability(listChanged=False)
     assert caps.resources == ResourcesCapability(subscribe=False, listChanged=False)
+    assert caps.completions is None
+
+    # Add a complete handler
+    @server.completion()
+    async def complete(
+        ref: PromptReference | ResourceTemplateReference,
+        argument: CompletionArgument,
+        context: CompletionContext | None,
+    ) -> Completion | None:
+        return Completion(
+            values=["completion1", "completion2"],
+        )
+
+    caps = server.get_capabilities(notification_options, experimental_capabilities)
+    assert caps.prompts == PromptsCapability(listChanged=False)
+    assert caps.resources == ResourcesCapability(subscribe=False, listChanged=False)
+    assert caps.completions == CompletionsCapability()
 
 
 @pytest.mark.anyio
 async def test_server_session_initialize_with_older_protocol_version():
     """Test that server accepts and responds with older protocol (2024-11-05)."""
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](1)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        SessionMessage | Exception
-    ](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
 
     received_initialized = False
     received_protocol_version = None
@@ -137,9 +150,7 @@ async def test_server_session_initialize_with_older_protocol_version():
                 if isinstance(message, Exception):
                     raise message
 
-                if isinstance(message, types.ClientNotification) and isinstance(
-                    message.root, InitializedNotification
-                ):
+                if isinstance(message, types.ClientNotification) and isinstance(message.root, InitializedNotification):
                     received_initialized = True
                     return
 
@@ -157,9 +168,7 @@ async def test_server_session_initialize_with_older_protocol_version():
                         params=types.InitializeRequestParams(
                             protocolVersion="2024-11-05",
                             capabilities=types.ClientCapabilities(),
-                            clientInfo=types.Implementation(
-                                name="test-client", version="1.0.0"
-                            ),
+                            clientInfo=types.Implementation(name="test-client", version="1.0.0"),
                         ).model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )

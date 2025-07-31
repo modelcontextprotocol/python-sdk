@@ -8,14 +8,11 @@ import anyio
 import pytest
 from anyio.abc import TaskStatus
 
+from mcp import types
 from mcp.client.session import ClientSession
 from mcp.server.lowlevel import Server
 from mcp.shared.exceptions import McpError
-from mcp.types import (
-    EmbeddedResource,
-    ImageContent,
-    TextContent,
-)
+from mcp.types import ContentBlock, TextContent
 
 
 @pytest.mark.anyio
@@ -31,27 +28,32 @@ async def test_notification_validation_error(tmp_path: Path):
 
     server = Server(name="test")
     request_count = 0
-    slow_request_started = anyio.Event()
-    slow_request_complete = anyio.Event()
+    slow_request_lock = anyio.Event()
+
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [
+            types.Tool(
+                name="slow",
+                description="A slow tool",
+                inputSchema={"type": "object"},
+            ),
+            types.Tool(
+                name="fast",
+                description="A fast tool",
+                inputSchema={"type": "object"},
+            ),
+        ]
 
     @server.call_tool()
-    async def slow_tool(
-        name: str, arg
-    ) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
+    async def slow_tool(name: str, arg) -> Sequence[ContentBlock]:
         nonlocal request_count
         request_count += 1
 
         if name == "slow":
-            # Signal that slow request has started
-            slow_request_started.set()
-            # Long enough to ensure timeout
-            await anyio.sleep(0.2)
-            # Signal completion
-            slow_request_complete.set()
+            await slow_request_lock.wait()  # it should timeout here
             return [TextContent(type="text", text=f"slow {request_count}")]
         elif name == "fast":
-            # Fast enough to complete before timeout
-            await anyio.sleep(0.01)
             return [TextContent(type="text", text=f"fast {request_count}")]
         return [TextContent(type="text", text=f"unknown {request_count}")]
 
@@ -74,24 +76,21 @@ async def test_notification_validation_error(tmp_path: Path):
         # - Long enough for fast operations (>10ms)
         # - Short enough for slow operations (<200ms)
         # - Not too short to avoid flakiness
-        async with ClientSession(
-            read_stream, write_stream, read_timeout_seconds=timedelta(milliseconds=50)
-        ) as session:
+        async with ClientSession(read_stream, write_stream, read_timeout_seconds=timedelta(milliseconds=50)) as session:
             await session.initialize()
 
             # First call should work (fast operation)
             result = await session.call_tool("fast")
             assert result.content == [TextContent(type="text", text="fast 1")]
-            assert not slow_request_complete.is_set()
+            assert not slow_request_lock.is_set()
 
             # Second call should timeout (slow operation)
             with pytest.raises(McpError) as exc_info:
                 await session.call_tool("slow")
             assert "Timed out while waiting" in str(exc_info.value)
 
-            # Wait for slow request to complete in the background
-            with anyio.fail_after(1):  # Timeout after 1 second
-                await slow_request_complete.wait()
+            # release the slow request not to have hanging process
+            slow_request_lock.set()
 
             # Third call should work (fast operation),
             # proving server is still responsive

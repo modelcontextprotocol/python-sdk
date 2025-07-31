@@ -47,11 +47,7 @@ async def test_server_base64_encoding_issue():
     # Register a resource handler that returns our test data
     @server.read_resource()
     async def read_resource(uri: AnyUrl) -> list[ReadResourceContents]:
-        return [
-            ReadResourceContents(
-                content=binary_data, mime_type="application/octet-stream"
-            )
-        ]
+        return [ReadResourceContents(content=binary_data, mime_type="application/octet-stream")]
 
     # Get the handler directly from the server
     handler = server.request_handlers[ReadResourceRequest]

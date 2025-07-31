@@ -30,9 +30,7 @@ class ClientAuthenticator:
         """
         self.provider = provider
 
-    async def authenticate(
-        self, client_id: str, client_secret: str | None
-    ) -> OAuthClientInformationFull:
+    async def authenticate(self, client_id: str, client_secret: str | None) -> OAuthClientInformationFull:
         # Look up client information
         client = await self.provider.get_client(client_id)
         if not client:
@@ -47,10 +45,7 @@ class ClientAuthenticator:
             if client.client_secret != client_secret:
                 raise AuthenticationError("Invalid client_secret")
 
-            if (
-                client.client_secret_expires_at
-                and client.client_secret_expires_at < int(time.time())
-            ):
+            if client.client_secret_expires_at and client.client_secret_expires_at < int(time.time()):
                 raise AuthenticationError("Client secret has expired")
 
         return client

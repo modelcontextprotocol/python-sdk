@@ -52,6 +52,10 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 import mcp.types as types
+from mcp.server.transport_security import (
+    TransportSecurityMiddleware,
+    TransportSecuritySettings,
+)
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -71,16 +75,47 @@ class SseServerTransport:
 
     _endpoint: str
     _read_stream_writers: dict[UUID, MemoryObjectSendStream[SessionMessage | Exception]]
+    _security: TransportSecurityMiddleware
 
-    def __init__(self, endpoint: str) -> None:
+    def __init__(self, endpoint: str, security_settings: TransportSecuritySettings | None = None) -> None:
         """
         Creates a new SSE server transport, which will direct the client to POST
-        messages to the relative or absolute URL given.
+        messages to the relative path given.
+
+        Args:
+            endpoint: A relative path where messages should be posted
+                    (e.g., "/messages/").
+            security_settings: Optional security settings for DNS rebinding protection.
+
+        Note:
+            We use relative paths instead of full URLs for several reasons:
+            1. Security: Prevents cross-origin requests by ensuring clients only connect
+               to the same origin they established the SSE connection with
+            2. Flexibility: The server can be mounted at any path without needing to
+               know its full URL
+            3. Portability: The same endpoint configuration works across different
+               environments (development, staging, production)
+
+        Raises:
+            ValueError: If the endpoint is a full URL instead of a relative path
         """
 
         super().__init__()
+
+        # Validate that endpoint is a relative path and not a full URL
+        if "://" in endpoint or endpoint.startswith("//") or "?" in endpoint or "#" in endpoint:
+            raise ValueError(
+                f"Given endpoint: {endpoint} is not a relative path (e.g., '/messages/'), "
+                "expecting a relative path (e.g., '/messages/')."
+            )
+
+        # Ensure endpoint starts with a forward slash
+        if not endpoint.startswith("/"):
+            endpoint = "/" + endpoint
+
         self._endpoint = endpoint
         self._read_stream_writers = {}
+        self._security = TransportSecurityMiddleware(security_settings)
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
 
     @asynccontextmanager
@@ -88,6 +123,13 @@ class SseServerTransport:
         if scope["type"] != "http":
             logger.error("connect_sse received non-HTTP request")
             raise ValueError("connect_sse can only handle HTTP requests")
+
+        # Validate request headers for DNS rebinding protection
+        request = Request(scope, receive)
+        error_response = await self._security.validate_request(request, is_post=False)
+        if error_response:
+            await error_response(scope, receive, send)
+            raise ValueError("Request validation failed")
 
         logger.debug("Setting up SSE connection")
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
@@ -116,20 +158,14 @@ class SseServerTransport:
         full_message_path_for_client = root_path.rstrip("/") + self._endpoint
 
         # This is the URI (path + query) the client will use to POST messages.
-        client_post_uri_data = (
-            f"{quote(full_message_path_for_client)}?session_id={session_id.hex}"
-        )
+        client_post_uri_data = f"{quote(full_message_path_for_client)}?session_id={session_id.hex}"
 
-        sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[
-            dict[str, Any]
-        ](0)
+        sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, Any]](0)
 
         async def sse_writer():
             logger.debug("Starting SSE writer")
             async with sse_stream_writer, write_stream_reader:
-                await sse_stream_writer.send(
-                    {"event": "endpoint", "data": client_post_uri_data}
-                )
+                await sse_stream_writer.send({"event": "endpoint", "data": client_post_uri_data})
                 logger.debug(f"Sent endpoint event: {client_post_uri_data}")
 
                 async for session_message in write_stream_reader:
@@ -137,9 +173,7 @@ class SseServerTransport:
                     await sse_stream_writer.send(
                         {
                             "event": "message",
-                            "data": session_message.message.model_dump_json(
-                                by_alias=True, exclude_none=True
-                            ),
+                            "data": session_message.message.model_dump_json(by_alias=True, exclude_none=True),
                         }
                     )
 
@@ -151,9 +185,9 @@ class SseServerTransport:
                 In this case we close our side of the streams to signal the client that
                 the connection has been closed.
                 """
-                await EventSourceResponse(
-                    content=sse_stream_reader, data_sender_callable=sse_writer
-                )(scope, receive, send)
+                await EventSourceResponse(content=sse_stream_reader, data_sender_callable=sse_writer)(
+                    scope, receive, send
+                )
                 await read_stream_writer.aclose()
                 await write_stream_reader.aclose()
                 logging.debug(f"Client session disconnected {session_id}")
@@ -164,11 +198,14 @@ class SseServerTransport:
             logger.debug("Yielding read and write streams")
             yield (read_stream, write_stream)
 
-    async def handle_post_message(
-        self, scope: Scope, receive: Receive, send: Send
-    ) -> None:
+    async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:
         logger.debug("Handling POST message")
         request = Request(scope, receive)
+
+        # Validate request headers for DNS rebinding protection
+        error_response = await self._security.validate_request(request, is_post=True)
+        if error_response:
+            return await error_response(scope, receive, send)
 
         session_id_param = request.query_params.get("session_id")
         if session_id_param is None:
@@ -197,7 +234,7 @@ class SseServerTransport:
             message = types.JSONRPCMessage.model_validate_json(body)
             logger.debug(f"Validated client message: {message}")
         except ValidationError as err:
-            logger.error(f"Failed to parse message: {err}")
+            logger.exception("Failed to parse message")
             response = Response("Could not parse message", status_code=400)
             await response(scope, receive, send)
             await writer.send(err)
