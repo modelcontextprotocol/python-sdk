@@ -74,6 +74,7 @@ class JWTParameters(BaseModel):
 
     issuer: str | None = Field(default=None, description="Issuer for JWT assertions.")
     subject: str | None = Field(default=None, description="Subject identifier for JWT assertions.")
+    audience: str | None = Field(default=None, description="Audience for JWT assertions.")
     claims: dict[str, Any] | None = Field(default=None, description="Additional claims for JWT assertions.")
     jwt_signing_algorithm: str | None = Field(default="RS256", description="Algorithm for signing JWT assertions.")
     jwt_signing_key: str | None = Field(default=None, description="Private key for JWT signing.")
@@ -465,6 +466,37 @@ class OAuthClientProvider(httpx.Auth):
                 raise OAuthTokenError("Missing client_secret in Basic auth flow")
             raw_auth = f"{self.context.client_info.client_id}:{self.context.client_info.client_secret}"
             headers["Authorization"] = f"Basic {base64.b64encode(raw_auth.encode()).decode()}"
+        elif self.context.client_metadata.token_endpoint_auth_method == "private_key_jwt":
+            # Use JWT assertion for client authentication
+            if not self.context.jwt_parameters:
+                raise OAuthTokenError("Missing JWT parameters for private_key_jwt flow")
+            if not self.context.jwt_parameters.jwt_signing_key:
+                raise OAuthTokenError("Missing JWT signing key for private_key_jwt flow")
+            if not self.context.jwt_parameters.jwt_signing_algorithm:
+                raise OAuthTokenError("Missing JWT signing algorithm for private_key_jwt flow")
+
+            now = int(time.time())
+            claims = {
+                "iss": self.context.jwt_parameters.issuer,
+                "sub": self.context.jwt_parameters.subject,
+                "aud": self.context.jwt_parameters.audience if self.context.jwt_parameters.audience else token_url,
+                "exp": now + self.context.jwt_parameters.jwt_lifetime_seconds,
+                "iat": now,
+                "jti": str(uuid4()),
+            }
+            claims.update(self.context.jwt_parameters.claims or {})
+
+            assertion = jwt.encode(
+                claims,
+                self.context.jwt_parameters.jwt_signing_key,
+                algorithm=self.context.jwt_parameters.jwt_signing_algorithm or "RS256",
+            )
+            # When using private_key_jwt, in a client_credentials flow, we use RFC 7523 Section 2.2
+            token_data["client_assertion"] = assertion
+            token_data["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+            # We need to set the audience to the token endpoint, the audience is difference from the one in claims
+            # it represents the resource server that will validate the token
+            token_data["audience"] = self.context.get_resource_url()
 
         return httpx.Request("POST", token_url, data=token_data, headers=headers)
 
