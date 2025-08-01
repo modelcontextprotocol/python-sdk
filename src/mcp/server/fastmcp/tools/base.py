@@ -2,13 +2,15 @@ from __future__ import annotations as _annotations
 
 import functools
 import inspect
+import json
 from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, get_origin
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.fastmcp.resources import ToolResource
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
 from mcp.types import ToolAnnotations
 
@@ -18,13 +20,10 @@ if TYPE_CHECKING:
     from mcp.shared.context import LifespanContextT, RequestT
 
 
-class Tool(BaseModel):
+class Tool(ToolResource):
     """Internal tool registration info."""
 
     fn: Callable[..., Any] = Field(exclude=True)
-    name: str = Field(description="Name of the tool")
-    title: str | None = Field(None, description="Human-readable title of the tool")
-    description: str = Field(description="Description of what the tool does")
     parameters: dict[str, Any] = Field(description="JSON schema for tool parameters")
     fn_metadata: FuncMetadata = Field(
         description="Metadata about the function including a pydantic model for tool arguments"
@@ -86,6 +85,26 @@ class Tool(BaseModel):
             context_kwarg=context_kwarg,
             annotations=annotations,
         )
+
+    async def read(self) -> str | bytes:
+        """Read the tool schema/documentation as JSON."""
+        tool_info = {
+            "name": self.name,
+            "title": self.title,
+            "description": self.description,
+            "uri": str(self.uri),
+            "parameters": self.parameters,
+        }
+
+        # Include output schema if available
+        if self.output_schema:
+            tool_info["output_schema"] = self.output_schema
+
+        # Include annotations if available
+        if self.annotations:
+            tool_info["annotations"] = self.annotations.model_dump(exclude_none=True)
+
+        return json.dumps(tool_info, indent=2)
 
     async def run(
         self,
