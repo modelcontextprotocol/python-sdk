@@ -139,3 +139,97 @@ class TestResourceManager:
         resources = manager.list_resources()
         assert len(resources) == 2
         assert resources == [resource1, resource2]
+
+    def test_list_resources_with_prefix(self, temp_file: Path):
+        """Test listing resources with prefix filtering."""
+        manager = ResourceManager()
+
+        # Add resources with different URIs
+        resource1 = FileResource(
+            uri=FileUrl("file:///data/images/test.jpg"),
+            name="test_image",
+            path=temp_file,
+        )
+        resource2 = FileResource(
+            uri=FileUrl("file:///data/docs/test.txt"),
+            name="test_doc",
+            path=temp_file,
+        )
+        resource3 = FileResource(
+            uri=FileUrl("file:///other/test.txt"),
+            name="other_test",
+            path=temp_file,
+        )
+
+        manager.add_resource(resource1)
+        manager.add_resource(resource2)
+        manager.add_resource(resource3)
+
+        # Test prefix filtering
+        data_resources = manager.list_resources(prefix="file:///data/")
+        assert len(data_resources) == 2
+        assert resource1 in data_resources
+        assert resource2 in data_resources
+
+        # More specific prefix
+        image_resources = manager.list_resources(prefix="file:///data/images/")
+        assert len(image_resources) == 1
+        assert resource1 in image_resources
+
+        # No matches
+        no_matches = manager.list_resources(prefix="file:///nonexistent/")
+        assert len(no_matches) == 0
+
+    def test_list_templates_with_prefix(self):
+        """Test listing templates with prefix filtering."""
+        manager = ResourceManager()
+
+        # Add templates with different URI patterns
+        def user_func(user_id: str) -> str:
+            return f"User {user_id}"
+
+        def post_func(user_id: str, post_id: str) -> str:
+            return f"User {user_id} Post {post_id}"
+
+        def product_func(product_id: str) -> str:
+            return f"Product {product_id}"
+
+        template1 = manager.add_template(user_func, uri_template="http://api.com/users/{user_id}", name="user_template")
+        template2 = manager.add_template(
+            post_func, uri_template="http://api.com/users/{user_id}/posts/{post_id}", name="post_template"
+        )
+        template3 = manager.add_template(
+            product_func, uri_template="http://api.com/products/{product_id}", name="product_template"
+        )
+
+        # Test listing all templates
+        all_templates = manager.list_templates()
+        assert len(all_templates) == 3
+
+        # Test prefix filtering - matches both user templates
+        user_templates = manager.list_templates(prefix="http://api.com/users/")
+        assert len(user_templates) == 2
+        assert template1 in user_templates
+        assert template2 in user_templates
+
+        # Test partial materialization - only matches post template
+        # The template users/{user_id} generates "users/123" not "users/123/"
+        # But users/{user_id}/posts/{post_id} can generate "users/123/posts/456"
+        user_123_templates = manager.list_templates(prefix="http://api.com/users/123/")
+        assert len(user_123_templates) == 1
+        assert template2 in user_123_templates  # users/{user_id}/posts/{post_id} matches
+
+        # Without trailing slash, both match
+        user_123_no_slash = manager.list_templates(prefix="http://api.com/users/123")
+        assert len(user_123_no_slash) == 2
+        assert template1 in user_123_no_slash
+        assert template2 in user_123_no_slash
+
+        # Test product prefix
+        product_templates = manager.list_templates(prefix="http://api.com/products/")
+        assert len(product_templates) == 1
+        assert template3 in product_templates
+
+        # No matches
+        no_matches = manager.list_templates(prefix="http://api.com/orders/")
+        assert len(no_matches) == 0

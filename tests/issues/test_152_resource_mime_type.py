@@ -79,7 +79,7 @@ async def test_lowlevel_resource_mime_type():
     ]
 
     @server.list_resources()
-    async def handle_list_resources():
+    async def handle_list_resources(request: types.ListResourcesRequest):
         return test_resources
 
     @server.read_resource()

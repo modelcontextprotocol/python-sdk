@@ -9,6 +9,7 @@ from mcp.shared.memory import (
 )
 from mcp.types import (
     EmptyResult,
+    ListResourcesRequest,
     Resource,
 )
 
@@ -18,7 +19,7 @@ def mcp_server() -> Server:
     server = Server(name="test_server")
 
     @server.list_resources()
-    async def handle_list_resources():
+    async def handle_list_resources(request: ListResourcesRequest):
         return [
             Resource(
                 uri=AnyUrl("memory://test"),

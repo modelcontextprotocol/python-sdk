@@ -86,12 +86,18 @@ class ResourceManager:
 
         raise ValueError(f"Unknown resource: {uri}")
 
-    def list_resources(self) -> list[Resource]:
-        """List all registered resources."""
-        logger.debug("Listing resources", extra={"count": len(self._resources)})
-        return list(self._resources.values())
+    def list_resources(self, prefix: str | None = None) -> list[Resource]:
+        """List all registered resources, optionally filtered by URI prefix."""
+        resources = list(self._resources.values())
+        if prefix:
+            resources = [r for r in resources if str(r.uri).startswith(prefix)]
+        logger.debug("Listing resources", extra={"count": len(resources), "prefix": prefix})
+        return resources
 
-    def list_templates(self) -> list[ResourceTemplate]:
-        """List all registered templates."""
-        logger.debug("Listing templates", extra={"count": len(self._templates)})
-        return list(self._templates.values())
+    def list_templates(self, prefix: str | None = None) -> list[ResourceTemplate]:
+        """List all registered templates, optionally filtered by URI template prefix."""
+        templates = list(self._templates.values())
+        if prefix:
+            templates = [t for t in templates if t.matches_prefix(prefix)]
+        logger.debug("Listing templates", extra={"count": len(templates), "prefix": prefix})
+        return templates

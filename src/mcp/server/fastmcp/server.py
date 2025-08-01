@@ -21,6 +21,7 @@ from starlette.responses import Response
 from starlette.routing import Mount, Route
 from starlette.types import Receive, Scope, Send
 
+from mcp import types
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
@@ -297,10 +298,12 @@ class FastMCP(Generic[LifespanResultT]):
         context = self.get_context()
         return await self._tool_manager.call_tool(name, arguments, context=context, convert_result=True)
 
-    async def list_resources(self) -> list[MCPResource]:
-        """List all available resources."""
-
-        resources = self._resource_manager.list_resources()
+    async def list_resources(self, request: types.ListResourcesRequest | None = None) -> list[MCPResource]:
+        """List all available resources, optionally filtered by prefix."""
+        prefix = None
+        if request and request.params:
+            prefix = request.params.prefix
+        resources = self._resource_manager.list_resources(prefix=prefix)
         return [
             MCPResource(
                 uri=resource.uri,
@@ -312,8 +315,14 @@ class FastMCP(Generic[LifespanResultT]):
             for resource in resources
         ]
 
-    async def list_resource_templates(self) -> list[MCPResourceTemplate]:
-        templates = self._resource_manager.list_templates()
+    async def list_resource_templates(
+        self, request: types.ListResourceTemplatesRequest | None = None
+    ) -> list[MCPResourceTemplate]:
+        """List all available resource templates, optionally filtered by prefix."""
+        prefix = None
+        if request and request.params:
+            prefix = request.params.prefix
+        templates = self._resource_manager.list_templates(prefix=prefix)
         return [
             MCPResourceTemplate(
                 uriTemplate=template.uri_template,

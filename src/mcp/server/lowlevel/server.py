@@ -259,11 +259,11 @@ class Server(Generic[LifespanResultT, RequestT]):
         return decorator
 
     def list_resources(self):
-        def decorator(func: Callable[[], Awaitable[list[types.Resource]]]):
+        def decorator(func: Callable[[types.ListResourcesRequest], Awaitable[list[types.Resource]]]):
             logger.debug("Registering handler for ListResourcesRequest")
 
-            async def handler(_: Any):
-                resources = await func()
+            async def handler(request: types.ListResourcesRequest):
+                resources = await func(request)
                 return types.ServerResult(types.ListResourcesResult(resources=resources))
 
             self.request_handlers[types.ListResourcesRequest] = handler
@@ -272,11 +272,11 @@ class Server(Generic[LifespanResultT, RequestT]):
         return decorator
 
     def list_resource_templates(self):
-        def decorator(func: Callable[[], Awaitable[list[types.ResourceTemplate]]]):
+        def decorator(func: Callable[[types.ListResourceTemplatesRequest], Awaitable[list[types.ResourceTemplate]]]):
             logger.debug("Registering handler for ListResourceTemplatesRequest")
 
-            async def handler(_: Any):
-                templates = await func()
+            async def handler(request: types.ListResourceTemplatesRequest):
+                templates = await func(request)
                 return types.ServerResult(types.ListResourceTemplatesResult(resourceTemplates=templates))
 
             self.request_handlers[types.ListResourceTemplatesRequest] = handler

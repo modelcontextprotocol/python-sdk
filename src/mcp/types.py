@@ -63,6 +63,20 @@ class PaginatedRequestParams(RequestParams):
     """
 
 
+class ListResourcesRequestParams(PaginatedRequestParams):
+    """Parameters for listing resources with optional prefix filtering."""
+
+    prefix: str | None = None
+    """Optional prefix to filter resources by URI."""
+
+
+class ListResourceTemplatesRequestParams(PaginatedRequestParams):
+    """Parameters for listing resource templates with optional prefix filtering."""
+
+    prefix: str | None = None
+    """Optional prefix to filter resource templates by URI template."""
+
+
 class NotificationParams(BaseModel):
     class Meta(BaseModel):
         model_config = ConfigDict(extra="allow")
@@ -394,10 +408,11 @@ class ProgressNotification(Notification[ProgressNotificationParams, Literal["not
     params: ProgressNotificationParams
 
 
-class ListResourcesRequest(PaginatedRequest[Literal["resources/list"]]):
+class ListResourcesRequest(Request[ListResourcesRequestParams | None, Literal["resources/list"]]):
     """Sent from the client to request a list of resources the server has."""
 
     method: Literal["resources/list"]
+    params: ListResourcesRequestParams | None = None
 
 
 class Annotations(BaseModel):
@@ -461,10 +476,13 @@ class ListResourcesResult(PaginatedResult):
     resources: list[Resource]
 
 
-class ListResourceTemplatesRequest(PaginatedRequest[Literal["resources/templates/list"]]):
+class ListResourceTemplatesRequest(
+    Request[ListResourceTemplatesRequestParams | None, Literal["resources/templates/list"]]
+):
     """Sent from the client to request a list of resource templates the server has."""
 
     method: Literal["resources/templates/list"]
+    params: ListResourceTemplatesRequestParams | None = None
 
 
 class ListResourceTemplatesResult(PaginatedResult):

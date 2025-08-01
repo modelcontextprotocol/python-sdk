@@ -221,25 +221,35 @@ class ClientSession(
             types.EmptyResult,
         )
 
-    async def list_resources(self, cursor: str | None = None) -> types.ListResourcesResult:
+    async def list_resources(self, prefix: str | None = None, cursor: str | None = None) -> types.ListResourcesResult:
         """Send a resources/list request."""
+        params = None
+        if cursor is not None or prefix is not None:
+            params = types.ListResourcesRequestParams(prefix=prefix, cursor=cursor)
         return await self.send_request(
             types.ClientRequest(
                 types.ListResourcesRequest(
                     method="resources/list",
-                    params=types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None,
+                    params=params,
                 )
             ),
             types.ListResourcesResult,
         )
 
-    async def list_resource_templates(self, cursor: str | None = None) -> types.ListResourceTemplatesResult:
+    async def list_resource_templates(
+        self,
+        prefix: str | None = None,
+        cursor: str | None = None,
+    ) -> types.ListResourceTemplatesResult:
         """Send a resources/templates/list request."""
+        params = None
+        if cursor is not None or prefix is not None:
+            params = types.ListResourceTemplatesRequestParams(prefix=prefix, cursor=cursor)
         return await self.send_request(
             types.ClientRequest(
                 types.ListResourceTemplatesRequest(
                     method="resources/templates/list",
-                    params=types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None,
+                    params=params,
                 )
             ),
             types.ListResourceTemplatesResult,

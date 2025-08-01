@@ -100,7 +100,7 @@ async def test_server_capabilities():
 
     # Add a resources handler
     @server.list_resources()
-    async def list_resources():
+    async def list_resources(request: types.ListResourcesRequest):
         return []
 
     caps = server.get_capabilities(notification_options, experimental_capabilities)
