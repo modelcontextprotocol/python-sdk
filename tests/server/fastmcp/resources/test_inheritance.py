@@ -137,10 +137,11 @@ class TestResourceManagerIntegration:
 
     def test_list_resources_filters_tools_and_prompts(self, resource_manager, sample_tool, sample_prompt):
         """Test that list_resources filters out tool/prompt resources."""
-        from mcp.server.fastmcp.resources import TextResource
-
         # Add regular resource
         from pydantic import AnyUrl
+
+        from mcp.server.fastmcp.resources import TextResource
+
         text_resource = TextResource(uri=AnyUrl("file://test.txt"), name="test.txt", text="Hello world")
         resource_manager.add_resource(text_resource)
 
