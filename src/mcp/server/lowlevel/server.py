@@ -231,11 +231,11 @@ class Server(Generic[LifespanResultT, RequestT]):
         return request_ctx.get()
 
     def list_prompts(self):
-        def decorator(func: Callable[[], Awaitable[list[types.Prompt]]]):
+        def decorator(func: Callable[[types.ListPromptsRequest], Awaitable[list[types.Prompt]]]):
             logger.debug("Registering handler for PromptListRequest")
 
-            async def handler(_: Any):
-                prompts = await func()
+            async def handler(request: types.ListPromptsRequest):
+                prompts = await func(request)
                 return types.ServerResult(types.ListPromptsResult(prompts=prompts))
 
             self.request_handlers[types.ListPromptsRequest] = handler
@@ -382,11 +382,11 @@ class Server(Generic[LifespanResultT, RequestT]):
         return decorator
 
     def list_tools(self):
-        def decorator(func: Callable[[], Awaitable[list[types.Tool]]]):
+        def decorator(func: Callable[[types.ListToolsRequest], Awaitable[list[types.Tool]]]):
             logger.debug("Registering handler for ListToolsRequest")
 
-            async def handler(_: Any):
-                tools = await func()
+            async def handler(request: types.ListToolsRequest):
+                tools = await func(request)
                 # Refresh the tool cache
                 self._tool_cache.clear()
                 for tool in tools:

@@ -35,6 +35,13 @@ class PromptManager:
         uri = self._normalize_to_uri(name)
         return self._prompts.get(uri)
 
-    def list_prompts(self) -> list[Prompt]:
-        """List all registered prompts."""
-        return list(self._prompts.values())
+    def list_prompts(self, prefix: str | None = None) -> list[Prompt]:
+        """List all registered prompts, optionally filtered by URI prefix."""
+        prompts = list(self._prompts.values())
+        if prefix:
+            # Ensure prefix ends with / for proper path matching
+            if not prefix.endswith("/"):
+                prefix = prefix + "/"
+            prompts = [p for p in prompts if str(p.uri).startswith(prefix)]
+        logger.debug("Listing prompts", extra={"count": len(prompts), "prefix": prefix})
+        return prompts

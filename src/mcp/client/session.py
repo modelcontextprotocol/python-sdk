@@ -348,7 +348,7 @@ class ClientSession(
             types.ClientRequest(
                 types.ListPromptsRequest(
                     method="prompts/list",
-                    params=types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None,
+                    params=types.ListRequestParams(cursor=cursor) if cursor is not None else None,
                 )
             ),
             types.ListPromptsResult,
@@ -397,7 +397,7 @@ class ClientSession(
             types.ClientRequest(
                 types.ListToolsRequest(
                     method="tools/list",
-                    params=types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None,
+                    params=types.ListRequestParams(cursor=cursor) if cursor is not None else None,
                 )
             ),
             types.ListToolsResult,

@@ -90,6 +90,9 @@ class ResourceManager:
         """List all registered resources, optionally filtered by URI prefix."""
         resources = list(self._resources.values())
         if prefix:
+            # Ensure prefix ends with / for proper path matching
+            if not prefix.endswith("/"):
+                prefix = prefix + "/"
             resources = [r for r in resources if str(r.uri).startswith(prefix)]
         logger.debug("Listing resources", extra={"count": len(resources), "prefix": prefix})
         return resources
@@ -98,6 +101,9 @@ class ResourceManager:
         """List all registered templates, optionally filtered by URI template prefix."""
         templates = list(self._templates.values())
         if prefix:
+            # Ensure prefix ends with / for proper path matching
+            if not prefix.endswith("/"):
+                prefix = prefix + "/"
             templates = [t for t in templates if t.matches_prefix(prefix)]
         logger.debug("Listing templates", extra={"count": len(templates), "prefix": prefix})
         return templates

@@ -55,26 +55,15 @@ class RequestParams(BaseModel):
     meta: Meta | None = Field(alias="_meta", default=None)
 
 
-class PaginatedRequestParams(RequestParams):
+class ListRequestParams(RequestParams):
+    prefix: str | None = None
+    """Optional prefix to filter results by URI."""
+
     cursor: Cursor | None = None
     """
     An opaque token representing the current pagination position.
     If provided, the server should return results starting after this cursor.
     """
-
-
-class ListResourcesRequestParams(PaginatedRequestParams):
-    """Parameters for listing resources with optional prefix filtering."""
-
-    prefix: str | None = None
-    """Optional prefix to filter resources by URI."""
-
-
-class ListResourceTemplatesRequestParams(PaginatedRequestParams):
-    """Parameters for listing resource templates with optional prefix filtering."""
-
-    prefix: str | None = None
-    """Optional prefix to filter resource templates by URI template."""
 
 
 class NotificationParams(BaseModel):
@@ -101,11 +90,11 @@ class Request(BaseModel, Generic[RequestParamsT, MethodT]):
     model_config = ConfigDict(extra="allow")
 
 
-class PaginatedRequest(Request[PaginatedRequestParams | None, MethodT], Generic[MethodT]):
-    """Base class for paginated requests,
-    matching the schema's PaginatedRequest interface."""
+class ListRequest(Request[ListRequestParams | None, MethodT], Generic[MethodT]):
+    """Base class for list requests,
+    matching the schema's ListRequest interface."""
 
-    params: PaginatedRequestParams | None = None
+    params: ListRequestParams | None = None
 
 
 class Notification(BaseModel, Generic[NotificationParamsT, MethodT]):
@@ -127,7 +116,7 @@ class Result(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class PaginatedResult(Result):
+class ListResult(Result):
     nextCursor: Cursor | None = None
     """
     An opaque token representing the pagination position after the last returned result.
@@ -408,11 +397,10 @@ class ProgressNotification(Notification[ProgressNotificationParams, Literal["not
     params: ProgressNotificationParams
 
 
-class ListResourcesRequest(Request[ListResourcesRequestParams | None, Literal["resources/list"]]):
+class ListResourcesRequest(ListRequest[Literal["resources/list"]]):
     """Sent from the client to request a list of resources the server has."""
 
     method: Literal["resources/list"]
-    params: ListResourcesRequestParams | None = None
 
 
 class Annotations(BaseModel):
@@ -478,22 +466,19 @@ class ResourceTemplate(BaseMetadata):
     model_config = ConfigDict(extra="allow")
 
 
-class ListResourcesResult(PaginatedResult):
+class ListResourcesResult(ListResult):
     """The server's response to a resources/list request from the client."""
 
     resources: list[Resource]
 
 
-class ListResourceTemplatesRequest(
-    Request[ListResourceTemplatesRequestParams | None, Literal["resources/templates/list"]]
-):
+class ListResourceTemplatesRequest(ListRequest[Literal["resources/templates/list"]]):
     """Sent from the client to request a list of resource templates the server has."""
 
     method: Literal["resources/templates/list"]
-    params: ListResourceTemplatesRequestParams | None = None
 
 
-class ListResourceTemplatesResult(PaginatedResult):
+class ListResourceTemplatesResult(ListResult):
     """The server's response to a resources/templates/list request from the client."""
 
     resourceTemplates: list[ResourceTemplate]
@@ -629,7 +614,7 @@ class ResourceUpdatedNotification(
     params: ResourceUpdatedNotificationParams
 
 
-class ListPromptsRequest(PaginatedRequest[Literal["prompts/list"]]):
+class ListPromptsRequest(ListRequest[Literal["prompts/list"]]):
     """Sent from the client to request a list of prompts and prompt templates."""
 
     method: Literal["prompts/list"]
@@ -664,7 +649,7 @@ class Prompt(BaseMetadata):
     model_config = ConfigDict(extra="allow")
 
 
-class ListPromptsResult(PaginatedResult):
+class ListPromptsResult(ListResult):
     """The server's response to a prompts/list request from the client."""
 
     prompts: list[Prompt]
@@ -814,7 +799,7 @@ class PromptListChangedNotification(
     params: NotificationParams | None = None
 
 
-class ListToolsRequest(PaginatedRequest[Literal["tools/list"]]):
+class ListToolsRequest(ListRequest[Literal["tools/list"]]):
     """Sent from the client to request a list of tools the server has."""
 
     method: Literal["tools/list"]
@@ -892,7 +877,7 @@ class Tool(BaseMetadata):
     model_config = ConfigDict(extra="allow")
 
 
-class ListToolsResult(PaginatedResult):
+class ListToolsResult(ListResult):
     """The server's response to a tools/list request from the client."""
 
     tools: list[Tool]

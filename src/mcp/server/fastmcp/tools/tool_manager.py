@@ -45,9 +45,16 @@ class ToolManager:
         uri = self._normalize_to_uri(name)
         return self._tools.get(uri)
 
-    def list_tools(self) -> list[Tool]:
-        """List all registered tools."""
-        return list(self._tools.values())
+    def list_tools(self, prefix: str | None = None) -> list[Tool]:
+        """List all registered tools, optionally filtered by URI prefix."""
+        tools = list(self._tools.values())
+        if prefix:
+            # Ensure prefix ends with / for proper path matching
+            if not prefix.endswith("/"):
+                prefix = prefix + "/"
+            tools = [t for t in tools if str(t.uri).startswith(prefix)]
+        logger.debug("Listing tools", extra={"count": len(tools), "prefix": prefix})
+        return tools
 
     def add_tool(
         self,
