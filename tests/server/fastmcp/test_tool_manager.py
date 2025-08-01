@@ -62,7 +62,7 @@ class TestAddTools:
         # warn on duplicate tools
         with caplog.at_level(logging.WARNING):
             manager = ToolManager(True, tools=[original_tool, original_tool])
-            assert "Tool already exists: sum" in caplog.text
+            assert "Tool already exists: tool://sum" in caplog.text
 
     @pytest.mark.anyio
     async def test_async_function(self):
@@ -163,7 +163,7 @@ class TestAddTools:
         manager.add_tool(f)
         with caplog.at_level(logging.WARNING):
             manager.add_tool(f)
-            assert "Tool already exists: f" in caplog.text
+            assert "Tool already exists: tool://f" in caplog.text
 
     def test_disable_warn_on_duplicate_tools(self, caplog):
         """Test disabling warning on duplicate tools."""

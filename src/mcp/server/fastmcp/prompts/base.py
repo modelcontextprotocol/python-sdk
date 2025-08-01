@@ -1,14 +1,12 @@
 """Base classes for FastMCP prompts."""
 
 import inspect
-import json
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Literal
 
 import pydantic_core
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
-from mcp.server.fastmcp.resources import PromptResource
 from mcp.types import ContentBlock, TextContent
 
 
@@ -56,11 +54,21 @@ class PromptArgument(BaseModel):
     required: bool = Field(default=False, description="Whether the argument is required")
 
 
-class Prompt(PromptResource):
+class Prompt(BaseModel):
     """A prompt template that can be rendered with parameters."""
 
+    name: str = Field(description="Name of the prompt")
+    uri: str = Field(description="URI of the prompt")
+    title: str | None = Field(None, description="Human-readable title of the prompt")
+    description: str = Field(description="Description of what the prompt does")
     arguments: list[PromptArgument] | None = Field(None, description="Arguments that can be passed to the prompt")
     fn: Callable[..., PromptResult | Awaitable[PromptResult]] = Field(exclude=True)
+
+    def __init__(self, **data: Any) -> None:
+        """Initialize Prompt, generating URI from name if not provided."""
+        if "uri" not in data and "name" in data:
+            data["uri"] = f"prompt://{data['name']}"
+        super().__init__(**data)
 
     @classmethod
     def from_function(
@@ -109,28 +117,6 @@ class Prompt(PromptResource):
             arguments=arguments,
             fn=fn,
         )
-
-    async def read(self) -> str | bytes:
-        """Read the prompt template/documentation as JSON."""
-        prompt_info: dict[str, Any] = {
-            "name": self.name,
-            "title": self.title,
-            "description": self.description,
-            "uri": str(self.uri),
-        }
-
-        # Include arguments if available
-        if self.arguments:
-            prompt_info["arguments"] = [
-                {
-                    "name": arg.name,
-                    "description": arg.description,
-                    "required": arg.required,
-                }
-                for arg in self.arguments
-            ]
-
-        return json.dumps(prompt_info, indent=2)
 
     async def render(self, arguments: dict[str, Any] | None = None) -> list[Message]:
         """Render the prompt with arguments."""

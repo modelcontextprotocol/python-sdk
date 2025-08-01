@@ -87,26 +87,11 @@ class ResourceManager:
         raise ValueError(f"Unknown resource: {uri}")
 
     def list_resources(self, prefix: str | None = None) -> list[Resource]:
-        """List all registered resources, optionally filtered by URI prefix.
-
-        Note: Tool and prompt resources (with tool:// and prompt:// URIs) are excluded
-        by default to maintain API compatibility.
-        """
-        all_resources = list(self._resources.values())
-
-        # Filter out tool and prompt resources to maintain API compatibility
-        resources = [
-            r for r in all_resources if not (str(r.uri).startswith("tool://") or str(r.uri).startswith("prompt://"))
-        ]
-
-        # Apply prefix filter if provided
+        """List all registered resources, optionally filtered by URI prefix."""
+        resources = list(self._resources.values())
         if prefix:
             resources = [r for r in resources if str(r.uri).startswith(prefix)]
-
-        logger.debug(
-            "Listing resources",
-            extra={"total_count": len(all_resources), "filtered_count": len(resources), "prefix": prefix},
-        )
+        logger.debug("Listing resources", extra={"count": len(resources), "prefix": prefix})
         return resources
 
     def list_templates(self, prefix: str | None = None) -> list[ResourceTemplate]:

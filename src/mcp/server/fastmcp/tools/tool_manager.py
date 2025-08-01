@@ -28,15 +28,22 @@ class ToolManager:
         self._tools: dict[str, Tool] = {}
         if tools is not None:
             for tool in tools:
-                if warn_on_duplicate_tools and tool.name in self._tools:
-                    logger.warning(f"Tool already exists: {tool.name}")
-                self._tools[tool.name] = tool
+                if warn_on_duplicate_tools and tool.uri in self._tools:
+                    logger.warning(f"Tool already exists: {tool.uri}")
+                self._tools[tool.uri] = tool
 
         self.warn_on_duplicate_tools = warn_on_duplicate_tools
 
+    def _normalize_to_uri(self, name_or_uri: str) -> str:
+        """Convert name to URI if needed."""
+        if name_or_uri.startswith("tool://"):
+            return name_or_uri
+        return f"tool://{name_or_uri}"
+
     def get_tool(self, name: str) -> Tool | None:
-        """Get tool by name."""
-        return self._tools.get(name)
+        """Get tool by name or URI."""
+        uri = self._normalize_to_uri(name)
+        return self._tools.get(uri)
 
     def list_tools(self) -> list[Tool]:
         """List all registered tools."""
@@ -60,12 +67,12 @@ class ToolManager:
             annotations=annotations,
             structured_output=structured_output,
         )
-        existing = self._tools.get(tool.name)
+        existing = self._tools.get(tool.uri)
         if existing:
             if self.warn_on_duplicate_tools:
-                logger.warning(f"Tool already exists: {tool.name}")
+                logger.warning(f"Tool already exists: {tool.uri}")
             return existing
-        self._tools[tool.name] = tool
+        self._tools[tool.uri] = tool
         return tool
 
     async def call_tool(

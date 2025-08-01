@@ -217,6 +217,9 @@ class TestServerTools:
         async with client_session(mcp._mcp_server) as client:
             tools = await client.list_tools()
             assert len(tools.tools) == 1
+            # Verify URI is generated
+            tool = tools.tools[0]
+            assert str(tool.uri) == "tool://tool_fn"
 
     @pytest.mark.anyio
     async def test_call_tool(self):
@@ -957,6 +960,8 @@ class TestServerPrompts:
             assert len(result.prompts) == 1
             prompt = result.prompts[0]
             assert prompt.name == "fn"
+            # Verify URI is generated
+            assert str(prompt.uri) == "prompt://fn"
             assert prompt.arguments is not None
             assert len(prompt.arguments) == 2
             assert prompt.arguments[0].name == "name"

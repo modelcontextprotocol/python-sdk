@@ -181,17 +181,23 @@ async def test_get_display_name_utility():
     """Test the get_display_name utility function."""
 
     # Test tool precedence: title > annotations.title > name
-    tool_name_only = Tool(name="test_tool", inputSchema={})
+    tool_name_only = Tool(name="test_tool", uri="tool://test_tool", inputSchema={})
     assert get_display_name(tool_name_only) == "test_tool"
 
-    tool_with_title = Tool(name="test_tool", title="Test Tool", inputSchema={})
+    tool_with_title = Tool(name="test_tool", uri="tool://test_tool", title="Test Tool", inputSchema={})
     assert get_display_name(tool_with_title) == "Test Tool"
 
-    tool_with_annotations = Tool(name="test_tool", inputSchema={}, annotations=ToolAnnotations(title="Annotated Tool"))
+    tool_with_annotations = Tool(
+        name="test_tool", uri="tool://test_tool", inputSchema={}, annotations=ToolAnnotations(title="Annotated Tool")
+    )
     assert get_display_name(tool_with_annotations) == "Annotated Tool"
 
     tool_with_both = Tool(
-        name="test_tool", title="Primary Title", inputSchema={}, annotations=ToolAnnotations(title="Secondary Title")
+        name="test_tool",
+        uri="tool://test_tool",
+        title="Primary Title",
+        inputSchema={},
+        annotations=ToolAnnotations(title="Secondary Title"),
     )
     assert get_display_name(tool_with_both) == "Primary Title"
 
@@ -202,10 +208,10 @@ async def test_get_display_name_utility():
     resource_with_title = Resource(uri=AnyUrl("file://test"), name="test_res", title="Test Resource")
     assert get_display_name(resource_with_title) == "Test Resource"
 
-    prompt = Prompt(name="test_prompt")
+    prompt = Prompt(name="test_prompt", uri="prompt://test_prompt")
     assert get_display_name(prompt) == "test_prompt"
 
-    prompt_with_title = Prompt(name="test_prompt", title="Test Prompt")
+    prompt_with_title = Prompt(name="test_prompt", uri="prompt://test_prompt", title="Test Prompt")
     assert get_display_name(prompt_with_title) == "Test Prompt"
 
     template = ResourceTemplate(uriTemplate="file://{id}", name="test_template")

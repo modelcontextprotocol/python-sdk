@@ -13,20 +13,27 @@ class PromptManager:
         self._prompts: dict[str, Prompt] = {}
         self.warn_on_duplicate_prompts = warn_on_duplicate_prompts
 
+    def _normalize_to_uri(self, name_or_uri: str) -> str:
+        """Convert name to URI if needed."""
+        if name_or_uri.startswith("prompt://"):
+            return name_or_uri
+        return f"prompt://{name_or_uri}"
+
     def add_prompt(self, prompt: Prompt) -> Prompt:
         """Add a prompt to the manager."""
-        logger.debug(f"Adding prompt: {prompt.name}")
-        existing = self._prompts.get(prompt.name)
+        logger.debug(f"Adding prompt: {prompt.name} with URI: {prompt.uri}")
+        existing = self._prompts.get(prompt.uri)
         if existing:
             if self.warn_on_duplicate_prompts:
-                logger.warning(f"Prompt already exists: {prompt.name}")
+                logger.warning(f"Prompt already exists: {prompt.uri}")
             return existing
-        self._prompts[prompt.name] = prompt
+        self._prompts[prompt.uri] = prompt
         return prompt
 
     def get_prompt(self, name: str) -> Prompt | None:
-        """Get prompt by name."""
-        return self._prompts.get(name)
+        """Get prompt by name or URI."""
+        uri = self._normalize_to_uri(name)
+        return self._prompts.get(uri)
 
     def list_prompts(self) -> list[Prompt]:
         """List all registered prompts."""

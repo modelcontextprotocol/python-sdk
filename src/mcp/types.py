@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
+from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel, model_validator
 from pydantic.networks import AnyUrl, UrlConstraints
 from typing_extensions import deprecated
 
@@ -445,6 +445,14 @@ class Resource(BaseMetadata):
     """
     model_config = ConfigDict(extra="allow")
 
+    @model_validator(mode="after")
+    def validate_uri_scheme(self) -> "Resource":
+        """Ensure resource URI doesn't use reserved schemes."""
+        uri_str = str(self.uri)
+        if uri_str.startswith(("tool://", "prompt://")):
+            raise ValueError(f"Resource URI cannot use reserved schemes 'tool://' or 'prompt://', got: {self.uri}")
+        return self
+
 
 class ResourceTemplate(BaseMetadata):
     """A template description for resources available on the server."""
@@ -642,6 +650,8 @@ class PromptArgument(BaseModel):
 class Prompt(BaseMetadata):
     """A prompt or prompt template that the server offers."""
 
+    uri: Annotated[AnyUrl, UrlConstraints(allowed_schemes=["prompt"], host_required=False)]
+    """URI for the prompt. Must use 'prompt' scheme."""
     description: str | None = None
     """An optional description of what this prompt provides."""
     arguments: list[PromptArgument] | None = None
@@ -861,6 +871,8 @@ class ToolAnnotations(BaseModel):
 class Tool(BaseMetadata):
     """Definition for a tool the client can call."""
 
+    uri: Annotated[AnyUrl, UrlConstraints(allowed_schemes=["tool"], host_required=False)]
+    """URI for the tool. Must use 'tool' scheme."""
     description: str | None = None
     """A human-readable description of the tool."""
     inputSchema: dict[str, Any]

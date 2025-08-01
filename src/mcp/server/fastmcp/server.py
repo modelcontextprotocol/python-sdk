@@ -275,6 +275,7 @@ class FastMCP(Generic[LifespanResultT]):
                 name=info.name,
                 title=info.title,
                 description=info.description,
+                uri=info.uri,
                 inputSchema=info.parameters,
                 outputSchema=info.output_schema,
                 annotations=info.annotations,
@@ -973,6 +974,7 @@ class FastMCP(Generic[LifespanResultT]):
                 name=prompt.name,
                 title=prompt.title,
                 description=prompt.description,
+                uri=prompt.uri,
                 arguments=[
                     MCPPromptArgument(
                         name=arg.name,

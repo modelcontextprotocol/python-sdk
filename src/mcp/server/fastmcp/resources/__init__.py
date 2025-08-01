@@ -1,8 +1,6 @@
 from .base import Resource
-from .prompt_resource import PromptResource
 from .resource_manager import ResourceManager
 from .templates import ResourceTemplate
-from .tool_resource import ToolResource
 from .types import (
     BinaryResource,
     DirectoryResource,
@@ -22,6 +20,4 @@ __all__ = [
     "DirectoryResource",
     "ResourceTemplate",
     "ResourceManager",
-    "ToolResource",
-    "PromptResource",
 ]
