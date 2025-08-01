@@ -470,27 +470,33 @@ class OAuthClientProvider(httpx.Auth):
             # Use JWT assertion for client authentication
             if not self.context.jwt_parameters:
                 raise OAuthTokenError("Missing JWT parameters for private_key_jwt flow")
-            if not self.context.jwt_parameters.jwt_signing_key:
-                raise OAuthTokenError("Missing JWT signing key for private_key_jwt flow")
-            if not self.context.jwt_parameters.jwt_signing_algorithm:
-                raise OAuthTokenError("Missing JWT signing algorithm for private_key_jwt flow")
 
-            now = int(time.time())
-            claims = {
-                "iss": self.context.jwt_parameters.issuer,
-                "sub": self.context.jwt_parameters.subject,
-                "aud": self.context.jwt_parameters.audience if self.context.jwt_parameters.audience else token_url,
-                "exp": now + self.context.jwt_parameters.jwt_lifetime_seconds,
-                "iat": now,
-                "jti": str(uuid4()),
-            }
-            claims.update(self.context.jwt_parameters.claims or {})
+            if self.context.jwt_parameters.assertion is not None:
+                # Prebuilt JWT (e.g. acquired out-of-band)
+                assertion = self.context.jwt_parameters.assertion
+            else:
+                if not self.context.jwt_parameters.jwt_signing_key:
+                    raise OAuthTokenError("Missing JWT signing key for private_key_jwt flow")
+                if not self.context.jwt_parameters.jwt_signing_algorithm:
+                    raise OAuthTokenError("Missing JWT signing algorithm for private_key_jwt flow")
 
-            assertion = jwt.encode(
-                claims,
-                self.context.jwt_parameters.jwt_signing_key,
-                algorithm=self.context.jwt_parameters.jwt_signing_algorithm or "RS256",
-            )
+                now = int(time.time())
+                claims = {
+                    "iss": self.context.jwt_parameters.issuer,
+                    "sub": self.context.jwt_parameters.subject,
+                    "aud": self.context.jwt_parameters.audience if self.context.jwt_parameters.audience else token_url,
+                    "exp": now + self.context.jwt_parameters.jwt_lifetime_seconds,
+                    "iat": now,
+                    "jti": str(uuid4()),
+                }
+                claims.update(self.context.jwt_parameters.claims or {})
+
+                assertion = jwt.encode(
+                    claims,
+                    self.context.jwt_parameters.jwt_signing_key,
+                    algorithm=self.context.jwt_parameters.jwt_signing_algorithm or "RS256",
+                )
+
             # When using private_key_jwt, in a client_credentials flow, we use RFC 7523 Section 2.2
             token_data["client_assertion"] = assertion
             token_data["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
@@ -510,6 +516,7 @@ class OAuthClientProvider(httpx.Auth):
         token_url = self._get_token_endpoint()
 
         if self.context.jwt_parameters.assertion is not None:
+            # Prebuilt JWT (e.g. acquired out-of-band)
             assertion = self.context.jwt_parameters.assertion
         else:
             if not self.context.jwt_parameters.jwt_signing_key:
