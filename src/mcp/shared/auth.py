@@ -117,7 +117,7 @@ class OAuthMetadata(BaseModel):
     response_modes_supported: list[Literal["query", "fragment", "form_post"]] | None = None
     grant_types_supported: list[str] | None = None
     token_endpoint_auth_methods_supported: list[str] | None = None
-    token_endpoint_auth_signing_alg_values_supported: None = None
+    token_endpoint_auth_signing_alg_values_supported: list[str] | None = None
     service_documentation: AnyHttpUrl | None = None
     ui_locales_supported: list[str] | None = None
     op_policy_uri: AnyHttpUrl | None = None
