@@ -225,7 +225,7 @@ class ClientSession(
         """Send a resources/list request."""
         params = None
         if cursor is not None or prefix is not None:
-            params = types.ListResourcesRequestParams(prefix=prefix, cursor=cursor)
+            params = types.ListRequestParams(prefix=prefix, cursor=cursor)
         return await self.send_request(
             types.ClientRequest(
                 types.ListResourcesRequest(
@@ -244,7 +244,7 @@ class ClientSession(
         """Send a resources/templates/list request."""
         params = None
         if cursor is not None or prefix is not None:
-            params = types.ListResourceTemplatesRequestParams(prefix=prefix, cursor=cursor)
+            params = types.ListRequestParams(prefix=prefix, cursor=cursor)
         return await self.send_request(
             types.ClientRequest(
                 types.ListResourceTemplatesRequest(

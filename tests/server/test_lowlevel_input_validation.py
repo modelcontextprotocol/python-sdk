@@ -35,7 +35,7 @@ async def run_tool_test(
     server = Server("test")
 
     @server.list_tools()
-    async def list_tools():
+    async def list_tools(request):
         return tools
 
     @server.call_tool()
@@ -99,6 +99,7 @@ async def run_tool_test(
 def create_add_tool() -> Tool:
     """Create a standard 'add' tool for testing."""
     return Tool(
+        uri="tool://add",
         name="add",
         description="Add two numbers",
         inputSchema={
@@ -189,6 +190,7 @@ async def test_cache_refresh_on_missing_tool():
     """Test that tool cache is refreshed when tool is not found."""
     tools = [
         Tool(
+            uri="tool://multiply",
             name="multiply",
             description="Multiply two numbers",
             inputSchema={
@@ -230,6 +232,7 @@ async def test_enum_constraint_validation():
     """Test that enum constraints are validated."""
     tools = [
         Tool(
+            uri="tool://greet",
             name="greet",
             description="Greet someone",
             inputSchema={
@@ -267,6 +270,7 @@ async def test_tool_not_in_list_logs_warning(caplog):
     """Test that calling a tool not in list_tools logs a warning and skips validation."""
     tools = [
         Tool(
+            uri="tool://add",
             name="add",
             description="Add two numbers",
             inputSchema={

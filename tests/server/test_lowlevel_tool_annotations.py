@@ -20,9 +20,10 @@ async def test_lowlevel_server_tool_annotations():
 
     # Create a tool with annotations
     @server.list_tools()
-    async def list_tools():
+    async def list_tools(request):
         return [
             Tool(
+                uri="tool://echo",
                 name="echo",
                 description="Echo a message back",
                 inputSchema={

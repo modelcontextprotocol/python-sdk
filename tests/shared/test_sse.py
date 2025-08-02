@@ -64,9 +64,10 @@ class ServerTest(Server):
             raise McpError(error=ErrorData(code=404, message="OOPS! no resource with that URI was found"))
 
         @self.list_tools()
-        async def handle_list_tools() -> list[Tool]:
+        async def handle_list_tools(request) -> list[Tool]:
             return [
                 Tool(
+                    uri="tool://test_tool",
                     name="test_tool",
                     description="A test tool",
                     inputSchema={"type": "object", "properties": {}},
@@ -323,14 +324,16 @@ class RequestContextServer(Server[object, Request]):
             return [TextContent(type="text", text=f"Called {name}")]
 
         @self.list_tools()
-        async def handle_list_tools() -> list[Tool]:
+        async def handle_list_tools(request) -> list[Tool]:
             return [
                 Tool(
+                    uri="tool://echo_headers",
                     name="echo_headers",
                     description="Echoes request headers",
                     inputSchema={"type": "object", "properties": {}},
                 ),
                 Tool(
+                    uri="tool://echo_context",
                     name="echo_context",
                     description="Echoes request context",
                     inputSchema={

@@ -57,9 +57,10 @@ class ServerTest(Server):
             raise McpError(error=ErrorData(code=404, message="OOPS! no resource with that URI was found"))
 
         @self.list_tools()
-        async def handle_list_tools() -> list[Tool]:
+        async def handle_list_tools(request) -> list[Tool]:
             return [
                 Tool(
+                    uri="tool://test_tool",
                     name="test_tool",
                     description="A test tool",
                     inputSchema={"type": "object", "properties": {}},

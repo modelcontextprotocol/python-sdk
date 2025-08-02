@@ -43,7 +43,7 @@ class PromptManager:
     ) -> Prompt:
         """Add a prompt to the manager."""
         logger.debug(f"Adding prompt: {prompt.name} with URI: {prompt.uri}")
-        
+
         # Check for duplicates
         existing = self._prompts.get(prompt.uri)
         if existing:

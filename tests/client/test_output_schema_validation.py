@@ -42,9 +42,10 @@ class TestClientOutputSchemaValidation:
         }
 
         @server.list_tools()
-        async def list_tools():
+        async def list_tools(request):
             return [
                 Tool(
+                    uri="tool://get_user",
                     name="get_user",
                     description="Get user data",
                     inputSchema={"type": "object"},
@@ -81,9 +82,10 @@ class TestClientOutputSchemaValidation:
         }
 
         @server.list_tools()
-        async def list_tools():
+        async def list_tools(request):
             return [
                 Tool(
+                    uri="tool://calculate",
                     name="calculate",
                     description="Calculate something",
                     inputSchema={"type": "object"},
@@ -112,9 +114,10 @@ class TestClientOutputSchemaValidation:
         output_schema = {"type": "object", "additionalProperties": {"type": "integer"}, "title": "get_scores_Output"}
 
         @server.list_tools()
-        async def list_tools():
+        async def list_tools(request):
             return [
                 Tool(
+                    uri="tool://get_scores",
                     name="get_scores",
                     description="Get scores",
                     inputSchema={"type": "object"},
@@ -147,9 +150,10 @@ class TestClientOutputSchemaValidation:
         }
 
         @server.list_tools()
-        async def list_tools():
+        async def list_tools(request):
             return [
                 Tool(
+                    uri="tool://get_person",
                     name="get_person",
                     description="Get person data",
                     inputSchema={"type": "object"},
@@ -175,7 +179,7 @@ class TestClientOutputSchemaValidation:
         server = Server("test-server")
 
         @server.list_tools()
-        async def list_tools():
+        async def list_tools(request):
             # Return empty list - tool is not listed
             return []
 

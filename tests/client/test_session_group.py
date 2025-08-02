@@ -58,7 +58,7 @@ class TestClientSessionGroup:
             return f"{(server_info.name)}-{name}"
 
         mcp_session_group = ClientSessionGroup(component_name_hook=hook)
-        mcp_session_group._tools = {"server1-my_tool": types.Tool(name="my_tool", inputSchema={})}
+        mcp_session_group._tools = {"server1-my_tool": types.Tool(uri="tool://my_tool", name="my_tool", inputSchema={})}
         mcp_session_group._tool_to_session = {"server1-my_tool": mock_session}
         text_content = types.TextContent(type="text", text="OK")
         mock_session.call_tool.return_value = types.CallToolResult(content=[text_content])

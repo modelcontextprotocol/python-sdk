@@ -35,7 +35,7 @@ async def run_tool_test(
     server = Server("test")
 
     @server.list_tools()
-    async def list_tools():
+    async def list_tools(request):
         return tools
 
     @server.call_tool()
@@ -101,6 +101,7 @@ async def test_content_only_without_output_schema():
     """Test returning content only when no outputSchema is defined."""
     tools = [
         Tool(
+            uri="tool://echo",
             name="echo",
             description="Echo a message",
             inputSchema={
@@ -140,6 +141,7 @@ async def test_dict_only_without_output_schema():
     """Test returning dict only when no outputSchema is defined."""
     tools = [
         Tool(
+            uri="tool://get_info",
             name="get_info",
             description="Get structured information",
             inputSchema={
@@ -177,6 +179,7 @@ async def test_both_content_and_dict_without_output_schema():
     """Test returning both content and dict when no outputSchema is defined."""
     tools = [
         Tool(
+            uri="tool://process",
             name="process",
             description="Process data",
             inputSchema={
@@ -215,6 +218,7 @@ async def test_content_only_with_output_schema_error():
     """Test error when outputSchema is defined but only content is returned."""
     tools = [
         Tool(
+            uri="tool://structured_tool",
             name="structured_tool",
             description="Tool expecting structured output",
             inputSchema={
@@ -254,6 +258,7 @@ async def test_valid_dict_with_output_schema():
     """Test valid dict output matching outputSchema."""
     tools = [
         Tool(
+            uri="tool://calc",
             name="calc",
             description="Calculate result",
             inputSchema={
@@ -303,6 +308,7 @@ async def test_invalid_dict_with_output_schema():
     """Test dict output that doesn't match outputSchema."""
     tools = [
         Tool(
+            uri="tool://user_info",
             name="user_info",
             description="Get user information",
             inputSchema={
@@ -347,6 +353,7 @@ async def test_both_content_and_valid_dict_with_output_schema():
     """Test returning both content and valid dict with outputSchema."""
     tools = [
         Tool(
+            uri="tool://analyze",
             name="analyze",
             description="Analyze data",
             inputSchema={
@@ -394,6 +401,7 @@ async def test_output_schema_type_validation():
     """Test outputSchema validates types correctly."""
     tools = [
         Tool(
+            uri="tool://stats",
             name="stats",
             description="Get statistics",
             inputSchema={
