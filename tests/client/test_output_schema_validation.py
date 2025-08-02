@@ -8,7 +8,7 @@ from mcp.server.lowlevel import Server
 from mcp.shared.memory import (
     create_connected_server_and_client_session as client_session,
 )
-from mcp.types import TOOL_SCHEME, Tool
+from mcp.types import Tool
 
 
 @contextmanager
@@ -42,10 +42,9 @@ class TestClientOutputSchemaValidation:
         }
 
         @server.list_tools()
-        async def list_tools(request):
+        async def list_tools(_):
             return [
                 Tool(
-                    uri=f"{TOOL_SCHEME}/get_user",
                     name="get_user",
                     description="Get user data",
                     inputSchema={"type": "object"},
@@ -82,10 +81,9 @@ class TestClientOutputSchemaValidation:
         }
 
         @server.list_tools()
-        async def list_tools(request):
+        async def list_tools(_):
             return [
                 Tool(
-                    uri=f"{TOOL_SCHEME}/calculate",
                     name="calculate",
                     description="Calculate something",
                     inputSchema={"type": "object"},
@@ -114,10 +112,9 @@ class TestClientOutputSchemaValidation:
         output_schema = {"type": "object", "additionalProperties": {"type": "integer"}, "title": "get_scores_Output"}
 
         @server.list_tools()
-        async def list_tools(request):
+        async def list_tools(_):
             return [
                 Tool(
-                    uri=f"{TOOL_SCHEME}/get_scores",
                     name="get_scores",
                     description="Get scores",
                     inputSchema={"type": "object"},
@@ -150,10 +147,9 @@ class TestClientOutputSchemaValidation:
         }
 
         @server.list_tools()
-        async def list_tools(request):
+        async def list_tools(_):
             return [
                 Tool(
-                    uri=f"{TOOL_SCHEME}/get_person",
                     name="get_person",
                     description="Get person data",
                     inputSchema={"type": "object"},
@@ -179,7 +175,7 @@ class TestClientOutputSchemaValidation:
         server = Server("test-server")
 
         @server.list_tools()
-        async def list_tools(request):
+        async def list_tools(_):
             # Return empty list - tool is not listed
             return []
 

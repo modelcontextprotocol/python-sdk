@@ -10,7 +10,7 @@ from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
-from mcp.types import TOOL_SCHEME, ClientResult, ServerNotification, ServerRequest, Tool, ToolAnnotations
+from mcp.types import ClientResult, ServerNotification, ServerRequest, Tool, ToolAnnotations
 
 
 @pytest.mark.anyio
@@ -20,10 +20,9 @@ async def test_lowlevel_server_tool_annotations():
 
     # Create a tool with annotations
     @server.list_tools()
-    async def list_tools(request):
+    async def list_tools(_):
         return [
             Tool(
-                uri=f"{TOOL_SCHEME}/echo",
                 name="echo",
                 description="Echo a message back",
                 inputSchema={

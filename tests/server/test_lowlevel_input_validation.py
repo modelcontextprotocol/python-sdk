@@ -35,7 +35,7 @@ async def run_tool_test(
     server = Server("test")
 
     @server.list_tools()
-    async def list_tools(request):
+    async def list_tools(_):
         return tools
 
     @server.call_tool()

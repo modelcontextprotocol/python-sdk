@@ -49,7 +49,7 @@ server = Server("example-server", lifespan=server_lifespan)
 
 
 @server.list_tools()
-async def handle_list_tools(request: types.ListToolsRequest) -> list[types.Tool]:
+async def handle_list_tools(_) -> list[types.Tool]:
     """List available tools."""
     return [
         types.Tool(

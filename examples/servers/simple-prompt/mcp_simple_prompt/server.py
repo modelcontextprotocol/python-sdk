@@ -49,7 +49,7 @@ def main(port: int, transport: str) -> int:
     app = Server("mcp-simple-prompt")
 
     @app.list_prompts()
-    async def list_prompts(request: types.ListPromptsRequest) -> list[types.Prompt]:
+    async def list_prompts(_) -> list[types.Prompt]:
         return [
             types.Prompt(
                 name="simple",

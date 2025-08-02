@@ -139,10 +139,9 @@ class ServerTest(Server):
             raise ValueError(f"Unknown resource: {uri}")
 
         @self.list_tools()
-        async def handle_list_tools(request) -> list[Tool]:
+        async def handle_list_tools(_) -> list[Tool]:
             return [
                 Tool(
-                    uri=f"{TOOL_SCHEME}/test_tool",
                     name="test_tool",
                     description="A test tool",
                     inputSchema={"type": "object", "properties": {}},
@@ -1284,16 +1283,14 @@ class ContextAwareServerTest(Server):
         super().__init__("ContextAwareServer")
 
         @self.list_tools()
-        async def handle_list_tools(request) -> list[Tool]:
+        async def handle_list_tools(_) -> list[Tool]:
             return [
                 Tool(
-                    uri=f"{TOOL_SCHEME}/echo_headers",
                     name="echo_headers",
                     description="Echo request headers from context",
                     inputSchema={"type": "object", "properties": {}},
                 ),
                 Tool(
-                    uri=f"{TOOL_SCHEME}/echo_context",
                     name="echo_context",
                     description="Echo request context with custom data",
                     inputSchema={

@@ -16,7 +16,6 @@ from mcp.shared.session import (
     RequestResponder,
     SessionMessage,
 )
-from mcp.types import TOOL_SCHEME
 
 
 @pytest.mark.anyio
@@ -77,10 +76,9 @@ async def test_bidirectional_progress_notifications():
 
     # Register list tool handler
     @server.list_tools()
-    async def handle_list_tools(request) -> list[types.Tool]:
+    async def handle_list_tools(_) -> list[types.Tool]:
         return [
             types.Tool(
-                uri=f"{TOOL_SCHEME}/test_tool",
                 name="test_tool",
                 description="A tool that sends progress notifications <o/",
                 inputSchema={},

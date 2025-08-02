@@ -16,7 +16,6 @@ from mcp.server import Server
 from mcp.server.websocket import websocket_server
 from mcp.shared.exceptions import McpError
 from mcp.types import (
-    TOOL_SCHEME,
     EmptyResult,
     ErrorData,
     InitializeResult,
@@ -58,10 +57,9 @@ class ServerTest(Server):
             raise McpError(error=ErrorData(code=404, message="OOPS! no resource with that URI was found"))
 
         @self.list_tools()
-        async def handle_list_tools(request) -> list[Tool]:
+        async def handle_list_tools(_) -> list[Tool]:
             return [
                 Tool(
-                    uri=f"{TOOL_SCHEME}/test_tool",
                     name="test_tool",
                     description="A test tool",
                     inputSchema={"type": "object", "properties": {}},

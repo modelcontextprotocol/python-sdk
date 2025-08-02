@@ -32,9 +32,7 @@ def main(port: int, transport: str) -> int:
     app = Server("mcp-simple-resource")
 
     @app.list_resources()
-    async def list_resources(
-        request: types.ListResourcesRequest,
-    ) -> list[types.Resource]:
+    async def list_resources(_) -> list[types.Resource]:
         return [
             types.Resource(
                 uri=FileUrl(f"file:///{name}.txt"),

@@ -37,7 +37,7 @@ def main(port: int, transport: str) -> int:
         return await fetch_website(arguments["url"])
 
     @app.list_tools()
-    async def list_tools(request: types.ListToolsRequest) -> list[types.Tool]:
+    async def list_tools(_) -> list[types.Tool]:
         return [
             types.Tool(
                 name="fetch",
