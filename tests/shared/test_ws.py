@@ -16,6 +16,7 @@ from mcp.server import Server
 from mcp.server.websocket import websocket_server
 from mcp.shared.exceptions import McpError
 from mcp.types import (
+    TOOL_SCHEME,
     EmptyResult,
     ErrorData,
     InitializeResult,
@@ -60,7 +61,7 @@ class ServerTest(Server):
         async def handle_list_tools(request) -> list[Tool]:
             return [
                 Tool(
-                    uri="tool://test_tool",
+                    uri=f"{TOOL_SCHEME}/test_tool",
                     name="test_tool",
                     description="A test tool",
                     inputSchema={"type": "object", "properties": {}},

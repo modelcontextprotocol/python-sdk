@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools.base import Tool
+from mcp.server.fastmcp.uri_utils import filter_by_prefix, normalize_to_tool_uri
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.shared.context import LifespanContextT, RequestT
 from mcp.types import ToolAnnotations
@@ -30,15 +31,13 @@ class ToolManager:
             for tool in tools:
                 if warn_on_duplicate_tools and tool.uri in self._tools:
                     logger.warning(f"Tool already exists: {tool.uri}")
-                self._tools[tool.uri] = tool
+                self._tools[str(tool.uri)] = tool
 
         self.warn_on_duplicate_tools = warn_on_duplicate_tools
 
     def _normalize_to_uri(self, name_or_uri: str) -> str:
         """Convert name to URI if needed."""
-        if name_or_uri.startswith("tool://"):
-            return name_or_uri
-        return f"tool://{name_or_uri}"
+        return normalize_to_tool_uri(name_or_uri)
 
     def get_tool(self, name: str) -> Tool | None:
         """Get tool by name or URI."""
@@ -48,11 +47,7 @@ class ToolManager:
     def list_tools(self, prefix: str | None = None) -> list[Tool]:
         """List all registered tools, optionally filtered by URI prefix."""
         tools = list(self._tools.values())
-        if prefix:
-            # Ensure prefix ends with / for proper path matching
-            if not prefix.endswith("/"):
-                prefix = prefix + "/"
-            tools = [t for t in tools if str(t.uri).startswith(prefix)]
+        tools = filter_by_prefix(tools, prefix, lambda t: str(t.uri))
         logger.debug("Listing tools", extra={"count": len(tools), "prefix": prefix})
         return tools
 
@@ -74,12 +69,12 @@ class ToolManager:
             annotations=annotations,
             structured_output=structured_output,
         )
-        existing = self._tools.get(tool.uri)
+        existing = self._tools.get(str(tool.uri))
         if existing:
             if self.warn_on_duplicate_tools:
                 logger.warning(f"Tool already exists: {tool.uri}")
             return existing
-        self._tools[tool.uri] = tool
+        self._tools[str(tool.uri)] = tool
         return tool
 
     async def call_tool(

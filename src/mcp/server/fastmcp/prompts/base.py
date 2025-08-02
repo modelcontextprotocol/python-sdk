@@ -7,7 +7,7 @@ from typing import Any, Literal
 import pydantic_core
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
-from mcp.types import ContentBlock, TextContent
+from mcp.types import PROMPT_SCHEME, ContentBlock, TextContent
 
 
 class Message(BaseModel):
@@ -67,7 +67,7 @@ class Prompt(BaseModel):
     def __init__(self, **data: Any) -> None:
         """Initialize Prompt, generating URI from name if not provided."""
         if "uri" not in data and "name" in data:
-            data["uri"] = f"prompt://{data['name']}"
+            data["uri"] = f"{PROMPT_SCHEME}/{data['name']}"
         super().__init__(**data)
 
     @classmethod

@@ -12,6 +12,7 @@ from mcp.shared.memory import (
     create_connected_server_and_client_session,
 )
 from mcp.types import (
+    TOOL_SCHEME,
     CancelledNotification,
     CancelledNotificationParams,
     ClientNotification,
@@ -75,7 +76,7 @@ async def test_request_cancellation():
         async def handle_list_tools(request) -> list[types.Tool]:
             return [
                 types.Tool(
-                    uri="tool://slow_tool",
+                    uri=f"{TOOL_SCHEME}/slow_tool",
                     name="slow_tool",
                     description="A slow tool that takes 10 seconds to complete",
                     inputSchema={},

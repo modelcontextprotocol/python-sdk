@@ -16,6 +16,7 @@ from mcp.types import (
     CompletionContext,
     CompletionsCapability,
     InitializedNotification,
+    ListPromptsRequest,
     PromptReference,
     PromptsCapability,
     ResourcesCapability,
@@ -90,7 +91,7 @@ async def test_server_capabilities():
 
     # Add a prompts handler
     @server.list_prompts()
-    async def list_prompts():
+    async def list_prompts(request: ListPromptsRequest):
         return []
 
     caps = server.get_capabilities(notification_options, experimental_capabilities)

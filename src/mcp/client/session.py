@@ -342,13 +342,16 @@ class ClientSession(
             except SchemaError as e:
                 raise RuntimeError(f"Invalid schema for tool {name}: {e}")
 
-    async def list_prompts(self, cursor: str | None = None) -> types.ListPromptsResult:
+    async def list_prompts(self, prefix: str | None = None, cursor: str | None = None) -> types.ListPromptsResult:
         """Send a prompts/list request."""
+        params = None
+        if cursor is not None or prefix is not None:
+            params = types.ListRequestParams(prefix=prefix, cursor=cursor)
         return await self.send_request(
             types.ClientRequest(
                 types.ListPromptsRequest(
                     method="prompts/list",
-                    params=types.ListRequestParams(cursor=cursor) if cursor is not None else None,
+                    params=params,
                 )
             ),
             types.ListPromptsResult,
@@ -391,13 +394,16 @@ class ClientSession(
             types.CompleteResult,
         )
 
-    async def list_tools(self, cursor: str | None = None) -> types.ListToolsResult:
+    async def list_tools(self, prefix: str | None = None, cursor: str | None = None) -> types.ListToolsResult:
         """Send a tools/list request."""
+        params = None
+        if cursor is not None or prefix is not None:
+            params = types.ListRequestParams(prefix=prefix, cursor=cursor)
         result = await self.send_request(
             types.ClientRequest(
                 types.ListToolsRequest(
                     method="tools/list",
-                    params=types.ListRequestParams(cursor=cursor) if cursor is not None else None,
+                    params=params,
                 )
             ),
             types.ListToolsResult,

@@ -23,6 +23,7 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import McpError
 from mcp.types import (
+    TOOL_SCHEME,
     EmptyResult,
     ErrorData,
     InitializeResult,
@@ -67,7 +68,7 @@ class ServerTest(Server):
         async def handle_list_tools(request) -> list[Tool]:
             return [
                 Tool(
-                    uri="tool://test_tool",
+                    uri=f"{TOOL_SCHEME}/test_tool",
                     name="test_tool",
                     description="A test tool",
                     inputSchema={"type": "object", "properties": {}},
@@ -327,13 +328,13 @@ class RequestContextServer(Server[object, Request]):
         async def handle_list_tools(request) -> list[Tool]:
             return [
                 Tool(
-                    uri="tool://echo_headers",
+                    uri=f"{TOOL_SCHEME}/echo_headers",
                     name="echo_headers",
                     description="Echoes request headers",
                     inputSchema={"type": "object", "properties": {}},
                 ),
                 Tool(
-                    uri="tool://echo_context",
+                    uri=f"{TOOL_SCHEME}/echo_context",
                     name="echo_context",
                     description="Echoes request context",
                     inputSchema={

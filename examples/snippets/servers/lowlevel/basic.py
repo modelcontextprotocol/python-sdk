@@ -15,7 +15,7 @@ server = Server("example-server")
 
 
 @server.list_prompts()
-async def handle_list_prompts() -> list[types.Prompt]:
+async def handle_list_prompts(request: types.ListPromptsRequest) -> list[types.Prompt]:
     """List available prompts."""
     return [
         types.Prompt(

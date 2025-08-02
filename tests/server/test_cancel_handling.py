@@ -8,6 +8,7 @@ from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import (
+    TOOL_SCHEME,
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -34,7 +35,7 @@ async def test_server_remains_functional_after_cancel():
     async def handle_list_tools(request) -> list[Tool]:
         return [
             Tool(
-                uri="tool://test_tool",
+                uri=f"{TOOL_SCHEME}/test_tool",
                 name="test_tool",
                 description="Tool for testing",
                 inputSchema={},

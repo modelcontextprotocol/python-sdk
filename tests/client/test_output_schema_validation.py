@@ -8,7 +8,7 @@ from mcp.server.lowlevel import Server
 from mcp.shared.memory import (
     create_connected_server_and_client_session as client_session,
 )
-from mcp.types import Tool
+from mcp.types import TOOL_SCHEME, Tool
 
 
 @contextmanager
@@ -45,7 +45,7 @@ class TestClientOutputSchemaValidation:
         async def list_tools(request):
             return [
                 Tool(
-                    uri="tool://get_user",
+                    uri=f"{TOOL_SCHEME}/get_user",
                     name="get_user",
                     description="Get user data",
                     inputSchema={"type": "object"},
@@ -85,7 +85,7 @@ class TestClientOutputSchemaValidation:
         async def list_tools(request):
             return [
                 Tool(
-                    uri="tool://calculate",
+                    uri=f"{TOOL_SCHEME}/calculate",
                     name="calculate",
                     description="Calculate something",
                     inputSchema={"type": "object"},
@@ -117,7 +117,7 @@ class TestClientOutputSchemaValidation:
         async def list_tools(request):
             return [
                 Tool(
-                    uri="tool://get_scores",
+                    uri=f"{TOOL_SCHEME}/get_scores",
                     name="get_scores",
                     description="Get scores",
                     inputSchema={"type": "object"},
@@ -153,7 +153,7 @@ class TestClientOutputSchemaValidation:
         async def list_tools(request):
             return [
                 Tool(
-                    uri="tool://get_person",
+                    uri=f"{TOOL_SCHEME}/get_person",
                     name="get_person",
                     description="Get person data",
                     inputSchema={"type": "object"},

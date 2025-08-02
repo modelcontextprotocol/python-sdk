@@ -87,7 +87,7 @@ def main(
         ]
 
     @app.list_tools()
-    async def list_tools() -> list[types.Tool]:
+    async def list_tools(request: types.ListToolsRequest) -> list[types.Tool]:
         return [
             types.Tool(
                 name="start-notification-stream",

@@ -21,7 +21,7 @@ server = Server("structured-output-lowlevel-example")
 
 
 @server.list_tools()
-async def list_tools() -> list[types.Tool]:
+async def list_tools(request: types.ListToolsRequest) -> list[types.Tool]:
     """List available tools with their schemas."""
     return [
         types.Tool(

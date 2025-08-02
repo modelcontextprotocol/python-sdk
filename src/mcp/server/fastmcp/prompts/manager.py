@@ -3,6 +3,7 @@
 from typing import Any
 
 from mcp.server.fastmcp.prompts.base import Message, Prompt
+from mcp.server.fastmcp.uri_utils import filter_by_prefix, normalize_to_prompt_uri
 from mcp.server.fastmcp.utilities.logging import get_logger
 
 logger = get_logger(__name__)
@@ -17,9 +18,7 @@ class PromptManager:
 
     def _normalize_to_uri(self, name_or_uri: str) -> str:
         """Convert name to URI if needed."""
-        if name_or_uri.startswith("prompt://"):
-            return name_or_uri
-        return f"prompt://{name_or_uri}"
+        return normalize_to_prompt_uri(name_or_uri)
 
     def get_prompt(self, name: str) -> Prompt | None:
         """Get prompt by name or URI."""
@@ -29,11 +28,7 @@ class PromptManager:
     def list_prompts(self, prefix: str | None = None) -> list[Prompt]:
         """List all registered prompts, optionally filtered by URI prefix."""
         prompts = list(self._prompts.values())
-        if prefix:
-            # Ensure prefix ends with / for proper path matching
-            if not prefix.endswith("/"):
-                prefix = prefix + "/"
-            prompts = [p for p in prompts if str(p.uri).startswith(prefix)]
+        prompts = filter_by_prefix(prompts, prefix, lambda p: str(p.uri))
         logger.debug("Listing prompts", extra={"count": len(prompts), "prefix": prefix})
         return prompts
 

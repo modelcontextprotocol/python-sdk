@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
-from mcp.types import ToolAnnotations
+from mcp.types import TOOL_SCHEME, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -37,7 +37,7 @@ class Tool(BaseModel):
     def __init__(self, **data: Any) -> None:
         """Initialize Tool, generating URI from name if not provided."""
         if "uri" not in data and "name" in data:
-            data["uri"] = f"tool://{data['name']}"
+            data["uri"] = f"{TOOL_SCHEME}/{data['name']}"
         super().__init__(**data)
 
     @cached_property

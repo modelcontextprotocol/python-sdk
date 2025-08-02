@@ -1,9 +1,13 @@
 from collections.abc import Callable
 from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel, model_validator
-from pydantic.networks import AnyUrl, UrlConstraints
+from pydantic import AnyUrl, BaseModel, ConfigDict, Field, FileUrl, RootModel, model_validator
+from pydantic.networks import UrlConstraints
 from typing_extensions import deprecated
+
+# URI scheme constants
+TOOL_SCHEME = "tool:/"
+PROMPT_SCHEME = "prompt:/"
 
 """
 Model Context Protocol bindings for Python
@@ -437,8 +441,10 @@ class Resource(BaseMetadata):
     def validate_uri_scheme(self) -> "Resource":
         """Ensure resource URI doesn't use reserved schemes."""
         uri_str = str(self.uri)
-        if uri_str.startswith(("tool://", "prompt://")):
-            raise ValueError(f"Resource URI cannot use reserved schemes 'tool://' or 'prompt://', got: {self.uri}")
+        if uri_str.startswith((TOOL_SCHEME, PROMPT_SCHEME)):
+            raise ValueError(
+                f"Resource URI cannot use reserved schemes '{TOOL_SCHEME}' or '{PROMPT_SCHEME}', got: {self.uri}"
+            )
         return self
 
 
@@ -635,8 +641,10 @@ class PromptArgument(BaseModel):
 class Prompt(BaseMetadata):
     """A prompt or prompt template that the server offers."""
 
-    uri: Annotated[AnyUrl, UrlConstraints(allowed_schemes=["prompt"], host_required=False)]
-    """URI for the prompt. Must use 'prompt' scheme."""
+    uri: (
+        Annotated[AnyUrl, UrlConstraints(allowed_schemes=[PROMPT_SCHEME.rstrip(":/ ")], host_required=False)] | None
+    ) = None
+    """URI for the prompt. Auto-generated if not provided."""
     description: str | None = None
     """An optional description of what this prompt provides."""
     arguments: list[PromptArgument] | None = None
@@ -647,6 +655,12 @@ class Prompt(BaseMetadata):
     for notes on _meta usage.
     """
     model_config = ConfigDict(extra="allow")
+
+    def __init__(self, **data: Any) -> None:
+        """Initialize prompt with auto-generated URI if not provided."""
+        if "uri" not in data:
+            data["uri"] = AnyUrl(f"{PROMPT_SCHEME}/{data['name']}")
+        super().__init__(**data)
 
 
 class ListPromptsResult(ListResult):
@@ -856,8 +870,10 @@ class ToolAnnotations(BaseModel):
 class Tool(BaseMetadata):
     """Definition for a tool the client can call."""
 
-    uri: Annotated[AnyUrl, UrlConstraints(allowed_schemes=["tool"], host_required=False)]
-    """URI for the tool. Must use 'tool' scheme."""
+    uri: Annotated[AnyUrl, UrlConstraints(allowed_schemes=[TOOL_SCHEME.rstrip(":/ ")], host_required=False)] | None = (
+        None
+    )
+    """URI for the tool. Auto-generated if not provided."""
     description: str | None = None
     """A human-readable description of the tool."""
     inputSchema: dict[str, Any]
@@ -875,6 +891,12 @@ class Tool(BaseMetadata):
     for notes on _meta usage.
     """
     model_config = ConfigDict(extra="allow")
+
+    def __init__(self, **data: Any) -> None:
+        """Initialize tool with auto-generated URI if not provided."""
+        if "uri" not in data:
+            data["uri"] = AnyUrl(f"{TOOL_SCHEME}/{data['name']}")
+        super().__init__(**data)
 
 
 class ListToolsResult(ListResult):

@@ -14,7 +14,7 @@ from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
-from mcp.types import CallToolResult, ClientResult, ServerNotification, ServerRequest, TextContent, Tool
+from mcp.types import TOOL_SCHEME, CallToolResult, ClientResult, ServerNotification, ServerRequest, TextContent, Tool
 
 
 async def run_tool_test(
@@ -99,7 +99,7 @@ async def run_tool_test(
 def create_add_tool() -> Tool:
     """Create a standard 'add' tool for testing."""
     return Tool(
-        uri="tool://add",
+        uri=f"{TOOL_SCHEME}/add",
         name="add",
         description="Add two numbers",
         inputSchema={
@@ -190,7 +190,7 @@ async def test_cache_refresh_on_missing_tool():
     """Test that tool cache is refreshed when tool is not found."""
     tools = [
         Tool(
-            uri="tool://multiply",
+            uri=f"{TOOL_SCHEME}/multiply",
             name="multiply",
             description="Multiply two numbers",
             inputSchema={
@@ -232,7 +232,7 @@ async def test_enum_constraint_validation():
     """Test that enum constraints are validated."""
     tools = [
         Tool(
-            uri="tool://greet",
+            uri=f"{TOOL_SCHEME}/greet",
             name="greet",
             description="Greet someone",
             inputSchema={
@@ -270,7 +270,7 @@ async def test_tool_not_in_list_logs_warning(caplog):
     """Test that calling a tool not in list_tools logs a warning and skips validation."""
     tools = [
         Tool(
-            uri="tool://add",
+            uri=f"{TOOL_SCHEME}/add",
             name="add",
             description="Add two numbers",
             inputSchema={

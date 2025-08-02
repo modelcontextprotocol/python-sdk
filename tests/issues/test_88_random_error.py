@@ -12,7 +12,7 @@ from mcp import types
 from mcp.client.session import ClientSession
 from mcp.server.lowlevel import Server
 from mcp.shared.exceptions import McpError
-from mcp.types import ContentBlock, TextContent
+from mcp.types import TOOL_SCHEME, ContentBlock, TextContent
 
 
 @pytest.mark.anyio
@@ -34,13 +34,13 @@ async def test_notification_validation_error(tmp_path: Path):
     async def list_tools(request) -> list[types.Tool]:
         return [
             types.Tool(
-                uri="tool://slow",
+                uri=f"{TOOL_SCHEME}/slow",
                 name="slow",
                 description="A slow tool",
                 inputSchema={"type": "object"},
             ),
             types.Tool(
-                uri="tool://fast",
+                uri=f"{TOOL_SCHEME}/fast",
                 name="fast",
                 description="A fast tool",
                 inputSchema={"type": "object"},

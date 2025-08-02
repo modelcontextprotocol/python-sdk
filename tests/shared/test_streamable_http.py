@@ -45,6 +45,7 @@ from mcp.shared.message import (
 )
 from mcp.shared.session import RequestResponder
 from mcp.types import (
+    TOOL_SCHEME,
     InitializeResult,
     TextContent,
     TextResourceContents,
@@ -141,37 +142,37 @@ class ServerTest(Server):
         async def handle_list_tools(request) -> list[Tool]:
             return [
                 Tool(
-                    uri="tool://test_tool",
+                    uri=f"{TOOL_SCHEME}/test_tool",
                     name="test_tool",
                     description="A test tool",
                     inputSchema={"type": "object", "properties": {}},
                 ),
                 Tool(
-                    uri="tool://test_tool_with_standalone_notification",
+                    uri=f"{TOOL_SCHEME}/test_tool_with_standalone_notification",
                     name="test_tool_with_standalone_notification",
                     description="A test tool that sends a notification",
                     inputSchema={"type": "object", "properties": {}},
                 ),
                 Tool(
-                    uri="tool://long_running_with_checkpoints",
+                    uri=f"{TOOL_SCHEME}/long_running_with_checkpoints",
                     name="long_running_with_checkpoints",
                     description="A long-running tool that sends periodic notifications",
                     inputSchema={"type": "object", "properties": {}},
                 ),
                 Tool(
-                    uri="tool://test_sampling_tool",
+                    uri=f"{TOOL_SCHEME}/test_sampling_tool",
                     name="test_sampling_tool",
                     description="A tool that triggers server-side sampling",
                     inputSchema={"type": "object", "properties": {}},
                 ),
                 Tool(
-                    uri="tool://wait_for_lock_with_notification",
+                    uri=f"{TOOL_SCHEME}/wait_for_lock_with_notification",
                     name="wait_for_lock_with_notification",
                     description="A tool that sends a notification and waits for lock",
                     inputSchema={"type": "object", "properties": {}},
                 ),
                 Tool(
-                    uri="tool://release_lock",
+                    uri=f"{TOOL_SCHEME}/release_lock",
                     name="release_lock",
                     description="A tool that releases the lock",
                     inputSchema={"type": "object", "properties": {}},
@@ -1286,13 +1287,13 @@ class ContextAwareServerTest(Server):
         async def handle_list_tools(request) -> list[Tool]:
             return [
                 Tool(
-                    uri="tool://echo_headers",
+                    uri=f"{TOOL_SCHEME}/echo_headers",
                     name="echo_headers",
                     description="Echo request headers from context",
                     inputSchema={"type": "object", "properties": {}},
                 ),
                 Tool(
-                    uri="tool://echo_context",
+                    uri=f"{TOOL_SCHEME}/echo_context",
                     name="echo_context",
                     description="Echo request context with custom data",
                     inputSchema={

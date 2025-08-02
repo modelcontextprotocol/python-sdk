@@ -14,7 +14,7 @@ from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
-from mcp.types import CallToolResult, ClientResult, ServerNotification, ServerRequest, TextContent, Tool
+from mcp.types import TOOL_SCHEME, CallToolResult, ClientResult, ServerNotification, ServerRequest, TextContent, Tool
 
 
 async def run_tool_test(
@@ -101,7 +101,7 @@ async def test_content_only_without_output_schema():
     """Test returning content only when no outputSchema is defined."""
     tools = [
         Tool(
-            uri="tool://echo",
+            uri=f"{TOOL_SCHEME}/echo",
             name="echo",
             description="Echo a message",
             inputSchema={
@@ -141,7 +141,7 @@ async def test_dict_only_without_output_schema():
     """Test returning dict only when no outputSchema is defined."""
     tools = [
         Tool(
-            uri="tool://get_info",
+            uri=f"{TOOL_SCHEME}/get_info",
             name="get_info",
             description="Get structured information",
             inputSchema={
@@ -179,7 +179,7 @@ async def test_both_content_and_dict_without_output_schema():
     """Test returning both content and dict when no outputSchema is defined."""
     tools = [
         Tool(
-            uri="tool://process",
+            uri=f"{TOOL_SCHEME}/process",
             name="process",
             description="Process data",
             inputSchema={
@@ -218,7 +218,7 @@ async def test_content_only_with_output_schema_error():
     """Test error when outputSchema is defined but only content is returned."""
     tools = [
         Tool(
-            uri="tool://structured_tool",
+            uri=f"{TOOL_SCHEME}/structured_tool",
             name="structured_tool",
             description="Tool expecting structured output",
             inputSchema={
@@ -258,7 +258,7 @@ async def test_valid_dict_with_output_schema():
     """Test valid dict output matching outputSchema."""
     tools = [
         Tool(
-            uri="tool://calc",
+            uri=f"{TOOL_SCHEME}/calc",
             name="calc",
             description="Calculate result",
             inputSchema={
@@ -308,7 +308,7 @@ async def test_invalid_dict_with_output_schema():
     """Test dict output that doesn't match outputSchema."""
     tools = [
         Tool(
-            uri="tool://user_info",
+            uri=f"{TOOL_SCHEME}/user_info",
             name="user_info",
             description="Get user information",
             inputSchema={
@@ -353,7 +353,7 @@ async def test_both_content_and_valid_dict_with_output_schema():
     """Test returning both content and valid dict with outputSchema."""
     tools = [
         Tool(
-            uri="tool://analyze",
+            uri=f"{TOOL_SCHEME}/analyze",
             name="analyze",
             description="Analyze data",
             inputSchema={
@@ -401,7 +401,7 @@ async def test_output_schema_type_validation():
     """Test outputSchema validates types correctly."""
     tools = [
         Tool(
-            uri="tool://stats",
+            uri=f"{TOOL_SCHEME}/stats",
             name="stats",
             description="Get statistics",
             inputSchema={
