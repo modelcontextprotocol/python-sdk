@@ -58,7 +58,7 @@ def test_resource_uri():
     assert resource.name == "test"
     assert str(resource.uri) == "file://test.txt/"  # AnyUrl adds trailing slash
 
-    # Should reject tool:// and prompt:// schemes
+    # Should reject TOOL_SCHEME and PROMPT_SCHEME schemes
     with pytest.raises(ValueError, match="reserved schemes"):
         Resource(name="test", uri=AnyUrl(f"{TOOL_SCHEME}/test"))
 
@@ -68,7 +68,7 @@ def test_resource_uri():
 
 def test_tool_uri_validation():
     """Test that Tool requires URI with tool scheme."""
-    # Tool requires URI with tool:// scheme
+    # Tool requires URI with TOOL_SCHEME
     tool = Tool(name="calculator", inputSchema={"type": "object"}, uri=f"{TOOL_SCHEME}/calculator")
     assert tool.name == "calculator"
     assert str(tool.uri) == f"{TOOL_SCHEME}/calculator"
@@ -80,7 +80,7 @@ def test_tool_uri_validation():
 
 def test_prompt_uri_validation():
     """Test that Prompt requires URI with prompt scheme."""
-    # Prompt requires URI with prompt:// scheme
+    # Prompt requires URI with PROMPT_SCHEME
     prompt = Prompt(name="greeting", uri=f"{PROMPT_SCHEME}/greeting")
     assert prompt.name == "greeting"
     assert str(prompt.uri) == f"{PROMPT_SCHEME}/greeting"

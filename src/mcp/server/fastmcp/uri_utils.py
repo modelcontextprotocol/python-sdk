@@ -3,6 +3,8 @@
 from collections.abc import Callable
 from typing import TypeVar
 
+from pydantic import AnyUrl
+
 from mcp.types import PROMPT_SCHEME, TOOL_SCHEME
 
 T = TypeVar("T")
@@ -33,7 +35,7 @@ def normalize_to_prompt_uri(name_or_uri: str) -> str:
     return normalize_to_uri(name_or_uri, PROMPT_SCHEME)
 
 
-def filter_by_prefix(items: list[T], prefix: str | None, uri_getter: Callable[[T], str]) -> list[T]:
+def filter_by_prefix(items: list[T], prefix: str | None, uri_getter: Callable[[T], AnyUrl | str]) -> list[T]:
     """Filter items by URI prefix.
 
     Args:
@@ -50,7 +52,7 @@ def filter_by_prefix(items: list[T], prefix: str | None, uri_getter: Callable[[T
     # Filter items where the URI starts with the prefix
     filtered: list[T] = []
     for item in items:
-        uri = uri_getter(item)
+        uri = str(uri_getter(item))
         if uri.startswith(prefix):
             # If prefix ends with a separator, we already have a proper boundary
             if prefix.endswith(("/", "?", "#")):

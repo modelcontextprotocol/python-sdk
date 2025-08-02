@@ -6,8 +6,9 @@ from pydantic.networks import UrlConstraints
 from typing_extensions import deprecated
 
 # URI scheme constants
-TOOL_SCHEME = "tool:/"
-PROMPT_SCHEME = "prompt:/"
+MCP_SCHEME = "mcp"
+TOOL_SCHEME = f"{MCP_SCHEME}://tools"
+PROMPT_SCHEME = f"{MCP_SCHEME}://prompts"
 
 """
 Model Context Protocol bindings for Python
@@ -641,9 +642,7 @@ class PromptArgument(BaseModel):
 class Prompt(BaseMetadata):
     """A prompt or prompt template that the server offers."""
 
-    uri: (
-        Annotated[AnyUrl, UrlConstraints(allowed_schemes=[PROMPT_SCHEME.rstrip(":/ ")], host_required=False)] | None
-    ) = None
+    uri: Annotated[AnyUrl, UrlConstraints(allowed_schemes=[MCP_SCHEME], host_required=False)] | None = None
     """URI for the prompt. Auto-generated if not provided."""
     description: str | None = None
     """An optional description of what this prompt provides."""
@@ -661,6 +660,15 @@ class Prompt(BaseMetadata):
         if "uri" not in data:
             data["uri"] = AnyUrl(f"{PROMPT_SCHEME}/{data['name']}")
         super().__init__(**data)
+
+    @model_validator(mode="after")
+    def validate_prompt_uri(self) -> "Prompt":
+        """Validate that prompt URI starts with the correct prefix."""
+        if self.uri is not None:
+            uri_str = str(self.uri)
+            if not uri_str.startswith(f"{PROMPT_SCHEME}/"):
+                raise ValueError(f"Prompt URI must start with {PROMPT_SCHEME}/")
+        return self
 
 
 class ListPromptsResult(ListResult):
@@ -870,9 +878,7 @@ class ToolAnnotations(BaseModel):
 class Tool(BaseMetadata):
     """Definition for a tool the client can call."""
 
-    uri: Annotated[AnyUrl, UrlConstraints(allowed_schemes=[TOOL_SCHEME.rstrip(":/ ")], host_required=False)] | None = (
-        None
-    )
+    uri: Annotated[AnyUrl, UrlConstraints(allowed_schemes=[MCP_SCHEME], host_required=False)] | None = None
     """URI for the tool. Auto-generated if not provided."""
     description: str | None = None
     """A human-readable description of the tool."""
@@ -897,6 +903,15 @@ class Tool(BaseMetadata):
         if "uri" not in data:
             data["uri"] = AnyUrl(f"{TOOL_SCHEME}/{data['name']}")
         super().__init__(**data)
+
+    @model_validator(mode="after")
+    def validate_tool_uri(self) -> "Tool":
+        """Validate that tool URI starts with the correct prefix."""
+        if self.uri is not None:
+            uri_str = str(self.uri)
+            if not uri_str.startswith(f"{TOOL_SCHEME}/"):
+                raise ValueError(f"Tool URI must start with {TOOL_SCHEME}/")
+        return self
 
 
 class ListToolsResult(ListResult):

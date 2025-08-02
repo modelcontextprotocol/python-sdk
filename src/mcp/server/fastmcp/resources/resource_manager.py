@@ -90,7 +90,7 @@ class ResourceManager:
     def list_resources(self, prefix: str | None = None) -> list[Resource]:
         """List all registered resources, optionally filtered by URI prefix."""
         resources = list(self._resources.values())
-        resources = filter_by_prefix(resources, prefix, lambda r: str(r.uri))
+        resources = filter_by_prefix(resources, prefix, lambda r: r.uri)
         logger.debug("Listing resources", extra={"count": len(resources), "prefix": prefix})
         return resources
 

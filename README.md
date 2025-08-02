@@ -1125,7 +1125,7 @@ server = Server("example-server", lifespan=server_lifespan)
 
 
 @server.list_tools()
-async def handle_list_tools(request: types.ListToolsRequest) -> list[types.Tool]:
+async def handle_list_tools(_) -> list[types.Tool]:
     """List available tools."""
     return [
         types.Tool(
@@ -1207,7 +1207,7 @@ server = Server("example-server")
 
 
 @server.list_prompts()
-async def handle_list_prompts(request: types.ListPromptsRequest) -> list[types.Prompt]:
+async def handle_list_prompts(_) -> list[types.Prompt]:
     """List available prompts."""
     return [
         types.Prompt(
@@ -1286,7 +1286,7 @@ server = Server("example-server")
 
 
 @server.list_tools()
-async def list_tools(request: types.ListToolsRequest) -> list[types.Tool]:
+async def list_tools(_) -> list[types.Tool]:
     """List available tools with structured output schemas."""
     return [
         types.Tool(

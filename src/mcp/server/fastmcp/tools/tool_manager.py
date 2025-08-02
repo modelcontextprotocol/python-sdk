@@ -47,7 +47,7 @@ class ToolManager:
     def list_tools(self, prefix: str | None = None) -> list[Tool]:
         """List all registered tools, optionally filtered by URI prefix."""
         tools = list(self._tools.values())
-        tools = filter_by_prefix(tools, prefix, lambda t: str(t.uri))
+        tools = filter_by_prefix(tools, prefix, lambda t: t.uri)
         logger.debug("Listing tools", extra={"count": len(tools), "prefix": prefix})
         return tools
 

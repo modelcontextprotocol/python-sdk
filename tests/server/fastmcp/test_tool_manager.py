@@ -62,7 +62,7 @@ class TestAddTools:
         # warn on duplicate tools
         with caplog.at_level(logging.WARNING):
             manager = ToolManager(True, tools=[original_tool, original_tool])
-            assert "Tool already exists: tool://sum" in caplog.text
+            assert f"Tool already exists: {TOOL_SCHEME}/sum" in caplog.text
 
     @pytest.mark.anyio
     async def test_async_function(self):
@@ -163,7 +163,7 @@ class TestAddTools:
         manager.add_tool(f)
         with caplog.at_level(logging.WARNING):
             manager.add_tool(f)
-            assert "Tool already exists: tool://f" in caplog.text
+            assert f"Tool already exists: {TOOL_SCHEME}/f" in caplog.text
 
     def test_disable_warn_on_duplicate_tools(self, caplog):
         """Test disabling warning on duplicate tools."""
@@ -351,7 +351,7 @@ class TestCallTools:
         multiply_tool.uri = f"{TOOL_SCHEME}/custom/math/multiply"
         manager._tools[str(multiply_tool.uri)] = multiply_tool
 
-        # Call by default URI (tool://function_name)
+        # Call by default URI (TOOL_SCHEME/function_name)
         result = await manager.call_tool(f"{TOOL_SCHEME}/math_add", {"a": 5, "b": 3})
         assert result == 8
 

@@ -37,6 +37,6 @@ class PromptManager:
     def list_prompts(self, prefix: str | None = None) -> list[Prompt]:
         """List all registered prompts, optionally filtered by URI prefix."""
         prompts = list(self._prompts.values())
-        prompts = filter_by_prefix(prompts, prefix, lambda p: str(p.uri))
+        prompts = filter_by_prefix(prompts, prefix, lambda p: p.uri)
         logger.debug("Listing prompts", extra={"count": len(prompts), "prefix": prefix})
         return prompts

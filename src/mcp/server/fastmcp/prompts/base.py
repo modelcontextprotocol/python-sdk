@@ -60,7 +60,7 @@ class Prompt(BaseModel):
     name: str = Field(description="Name of the prompt")
     uri: str = Field(description="URI of the prompt")
     title: str | None = Field(None, description="Human-readable title of the prompt")
-    description: str = Field(description="Description of what the prompt does")
+    description: str | None = Field(None, description="Description of what the prompt does")
     arguments: list[PromptArgument] | None = Field(None, description="Arguments that can be passed to the prompt")
     fn: Callable[..., PromptResult | Awaitable[PromptResult]] = Field(exclude=True)
 
