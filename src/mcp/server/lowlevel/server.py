@@ -415,7 +415,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         if tool_name not in self._tool_cache:
             if types.ListToolsRequest in self.request_handlers:
                 logger.debug("Tool cache miss for %s, refreshing cache", tool_name)
-                await self.request_handlers[types.ListToolsRequest](None)
+                await self.request_handlers[types.ListToolsRequest](types.ListToolsRequest(method="tools/list"))
 
         tool = self._tool_cache.get(tool_name)
         if tool is None:

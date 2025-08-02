@@ -219,11 +219,10 @@ class TestResourceManager:
         assert len(user_123_templates) == 1
         assert template2 in user_123_templates  # users/{user_id}/posts/{post_id} matches
 
-        # Without trailing slash, both match
+        # Without trailing slash, it gets added automatically so only posts template matches
         user_123_no_slash = manager.list_templates(prefix="http://api.com/users/123")
-        assert len(user_123_no_slash) == 2
-        assert template1 in user_123_no_slash
-        assert template2 in user_123_no_slash
+        assert len(user_123_no_slash) == 1
+        assert template2 in user_123_no_slash  # Only posts template has path after users/123/
 
         # Test product prefix
         product_templates = manager.list_templates(prefix="http://api.com/products/")

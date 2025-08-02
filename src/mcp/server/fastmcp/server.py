@@ -267,10 +267,10 @@ class FastMCP(Generic[LifespanResultT]):
         self._mcp_server.get_prompt()(self.get_prompt)
         self._mcp_server.list_resource_templates()(self.list_resource_templates)
 
-    async def list_tools(self, request: types.ListToolsRequest) -> list[MCPTool]:
+    async def list_tools(self, request: types.ListToolsRequest | None = None) -> list[MCPTool]:
         """List all available tools, optionally filtered by prefix."""
         prefix = None
-        if request.params:
+        if request and request.params:
             prefix = request.params.prefix
         tools = self._tool_manager.list_tools(prefix=prefix)
         return [
@@ -969,10 +969,10 @@ class FastMCP(Generic[LifespanResultT]):
             lifespan=lambda app: self.session_manager.run(),
         )
 
-    async def list_prompts(self, request: types.ListPromptsRequest) -> list[MCPPrompt]:
+    async def list_prompts(self, request: types.ListPromptsRequest | None = None) -> list[MCPPrompt]:
         """List all available prompts, optionally filtered by prefix."""
         prefix = None
-        if request.params:
+        if request and request.params:
             prefix = request.params.prefix
         prompts = self._prompt_manager.list_prompts(prefix=prefix)
         return [
