@@ -286,6 +286,7 @@ class ClientSession(
         name: str,
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
+        meta: dict[str, Any] | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> types.CallToolResult:
         """Send a tools/call request with optional progress callback support."""
@@ -297,6 +298,9 @@ class ClientSession(
                     params=types.CallToolRequestParams(
                         name=name,
                         arguments=arguments,
+                        _meta=types.RequestParams.Meta(
+                            **(meta or {})
+                        )
                     ),
                 )
             ),
