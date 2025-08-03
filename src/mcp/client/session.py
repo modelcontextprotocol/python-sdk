@@ -296,11 +296,7 @@ class ClientSession(
                 types.CallToolRequest(
                     method="tools/call",
                     params=types.CallToolRequestParams(
-                        name=name,
-                        arguments=arguments,
-                        _meta=types.RequestParams.Meta(
-                            **(meta or {})
-                        )
+                        name=name, arguments=arguments, _meta=types.RequestParams.Meta(**(meta or {}))
                     ),
                 )
             ),
