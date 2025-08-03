@@ -166,22 +166,22 @@ class TestResourceManager:
         manager.add_resource(resource3)
 
         # Test uri_paths filtering
-        data_resources = manager.list_resources(uri_paths=["file:///data/"])
+        data_resources = manager.list_resources(uri_paths=[AnyUrl("file:///data/")])
         assert len(data_resources) == 2
         assert resource1 in data_resources
         assert resource2 in data_resources
 
         # More specific prefix
-        image_resources = manager.list_resources(uri_paths=["file:///data/images/"])
+        image_resources = manager.list_resources(uri_paths=[AnyUrl("file:///data/images/")])
         assert len(image_resources) == 1
         assert resource1 in image_resources
 
         # No matches
-        no_matches = manager.list_resources(uri_paths=["file:///nonexistent/"])
+        no_matches = manager.list_resources(uri_paths=[AnyUrl("file:///nonexistent/")])
         assert len(no_matches) == 0
 
         # Multiple uri_paths
-        multi_resources = manager.list_resources(uri_paths=["file:///data/", "file:///other/"])
+        multi_resources = manager.list_resources(uri_paths=[AnyUrl("file:///data/"), AnyUrl("file:///other/")])
         assert len(multi_resources) == 3
         assert all(r in multi_resources for r in [resource1, resource2, resource3])
 
@@ -212,7 +212,7 @@ class TestResourceManager:
         assert len(all_templates) == 3
 
         # Test uri_paths filtering - matches both user templates
-        user_templates = manager.list_templates(uri_paths=["http://api.com/users/"])
+        user_templates = manager.list_templates(uri_paths=[AnyUrl("http://api.com/users/")])
         assert len(user_templates) == 2
         assert template1 in user_templates
         assert template2 in user_templates
@@ -220,25 +220,27 @@ class TestResourceManager:
         # Test partial materialization - only matches post template
         # The template users/{user_id} generates "users/123" not "users/123/"
         # But users/{user_id}/posts/{post_id} can generate "users/123/posts/456"
-        user_123_templates = manager.list_templates(uri_paths=["http://api.com/users/123/"])
+        user_123_templates = manager.list_templates(uri_paths=[AnyUrl("http://api.com/users/123/")])
         assert len(user_123_templates) == 1
         assert template2 in user_123_templates  # users/{user_id}/posts/{post_id} matches
 
         # Without trailing slash, it gets added automatically so only posts template matches
-        user_123_no_slash = manager.list_templates(uri_paths=["http://api.com/users/123"])
+        user_123_no_slash = manager.list_templates(uri_paths=[AnyUrl("http://api.com/users/123")])
         assert len(user_123_no_slash) == 1
         assert template2 in user_123_no_slash  # Only posts template has path after users/123/
 
         # Test product prefix
-        product_templates = manager.list_templates(uri_paths=["http://api.com/products/"])
+        product_templates = manager.list_templates(uri_paths=[AnyUrl("http://api.com/products/")])
         assert len(product_templates) == 1
         assert template3 in product_templates
 
         # No matches
-        no_matches = manager.list_templates(uri_paths=["http://api.com/orders/"])
+        no_matches = manager.list_templates(uri_paths=[AnyUrl("http://api.com/orders/")])
         assert len(no_matches) == 0
 
         # Multiple uri_paths
-        users_and_products = manager.list_templates(uri_paths=["http://api.com/users/", "http://api.com/products/"])
+        users_and_products = manager.list_templates(
+            uri_paths=[AnyUrl("http://api.com/users/"), AnyUrl("http://api.com/products/")]
+        )
         assert len(users_and_products) == 3
         assert all(t in users_and_products for t in all_templates)

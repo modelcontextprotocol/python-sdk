@@ -1,5 +1,7 @@
 """Prompt management functionality."""
 
+from pydantic import AnyUrl
+
 from mcp.server.fastmcp.prompts.base import Prompt
 from mcp.server.fastmcp.uri_utils import filter_by_uri_paths, normalize_to_prompt_uri
 from mcp.server.fastmcp.utilities.logging import get_logger
@@ -34,9 +36,10 @@ class PromptManager:
         uri = self._normalize_to_uri(name)
         return self._prompts.get(uri)
 
-    def list_prompts(self, uri_paths: list[str] | None = None) -> list[Prompt]:
+    def list_prompts(self, uri_paths: list[AnyUrl] | None = None) -> list[Prompt]:
         """List all registered prompts, optionally filtered by URI paths."""
         prompts = list(self._prompts.values())
-        prompts = filter_by_uri_paths(prompts, uri_paths, lambda p: p.uri)
+        if uri_paths:
+            prompts = filter_by_uri_paths(prompts, uri_paths)
         logger.debug("Listing prompts", extra={"count": len(prompts), "uri_paths": uri_paths})
         return prompts

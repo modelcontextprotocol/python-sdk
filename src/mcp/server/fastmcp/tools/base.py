@@ -6,7 +6,7 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, get_origin
 
-from pydantic import BaseModel, Field
+from pydantic import AnyUrl, BaseModel, Field
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
@@ -22,7 +22,7 @@ class Tool(BaseModel):
     """Internal tool registration info."""
 
     name: str = Field(description="Name of the tool")
-    uri: str = Field(description="URI of the tool")
+    uri: AnyUrl = Field(description="URI of the tool")
     title: str | None = Field(None, description="Human-readable title of the tool")
     description: str = Field(description="Description of what the tool does")
     fn: Callable[..., Any] = Field(exclude=True)
@@ -37,7 +37,7 @@ class Tool(BaseModel):
     def __init__(self, **data: Any) -> None:
         """Initialize Tool, generating URI from name if not provided."""
         if "uri" not in data and "name" in data:
-            data["uri"] = f"{TOOL_SCHEME}/{data['name']}"
+            data["uri"] = AnyUrl(f"{TOOL_SCHEME}/{data['name']}")
         super().__init__(**data)
 
     @cached_property

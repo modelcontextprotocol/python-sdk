@@ -1,13 +1,13 @@
 """Common URI utilities for FastMCP."""
 
-from collections.abc import Callable
-from typing import TypeVar
+from collections.abc import Sequence
+from typing import Protocol, TypeVar, runtime_checkable
 
 from pydantic import AnyUrl
 
 from mcp.types import PROMPT_SCHEME, TOOL_SCHEME
 
-T = TypeVar("T")
+T = TypeVar("T", bound="HasUri")
 
 
 def normalize_to_uri(name_or_uri: str, scheme: str) -> str:
@@ -35,34 +35,37 @@ def normalize_to_prompt_uri(name_or_uri: str) -> str:
     return normalize_to_uri(name_or_uri, PROMPT_SCHEME)
 
 
-def filter_by_uri_paths(
-    items: list[T], uri_paths: list[str] | None, uri_getter: Callable[[T], AnyUrl | str]
-) -> list[T]:
+@runtime_checkable
+class HasUri(Protocol):
+    """Protocol for objects that have a URI attribute."""
+
+    uri: AnyUrl
+
+
+def filter_by_uri_paths(items: Sequence[T], uri_paths: Sequence[AnyUrl]) -> list[T]:
     """Filter items by multiple URI path prefixes.
 
     Args:
-        items: List of items to filter
-        uri_paths: Optional list of URI path prefixes to filter by. If None or empty, returns all items.
-        uri_getter: Function to extract URI from an item
+        items: List of items that have a 'uri' attribute
+        uri_paths: List of URI path prefixes to filter by.
 
     Returns:
         Filtered list of items matching any of the provided prefixes
     """
-    if not uri_paths:
-        return items
 
     # Filter items where the URI matches any of the prefixes
     filtered: list[T] = []
     for item in items:
-        uri = str(uri_getter(item))
+        uri = str(item.uri)
         for prefix in uri_paths:
-            if uri.startswith(prefix):
+            prefix_str = str(prefix)
+            if uri.startswith(prefix_str):
                 # If prefix ends with a separator, we already have a proper boundary
-                if prefix.endswith(("/", "?", "#")):
+                if prefix_str.endswith(("/", "?", "#")):
                     filtered.append(item)
                     break
                 # Otherwise check if it's an exact match or if the next character is a separator
-                elif len(uri) == len(prefix) or uri[len(prefix)] in ("/", "?", "#"):
+                elif len(uri) == len(prefix_str) or uri[len(prefix_str)] in ("/", "?", "#"):
                     filtered.append(item)
                     break
 

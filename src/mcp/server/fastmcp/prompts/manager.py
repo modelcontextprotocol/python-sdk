@@ -1,6 +1,8 @@
 """Prompt management functionality."""
 
-from typing import Any
+from typing import Any, overload
+
+from pydantic import AnyUrl
 
 from mcp.server.fastmcp.prompts.base import Message, Prompt
 from mcp.server.fastmcp.uri_utils import filter_by_uri_paths, normalize_to_prompt_uri
@@ -20,15 +22,28 @@ class PromptManager:
         """Convert name to URI if needed."""
         return normalize_to_prompt_uri(name_or_uri)
 
-    def get_prompt(self, name: str) -> Prompt | None:
+    @overload
+    def get_prompt(self, name_or_uri: str) -> Prompt | None:
+        """Get prompt by name."""
+        ...
+
+    @overload
+    def get_prompt(self, name_or_uri: AnyUrl) -> Prompt | None:
+        """Get prompt by URI."""
+        ...
+
+    def get_prompt(self, name_or_uri: AnyUrl | str) -> Prompt | None:
         """Get prompt by name or URI."""
-        uri = self._normalize_to_uri(name)
+        if isinstance(name_or_uri, AnyUrl):
+            return self._prompts.get(str(name_or_uri))
+        uri = self._normalize_to_uri(name_or_uri)
         return self._prompts.get(uri)
 
-    def list_prompts(self, uri_paths: list[str] | None = None) -> list[Prompt]:
+    def list_prompts(self, uri_paths: list[AnyUrl] | None = None) -> list[Prompt]:
         """List all registered prompts, optionally filtered by URI paths."""
         prompts = list(self._prompts.values())
-        prompts = filter_by_uri_paths(prompts, uri_paths, lambda p: p.uri)
+        if uri_paths:
+            prompts = filter_by_uri_paths(prompts, uri_paths)
         logger.debug("Listing prompts", extra={"count": len(prompts), "uri_paths": uri_paths})
         return prompts
 
@@ -40,19 +55,29 @@ class PromptManager:
         logger.debug(f"Adding prompt: {prompt.name} with URI: {prompt.uri}")
 
         # Check for duplicates
-        existing = self._prompts.get(prompt.uri)
+        existing = self._prompts.get(str(prompt.uri))
         if existing:
             if self.warn_on_duplicate_prompts:
                 logger.warning(f"Prompt already exists: {prompt.uri}")
             return existing
 
-        self._prompts[prompt.uri] = prompt
+        self._prompts[str(prompt.uri)] = prompt
         return prompt
 
-    async def render_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> list[Message]:
+    @overload
+    async def render_prompt(self, name_or_uri: str, arguments: dict[str, Any] | None = None) -> list[Message]:
         """Render a prompt by name with arguments."""
-        prompt = self.get_prompt(name)
+        ...
+
+    @overload
+    async def render_prompt(self, name_or_uri: AnyUrl, arguments: dict[str, Any] | None = None) -> list[Message]:
+        """Render a prompt by URI with arguments."""
+        ...
+
+    async def render_prompt(self, name_or_uri: AnyUrl | str, arguments: dict[str, Any] | None = None) -> list[Message]:
+        """Render a prompt by name or URI with arguments."""
+        prompt = self.get_prompt(name_or_uri)
         if not prompt:
-            raise ValueError(f"Unknown prompt: {name}")
+            raise ValueError(f"Unknown prompt: {name_or_uri}")
 
         return await prompt.render(arguments)

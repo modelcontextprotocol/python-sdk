@@ -63,7 +63,7 @@ class RequestParams(BaseModel):
 class ListFilters(BaseModel):
     """Filters for list operations."""
 
-    uri_paths: list[str] | None = None
+    uri_paths: list[AnyUrl] | None = None
     """Optional list of absolute URI path prefixes to filter results."""
 
 

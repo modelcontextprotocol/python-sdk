@@ -87,14 +87,15 @@ class ResourceManager:
 
         raise ValueError(f"Unknown resource: {uri}")
 
-    def list_resources(self, uri_paths: list[str] | None = None) -> list[Resource]:
+    def list_resources(self, uri_paths: list[AnyUrl] | None = None) -> list[Resource]:
         """List all registered resources, optionally filtered by URI paths."""
         resources = list(self._resources.values())
-        resources = filter_by_uri_paths(resources, uri_paths, lambda r: r.uri)
+        if uri_paths:
+            resources = filter_by_uri_paths(resources, uri_paths)
         logger.debug("Listing resources", extra={"count": len(resources), "uri_paths": uri_paths})
         return resources
 
-    def list_templates(self, uri_paths: list[str] | None = None) -> list[ResourceTemplate]:
+    def list_templates(self, uri_paths: list[AnyUrl] | None = None) -> list[ResourceTemplate]:
         """List all registered templates, optionally filtered by URI paths."""
         templates = list(self._templates.values())
         if uri_paths:
@@ -102,9 +103,10 @@ class ResourceManager:
             for template in templates:
                 for prefix in uri_paths:
                     # Ensure prefix ends with / for proper path matching
-                    if not prefix.endswith("/"):
-                        prefix = prefix + "/"
-                    if template.matches_prefix(prefix):
+                    prefix_str = str(prefix)
+                    if not prefix_str.endswith("/"):
+                        prefix_str = prefix_str + "/"
+                    if template.matches_prefix(prefix_str):
                         filtered.append(template)
                         break
             templates = filtered

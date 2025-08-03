@@ -1,5 +1,7 @@
 """Tests for URI utility functions."""
 
+from pydantic import AnyUrl
+
 from mcp.server.fastmcp.uri_utils import (
     filter_by_uri_paths,
     normalize_to_prompt_uri,
@@ -79,117 +81,124 @@ class TestNormalizeToPromptUri:
         assert result == f"{PROMPT_SCHEME}/templates/greeting"
 
 
+class MockUriItem:
+    """Mock item with a URI for testing."""
+
+    def __init__(self, uri: str):
+        self.uri = AnyUrl(uri)
+
+
 class TestFilterByUriPaths:
     """Test the URI paths filtering function."""
 
-    def test_filter_no_paths(self):
-        """Test that no paths returns all items."""
-        items = ["item1", "item2", "item3"]
-        result = filter_by_uri_paths(items, None, lambda x: x)
-        assert result == items
-
     def test_filter_empty_paths(self):
-        """Test that empty paths list returns all items."""
-        items = ["item1", "item2", "item3"]
-        result = filter_by_uri_paths(items, [], lambda x: x)
-        assert result == items
+        """Test that empty paths list returns empty result."""
+
+        class MockItem:
+            def __init__(self, uri: str):
+                self.uri = AnyUrl(uri)
+
+        items = [MockItem("http://example.com/item1"), MockItem("http://example.com/item2")]
+        result = filter_by_uri_paths(items, [])
+        assert result == []
 
     def test_filter_single_path(self):
         """Test filtering with a single path."""
-        items = [f"{TOOL_SCHEME}/math/add", f"{TOOL_SCHEME}/math/subtract", f"{TOOL_SCHEME}/string/concat"]
-        result = filter_by_uri_paths(items, [f"{TOOL_SCHEME}/math"], lambda x: x)
+        items = [
+            MockUriItem(f"{TOOL_SCHEME}/math/add"),
+            MockUriItem(f"{TOOL_SCHEME}/math/subtract"),
+            MockUriItem(f"{TOOL_SCHEME}/string/concat"),
+        ]
+        result = filter_by_uri_paths(items, [AnyUrl(f"{TOOL_SCHEME}/math")])
         assert len(result) == 2
-        assert f"{TOOL_SCHEME}/math/add" in result
-        assert f"{TOOL_SCHEME}/math/subtract" in result
+        assert any(str(item.uri) == f"{TOOL_SCHEME}/math/add" for item in result)
+        assert any(str(item.uri) == f"{TOOL_SCHEME}/math/subtract" for item in result)
 
     def test_filter_multiple_paths(self):
         """Test filtering with multiple paths."""
         items = [
-            f"{TOOL_SCHEME}/math/add",
-            f"{TOOL_SCHEME}/math/subtract",
-            f"{TOOL_SCHEME}/string/concat",
-            f"{PROMPT_SCHEME}/greet/hello",
+            MockUriItem(f"{TOOL_SCHEME}/math/add"),
+            MockUriItem(f"{TOOL_SCHEME}/math/subtract"),
+            MockUriItem(f"{TOOL_SCHEME}/string/concat"),
+            MockUriItem(f"{PROMPT_SCHEME}/greet/hello"),
         ]
-        result = filter_by_uri_paths(items, [f"{TOOL_SCHEME}/math", f"{PROMPT_SCHEME}/greet"], lambda x: x)
+        result = filter_by_uri_paths(items, [AnyUrl(f"{TOOL_SCHEME}/math"), AnyUrl(f"{PROMPT_SCHEME}/greet")])
         assert len(result) == 3
-        assert f"{TOOL_SCHEME}/math/add" in result
-        assert f"{TOOL_SCHEME}/math/subtract" in result
-        assert f"{PROMPT_SCHEME}/greet/hello" in result
-        assert f"{TOOL_SCHEME}/string/concat" not in result
+        assert any(str(item.uri) == f"{TOOL_SCHEME}/math/add" for item in result)
+        assert any(str(item.uri) == f"{TOOL_SCHEME}/math/subtract" for item in result)
+        assert any(str(item.uri) == f"{PROMPT_SCHEME}/greet/hello" for item in result)
+        assert not any(str(item.uri) == f"{TOOL_SCHEME}/string/concat" for item in result)
 
     def test_filter_paths_without_slash(self):
         """Test that paths without trailing slash only match at boundaries."""
         items = [
-            f"{TOOL_SCHEME}/math/add",
-            f"{TOOL_SCHEME}/math/subtract",
-            f"{TOOL_SCHEME}/string/concat",
-            f"{TOOL_SCHEME}/mathematic",
+            MockUriItem(f"{TOOL_SCHEME}/math/add"),
+            MockUriItem(f"{TOOL_SCHEME}/math/subtract"),
+            MockUriItem(f"{TOOL_SCHEME}/string/concat"),
+            MockUriItem(f"{TOOL_SCHEME}/mathematic"),
         ]
-        result = filter_by_uri_paths(items, [f"{TOOL_SCHEME}/math", f"{TOOL_SCHEME}/string"], lambda x: x)
+        result = filter_by_uri_paths(items, [AnyUrl(f"{TOOL_SCHEME}/math"), AnyUrl(f"{TOOL_SCHEME}/string")])
         assert len(result) == 3
-        assert f"{TOOL_SCHEME}/math/add" in result
-        assert f"{TOOL_SCHEME}/math/subtract" in result
-        assert f"{TOOL_SCHEME}/string/concat" in result
-        assert f"{TOOL_SCHEME}/mathematic" not in result
+        assert any(str(item.uri) == f"{TOOL_SCHEME}/math/add" for item in result)
+        assert any(str(item.uri) == f"{TOOL_SCHEME}/math/subtract" for item in result)
+        assert any(str(item.uri) == f"{TOOL_SCHEME}/string/concat" for item in result)
+        assert not any(str(item.uri) == f"{TOOL_SCHEME}/mathematic" for item in result)
 
     def test_filter_with_trailing_slashes(self):
         """Test filtering when paths have trailing slashes."""
         items = [
-            f"{PROMPT_SCHEME}/greet/hello",
-            f"{PROMPT_SCHEME}/greet/goodbye",
-            f"{PROMPT_SCHEME}/chat/start",
+            MockUriItem(f"{PROMPT_SCHEME}/greet/hello"),
+            MockUriItem(f"{PROMPT_SCHEME}/greet/goodbye"),
+            MockUriItem(f"{PROMPT_SCHEME}/chat/start"),
         ]
-        result = filter_by_uri_paths(items, [f"{PROMPT_SCHEME}/greet/", f"{PROMPT_SCHEME}/chat/"], lambda x: x)
+        result = filter_by_uri_paths(items, [AnyUrl(f"{PROMPT_SCHEME}/greet/"), AnyUrl(f"{PROMPT_SCHEME}/chat/")])
         assert len(result) == 3
-        assert all(item in result for item in items)
 
     def test_filter_overlapping_paths(self):
         """Test filtering with overlapping paths."""
         items = [
-            f"{TOOL_SCHEME}/math",
-            f"{TOOL_SCHEME}/math/add",
-            f"{TOOL_SCHEME}/math/advanced/multiply",
+            MockUriItem(f"{TOOL_SCHEME}/math"),
+            MockUriItem(f"{TOOL_SCHEME}/math/add"),
+            MockUriItem(f"{TOOL_SCHEME}/math/advanced/multiply"),
         ]
-        result = filter_by_uri_paths(items, [f"{TOOL_SCHEME}/math", f"{TOOL_SCHEME}/math/advanced"], lambda x: x)
+        result = filter_by_uri_paths(items, [AnyUrl(f"{TOOL_SCHEME}/math"), AnyUrl(f"{TOOL_SCHEME}/math/advanced")])
         assert len(result) == 3  # All items match
-        assert all(item in result for item in items)
 
     def test_filter_no_matches(self):
         """Test filtering when no items match any path."""
-        items = [f"{TOOL_SCHEME}/math/add", f"{TOOL_SCHEME}/math/subtract"]
-        result = filter_by_uri_paths(items, [f"{TOOL_SCHEME}/string", f"{PROMPT_SCHEME}/greet"], lambda x: x)
+        items = [MockUriItem(f"{TOOL_SCHEME}/math/add"), MockUriItem(f"{TOOL_SCHEME}/math/subtract")]
+        result = filter_by_uri_paths(items, [AnyUrl(f"{TOOL_SCHEME}/string"), AnyUrl(f"{PROMPT_SCHEME}/greet")])
         assert result == []
 
     def test_filter_with_objects(self):
-        """Test filtering objects using a URI getter function."""
-
-        class MockResource:
-            def __init__(self, uri):
-                self.uri = uri
-
+        """Test filtering objects with URI attributes."""
         resources = [
-            MockResource(f"{TOOL_SCHEME}/math/add"),
-            MockResource(f"{TOOL_SCHEME}/string/concat"),
-            MockResource(f"{PROMPT_SCHEME}/greet/hello"),
+            MockUriItem(f"{TOOL_SCHEME}/math/add"),
+            MockUriItem(f"{TOOL_SCHEME}/string/concat"),
+            MockUriItem(f"{PROMPT_SCHEME}/greet/hello"),
         ]
 
-        result = filter_by_uri_paths(resources, [f"{TOOL_SCHEME}/math", f"{PROMPT_SCHEME}/greet"], lambda r: r.uri)
+        result = filter_by_uri_paths(resources, [AnyUrl(f"{TOOL_SCHEME}/math"), AnyUrl(f"{PROMPT_SCHEME}/greet")])
         assert len(result) == 2
-        assert result[0].uri == f"{TOOL_SCHEME}/math/add"
-        assert result[1].uri == f"{PROMPT_SCHEME}/greet/hello"
+        assert str(result[0].uri) == f"{TOOL_SCHEME}/math/add"
+        assert str(result[1].uri) == f"{PROMPT_SCHEME}/greet/hello"
 
     def test_filter_case_sensitive(self):
         """Test that filtering is case sensitive."""
-        items = [f"{TOOL_SCHEME}/Math/add", f"{TOOL_SCHEME}/math/add"]
-        result = filter_by_uri_paths(items, [f"{TOOL_SCHEME}/math"], lambda x: x)
+        items = [MockUriItem(f"{TOOL_SCHEME}/Math/add"), MockUriItem(f"{TOOL_SCHEME}/math/add")]
+        result = filter_by_uri_paths(items, [AnyUrl(f"{TOOL_SCHEME}/math")])
         assert len(result) == 1
-        assert f"{TOOL_SCHEME}/math/add" in result
+        assert any(str(item.uri) == f"{TOOL_SCHEME}/math/add" for item in result)
 
     def test_filter_exact_path_match(self):
         """Test that exact path matches work correctly."""
-        items = [f"{TOOL_SCHEME}/test", f"{TOOL_SCHEME}/test/sub", f"{TOOL_SCHEME}/testing"]
-        result = filter_by_uri_paths(items, [f"{TOOL_SCHEME}/test"], lambda x: x)
+        items = [
+            MockUriItem(f"{TOOL_SCHEME}/test"),
+            MockUriItem(f"{TOOL_SCHEME}/test/sub"),
+            MockUriItem(f"{TOOL_SCHEME}/testing"),
+        ]
+        result = filter_by_uri_paths(items, [AnyUrl(f"{TOOL_SCHEME}/test")])
         assert len(result) == 2
-        assert f"{TOOL_SCHEME}/test" in result
-        assert f"{TOOL_SCHEME}/test/sub" in result
-        assert f"{TOOL_SCHEME}/testing" not in result
+        assert any(str(item.uri) == f"{TOOL_SCHEME}/test" for item in result)
+        assert any(str(item.uri) == f"{TOOL_SCHEME}/test/sub" for item in result)
+        assert not any(str(item.uri) == f"{TOOL_SCHEME}/testing" for item in result)

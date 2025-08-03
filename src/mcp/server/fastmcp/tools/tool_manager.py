@@ -1,7 +1,9 @@
 from __future__ import annotations as _annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, overload
+
+from pydantic import AnyUrl
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools.base import Tool
@@ -39,15 +41,28 @@ class ToolManager:
         """Convert name to URI if needed."""
         return normalize_to_tool_uri(name_or_uri)
 
-    def get_tool(self, name: str) -> Tool | None:
+    @overload
+    def get_tool(self, name_or_uri: str) -> Tool | None:
+        """Get tool by name."""
+        ...
+
+    @overload
+    def get_tool(self, name_or_uri: AnyUrl) -> Tool | None:
+        """Get tool by URI."""
+        ...
+
+    def get_tool(self, name_or_uri: AnyUrl | str) -> Tool | None:
         """Get tool by name or URI."""
-        uri = self._normalize_to_uri(name)
+        if isinstance(name_or_uri, AnyUrl):
+            return self._tools.get(str(name_or_uri))
+        uri = self._normalize_to_uri(name_or_uri)
         return self._tools.get(uri)
 
-    def list_tools(self, uri_paths: list[str] | None = None) -> list[Tool]:
+    def list_tools(self, uri_paths: list[AnyUrl] | None = None) -> list[Tool]:
         """List all registered tools, optionally filtered by URI paths."""
         tools = list(self._tools.values())
-        tools = filter_by_uri_paths(tools, uri_paths, lambda t: t.uri)
+        if uri_paths:
+            tools = filter_by_uri_paths(tools, uri_paths)
         logger.debug("Listing tools", extra={"count": len(tools), "uri_paths": uri_paths})
         return tools
 
@@ -77,16 +92,38 @@ class ToolManager:
         self._tools[str(tool.uri)] = tool
         return tool
 
+    @overload
     async def call_tool(
         self,
-        name: str,
+        name_or_uri: str,
         arguments: dict[str, Any],
         context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
         convert_result: bool = False,
     ) -> Any:
         """Call a tool by name with arguments."""
-        tool = self.get_tool(name)
+        ...
+
+    @overload
+    async def call_tool(
+        self,
+        name_or_uri: AnyUrl,
+        arguments: dict[str, Any],
+        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
+        convert_result: bool = False,
+    ) -> Any:
+        """Call a tool by URI with arguments."""
+        ...
+
+    async def call_tool(
+        self,
+        name_or_uri: AnyUrl | str,
+        arguments: dict[str, Any],
+        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
+        convert_result: bool = False,
+    ) -> Any:
+        """Call a tool by name or URI with arguments."""
+        tool = self.get_tool(name_or_uri)
         if not tool:
-            raise ToolError(f"Unknown tool: {name}")
+            raise ToolError(f"Unknown tool: {name_or_uri}")
 
         return await tool.run(arguments, context=context, convert_result=convert_result)

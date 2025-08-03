@@ -1,4 +1,5 @@
 import pytest
+from pydantic import AnyUrl
 
 from mcp.server.fastmcp.prompts.base import Prompt, TextContent, UserMessage
 from mcp.server.fastmcp.prompts.manager import PromptManager
@@ -81,16 +82,16 @@ class TestPromptManager:
 
         # Create prompts with custom URIs
         hello_prompt = Prompt.from_function(greeting_hello)
-        hello_prompt.uri = f"{PROMPT_SCHEME}/greeting/hello"
+        hello_prompt.uri = AnyUrl(f"{PROMPT_SCHEME}/greeting/hello")
 
         goodbye_prompt = Prompt.from_function(greeting_goodbye)
-        goodbye_prompt.uri = f"{PROMPT_SCHEME}/greeting/goodbye"
+        goodbye_prompt.uri = AnyUrl(f"{PROMPT_SCHEME}/greeting/goodbye")
 
         name_prompt = Prompt.from_function(question_name)
-        name_prompt.uri = f"{PROMPT_SCHEME}/question/name"
+        name_prompt.uri = AnyUrl(f"{PROMPT_SCHEME}/question/name")
 
         age_prompt = Prompt.from_function(question_age)
-        age_prompt.uri = f"{PROMPT_SCHEME}/question/age"
+        age_prompt.uri = AnyUrl(f"{PROMPT_SCHEME}/question/age")
 
         # Add prompts directly to manager's internal storage
         manager._prompts = {
@@ -105,40 +106,40 @@ class TestPromptManager:
         assert len(all_prompts) == 4
 
         # Test uri_paths filtering - greeting prompts
-        greeting_prompts = manager.list_prompts(uri_paths=[f"{PROMPT_SCHEME}/greeting/"])
+        greeting_prompts = manager.list_prompts(uri_paths=[AnyUrl(f"{PROMPT_SCHEME}/greeting/")])
         assert len(greeting_prompts) == 2
         assert all(str(p.uri).startswith(f"{PROMPT_SCHEME}/greeting/") for p in greeting_prompts)
         assert hello_prompt in greeting_prompts
         assert goodbye_prompt in greeting_prompts
 
         # Test uri_paths filtering - question prompts
-        question_prompts = manager.list_prompts(uri_paths=[f"{PROMPT_SCHEME}/question/"])
+        question_prompts = manager.list_prompts(uri_paths=[AnyUrl(f"{PROMPT_SCHEME}/question/")])
         assert len(question_prompts) == 2
         assert all(str(p.uri).startswith(f"{PROMPT_SCHEME}/question/") for p in question_prompts)
         assert name_prompt in question_prompts
         assert age_prompt in question_prompts
 
         # Test exact URI match
-        hello_prompts = manager.list_prompts(uri_paths=[f"{PROMPT_SCHEME}/greeting/hello"])
+        hello_prompts = manager.list_prompts(uri_paths=[AnyUrl(f"{PROMPT_SCHEME}/greeting/hello")])
         assert len(hello_prompts) == 1
         assert hello_prompts[0] == hello_prompt
 
         # Test partial prefix doesn't match
-        no_partial = manager.list_prompts(uri_paths=[f"{PROMPT_SCHEME}/greeting/h"])
+        no_partial = manager.list_prompts(uri_paths=[AnyUrl(f"{PROMPT_SCHEME}/greeting/h")])
         assert len(no_partial) == 0  # Won't match because next char is 'e' not a separator
 
         # Test no matches
-        no_matches = manager.list_prompts(uri_paths=[f"{PROMPT_SCHEME}/nonexistent"])
+        no_matches = manager.list_prompts(uri_paths=[AnyUrl(f"{PROMPT_SCHEME}/nonexistent")])
         assert len(no_matches) == 0
 
         # Test with trailing slash
-        greeting_prompts_slash = manager.list_prompts(uri_paths=[f"{PROMPT_SCHEME}/greeting/"])
+        greeting_prompts_slash = manager.list_prompts(uri_paths=[AnyUrl(f"{PROMPT_SCHEME}/greeting/")])
         assert len(greeting_prompts_slash) == 2
         assert greeting_prompts_slash == greeting_prompts
 
         # Test multiple uri_paths
         greeting_and_question = manager.list_prompts(
-            uri_paths=[f"{PROMPT_SCHEME}/greeting/", f"{PROMPT_SCHEME}/question/"]
+            uri_paths=[AnyUrl(f"{PROMPT_SCHEME}/greeting/"), AnyUrl(f"{PROMPT_SCHEME}/question/")]
         )
         assert len(greeting_and_question) == 4
         assert all(p in greeting_and_question for p in all_prompts)
@@ -205,7 +206,7 @@ class TestPromptManager:
 
         # Add prompt with custom URI
         custom = Prompt.from_function(custom_prompt)
-        custom.uri = f"{PROMPT_SCHEME}/custom/messages/welcome"
+        custom.uri = AnyUrl(f"{PROMPT_SCHEME}/custom/messages/welcome")
         manager._prompts[str(custom.uri)] = custom
 
         # Get by name
@@ -241,7 +242,7 @@ class TestPromptManager:
 
         # Add prompt with custom URI
         farewell_prompt = Prompt.from_function(farewell)
-        farewell_prompt.uri = f"{PROMPT_SCHEME}/custom/farewell"
+        farewell_prompt.uri = AnyUrl(f"{PROMPT_SCHEME}/custom/farewell")
         manager._prompts[str(farewell_prompt.uri)] = farewell_prompt
 
         # Render by default URI

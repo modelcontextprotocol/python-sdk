@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Literal
 
 import pydantic_core
-from pydantic import BaseModel, Field, TypeAdapter, validate_call
+from pydantic import AnyUrl, BaseModel, Field, TypeAdapter, validate_call
 
 from mcp.types import PROMPT_SCHEME, ContentBlock, TextContent
 
@@ -58,7 +58,7 @@ class Prompt(BaseModel):
     """A prompt template that can be rendered with parameters."""
 
     name: str = Field(description="Name of the prompt")
-    uri: str = Field(description="URI of the prompt")
+    uri: AnyUrl = Field(description="URI of the prompt")
     title: str | None = Field(None, description="Human-readable title of the prompt")
     description: str | None = Field(None, description="Description of what the prompt does")
     arguments: list[PromptArgument] | None = Field(None, description="Arguments that can be passed to the prompt")
@@ -67,7 +67,7 @@ class Prompt(BaseModel):
     def __init__(self, **data: Any) -> None:
         """Initialize Prompt, generating URI from name if not provided."""
         if "uri" not in data and "name" in data:
-            data["uri"] = f"{PROMPT_SCHEME}/{data['name']}"
+            data["uri"] = AnyUrl(f"{PROMPT_SCHEME}/{data['name']}")
         super().__init__(**data)
 
     @classmethod

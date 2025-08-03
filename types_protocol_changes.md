@@ -3,6 +3,7 @@
 ## URI Standardization
 
 ### Added URI schemes
+
 ```python
 MCP_SCHEME = "mcp"
 TOOL_SCHEME = "mcp://tools"
@@ -12,6 +13,7 @@ PROMPT_SCHEME = "mcp://prompts"
 ## Request/Response Changes
 
 ### Renamed pagination to list-based naming
+
 ```python
 # Before
 class PaginatedRequestParams(RequestParams):
@@ -32,6 +34,7 @@ class ListResult(Result)
 ## Tool Protocol Changes
 
 ### Tool now includes URI
+
 ```python
 class Tool(BaseMetadata):
     uri: AnyUrl | None = None  # NEW: auto-generated as mcp://tools/{name}
@@ -42,6 +45,7 @@ class Tool(BaseMetadata):
 ## Prompt Protocol Changes
 
 ### Prompt now includes URI
+
 ```python
 class Prompt(BaseMetadata):
     uri: AnyUrl | None = None  # NEW: auto-generated as mcp://prompts/{name}
@@ -52,6 +56,7 @@ class Prompt(BaseMetadata):
 ## Resource Validation
 
 ### Resources cannot use tool/prompt URI schemes
+
 ```python
 @model_validator(mode="after")
 def validate_uri_scheme(self) -> "Resource":
@@ -61,7 +66,8 @@ def validate_uri_scheme(self) -> "Resource":
 ## List Methods Update
 
 All list requests now support prefix filtering:
+
 - `ListResourcesRequest`
-- `ListToolsRequest` 
+- `ListToolsRequest`
 - `ListPromptsRequest`
 - `ListResourceTemplatesRequest`
