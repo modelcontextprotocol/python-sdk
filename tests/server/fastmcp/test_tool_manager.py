@@ -219,37 +219,42 @@ class TestAddTools:
         all_tools = manager.list_tools()
         assert len(all_tools) == 4
 
-        # Test prefix filtering - math tools
-        math_tools = manager.list_tools(prefix=f"{TOOL_SCHEME}/math/")
+        # Test uri_paths filtering - math tools
+        math_tools = manager.list_tools(uri_paths=[f"{TOOL_SCHEME}/math/"])
         assert len(math_tools) == 2
         assert all(str(t.uri).startswith(f"{TOOL_SCHEME}/math/") for t in math_tools)
         assert math_add_tool in math_tools
         assert math_multiply_tool in math_tools
 
-        # Test prefix filtering - string tools
-        string_tools = manager.list_tools(prefix=f"{TOOL_SCHEME}/string/")
+        # Test uri_paths filtering - string tools
+        string_tools = manager.list_tools(uri_paths=[f"{TOOL_SCHEME}/string/"])
         assert len(string_tools) == 2
         assert all(str(t.uri).startswith(f"{TOOL_SCHEME}/string/") for t in string_tools)
         assert string_concat_tool in string_tools
         assert string_upper_tool in string_tools
 
         # Test exact URI match
-        add_tools = manager.list_tools(prefix=f"{TOOL_SCHEME}/math/add")
+        add_tools = manager.list_tools(uri_paths=[f"{TOOL_SCHEME}/math/add"])
         assert len(add_tools) == 1
         assert add_tools[0] == math_add_tool
 
         # Test partial prefix doesn't match
-        no_partial = manager.list_tools(prefix=f"{TOOL_SCHEME}/math/a")
+        no_partial = manager.list_tools(uri_paths=[f"{TOOL_SCHEME}/math/a"])
         assert len(no_partial) == 0  # Won't match because next char is 'd' not a separator
 
         # Test no matches
-        no_matches = manager.list_tools(prefix=f"{TOOL_SCHEME}/nonexistent")
+        no_matches = manager.list_tools(uri_paths=[f"{TOOL_SCHEME}/nonexistent"])
         assert len(no_matches) == 0
 
         # Test with trailing slash
-        math_tools_slash = manager.list_tools(prefix=f"{TOOL_SCHEME}/math/")
+        math_tools_slash = manager.list_tools(uri_paths=[f"{TOOL_SCHEME}/math/"])
         assert len(math_tools_slash) == 2
         assert math_tools_slash == math_tools
+
+        # Test multiple uri_paths
+        math_and_string = manager.list_tools(uri_paths=[f"{TOOL_SCHEME}/math/", f"{TOOL_SCHEME}/string/"])
+        assert len(math_and_string) == 4
+        assert all(t in math_and_string for t in all_tools)
 
 
 class TestCallTools:

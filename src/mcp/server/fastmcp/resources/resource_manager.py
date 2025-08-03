@@ -7,7 +7,7 @@ from pydantic import AnyUrl
 
 from mcp.server.fastmcp.resources.base import Resource
 from mcp.server.fastmcp.resources.templates import ResourceTemplate
-from mcp.server.fastmcp.uri_utils import filter_by_prefix
+from mcp.server.fastmcp.uri_utils import filter_by_uri_paths
 from mcp.server.fastmcp.utilities.logging import get_logger
 
 logger = get_logger(__name__)
@@ -87,20 +87,26 @@ class ResourceManager:
 
         raise ValueError(f"Unknown resource: {uri}")
 
-    def list_resources(self, prefix: str | None = None) -> list[Resource]:
-        """List all registered resources, optionally filtered by URI prefix."""
+    def list_resources(self, uri_paths: list[str] | None = None) -> list[Resource]:
+        """List all registered resources, optionally filtered by URI paths."""
         resources = list(self._resources.values())
-        resources = filter_by_prefix(resources, prefix, lambda r: r.uri)
-        logger.debug("Listing resources", extra={"count": len(resources), "prefix": prefix})
+        resources = filter_by_uri_paths(resources, uri_paths, lambda r: r.uri)
+        logger.debug("Listing resources", extra={"count": len(resources), "uri_paths": uri_paths})
         return resources
 
-    def list_templates(self, prefix: str | None = None) -> list[ResourceTemplate]:
-        """List all registered templates, optionally filtered by URI template prefix."""
+    def list_templates(self, uri_paths: list[str] | None = None) -> list[ResourceTemplate]:
+        """List all registered templates, optionally filtered by URI paths."""
         templates = list(self._templates.values())
-        if prefix:
-            # Ensure prefix ends with / for proper path matching
-            if not prefix.endswith("/"):
-                prefix = prefix + "/"
-            templates = [t for t in templates if t.matches_prefix(prefix)]
-        logger.debug("Listing templates", extra={"count": len(templates), "prefix": prefix})
+        if uri_paths:
+            filtered: list[ResourceTemplate] = []
+            for template in templates:
+                for prefix in uri_paths:
+                    # Ensure prefix ends with / for proper path matching
+                    if not prefix.endswith("/"):
+                        prefix = prefix + "/"
+                    if template.matches_prefix(prefix):
+                        filtered.append(template)
+                        break
+            templates = filtered
+        logger.debug("Listing templates", extra={"count": len(templates), "uri_paths": uri_paths})
         return templates

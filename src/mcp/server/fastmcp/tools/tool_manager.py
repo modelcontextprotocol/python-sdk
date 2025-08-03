@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools.base import Tool
-from mcp.server.fastmcp.uri_utils import filter_by_prefix, normalize_to_tool_uri
+from mcp.server.fastmcp.uri_utils import filter_by_uri_paths, normalize_to_tool_uri
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.shared.context import LifespanContextT, RequestT
 from mcp.types import ToolAnnotations
@@ -44,11 +44,11 @@ class ToolManager:
         uri = self._normalize_to_uri(name)
         return self._tools.get(uri)
 
-    def list_tools(self, prefix: str | None = None) -> list[Tool]:
-        """List all registered tools, optionally filtered by URI prefix."""
+    def list_tools(self, uri_paths: list[str] | None = None) -> list[Tool]:
+        """List all registered tools, optionally filtered by URI paths."""
         tools = list(self._tools.values())
-        tools = filter_by_prefix(tools, prefix, lambda t: t.uri)
-        logger.debug("Listing tools", extra={"count": len(tools), "prefix": prefix})
+        tools = filter_by_uri_paths(tools, uri_paths, lambda t: t.uri)
+        logger.debug("Listing tools", extra={"count": len(tools), "uri_paths": uri_paths})
         return tools
 
     def add_tool(

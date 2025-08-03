@@ -104,37 +104,44 @@ class TestPromptManager:
         all_prompts = manager.list_prompts()
         assert len(all_prompts) == 4
 
-        # Test prefix filtering - greeting prompts
-        greeting_prompts = manager.list_prompts(prefix=f"{PROMPT_SCHEME}/greeting/")
+        # Test uri_paths filtering - greeting prompts
+        greeting_prompts = manager.list_prompts(uri_paths=[f"{PROMPT_SCHEME}/greeting/"])
         assert len(greeting_prompts) == 2
         assert all(str(p.uri).startswith(f"{PROMPT_SCHEME}/greeting/") for p in greeting_prompts)
         assert hello_prompt in greeting_prompts
         assert goodbye_prompt in greeting_prompts
 
-        # Test prefix filtering - question prompts
-        question_prompts = manager.list_prompts(prefix=f"{PROMPT_SCHEME}/question/")
+        # Test uri_paths filtering - question prompts
+        question_prompts = manager.list_prompts(uri_paths=[f"{PROMPT_SCHEME}/question/"])
         assert len(question_prompts) == 2
         assert all(str(p.uri).startswith(f"{PROMPT_SCHEME}/question/") for p in question_prompts)
         assert name_prompt in question_prompts
         assert age_prompt in question_prompts
 
         # Test exact URI match
-        hello_prompts = manager.list_prompts(prefix=f"{PROMPT_SCHEME}/greeting/hello")
+        hello_prompts = manager.list_prompts(uri_paths=[f"{PROMPT_SCHEME}/greeting/hello"])
         assert len(hello_prompts) == 1
         assert hello_prompts[0] == hello_prompt
 
         # Test partial prefix doesn't match
-        no_partial = manager.list_prompts(prefix=f"{PROMPT_SCHEME}/greeting/h")
+        no_partial = manager.list_prompts(uri_paths=[f"{PROMPT_SCHEME}/greeting/h"])
         assert len(no_partial) == 0  # Won't match because next char is 'e' not a separator
 
         # Test no matches
-        no_matches = manager.list_prompts(prefix=f"{PROMPT_SCHEME}/nonexistent")
+        no_matches = manager.list_prompts(uri_paths=[f"{PROMPT_SCHEME}/nonexistent"])
         assert len(no_matches) == 0
 
         # Test with trailing slash
-        greeting_prompts_slash = manager.list_prompts(prefix=f"{PROMPT_SCHEME}/greeting/")
+        greeting_prompts_slash = manager.list_prompts(uri_paths=[f"{PROMPT_SCHEME}/greeting/"])
         assert len(greeting_prompts_slash) == 2
         assert greeting_prompts_slash == greeting_prompts
+
+        # Test multiple uri_paths
+        greeting_and_question = manager.list_prompts(
+            uri_paths=[f"{PROMPT_SCHEME}/greeting/", f"{PROMPT_SCHEME}/question/"]
+        )
+        assert len(greeting_and_question) == 4
+        assert all(p in greeting_and_question for p in all_prompts)
 
     @pytest.mark.anyio
     async def test_render_prompt(self):

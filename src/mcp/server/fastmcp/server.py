@@ -268,11 +268,11 @@ class FastMCP(Generic[LifespanResultT]):
         self._mcp_server.list_resource_templates()(self.list_resource_templates)
 
     async def list_tools(self, request: types.ListToolsRequest | None = None) -> list[MCPTool]:
-        """List all available tools, optionally filtered by prefix."""
-        prefix = None
-        if request and request.params:
-            prefix = request.params.prefix
-        tools = self._tool_manager.list_tools(prefix=prefix)
+        """List all available tools, optionally filtered by URI paths."""
+        uri_paths = None
+        if request and request.params and request.params.filters:
+            uri_paths = request.params.filters.uri_paths
+        tools = self._tool_manager.list_tools(uri_paths=uri_paths)
         return [
             MCPTool(
                 name=info.name,
@@ -303,11 +303,11 @@ class FastMCP(Generic[LifespanResultT]):
         return await self._tool_manager.call_tool(name, arguments, context=context, convert_result=True)
 
     async def list_resources(self, request: types.ListResourcesRequest | None = None) -> list[MCPResource]:
-        """List all available resources, optionally filtered by prefix."""
-        prefix = None
-        if request and request.params:
-            prefix = request.params.prefix
-        resources = self._resource_manager.list_resources(prefix=prefix)
+        """List all available resources, optionally filtered by URI paths."""
+        uri_paths = None
+        if request and request.params and request.params.filters:
+            uri_paths = request.params.filters.uri_paths
+        resources = self._resource_manager.list_resources(uri_paths=uri_paths)
         return [
             MCPResource(
                 uri=resource.uri,
@@ -322,11 +322,11 @@ class FastMCP(Generic[LifespanResultT]):
     async def list_resource_templates(
         self, request: types.ListResourceTemplatesRequest | None = None
     ) -> list[MCPResourceTemplate]:
-        """List all available resource templates, optionally filtered by prefix."""
-        prefix = None
-        if request and request.params:
-            prefix = request.params.prefix
-        templates = self._resource_manager.list_templates(prefix=prefix)
+        """List all available resource templates, optionally filtered by URI paths."""
+        uri_paths = None
+        if request and request.params and request.params.filters:
+            uri_paths = request.params.filters.uri_paths
+        templates = self._resource_manager.list_templates(uri_paths=uri_paths)
         return [
             MCPResourceTemplate(
                 uriTemplate=template.uri_template,
@@ -970,11 +970,11 @@ class FastMCP(Generic[LifespanResultT]):
         )
 
     async def list_prompts(self, request: types.ListPromptsRequest | None = None) -> list[MCPPrompt]:
-        """List all available prompts, optionally filtered by prefix."""
-        prefix = None
-        if request and request.params:
-            prefix = request.params.prefix
-        prompts = self._prompt_manager.list_prompts(prefix=prefix)
+        """List all available prompts, optionally filtered by URI paths."""
+        uri_paths = None
+        if request and request.params and request.params.filters:
+            uri_paths = request.params.filters.uri_paths
+        prompts = self._prompt_manager.list_prompts(uri_paths=uri_paths)
         return [
             MCPPrompt(
                 name=prompt.name,

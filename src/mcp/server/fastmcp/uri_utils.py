@@ -35,30 +35,35 @@ def normalize_to_prompt_uri(name_or_uri: str) -> str:
     return normalize_to_uri(name_or_uri, PROMPT_SCHEME)
 
 
-def filter_by_prefix(items: list[T], prefix: str | None, uri_getter: Callable[[T], AnyUrl | str]) -> list[T]:
-    """Filter items by URI prefix.
+def filter_by_uri_paths(
+    items: list[T], uri_paths: list[str] | None, uri_getter: Callable[[T], AnyUrl | str]
+) -> list[T]:
+    """Filter items by multiple URI path prefixes.
 
     Args:
         items: List of items to filter
-        prefix: Optional prefix to filter by. If None, returns all items.
+        uri_paths: Optional list of URI path prefixes to filter by. If None or empty, returns all items.
         uri_getter: Function to extract URI from an item
 
     Returns:
-        Filtered list of items
+        Filtered list of items matching any of the provided prefixes
     """
-    if not prefix:
+    if not uri_paths:
         return items
 
-    # Filter items where the URI starts with the prefix
+    # Filter items where the URI matches any of the prefixes
     filtered: list[T] = []
     for item in items:
         uri = str(uri_getter(item))
-        if uri.startswith(prefix):
-            # If prefix ends with a separator, we already have a proper boundary
-            if prefix.endswith(("/", "?", "#")):
-                filtered.append(item)
-            # Otherwise check if it's an exact match or if the next character is a separator
-            elif len(uri) == len(prefix) or uri[len(prefix)] in ("/", "?", "#"):
-                filtered.append(item)
+        for prefix in uri_paths:
+            if uri.startswith(prefix):
+                # If prefix ends with a separator, we already have a proper boundary
+                if prefix.endswith(("/", "?", "#")):
+                    filtered.append(item)
+                    break
+                # Otherwise check if it's an exact match or if the next character is a separator
+                elif len(uri) == len(prefix) or uri[len(prefix)] in ("/", "?", "#"):
+                    filtered.append(item)
+                    break
 
     return filtered

@@ -1,7 +1,7 @@
 """Prompt management functionality."""
 
 from mcp.server.fastmcp.prompts.base import Prompt
-from mcp.server.fastmcp.uri_utils import filter_by_prefix, normalize_to_prompt_uri
+from mcp.server.fastmcp.uri_utils import filter_by_uri_paths, normalize_to_prompt_uri
 from mcp.server.fastmcp.utilities.logging import get_logger
 
 logger = get_logger(__name__)
@@ -34,9 +34,9 @@ class PromptManager:
         uri = self._normalize_to_uri(name)
         return self._prompts.get(uri)
 
-    def list_prompts(self, prefix: str | None = None) -> list[Prompt]:
-        """List all registered prompts, optionally filtered by URI prefix."""
+    def list_prompts(self, uri_paths: list[str] | None = None) -> list[Prompt]:
+        """List all registered prompts, optionally filtered by URI paths."""
         prompts = list(self._prompts.values())
-        prompts = filter_by_prefix(prompts, prefix, lambda p: p.uri)
-        logger.debug("Listing prompts", extra={"count": len(prompts), "prefix": prefix})
+        prompts = filter_by_uri_paths(prompts, uri_paths, lambda p: p.uri)
+        logger.debug("Listing prompts", extra={"count": len(prompts), "uri_paths": uri_paths})
         return prompts

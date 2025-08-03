@@ -221,11 +221,13 @@ class ClientSession(
             types.EmptyResult,
         )
 
-    async def list_resources(self, prefix: str | None = None, cursor: str | None = None) -> types.ListResourcesResult:
+    async def list_resources(
+        self, filters: types.ListFilters | None = None, cursor: str | None = None
+    ) -> types.ListResourcesResult:
         """Send a resources/list request."""
         params = None
-        if cursor is not None or prefix is not None:
-            params = types.ListRequestParams(prefix=prefix, cursor=cursor)
+        if cursor is not None or filters is not None:
+            params = types.ListRequestParams(filters=filters, cursor=cursor)
         return await self.send_request(
             types.ClientRequest(
                 types.ListResourcesRequest(
@@ -238,13 +240,13 @@ class ClientSession(
 
     async def list_resource_templates(
         self,
-        prefix: str | None = None,
+        filters: types.ListFilters | None = None,
         cursor: str | None = None,
     ) -> types.ListResourceTemplatesResult:
         """Send a resources/templates/list request."""
         params = None
-        if cursor is not None or prefix is not None:
-            params = types.ListRequestParams(prefix=prefix, cursor=cursor)
+        if cursor is not None or filters is not None:
+            params = types.ListRequestParams(filters=filters, cursor=cursor)
         return await self.send_request(
             types.ClientRequest(
                 types.ListResourceTemplatesRequest(
@@ -342,11 +344,13 @@ class ClientSession(
             except SchemaError as e:
                 raise RuntimeError(f"Invalid schema for tool {name}: {e}")
 
-    async def list_prompts(self, prefix: str | None = None, cursor: str | None = None) -> types.ListPromptsResult:
+    async def list_prompts(
+        self, filters: types.ListFilters | None = None, cursor: str | None = None
+    ) -> types.ListPromptsResult:
         """Send a prompts/list request."""
         params = None
-        if cursor is not None or prefix is not None:
-            params = types.ListRequestParams(prefix=prefix, cursor=cursor)
+        if cursor is not None or filters is not None:
+            params = types.ListRequestParams(filters=filters, cursor=cursor)
         return await self.send_request(
             types.ClientRequest(
                 types.ListPromptsRequest(
@@ -394,11 +398,13 @@ class ClientSession(
             types.CompleteResult,
         )
 
-    async def list_tools(self, prefix: str | None = None, cursor: str | None = None) -> types.ListToolsResult:
+    async def list_tools(
+        self, filters: types.ListFilters | None = None, cursor: str | None = None
+    ) -> types.ListToolsResult:
         """Send a tools/list request."""
         params = None
-        if cursor is not None or prefix is not None:
-            params = types.ListRequestParams(prefix=prefix, cursor=cursor)
+        if cursor is not None or filters is not None:
+            params = types.ListRequestParams(filters=filters, cursor=cursor)
         result = await self.send_request(
             types.ClientRequest(
                 types.ListToolsRequest(

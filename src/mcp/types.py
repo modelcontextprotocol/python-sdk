@@ -60,9 +60,16 @@ class RequestParams(BaseModel):
     meta: Meta | None = Field(alias="_meta", default=None)
 
 
+class ListFilters(BaseModel):
+    """Filters for list operations."""
+
+    uri_paths: list[str] | None = None
+    """Optional list of absolute URI path prefixes to filter results."""
+
+
 class ListRequestParams(RequestParams):
-    prefix: str | None = None
-    """Optional prefix to filter results by URI."""
+    filters: ListFilters | None = None
+    """Optional filters to apply to the list results."""
 
     cursor: Cursor | None = None
     """

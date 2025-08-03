@@ -1,7 +1,7 @@
 """Tests for URI utility functions."""
 
 from mcp.server.fastmcp.uri_utils import (
-    filter_by_prefix,
+    filter_by_uri_paths,
     normalize_to_prompt_uri,
     normalize_to_tool_uri,
     normalize_to_uri,
@@ -79,102 +79,117 @@ class TestNormalizeToPromptUri:
         assert result == f"{PROMPT_SCHEME}/templates/greeting"
 
 
-class TestFilterByPrefix:
-    """Test the prefix filtering function."""
+class TestFilterByUriPaths:
+    """Test the URI paths filtering function."""
 
-    def test_filter_no_prefix(self):
-        """Test that no prefix returns all items."""
+    def test_filter_no_paths(self):
+        """Test that no paths returns all items."""
         items = ["item1", "item2", "item3"]
-        result = filter_by_prefix(items, None, lambda x: x)
+        result = filter_by_uri_paths(items, None, lambda x: x)
         assert result == items
 
-    def test_filter_with_prefix(self):
-        """Test filtering with a prefix."""
+    def test_filter_empty_paths(self):
+        """Test that empty paths list returns all items."""
+        items = ["item1", "item2", "item3"]
+        result = filter_by_uri_paths(items, [], lambda x: x)
+        assert result == items
+
+    def test_filter_single_path(self):
+        """Test filtering with a single path."""
         items = [f"{TOOL_SCHEME}/math/add", f"{TOOL_SCHEME}/math/subtract", f"{TOOL_SCHEME}/string/concat"]
-        result = filter_by_prefix(items, f"{TOOL_SCHEME}/math", lambda x: x)
+        result = filter_by_uri_paths(items, [f"{TOOL_SCHEME}/math"], lambda x: x)
         assert len(result) == 2
         assert f"{TOOL_SCHEME}/math/add" in result
         assert f"{TOOL_SCHEME}/math/subtract" in result
 
-    def test_filter_prefix_without_slash(self):
-        """Test that prefix without trailing slash only matches at boundaries."""
+    def test_filter_multiple_paths(self):
+        """Test filtering with multiple paths."""
+        items = [
+            f"{TOOL_SCHEME}/math/add",
+            f"{TOOL_SCHEME}/math/subtract",
+            f"{TOOL_SCHEME}/string/concat",
+            f"{PROMPT_SCHEME}/greet/hello",
+        ]
+        result = filter_by_uri_paths(items, [f"{TOOL_SCHEME}/math", f"{PROMPT_SCHEME}/greet"], lambda x: x)
+        assert len(result) == 3
+        assert f"{TOOL_SCHEME}/math/add" in result
+        assert f"{TOOL_SCHEME}/math/subtract" in result
+        assert f"{PROMPT_SCHEME}/greet/hello" in result
+        assert f"{TOOL_SCHEME}/string/concat" not in result
+
+    def test_filter_paths_without_slash(self):
+        """Test that paths without trailing slash only match at boundaries."""
         items = [
             f"{TOOL_SCHEME}/math/add",
             f"{TOOL_SCHEME}/math/subtract",
             f"{TOOL_SCHEME}/string/concat",
             f"{TOOL_SCHEME}/mathematic",
         ]
-        result = filter_by_prefix(items, f"{TOOL_SCHEME}/math", lambda x: x)
-        assert len(result) == 2  # Matches because next char is '/'
+        result = filter_by_uri_paths(items, [f"{TOOL_SCHEME}/math", f"{TOOL_SCHEME}/string"], lambda x: x)
+        assert len(result) == 3
         assert f"{TOOL_SCHEME}/math/add" in result
         assert f"{TOOL_SCHEME}/math/subtract" in result
-        assert f"{TOOL_SCHEME}/mathematic" not in result  # Doesn't match because next char is 'e'
+        assert f"{TOOL_SCHEME}/string/concat" in result
+        assert f"{TOOL_SCHEME}/mathematic" not in result
 
-        # With trailing slash also matches
-        result_with_slash = filter_by_prefix(items, f"{TOOL_SCHEME}/math/", lambda x: x)
-        assert len(result_with_slash) == 2
-        assert result_with_slash == result
+    def test_filter_with_trailing_slashes(self):
+        """Test filtering when paths have trailing slashes."""
+        items = [
+            f"{PROMPT_SCHEME}/greet/hello",
+            f"{PROMPT_SCHEME}/greet/goodbye",
+            f"{PROMPT_SCHEME}/chat/start",
+        ]
+        result = filter_by_uri_paths(items, [f"{PROMPT_SCHEME}/greet/", f"{PROMPT_SCHEME}/chat/"], lambda x: x)
+        assert len(result) == 3
+        assert all(item in result for item in items)
 
-    def test_filter_with_trailing_slash(self):
-        """Test filtering when prefix already has trailing slash."""
-        items = [f"{PROMPT_SCHEME}/greet/hello", f"{PROMPT_SCHEME}/greet/goodbye", f"{PROMPT_SCHEME}/chat/start"]
-        result = filter_by_prefix(items, f"{PROMPT_SCHEME}/greet/", lambda x: x)
-        assert len(result) == 2
-        assert f"{PROMPT_SCHEME}/greet/hello" in result
-        assert f"{PROMPT_SCHEME}/greet/goodbye" in result
-
-    def test_filter_empty_list(self):
-        """Test filtering empty list."""
-        items = []
-        result = filter_by_prefix(items, "any://prefix", lambda x: x)
-        assert result == []
+    def test_filter_overlapping_paths(self):
+        """Test filtering with overlapping paths."""
+        items = [
+            f"{TOOL_SCHEME}/math",
+            f"{TOOL_SCHEME}/math/add",
+            f"{TOOL_SCHEME}/math/advanced/multiply",
+        ]
+        result = filter_by_uri_paths(items, [f"{TOOL_SCHEME}/math", f"{TOOL_SCHEME}/math/advanced"], lambda x: x)
+        assert len(result) == 3  # All items match
+        assert all(item in result for item in items)
 
     def test_filter_no_matches(self):
-        """Test filtering when no items match."""
+        """Test filtering when no items match any path."""
         items = [f"{TOOL_SCHEME}/math/add", f"{TOOL_SCHEME}/math/subtract"]
-        result = filter_by_prefix(items, f"{TOOL_SCHEME}/string", lambda x: x)
+        result = filter_by_uri_paths(items, [f"{TOOL_SCHEME}/string", f"{PROMPT_SCHEME}/greet"], lambda x: x)
         assert result == []
 
     def test_filter_with_objects(self):
         """Test filtering objects using a URI getter function."""
 
-        class MockTool:
+        class MockResource:
             def __init__(self, uri):
                 self.uri = uri
 
-        tools = [
-            MockTool(f"{TOOL_SCHEME}/math/add"),
-            MockTool(f"{TOOL_SCHEME}/math/multiply"),
-            MockTool(f"{TOOL_SCHEME}/string/concat"),
+        resources = [
+            MockResource(f"{TOOL_SCHEME}/math/add"),
+            MockResource(f"{TOOL_SCHEME}/string/concat"),
+            MockResource(f"{PROMPT_SCHEME}/greet/hello"),
         ]
 
-        result = filter_by_prefix(tools, f"{TOOL_SCHEME}/math", lambda t: t.uri)
+        result = filter_by_uri_paths(resources, [f"{TOOL_SCHEME}/math", f"{PROMPT_SCHEME}/greet"], lambda r: r.uri)
         assert len(result) == 2
         assert result[0].uri == f"{TOOL_SCHEME}/math/add"
-        assert result[1].uri == f"{TOOL_SCHEME}/math/multiply"
+        assert result[1].uri == f"{PROMPT_SCHEME}/greet/hello"
 
     def test_filter_case_sensitive(self):
         """Test that filtering is case sensitive."""
         items = [f"{TOOL_SCHEME}/Math/add", f"{TOOL_SCHEME}/math/add"]
-        result = filter_by_prefix(items, f"{TOOL_SCHEME}/math", lambda x: x)
+        result = filter_by_uri_paths(items, [f"{TOOL_SCHEME}/math"], lambda x: x)
         assert len(result) == 1
         assert f"{TOOL_SCHEME}/math/add" in result
 
-    def test_filter_exact_prefix_match(self):
-        """Test that exact prefix matches work correctly."""
+    def test_filter_exact_path_match(self):
+        """Test that exact path matches work correctly."""
         items = [f"{TOOL_SCHEME}/test", f"{TOOL_SCHEME}/test/sub", f"{TOOL_SCHEME}/testing"]
-        result = filter_by_prefix(items, f"{TOOL_SCHEME}/test", lambda x: x)
-        # Should match "tool:/test" (exact) and "tool:/test/sub" but not "tool:/testing"
+        result = filter_by_uri_paths(items, [f"{TOOL_SCHEME}/test"], lambda x: x)
         assert len(result) == 2
         assert f"{TOOL_SCHEME}/test" in result
         assert f"{TOOL_SCHEME}/test/sub" in result
         assert f"{TOOL_SCHEME}/testing" not in result
-
-    def test_filter_root_prefix(self):
-        """Test filtering with just the scheme as prefix."""
-        items = [f"{TOOL_SCHEME}/add", f"{TOOL_SCHEME}/subtract", f"{PROMPT_SCHEME}/greet"]
-        result = filter_by_prefix(items, f"{TOOL_SCHEME}/", lambda x: x)
-        assert len(result) == 2
-        assert f"{TOOL_SCHEME}/add" in result
-        assert f"{TOOL_SCHEME}/subtract" in result
-        assert f"{PROMPT_SCHEME}/greet" not in result
