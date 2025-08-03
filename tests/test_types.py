@@ -58,11 +58,11 @@ def test_resource_uri():
     assert resource.name == "test"
     assert str(resource.uri) == "file://test.txt/"  # AnyUrl adds trailing slash
 
-    # Should reject TOOL_SCHEME and PROMPT_SCHEME schemes
-    with pytest.raises(ValueError, match="reserved schemes"):
+    # Should reject MCP scheme
+    with pytest.raises(ValueError, match="reserved MCP scheme"):
         Resource(name="test", uri=AnyUrl(f"{TOOL_SCHEME}/test"))
 
-    with pytest.raises(ValueError, match="reserved schemes"):
+    with pytest.raises(ValueError, match="reserved MCP scheme"):
         Resource(name="test", uri=AnyUrl(f"{PROMPT_SCHEME}/test"))
 
 

@@ -440,12 +440,10 @@ class Resource(BaseMetadata):
 
     @model_validator(mode="after")
     def validate_uri_scheme(self) -> "Resource":
-        """Ensure resource URI doesn't use reserved schemes."""
+        """Ensure resource URI doesn't use reserved MCP scheme."""
         uri_str = str(self.uri)
-        if uri_str.startswith((TOOL_SCHEME, PROMPT_SCHEME)):
-            raise ValueError(
-                f"Resource URI cannot use reserved schemes '{TOOL_SCHEME}' or '{PROMPT_SCHEME}', got: {self.uri}"
-            )
+        if uri_str.startswith(f"{MCP_SCHEME}://"):
+            raise ValueError(f"Resource URI cannot use reserved MCP scheme '{MCP_SCHEME}://', got: {self.uri}")
         return self
 
 
@@ -642,7 +640,7 @@ class PromptArgument(BaseModel):
 class Prompt(BaseMetadata):
     """A prompt or prompt template that the server offers."""
 
-    uri: Annotated[AnyUrl, UrlConstraints(allowed_schemes=[MCP_SCHEME], host_required=False)] | None = None
+    uri: Annotated[AnyUrl, UrlConstraints(allowed_schemes=[MCP_SCHEME], host_required=False)]
     """URI for the prompt. Auto-generated if not provided."""
     description: str | None = None
     """An optional description of what this prompt provides."""
@@ -664,10 +662,9 @@ class Prompt(BaseMetadata):
     @model_validator(mode="after")
     def validate_prompt_uri(self) -> "Prompt":
         """Validate that prompt URI starts with the correct prefix."""
-        if self.uri is not None:
-            uri_str = str(self.uri)
-            if not uri_str.startswith(f"{PROMPT_SCHEME}/"):
-                raise ValueError(f"Prompt URI must start with {PROMPT_SCHEME}/")
+        uri_str = str(self.uri)
+        if not uri_str.startswith(f"{PROMPT_SCHEME}/"):
+            raise ValueError(f"Prompt URI must start with {PROMPT_SCHEME}/")
         return self
 
 
@@ -878,7 +875,7 @@ class ToolAnnotations(BaseModel):
 class Tool(BaseMetadata):
     """Definition for a tool the client can call."""
 
-    uri: Annotated[AnyUrl, UrlConstraints(allowed_schemes=[MCP_SCHEME], host_required=False)] | None = None
+    uri: Annotated[AnyUrl, UrlConstraints(allowed_schemes=[MCP_SCHEME], host_required=False)]
     """URI for the tool. Auto-generated if not provided."""
     description: str | None = None
     """A human-readable description of the tool."""
@@ -907,10 +904,9 @@ class Tool(BaseMetadata):
     @model_validator(mode="after")
     def validate_tool_uri(self) -> "Tool":
         """Validate that tool URI starts with the correct prefix."""
-        if self.uri is not None:
-            uri_str = str(self.uri)
-            if not uri_str.startswith(f"{TOOL_SCHEME}/"):
-                raise ValueError(f"Tool URI must start with {TOOL_SCHEME}/")
+        uri_str = str(self.uri)
+        if not uri_str.startswith(f"{TOOL_SCHEME}/"):
+            raise ValueError(f"Tool URI must start with {TOOL_SCHEME}/")
         return self
 
 
