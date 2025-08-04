@@ -147,9 +147,9 @@ class ProtectedResourceMetadata(BaseModel):
     resource_documentation: AnyHttpUrl | None = None
     resource_policy_uri: AnyHttpUrl | None = None
     resource_tos_uri: AnyHttpUrl | None = None
-    #tls_client_certificate_bound_access_tokens default is False, but ommited here for clarity
+    # tls_client_certificate_bound_access_tokens default is False, but ommited here for clarity
     tls_client_certificate_bound_access_tokens: bool | None = None
     authorization_details_types_supported: list[str] | None = None
     dpop_signing_alg_values_supported: list[str] | None = None
-    #dpop_bound_access_tokens_required default is False, but ommited here for clarity
+    # dpop_bound_access_tokens_required default is False, but ommited here for clarity
     dpop_bound_access_tokens_required: bool | None = None
