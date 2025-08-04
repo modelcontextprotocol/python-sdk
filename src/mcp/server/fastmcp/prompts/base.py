@@ -66,7 +66,7 @@ class Prompt(BaseModel):
 
     def __init__(self, **data: Any) -> None:
         """Initialize Prompt, generating URI from name if not provided."""
-        if "uri" not in data and "name" in data:
+        if not data.get("uri", None):
             data["uri"] = AnyUrl(f"{PROMPT_SCHEME}/{data['name']}")
         super().__init__(**data)
 
@@ -75,6 +75,7 @@ class Prompt(BaseModel):
         cls,
         fn: Callable[..., PromptResult | Awaitable[PromptResult]],
         name: str | None = None,
+        uri: str | AnyUrl | None = None,
         title: str | None = None,
         description: str | None = None,
     ) -> "Prompt":
@@ -112,6 +113,7 @@ class Prompt(BaseModel):
 
         return cls(
             name=func_name,
+            uri=uri,
             title=title,
             description=description or fn.__doc__ or "",
             arguments=arguments,

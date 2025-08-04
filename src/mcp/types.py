@@ -9,6 +9,15 @@ from typing_extensions import deprecated
 MCP_SCHEME = "mcp"
 TOOL_SCHEME = f"{MCP_SCHEME}://tools"
 PROMPT_SCHEME = f"{MCP_SCHEME}://prompts"
+RESOURCE_SCHEME = f"{MCP_SCHEME}://resources"
+GROUP_SCHEME = f"{MCP_SCHEME}://groups"
+
+# Well-known MCP group URIs
+WELL_KNOWN_GROUP_URIS = {
+    f"{GROUP_SCHEME}/tools",
+    f"{GROUP_SCHEME}/prompts",
+    f"{GROUP_SCHEME}/resources",
+}
 
 """
 Model Context Protocol bindings for Python
@@ -447,9 +456,9 @@ class Resource(BaseMetadata):
 
     @model_validator(mode="after")
     def validate_uri_scheme(self) -> "Resource":
-        """Ensure resource URI doesn't use reserved MCP scheme."""
+        """Ensure resource URI doesn't use reserved MCP scheme, except for well-known group URIs."""
         uri_str = str(self.uri)
-        if uri_str.startswith(f"{MCP_SCHEME}://"):
+        if uri_str.startswith(f"{MCP_SCHEME}://") and uri_str not in WELL_KNOWN_GROUP_URIS:
             raise ValueError(f"Resource URI cannot use reserved MCP scheme '{MCP_SCHEME}://', got: {self.uri}")
         return self
 

@@ -36,6 +36,17 @@ class PromptManager:
         """Get prompt by name or URI."""
         if isinstance(name_or_uri, AnyUrl):
             return self._prompts.get(str(name_or_uri))
+
+        # Try as a direct URI first
+        if name_or_uri in self._prompts:
+            return self._prompts[name_or_uri]
+
+        # Try to find a prompt by name
+        for prompt in self._prompts.values():
+            if prompt.name == name_or_uri:
+                return prompt
+
+        # Finally try normalizing to URI
         uri = self._normalize_to_uri(name_or_uri)
         return self._prompts.get(uri)
 

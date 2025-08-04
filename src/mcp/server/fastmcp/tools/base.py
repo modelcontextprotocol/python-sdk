@@ -36,7 +36,7 @@ class Tool(BaseModel):
 
     def __init__(self, **data: Any) -> None:
         """Initialize Tool, generating URI from name if not provided."""
-        if "uri" not in data and "name" in data:
+        if not data.get("uri", None):
             data["uri"] = AnyUrl(f"{TOOL_SCHEME}/{data['name']}")
         super().__init__(**data)
 
@@ -49,6 +49,7 @@ class Tool(BaseModel):
         cls,
         fn: Callable[..., Any],
         name: str | None = None,
+        uri: str | AnyUrl | None = None,
         title: str | None = None,
         description: str | None = None,
         context_kwarg: str | None = None,
@@ -85,6 +86,7 @@ class Tool(BaseModel):
         return cls(
             fn=fn,
             name=func_name,
+            uri=uri,
             title=title,
             description=func_doc,
             parameters=parameters,

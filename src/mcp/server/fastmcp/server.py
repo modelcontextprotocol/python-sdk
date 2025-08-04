@@ -355,6 +355,7 @@ class FastMCP(Generic[LifespanResultT]):
         self,
         fn: AnyFunction,
         name: str | None = None,
+        uri: str | AnyUrl | None = None,
         title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
@@ -368,6 +369,7 @@ class FastMCP(Generic[LifespanResultT]):
         Args:
             fn: The function to register as a tool
             name: Optional name for the tool (defaults to function name)
+            uri: Optional URI for the tool (defaults to {TOOL_SCHEME}/{{name}})
             title: Optional human-readable title for the tool
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
@@ -379,6 +381,7 @@ class FastMCP(Generic[LifespanResultT]):
         self._tool_manager.add_tool(
             fn,
             name=name,
+            uri=uri,
             title=title,
             description=description,
             annotations=annotations,
@@ -388,6 +391,7 @@ class FastMCP(Generic[LifespanResultT]):
     def tool(
         self,
         name: str | None = None,
+        uri: str | AnyUrl | None = None,
         title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
@@ -401,6 +405,7 @@ class FastMCP(Generic[LifespanResultT]):
 
         Args:
             name: Optional name for the tool (defaults to function name)
+            uri: Optional URI for the tool (defaults to {TOOL_SCHEME}/{{name}})
             title: Optional human-readable title for the tool
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
@@ -434,6 +439,7 @@ class FastMCP(Generic[LifespanResultT]):
             self.add_tool(
                 fn,
                 name=name,
+                uri=uri,
                 title=title,
                 description=description,
                 annotations=annotations,
@@ -570,12 +576,17 @@ class FastMCP(Generic[LifespanResultT]):
         self._prompt_manager.add_prompt(prompt)
 
     def prompt(
-        self, name: str | None = None, title: str | None = None, description: str | None = None
+        self,
+        name: str | None = None,
+        uri: str | AnyUrl | None = None,
+        title: str | None = None,
+        description: str | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a prompt.
 
         Args:
             name: Optional name for the prompt (defaults to function name)
+            uri: Optional URI for the prompt (defaults to {PROMPT_SCHEME}/{{name}})
             title: Optional human-readable title for the prompt
             description: Optional description of what the prompt does
 
@@ -614,7 +625,7 @@ class FastMCP(Generic[LifespanResultT]):
             )
 
         def decorator(func: AnyFunction) -> AnyFunction:
-            prompt = Prompt.from_function(func, name=name, title=title, description=description)
+            prompt = Prompt.from_function(func, name=name, uri=uri, title=title, description=description)
             self.add_prompt(prompt)
             return func
 

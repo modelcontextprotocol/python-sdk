@@ -258,6 +258,109 @@ class TestAddTools:
         assert len(math_and_string) == 4
         assert all(t in math_and_string for t in all_tools)
 
+    def test_add_tool_with_custom_uri(self):
+        """Test adding tools with custom URI parameter."""
+
+        def math_add(a: int, b: int) -> int:
+            return a + b
+
+        def string_concat(a: str, b: str) -> str:
+            return a + b
+
+        manager = ToolManager()
+
+        # Add tool with custom hierarchical URI
+        tool1 = manager.add_tool(math_add, uri="mcp://tools/math/add")
+        assert tool1.name == "math_add"
+        assert str(tool1.uri) == "mcp://tools/math/add"
+
+        # Add tool with AnyUrl
+        tool2 = manager.add_tool(string_concat, uri=AnyUrl("mcp://tools/string/concat"))
+        assert tool2.name == "string_concat"
+        assert str(tool2.uri) == "mcp://tools/string/concat"
+
+        # Verify tools are stored by URI
+        assert str(tool1.uri) in manager._tools
+        assert str(tool2.uri) in manager._tools
+
+    def test_get_tool_by_name_with_custom_uri(self):
+        """Test getting tools by name when they have custom URIs."""
+
+        def calculator(x: int, y: int) -> int:
+            return x + y
+
+        def formatter(text: str) -> str:
+            return text.upper()
+
+        manager = ToolManager()
+
+        # Add tools with custom URIs
+        calc_tool = manager.add_tool(calculator, uri="mcp://tools/utils/calculator")
+        format_tool = manager.add_tool(formatter, uri="mcp://tools/text/formatter")
+
+        # Should be able to get by name
+        tool_by_name = manager.get_tool("calculator")
+        assert tool_by_name is not None
+        assert tool_by_name == calc_tool
+
+        # Should also work for the second tool
+        tool_by_name2 = manager.get_tool("formatter")
+        assert tool_by_name2 is not None
+        assert tool_by_name2 == format_tool
+
+        # Should also be able to get by URI
+        tool_by_uri = manager.get_tool("mcp://tools/utils/calculator")
+        assert tool_by_uri == calc_tool
+
+        # Get by AnyUrl
+        tool_by_anyurl = manager.get_tool(AnyUrl("mcp://tools/text/formatter"))
+        assert tool_by_anyurl == format_tool
+
+    @pytest.mark.anyio
+    async def test_tool_name_lookup_with_hierarchical_uri(self):
+        """Test name lookup works correctly with hierarchical URIs."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        def multiply(a: int, b: int) -> int:
+            """Multiply two numbers."""
+            return a * b
+
+        def concat(a: str, b: str) -> str:
+            """Concatenate strings."""
+            return a + b
+
+        manager = ToolManager()
+
+        # Add tools with hierarchical URIs
+        _ = manager.add_tool(add, uri="mcp://tools/math/add")
+        _ = manager.add_tool(multiply, uri="mcp://tools/math/multiply")
+        _ = manager.add_tool(concat, uri="mcp://tools/string/concat")
+
+        # Test calling by name
+        result = await manager.call_tool("add", {"a": 5, "b": 3})
+        assert result == 8
+
+        result = await manager.call_tool("multiply", {"a": 4, "b": 6})
+        assert result == 24
+
+        result = await manager.call_tool("concat", {"a": "Hello, ", "b": "World!"})
+        assert result == "Hello, World!"
+
+        # Test calling by full URI
+        result = await manager.call_tool("mcp://tools/math/add", {"a": 10, "b": 20})
+        assert result == 30
+
+        result = await manager.call_tool(AnyUrl("mcp://tools/string/concat"), {"a": "Foo", "b": "Bar"})
+        assert result == "FooBar"
+
+        # Verify that the standard normalization doesn't work
+        # (since tools are at custom URIs, not standard ones)
+        tool = manager.get_tool(f"{TOOL_SCHEME}/add")
+        assert tool is None  # Should not find it at the standard URI
+
 
 class TestCallTools:
     @pytest.mark.anyio
@@ -354,9 +457,7 @@ class TestCallTools:
         manager.add_tool(math_add)
 
         # Add tool with custom URI
-        multiply_tool = Tool.from_function(math_multiply)
-        multiply_tool.uri = AnyUrl(f"{TOOL_SCHEME}/custom/math/multiply")
-        manager._tools[str(multiply_tool.uri)] = multiply_tool
+        manager.add_tool(math_multiply, uri=f"{TOOL_SCHEME}/custom/math/multiply")
 
         # Call by default URI (TOOL_SCHEME/function_name)
         result = await manager.call_tool(f"{TOOL_SCHEME}/math_add", {"a": 5, "b": 3})
@@ -369,6 +470,10 @@ class TestCallTools:
         # Should still work with name
         result = await manager.call_tool("math_add", {"a": 2, "b": 2})
         assert result == 4
+
+        # Custom URI tool should also work with name
+        result = await manager.call_tool("math_multiply", {"a": 3, "b": 3})
+        assert result == 9
 
     def test_get_tool_by_uri(self):
         """Test getting tools by their URI."""

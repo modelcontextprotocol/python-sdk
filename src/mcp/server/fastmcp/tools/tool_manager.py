@@ -31,7 +31,7 @@ class ToolManager:
         self._tools: dict[str, Tool] = {}
         if tools is not None:
             for tool in tools:
-                if warn_on_duplicate_tools and tool.uri in self._tools:
+                if warn_on_duplicate_tools and str(tool.uri) in self._tools:
                     logger.warning(f"Tool already exists: {tool.uri}")
                 self._tools[str(tool.uri)] = tool
 
@@ -55,6 +55,17 @@ class ToolManager:
         """Get tool by name or URI."""
         if isinstance(name_or_uri, AnyUrl):
             return self._tools.get(str(name_or_uri))
+
+        # Try as a direct URI first
+        if name_or_uri in self._tools:
+            return self._tools[name_or_uri]
+
+        # Try to find a tool by name
+        for tool in self._tools.values():
+            if tool.name == name_or_uri:
+                return tool
+
+        # Finally try normalizing to URI
         uri = self._normalize_to_uri(name_or_uri)
         return self._tools.get(uri)
 
@@ -70,6 +81,7 @@ class ToolManager:
         self,
         fn: Callable[..., Any],
         name: str | None = None,
+        uri: str | AnyUrl | None = None,
         title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
@@ -79,6 +91,7 @@ class ToolManager:
         tool = Tool.from_function(
             fn,
             name=name,
+            uri=uri,
             title=title,
             description=description,
             annotations=annotations,
