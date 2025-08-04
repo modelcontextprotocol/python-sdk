@@ -31,7 +31,7 @@ async def test_server_remains_functional_after_cancel():
     first_request_id = None
 
     @server.list_tools()
-    async def handle_list_tools() -> list[Tool]:
+    async def handle_list_tools(_) -> list[Tool]:
         return [
             Tool(
                 name="test_tool",

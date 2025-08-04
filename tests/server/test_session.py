@@ -90,7 +90,7 @@ async def test_server_capabilities():
 
     # Add a prompts handler
     @server.list_prompts()
-    async def list_prompts():
+    async def list_prompts(_):
         return []
 
     caps = server.get_capabilities(notification_options, experimental_capabilities)
@@ -100,7 +100,7 @@ async def test_server_capabilities():
 
     # Add a resources handler
     @server.list_resources()
-    async def list_resources():
+    async def list_resources(_):
         return []
 
     caps = server.get_capabilities(notification_options, experimental_capabilities)

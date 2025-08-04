@@ -31,7 +31,7 @@ async def test_notification_validation_error(tmp_path: Path):
     slow_request_lock = anyio.Event()
 
     @server.list_tools()
-    async def list_tools() -> list[types.Tool]:
+    async def list_tools(_) -> list[types.Tool]:
         return [
             types.Tool(
                 name="slow",

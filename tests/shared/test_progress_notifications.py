@@ -76,7 +76,7 @@ async def test_bidirectional_progress_notifications():
 
     # Register list tool handler
     @server.list_tools()
-    async def handle_list_tools() -> list[types.Tool]:
+    async def handle_list_tools(_) -> list[types.Tool]:
         return [
             types.Tool(
                 name="test_tool",

@@ -42,7 +42,7 @@ class TestClientOutputSchemaValidation:
         }
 
         @server.list_tools()
-        async def list_tools():
+        async def list_tools(_):
             return [
                 Tool(
                     name="get_user",
@@ -81,7 +81,7 @@ class TestClientOutputSchemaValidation:
         }
 
         @server.list_tools()
-        async def list_tools():
+        async def list_tools(_):
             return [
                 Tool(
                     name="calculate",
@@ -112,7 +112,7 @@ class TestClientOutputSchemaValidation:
         output_schema = {"type": "object", "additionalProperties": {"type": "integer"}, "title": "get_scores_Output"}
 
         @server.list_tools()
-        async def list_tools():
+        async def list_tools(_):
             return [
                 Tool(
                     name="get_scores",
@@ -147,7 +147,7 @@ class TestClientOutputSchemaValidation:
         }
 
         @server.list_tools()
-        async def list_tools():
+        async def list_tools(_):
             return [
                 Tool(
                     name="get_person",
@@ -175,7 +175,7 @@ class TestClientOutputSchemaValidation:
         server = Server("test-server")
 
         @server.list_tools()
-        async def list_tools():
+        async def list_tools(_):
             # Return empty list - tool is not listed
             return []
 

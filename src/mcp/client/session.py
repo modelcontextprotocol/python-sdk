@@ -221,25 +221,37 @@ class ClientSession(
             types.EmptyResult,
         )
 
-    async def list_resources(self, cursor: str | None = None) -> types.ListResourcesResult:
+    async def list_resources(
+        self, filters: types.ListFilters | None = None, cursor: str | None = None
+    ) -> types.ListResourcesResult:
         """Send a resources/list request."""
+        params = None
+        if cursor is not None or filters is not None:
+            params = types.ListRequestParams(filters=filters, cursor=cursor)
         return await self.send_request(
             types.ClientRequest(
                 types.ListResourcesRequest(
                     method="resources/list",
-                    params=types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None,
+                    params=params,
                 )
             ),
             types.ListResourcesResult,
         )
 
-    async def list_resource_templates(self, cursor: str | None = None) -> types.ListResourceTemplatesResult:
+    async def list_resource_templates(
+        self,
+        filters: types.ListFilters | None = None,
+        cursor: str | None = None,
+    ) -> types.ListResourceTemplatesResult:
         """Send a resources/templates/list request."""
+        params = None
+        if cursor is not None or filters is not None:
+            params = types.ListRequestParams(filters=filters, cursor=cursor)
         return await self.send_request(
             types.ClientRequest(
                 types.ListResourceTemplatesRequest(
                     method="resources/templates/list",
-                    params=types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None,
+                    params=params,
                 )
             ),
             types.ListResourceTemplatesResult,
@@ -332,13 +344,18 @@ class ClientSession(
             except SchemaError as e:
                 raise RuntimeError(f"Invalid schema for tool {name}: {e}")
 
-    async def list_prompts(self, cursor: str | None = None) -> types.ListPromptsResult:
+    async def list_prompts(
+        self, filters: types.ListFilters | None = None, cursor: str | None = None
+    ) -> types.ListPromptsResult:
         """Send a prompts/list request."""
+        params = None
+        if cursor is not None or filters is not None:
+            params = types.ListRequestParams(filters=filters, cursor=cursor)
         return await self.send_request(
             types.ClientRequest(
                 types.ListPromptsRequest(
                     method="prompts/list",
-                    params=types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None,
+                    params=params,
                 )
             ),
             types.ListPromptsResult,
@@ -381,13 +398,18 @@ class ClientSession(
             types.CompleteResult,
         )
 
-    async def list_tools(self, cursor: str | None = None) -> types.ListToolsResult:
+    async def list_tools(
+        self, filters: types.ListFilters | None = None, cursor: str | None = None
+    ) -> types.ListToolsResult:
         """Send a tools/list request."""
+        params = None
+        if cursor is not None or filters is not None:
+            params = types.ListRequestParams(filters=filters, cursor=cursor)
         result = await self.send_request(
             types.ClientRequest(
                 types.ListToolsRequest(
                     method="tools/list",
-                    params=types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None,
+                    params=params,
                 )
             ),
             types.ListToolsResult,

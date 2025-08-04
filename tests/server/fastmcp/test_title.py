@@ -187,11 +187,18 @@ async def test_get_display_name_utility():
     tool_with_title = Tool(name="test_tool", title="Test Tool", inputSchema={})
     assert get_display_name(tool_with_title) == "Test Tool"
 
-    tool_with_annotations = Tool(name="test_tool", inputSchema={}, annotations=ToolAnnotations(title="Annotated Tool"))
+    tool_with_annotations = Tool(
+        name="test_tool",
+        inputSchema={},
+        annotations=ToolAnnotations(title="Annotated Tool"),
+    )
     assert get_display_name(tool_with_annotations) == "Annotated Tool"
 
     tool_with_both = Tool(
-        name="test_tool", title="Primary Title", inputSchema={}, annotations=ToolAnnotations(title="Secondary Title")
+        name="test_tool",
+        title="Primary Title",
+        inputSchema={},
+        annotations=ToolAnnotations(title="Secondary Title"),
     )
     assert get_display_name(tool_with_both) == "Primary Title"
 

@@ -7,6 +7,7 @@ from pydantic import AnyUrl
 
 from mcp.server.fastmcp.resources.base import Resource
 from mcp.server.fastmcp.resources.templates import ResourceTemplate
+from mcp.server.fastmcp.uri_utils import filter_by_uri_paths
 from mcp.server.fastmcp.utilities.logging import get_logger
 
 logger = get_logger(__name__)
@@ -86,12 +87,28 @@ class ResourceManager:
 
         raise ValueError(f"Unknown resource: {uri}")
 
-    def list_resources(self) -> list[Resource]:
-        """List all registered resources."""
-        logger.debug("Listing resources", extra={"count": len(self._resources)})
-        return list(self._resources.values())
+    def list_resources(self, uri_paths: list[AnyUrl] | None = None) -> list[Resource]:
+        """List all registered resources, optionally filtered by URI paths."""
+        resources = list(self._resources.values())
+        if uri_paths:
+            resources = filter_by_uri_paths(resources, uri_paths)
+        logger.debug("Listing resources", extra={"count": len(resources), "uri_paths": uri_paths})
+        return resources
 
-    def list_templates(self) -> list[ResourceTemplate]:
-        """List all registered templates."""
-        logger.debug("Listing templates", extra={"count": len(self._templates)})
-        return list(self._templates.values())
+    def list_templates(self, uri_paths: list[AnyUrl] | None = None) -> list[ResourceTemplate]:
+        """List all registered templates, optionally filtered by URI paths."""
+        templates = list(self._templates.values())
+        if uri_paths:
+            filtered: list[ResourceTemplate] = []
+            for template in templates:
+                for prefix in uri_paths:
+                    # Ensure prefix ends with / for proper path matching
+                    prefix_str = str(prefix)
+                    if not prefix_str.endswith("/"):
+                        prefix_str = prefix_str + "/"
+                    if template.matches_prefix(prefix_str):
+                        filtered.append(template)
+                        break
+            templates = filtered
+        logger.debug("Listing templates", extra={"count": len(templates), "uri_paths": uri_paths})
+        return templates

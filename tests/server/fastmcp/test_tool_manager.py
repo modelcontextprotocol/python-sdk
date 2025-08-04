@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, TypedDict
 
 import pytest
-from pydantic import BaseModel
+from pydantic import AnyUrl, BaseModel
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
@@ -12,7 +12,7 @@ from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.server.session import ServerSessionT
 from mcp.shared.context import LifespanContextT, RequestT
-from mcp.types import TextContent, ToolAnnotations
+from mcp.types import TOOL_SCHEME, TextContent, ToolAnnotations
 
 
 class TestAddTools:
@@ -62,7 +62,7 @@ class TestAddTools:
         # warn on duplicate tools
         with caplog.at_level(logging.WARNING):
             manager = ToolManager(True, tools=[original_tool, original_tool])
-            assert "Tool already exists: sum" in caplog.text
+            assert f"Tool already exists: {TOOL_SCHEME}/sum" in caplog.text
 
     @pytest.mark.anyio
     async def test_async_function(self):
@@ -163,7 +163,7 @@ class TestAddTools:
         manager.add_tool(f)
         with caplog.at_level(logging.WARNING):
             manager.add_tool(f)
-            assert "Tool already exists: f" in caplog.text
+            assert f"Tool already exists: {TOOL_SCHEME}/f" in caplog.text
 
     def test_disable_warn_on_duplicate_tools(self, caplog):
         """Test disabling warning on duplicate tools."""
@@ -177,6 +177,189 @@ class TestAddTools:
         with caplog.at_level(logging.WARNING):
             manager.add_tool(f)
             assert "Tool already exists: f" not in caplog.text
+
+    def test_list_tools_with_prefix(self):
+        """Test listing tools with prefix filtering."""
+        manager = ToolManager()
+
+        # Add tools with different URI prefixes
+        def math_add(a: int, b: int) -> int:
+            return a + b
+
+        def math_multiply(a: int, b: int) -> int:
+            return a * b
+
+        def string_concat(a: str, b: str) -> str:
+            return a + b
+
+        def string_upper(text: str) -> str:
+            return text.upper()
+
+        # Add tools with custom URIs
+        math_add_tool = Tool.from_function(math_add)
+        math_add_tool.uri = AnyUrl(f"{TOOL_SCHEME}/math/add")
+
+        math_multiply_tool = Tool.from_function(math_multiply)
+        math_multiply_tool.uri = AnyUrl(f"{TOOL_SCHEME}/math/multiply")
+
+        string_concat_tool = Tool.from_function(string_concat)
+        string_concat_tool.uri = AnyUrl(f"{TOOL_SCHEME}/string/concat")
+
+        string_upper_tool = Tool.from_function(string_upper)
+        string_upper_tool.uri = AnyUrl(f"{TOOL_SCHEME}/string/upper")
+
+        manager._tools = {
+            str(math_add_tool.uri): math_add_tool,
+            str(math_multiply_tool.uri): math_multiply_tool,
+            str(string_concat_tool.uri): string_concat_tool,
+            str(string_upper_tool.uri): string_upper_tool,
+        }
+
+        # Test listing all tools
+        all_tools = manager.list_tools()
+        assert len(all_tools) == 4
+
+        # Test uri_paths filtering - math tools
+        math_tools = manager.list_tools(uri_paths=[AnyUrl(f"{TOOL_SCHEME}/math/")])
+        assert len(math_tools) == 2
+        assert all(str(t.uri).startswith(f"{TOOL_SCHEME}/math/") for t in math_tools)
+        assert math_add_tool in math_tools
+        assert math_multiply_tool in math_tools
+
+        # Test uri_paths filtering - string tools
+        string_tools = manager.list_tools(uri_paths=[AnyUrl(f"{TOOL_SCHEME}/string/")])
+        assert len(string_tools) == 2
+        assert all(str(t.uri).startswith(f"{TOOL_SCHEME}/string/") for t in string_tools)
+        assert string_concat_tool in string_tools
+        assert string_upper_tool in string_tools
+
+        # Test exact URI match
+        add_tools = manager.list_tools(uri_paths=[AnyUrl(f"{TOOL_SCHEME}/math/add")])
+        assert len(add_tools) == 1
+        assert add_tools[0] == math_add_tool
+
+        # Test partial prefix doesn't match
+        no_partial = manager.list_tools(uri_paths=[AnyUrl(f"{TOOL_SCHEME}/math/a")])
+        assert len(no_partial) == 0  # Won't match because next char is 'd' not a separator
+
+        # Test no matches
+        no_matches = manager.list_tools(uri_paths=[AnyUrl(f"{TOOL_SCHEME}/nonexistent")])
+        assert len(no_matches) == 0
+
+        # Test with trailing slash
+        math_tools_slash = manager.list_tools(uri_paths=[AnyUrl(f"{TOOL_SCHEME}/math/")])
+        assert len(math_tools_slash) == 2
+        assert math_tools_slash == math_tools
+
+        # Test multiple uri_paths
+        math_and_string = manager.list_tools(
+            uri_paths=[AnyUrl(f"{TOOL_SCHEME}/math/"), AnyUrl(f"{TOOL_SCHEME}/string/")]
+        )
+        assert len(math_and_string) == 4
+        assert all(t in math_and_string for t in all_tools)
+
+    def test_add_tool_with_custom_uri(self):
+        """Test adding tools with custom URI parameter."""
+
+        def math_add(a: int, b: int) -> int:
+            return a + b
+
+        def string_concat(a: str, b: str) -> str:
+            return a + b
+
+        manager = ToolManager()
+
+        # Add tool with custom hierarchical URI
+        tool1 = manager.add_tool(math_add, uri="mcp://tools/math/add")
+        assert tool1.name == "math_add"
+        assert str(tool1.uri) == "mcp://tools/math/add"
+
+        # Add tool with AnyUrl
+        tool2 = manager.add_tool(string_concat, uri=AnyUrl("mcp://tools/string/concat"))
+        assert tool2.name == "string_concat"
+        assert str(tool2.uri) == "mcp://tools/string/concat"
+
+        # Verify tools are stored by URI
+        assert str(tool1.uri) in manager._tools
+        assert str(tool2.uri) in manager._tools
+
+    def test_get_tool_by_name_with_custom_uri(self):
+        """Test getting tools by name when they have custom URIs."""
+
+        def calculator(x: int, y: int) -> int:
+            return x + y
+
+        def formatter(text: str) -> str:
+            return text.upper()
+
+        manager = ToolManager()
+
+        # Add tools with custom URIs
+        calc_tool = manager.add_tool(calculator, uri="mcp://tools/utils/calculator")
+        format_tool = manager.add_tool(formatter, uri="mcp://tools/text/formatter")
+
+        # Should be able to get by name
+        tool_by_name = manager.get_tool("calculator")
+        assert tool_by_name is not None
+        assert tool_by_name == calc_tool
+
+        # Should also work for the second tool
+        tool_by_name2 = manager.get_tool("formatter")
+        assert tool_by_name2 is not None
+        assert tool_by_name2 == format_tool
+
+        # Should also be able to get by URI
+        tool_by_uri = manager.get_tool("mcp://tools/utils/calculator")
+        assert tool_by_uri == calc_tool
+
+        # Get by AnyUrl
+        tool_by_anyurl = manager.get_tool(AnyUrl("mcp://tools/text/formatter"))
+        assert tool_by_anyurl == format_tool
+
+    @pytest.mark.anyio
+    async def test_tool_name_lookup_with_hierarchical_uri(self):
+        """Test name lookup works correctly with hierarchical URIs."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        def multiply(a: int, b: int) -> int:
+            """Multiply two numbers."""
+            return a * b
+
+        def concat(a: str, b: str) -> str:
+            """Concatenate strings."""
+            return a + b
+
+        manager = ToolManager()
+
+        # Add tools with hierarchical URIs
+        _ = manager.add_tool(add, uri="mcp://tools/math/add")
+        _ = manager.add_tool(multiply, uri="mcp://tools/math/multiply")
+        _ = manager.add_tool(concat, uri="mcp://tools/string/concat")
+
+        # Test calling by name
+        result = await manager.call_tool("add", {"a": 5, "b": 3})
+        assert result == 8
+
+        result = await manager.call_tool("multiply", {"a": 4, "b": 6})
+        assert result == 24
+
+        result = await manager.call_tool("concat", {"a": "Hello, ", "b": "World!"})
+        assert result == "Hello, World!"
+
+        # Test calling by full URI
+        result = await manager.call_tool("mcp://tools/math/add", {"a": 10, "b": 20})
+        assert result == 30
+
+        result = await manager.call_tool(AnyUrl("mcp://tools/string/concat"), {"a": "Foo", "b": "Bar"})
+        assert result == "FooBar"
+
+        # Verify that the standard normalization doesn't work
+        # (since tools are at custom URIs, not standard ones)
+        tool = manager.get_tool(f"{TOOL_SCHEME}/add")
+        assert tool is None  # Should not find it at the standard URI
 
 
 class TestCallTools:
@@ -257,6 +440,62 @@ class TestCallTools:
         manager = ToolManager()
         with pytest.raises(ToolError):
             await manager.call_tool("unknown", {"a": 1})
+
+    @pytest.mark.anyio
+    async def test_call_tool_by_uri(self):
+        """Test calling tools by their URI instead of name."""
+
+        def math_add(a: int, b: int) -> int:
+            return a + b
+
+        def math_multiply(a: int, b: int) -> int:
+            return a * b
+
+        manager = ToolManager()
+
+        # Add tool with default URI
+        manager.add_tool(math_add)
+
+        # Add tool with custom URI
+        manager.add_tool(math_multiply, uri=f"{TOOL_SCHEME}/custom/math/multiply")
+
+        # Call by default URI (TOOL_SCHEME/function_name)
+        result = await manager.call_tool(f"{TOOL_SCHEME}/math_add", {"a": 5, "b": 3})
+        assert result == 8
+
+        # Call by custom URI
+        result = await manager.call_tool(f"{TOOL_SCHEME}/custom/math/multiply", {"a": 4, "b": 7})
+        assert result == 28
+
+        # Should still work with name
+        result = await manager.call_tool("math_add", {"a": 2, "b": 2})
+        assert result == 4
+
+        # Custom URI tool should also work with name
+        result = await manager.call_tool("math_multiply", {"a": 3, "b": 3})
+        assert result == 9
+
+    def test_get_tool_by_uri(self):
+        """Test getting tools by their URI."""
+
+        def calculator() -> str:
+            return "calculator"
+
+        manager = ToolManager()
+
+        # Add tool with default URI
+        manager.add_tool(calculator)
+
+        # Get by name
+        tool = manager.get_tool("calculator")
+        assert tool is not None
+        assert tool.name == "calculator"
+
+        # Get by URI
+        tool_by_uri = manager.get_tool(f"{TOOL_SCHEME}/calculator")
+        assert tool_by_uri is not None
+        assert tool_by_uri.name == "calculator"
+        assert tool_by_uri == tool
 
     @pytest.mark.anyio
     async def test_call_tool_with_list_int_input(self):

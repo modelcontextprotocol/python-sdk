@@ -21,6 +21,7 @@ from starlette.responses import Response
 from starlette.routing import Mount, Route
 from starlette.types import Receive, Scope, Send
 
+from mcp import types
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
@@ -266,14 +267,18 @@ class FastMCP(Generic[LifespanResultT]):
         self._mcp_server.get_prompt()(self.get_prompt)
         self._mcp_server.list_resource_templates()(self.list_resource_templates)
 
-    async def list_tools(self) -> list[MCPTool]:
-        """List all available tools."""
-        tools = self._tool_manager.list_tools()
+    async def list_tools(self, request: types.ListToolsRequest | None = None) -> list[MCPTool]:
+        """List all available tools, optionally filtered by URI paths."""
+        uri_paths = None
+        if request and request.params and request.params.filters:
+            uri_paths = request.params.filters.uri_paths
+        tools = self._tool_manager.list_tools(uri_paths=uri_paths)
         return [
             MCPTool(
                 name=info.name,
                 title=info.title,
                 description=info.description,
+                uri=info.uri,
                 inputSchema=info.parameters,
                 outputSchema=info.output_schema,
                 annotations=info.annotations,
@@ -297,10 +302,12 @@ class FastMCP(Generic[LifespanResultT]):
         context = self.get_context()
         return await self._tool_manager.call_tool(name, arguments, context=context, convert_result=True)
 
-    async def list_resources(self) -> list[MCPResource]:
-        """List all available resources."""
-
-        resources = self._resource_manager.list_resources()
+    async def list_resources(self, request: types.ListResourcesRequest | None = None) -> list[MCPResource]:
+        """List all available resources, optionally filtered by URI paths."""
+        uri_paths = None
+        if request and request.params and request.params.filters:
+            uri_paths = request.params.filters.uri_paths
+        resources = self._resource_manager.list_resources(uri_paths=uri_paths)
         return [
             MCPResource(
                 uri=resource.uri,
@@ -312,8 +319,14 @@ class FastMCP(Generic[LifespanResultT]):
             for resource in resources
         ]
 
-    async def list_resource_templates(self) -> list[MCPResourceTemplate]:
-        templates = self._resource_manager.list_templates()
+    async def list_resource_templates(
+        self, request: types.ListResourceTemplatesRequest | None = None
+    ) -> list[MCPResourceTemplate]:
+        """List all available resource templates, optionally filtered by URI paths."""
+        uri_paths = None
+        if request and request.params and request.params.filters:
+            uri_paths = request.params.filters.uri_paths
+        templates = self._resource_manager.list_templates(uri_paths=uri_paths)
         return [
             MCPResourceTemplate(
                 uriTemplate=template.uri_template,
@@ -342,6 +355,7 @@ class FastMCP(Generic[LifespanResultT]):
         self,
         fn: AnyFunction,
         name: str | None = None,
+        uri: str | AnyUrl | None = None,
         title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
@@ -355,6 +369,7 @@ class FastMCP(Generic[LifespanResultT]):
         Args:
             fn: The function to register as a tool
             name: Optional name for the tool (defaults to function name)
+            uri: Optional URI for the tool (defaults to {TOOL_SCHEME}/{{name}})
             title: Optional human-readable title for the tool
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
@@ -366,6 +381,7 @@ class FastMCP(Generic[LifespanResultT]):
         self._tool_manager.add_tool(
             fn,
             name=name,
+            uri=uri,
             title=title,
             description=description,
             annotations=annotations,
@@ -375,6 +391,7 @@ class FastMCP(Generic[LifespanResultT]):
     def tool(
         self,
         name: str | None = None,
+        uri: str | AnyUrl | None = None,
         title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
@@ -388,6 +405,7 @@ class FastMCP(Generic[LifespanResultT]):
 
         Args:
             name: Optional name for the tool (defaults to function name)
+            uri: Optional URI for the tool (defaults to {TOOL_SCHEME}/{{name}})
             title: Optional human-readable title for the tool
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
@@ -421,6 +439,7 @@ class FastMCP(Generic[LifespanResultT]):
             self.add_tool(
                 fn,
                 name=name,
+                uri=uri,
                 title=title,
                 description=description,
                 annotations=annotations,
@@ -557,12 +576,17 @@ class FastMCP(Generic[LifespanResultT]):
         self._prompt_manager.add_prompt(prompt)
 
     def prompt(
-        self, name: str | None = None, title: str | None = None, description: str | None = None
+        self,
+        name: str | None = None,
+        uri: str | AnyUrl | None = None,
+        title: str | None = None,
+        description: str | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a prompt.
 
         Args:
             name: Optional name for the prompt (defaults to function name)
+            uri: Optional URI for the prompt (defaults to {PROMPT_SCHEME}/{{name}})
             title: Optional human-readable title for the prompt
             description: Optional description of what the prompt does
 
@@ -601,7 +625,7 @@ class FastMCP(Generic[LifespanResultT]):
             )
 
         def decorator(func: AnyFunction) -> AnyFunction:
-            prompt = Prompt.from_function(func, name=name, title=title, description=description)
+            prompt = Prompt.from_function(func, name=name, uri=uri, title=title, description=description)
             self.add_prompt(prompt)
             return func
 
@@ -956,14 +980,18 @@ class FastMCP(Generic[LifespanResultT]):
             lifespan=lambda app: self.session_manager.run(),
         )
 
-    async def list_prompts(self) -> list[MCPPrompt]:
-        """List all available prompts."""
-        prompts = self._prompt_manager.list_prompts()
+    async def list_prompts(self, request: types.ListPromptsRequest | None = None) -> list[MCPPrompt]:
+        """List all available prompts, optionally filtered by URI paths."""
+        uri_paths = None
+        if request and request.params and request.params.filters:
+            uri_paths = request.params.filters.uri_paths
+        prompts = self._prompt_manager.list_prompts(uri_paths=uri_paths)
         return [
             MCPPrompt(
                 name=prompt.name,
                 title=prompt.title,
                 description=prompt.description,
+                uri=prompt.uri,
                 arguments=[
                     MCPPromptArgument(
                         name=arg.name,

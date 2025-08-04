@@ -6,11 +6,11 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, get_origin
 
-from pydantic import BaseModel, Field
+from pydantic import AnyUrl, BaseModel, Field
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
-from mcp.types import ToolAnnotations
+from mcp.types import TOOL_SCHEME, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -21,10 +21,11 @@ if TYPE_CHECKING:
 class Tool(BaseModel):
     """Internal tool registration info."""
 
-    fn: Callable[..., Any] = Field(exclude=True)
     name: str = Field(description="Name of the tool")
+    uri: AnyUrl = Field(description="URI of the tool")
     title: str | None = Field(None, description="Human-readable title of the tool")
     description: str = Field(description="Description of what the tool does")
+    fn: Callable[..., Any] = Field(exclude=True)
     parameters: dict[str, Any] = Field(description="JSON schema for tool parameters")
     fn_metadata: FuncMetadata = Field(
         description="Metadata about the function including a pydantic model for tool arguments"
@@ -32,6 +33,12 @@ class Tool(BaseModel):
     is_async: bool = Field(description="Whether the tool is async")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
     annotations: ToolAnnotations | None = Field(None, description="Optional annotations for the tool")
+
+    def __init__(self, **data: Any) -> None:
+        """Initialize Tool, generating URI from name if not provided."""
+        if not data.get("uri", None):
+            data["uri"] = AnyUrl(f"{TOOL_SCHEME}/{data['name']}")
+        super().__init__(**data)
 
     @cached_property
     def output_schema(self) -> dict[str, Any] | None:
@@ -42,6 +49,7 @@ class Tool(BaseModel):
         cls,
         fn: Callable[..., Any],
         name: str | None = None,
+        uri: str | AnyUrl | None = None,
         title: str | None = None,
         description: str | None = None,
         context_kwarg: str | None = None,
@@ -78,6 +86,7 @@ class Tool(BaseModel):
         return cls(
             fn=fn,
             name=func_name,
+            uri=uri,
             title=title,
             description=func_doc,
             parameters=parameters,

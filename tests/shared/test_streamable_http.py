@@ -138,7 +138,7 @@ class ServerTest(Server):
             raise ValueError(f"Unknown resource: {uri}")
 
         @self.list_tools()
-        async def handle_list_tools() -> list[Tool]:
+        async def handle_list_tools(_) -> list[Tool]:
             return [
                 Tool(
                     name="test_tool",
@@ -1277,7 +1277,7 @@ class ContextAwareServerTest(Server):
         super().__init__("ContextAwareServer")
 
         @self.list_tools()
-        async def handle_list_tools() -> list[Tool]:
+        async def handle_list_tools(_) -> list[Tool]:
             return [
                 Tool(
                     name="echo_headers",

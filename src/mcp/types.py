@@ -1,9 +1,23 @@
 from collections.abc import Callable
 from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
-from pydantic.networks import AnyUrl, UrlConstraints
+from pydantic import AnyUrl, BaseModel, ConfigDict, Field, FileUrl, RootModel, model_validator
+from pydantic.networks import UrlConstraints
 from typing_extensions import deprecated
+
+# URI scheme constants
+MCP_SCHEME = "mcp"
+TOOL_SCHEME = f"{MCP_SCHEME}://tools"
+PROMPT_SCHEME = f"{MCP_SCHEME}://prompts"
+RESOURCE_SCHEME = f"{MCP_SCHEME}://resources"
+GROUP_SCHEME = f"{MCP_SCHEME}://groups"
+
+# Well-known MCP group URIs
+WELL_KNOWN_GROUP_URIS = {
+    f"{GROUP_SCHEME}/tools",
+    f"{GROUP_SCHEME}/prompts",
+    f"{GROUP_SCHEME}/resources",
+}
 
 """
 Model Context Protocol bindings for Python
@@ -55,7 +69,17 @@ class RequestParams(BaseModel):
     meta: Meta | None = Field(alias="_meta", default=None)
 
 
-class PaginatedRequestParams(RequestParams):
+class ListFilters(BaseModel):
+    """Filters for list operations."""
+
+    uri_paths: list[AnyUrl] | None = None
+    """Optional list of absolute URI path prefixes to filter results."""
+
+
+class ListRequestParams(RequestParams):
+    filters: ListFilters | None = None
+    """Optional filters to apply to the list results."""
+
     cursor: Cursor | None = None
     """
     An opaque token representing the current pagination position.
@@ -87,11 +111,11 @@ class Request(BaseModel, Generic[RequestParamsT, MethodT]):
     model_config = ConfigDict(extra="allow")
 
 
-class PaginatedRequest(Request[PaginatedRequestParams | None, MethodT], Generic[MethodT]):
-    """Base class for paginated requests,
-    matching the schema's PaginatedRequest interface."""
+class ListRequest(Request[ListRequestParams | None, MethodT], Generic[MethodT]):
+    """Base class for list requests,
+    matching the schema's ListRequest interface."""
 
-    params: PaginatedRequestParams | None = None
+    params: ListRequestParams | None = None
 
 
 class Notification(BaseModel, Generic[NotificationParamsT, MethodT]):
@@ -113,7 +137,7 @@ class Result(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class PaginatedResult(Result):
+class ListResult(Result):
     nextCursor: Cursor | None = None
     """
     An opaque token representing the pagination position after the last returned result.
@@ -394,7 +418,7 @@ class ProgressNotification(Notification[ProgressNotificationParams, Literal["not
     params: ProgressNotificationParams
 
 
-class ListResourcesRequest(PaginatedRequest[Literal["resources/list"]]):
+class ListResourcesRequest(ListRequest[Literal["resources/list"]]):
     """Sent from the client to request a list of resources the server has."""
 
     method: Literal["resources/list"]
@@ -430,6 +454,14 @@ class Resource(BaseMetadata):
     """
     model_config = ConfigDict(extra="allow")
 
+    @model_validator(mode="after")
+    def validate_uri_scheme(self) -> "Resource":
+        """Ensure resource URI doesn't use reserved MCP scheme, except for well-known group URIs."""
+        uri_str = str(self.uri)
+        if uri_str.startswith(f"{MCP_SCHEME}://") and uri_str not in WELL_KNOWN_GROUP_URIS:
+            raise ValueError(f"Resource URI cannot use reserved MCP scheme '{MCP_SCHEME}://', got: {self.uri}")
+        return self
+
 
 class ResourceTemplate(BaseMetadata):
     """A template description for resources available on the server."""
@@ -455,19 +487,19 @@ class ResourceTemplate(BaseMetadata):
     model_config = ConfigDict(extra="allow")
 
 
-class ListResourcesResult(PaginatedResult):
+class ListResourcesResult(ListResult):
     """The server's response to a resources/list request from the client."""
 
     resources: list[Resource]
 
 
-class ListResourceTemplatesRequest(PaginatedRequest[Literal["resources/templates/list"]]):
+class ListResourceTemplatesRequest(ListRequest[Literal["resources/templates/list"]]):
     """Sent from the client to request a list of resource templates the server has."""
 
     method: Literal["resources/templates/list"]
 
 
-class ListResourceTemplatesResult(PaginatedResult):
+class ListResourceTemplatesResult(ListResult):
     """The server's response to a resources/templates/list request from the client."""
 
     resourceTemplates: list[ResourceTemplate]
@@ -603,7 +635,7 @@ class ResourceUpdatedNotification(
     params: ResourceUpdatedNotificationParams
 
 
-class ListPromptsRequest(PaginatedRequest[Literal["prompts/list"]]):
+class ListPromptsRequest(ListRequest[Literal["prompts/list"]]):
     """Sent from the client to request a list of prompts and prompt templates."""
 
     method: Literal["prompts/list"]
@@ -624,6 +656,8 @@ class PromptArgument(BaseModel):
 class Prompt(BaseMetadata):
     """A prompt or prompt template that the server offers."""
 
+    uri: Annotated[AnyUrl, UrlConstraints(allowed_schemes=[MCP_SCHEME], host_required=False)]
+    """URI for the prompt. Auto-generated if not provided."""
     description: str | None = None
     """An optional description of what this prompt provides."""
     arguments: list[PromptArgument] | None = None
@@ -635,8 +669,22 @@ class Prompt(BaseMetadata):
     """
     model_config = ConfigDict(extra="allow")
 
+    def __init__(self, **data: Any) -> None:
+        """Initialize prompt with auto-generated URI if not provided."""
+        if "uri" not in data:
+            data["uri"] = AnyUrl(f"{PROMPT_SCHEME}/{data['name']}")
+        super().__init__(**data)
 
-class ListPromptsResult(PaginatedResult):
+    @model_validator(mode="after")
+    def validate_prompt_uri(self) -> "Prompt":
+        """Validate that prompt URI starts with the correct prefix."""
+        uri_str = str(self.uri)
+        if not uri_str.startswith(f"{PROMPT_SCHEME}/"):
+            raise ValueError(f"Prompt URI must start with {PROMPT_SCHEME}/")
+        return self
+
+
+class ListPromptsResult(ListResult):
     """The server's response to a prompts/list request from the client."""
 
     prompts: list[Prompt]
@@ -786,7 +834,7 @@ class PromptListChangedNotification(
     params: NotificationParams | None = None
 
 
-class ListToolsRequest(PaginatedRequest[Literal["tools/list"]]):
+class ListToolsRequest(ListRequest[Literal["tools/list"]]):
     """Sent from the client to request a list of tools the server has."""
 
     method: Literal["tools/list"]
@@ -843,6 +891,8 @@ class ToolAnnotations(BaseModel):
 class Tool(BaseMetadata):
     """Definition for a tool the client can call."""
 
+    uri: Annotated[AnyUrl, UrlConstraints(allowed_schemes=[MCP_SCHEME], host_required=False)]
+    """URI for the tool. Auto-generated if not provided."""
     description: str | None = None
     """A human-readable description of the tool."""
     inputSchema: dict[str, Any]
@@ -861,8 +911,22 @@ class Tool(BaseMetadata):
     """
     model_config = ConfigDict(extra="allow")
 
+    def __init__(self, **data: Any) -> None:
+        """Initialize tool with auto-generated URI if not provided."""
+        if "uri" not in data:
+            data["uri"] = AnyUrl(f"{TOOL_SCHEME}/{data['name']}")
+        super().__init__(**data)
 
-class ListToolsResult(PaginatedResult):
+    @model_validator(mode="after")
+    def validate_tool_uri(self) -> "Tool":
+        """Validate that tool URI starts with the correct prefix."""
+        uri_str = str(self.uri)
+        if not uri_str.startswith(f"{TOOL_SCHEME}/"):
+            raise ValueError(f"Tool URI must start with {TOOL_SCHEME}/")
+        return self
+
+
+class ListToolsResult(ListResult):
     """The server's response to a tools/list request from the client."""
 
     tools: list[Tool]

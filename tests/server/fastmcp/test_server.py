@@ -16,6 +16,8 @@ from mcp.shared.memory import (
     create_connected_server_and_client_session as client_session,
 )
 from mcp.types import (
+    PROMPT_SCHEME,
+    TOOL_SCHEME,
     AudioContent,
     BlobResourceContents,
     ContentBlock,
@@ -217,6 +219,9 @@ class TestServerTools:
         async with client_session(mcp._mcp_server) as client:
             tools = await client.list_tools()
             assert len(tools.tools) == 1
+            # Verify URI is generated
+            tool = tools.tools[0]
+            assert str(tool.uri) == f"{TOOL_SCHEME}/tool_fn"
 
     @pytest.mark.anyio
     async def test_call_tool(self):
@@ -957,6 +962,8 @@ class TestServerPrompts:
             assert len(result.prompts) == 1
             prompt = result.prompts[0]
             assert prompt.name == "fn"
+            # Verify URI is generated
+            assert str(prompt.uri) == f"{PROMPT_SCHEME}/fn"
             assert prompt.arguments is not None
             assert len(prompt.arguments) == 2
             assert prompt.arguments[0].name == "name"

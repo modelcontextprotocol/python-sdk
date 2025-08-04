@@ -5,9 +5,9 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Literal
 
 import pydantic_core
-from pydantic import BaseModel, Field, TypeAdapter, validate_call
+from pydantic import AnyUrl, BaseModel, Field, TypeAdapter, validate_call
 
-from mcp.types import ContentBlock, TextContent
+from mcp.types import PROMPT_SCHEME, ContentBlock, TextContent
 
 
 class Message(BaseModel):
@@ -58,16 +58,24 @@ class Prompt(BaseModel):
     """A prompt template that can be rendered with parameters."""
 
     name: str = Field(description="Name of the prompt")
+    uri: AnyUrl = Field(description="URI of the prompt")
     title: str | None = Field(None, description="Human-readable title of the prompt")
     description: str | None = Field(None, description="Description of what the prompt does")
     arguments: list[PromptArgument] | None = Field(None, description="Arguments that can be passed to the prompt")
     fn: Callable[..., PromptResult | Awaitable[PromptResult]] = Field(exclude=True)
+
+    def __init__(self, **data: Any) -> None:
+        """Initialize Prompt, generating URI from name if not provided."""
+        if not data.get("uri", None):
+            data["uri"] = AnyUrl(f"{PROMPT_SCHEME}/{data['name']}")
+        super().__init__(**data)
 
     @classmethod
     def from_function(
         cls,
         fn: Callable[..., PromptResult | Awaitable[PromptResult]],
         name: str | None = None,
+        uri: str | AnyUrl | None = None,
         title: str | None = None,
         description: str | None = None,
     ) -> "Prompt":
@@ -105,6 +113,7 @@ class Prompt(BaseModel):
 
         return cls(
             name=func_name,
+            uri=uri,
             title=title,
             description=description or fn.__doc__ or "",
             arguments=arguments,

@@ -20,7 +20,7 @@ async def test_lowlevel_server_tool_annotations():
 
     # Create a tool with annotations
     @server.list_tools()
-    async def list_tools():
+    async def list_tools(_):
         return [
             Tool(
                 name="echo",

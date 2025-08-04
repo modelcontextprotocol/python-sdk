@@ -63,6 +63,44 @@ class ResourceTemplate(BaseModel):
             return match.groupdict()
         return None
 
+    def matches_prefix(self, prefix: str) -> bool:
+        """Check if this template could match URIs with the given prefix."""
+
+        # First, simple check: does the template itself start with the prefix?
+        if self.uri_template.startswith(prefix):
+            return True
+
+        template_segments = self.uri_template.split("/")
+        prefix_segments = prefix.split("/")
+
+        # Handle trailing slash - it creates an empty last segment
+        has_trailing_slash = prefix.endswith("/") and prefix_segments[-1] == ""
+        if has_trailing_slash:
+            # Remove the empty segment for comparison
+            prefix_segments = prefix_segments[:-1]
+            # Template must have more segments to generate something "under" this path
+            if len(template_segments) <= len(prefix_segments):
+                return False
+        else:
+            # Without trailing slash, prefix can't have more segments than template
+            if len(prefix_segments) > len(template_segments):
+                return False
+
+        # Compare each segment
+        for i, prefix_seg in enumerate(prefix_segments):
+            template_seg = template_segments[i]
+
+            # If template segment is a parameter, it can match any value
+            if template_seg.startswith("{") and template_seg.endswith("}"):
+                continue
+
+            # If both are literals, they must match exactly
+            if template_seg != prefix_seg:
+                return False
+
+        # All prefix segments matched
+        return True
+
     async def create_resource(self, uri: str, params: dict[str, Any]) -> Resource:
         """Create a resource from the template with the given parameters."""
         try:
