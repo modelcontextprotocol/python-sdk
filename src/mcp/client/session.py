@@ -291,13 +291,15 @@ class ClientSession(
     ) -> types.CallToolResult:
         """Send a tools/call request with optional progress callback support."""
 
+        _meta: types.ReadResourceRequestParams.Meta | None = None
+        if meta is not None:
+            _meta = types.RequestParams.Meta(**meta)
+
         result = await self.send_request(
             types.ClientRequest(
                 types.CallToolRequest(
                     method="tools/call",
-                    params=types.CallToolRequestParams(
-                        name=name, arguments=arguments, _meta=types.RequestParams.Meta(**(meta or {}))
-                    ),
+                    params=types.CallToolRequestParams(name=name, arguments=arguments, _meta=_meta),
                 )
             ),
             types.CallToolResult,
