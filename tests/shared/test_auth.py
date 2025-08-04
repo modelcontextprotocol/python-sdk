@@ -1,4 +1,5 @@
 """Tests for OAuth 2.0 shared code."""
+
 import pytest
 from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
 
@@ -37,6 +38,7 @@ class TestOAuthMetadata:
                 "userinfo_endpoint": "https://example.com/oauth2/userInfo",
             }
         )
+
 
 class TestProtectedResourceMetadataInvalid:
     """Tests for ProtectedResourceMetadata parsing."""
