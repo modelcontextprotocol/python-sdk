@@ -21,6 +21,7 @@ from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
+    INVALID_REQUEST,
     ErrorData,
     InitializeResult,
     JSONRPCError,
@@ -29,7 +30,6 @@ from mcp.types import (
     JSONRPCRequest,
     JSONRPCResponse,
     RequestId,
-    INVALID_REQUEST,
 )
 
 logger = logging.getLogger(__name__)
