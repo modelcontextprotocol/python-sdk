@@ -36,14 +36,20 @@
     - [Sampling](#sampling)
     - [Logging and Notifications](#logging-and-notifications)
     - [Authentication](#authentication)
+    - [FastMCP Properties](#fastmcp-properties)
+    - [Session Properties](#session-properties-and-methods)
+    - [Request Context Properties](#request-context-properties)
   - [Running Your Server](#running-your-server)
     - [Development Mode](#development-mode)
     - [Claude Desktop Integration](#claude-desktop-integration)
     - [Direct Execution](#direct-execution)
+    - [Streamable HTTP Transport](#streamable-http-transport)
     - [Mounting to an Existing ASGI Server](#mounting-to-an-existing-asgi-server)
   - [Advanced Usage](#advanced-usage)
     - [Low-Level Server](#low-level-server)
     - [Writing MCP Clients](#writing-mcp-clients)
+    - [Client Display Utilities](#client-display-utilities)
+    - [OAuth Authentication for Clients](#oauth-authentication-for-clients)
     - [Parsing Tool Results](#parsing-tool-results)
     - [MCP Primitives](#mcp-primitives)
     - [Server Capabilities](#server-capabilities)
@@ -303,6 +309,35 @@ def get_weather(city: str, unit: str = "celsius") -> str:
 _Full example: [examples/snippets/servers/basic_tool.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_tool.py)_
 <!-- /snippet-source -->
 
+Tools can optionally receive a Context object by including a parameter with the `Context` type annotation. This context is automatically injected by the FastMCP framework and provides access to MCP capabilities:
+
+<!-- snippet-source examples/snippets/servers/tool_progress.py -->
+```python
+from mcp.server.fastmcp import Context, FastMCP
+
+mcp = FastMCP(name="Progress Example")
+
+
+@mcp.tool()
+async def long_running_task(task_name: str, ctx: Context, steps: int = 5) -> str:
+    """Execute a task with progress updates."""
+    await ctx.info(f"Starting: {task_name}")
+
+    for i in range(steps):
+        progress = (i + 1) / steps
+        await ctx.report_progress(
+            progress=progress,
+            total=1.0,
+            message=f"Step {i + 1}/{steps}",
+        )
+        await ctx.debug(f"Completed step {i + 1}")
+
+    return f"Task '{task_name}' completed"
+```
+
+_Full example: [examples/snippets/servers/tool_progress.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/tool_progress.py)_
+<!-- /snippet-source -->
+
 #### Structured Output
 
 Tools will return structured results by default, if their return type
@@ -496,7 +531,42 @@ _Full example: [examples/snippets/servers/images.py](https://github.com/modelcon
 
 ### Context
 
-The Context object gives your tools and resources access to MCP capabilities:
+The Context object is automatically injected into tool and resource functions that request it via type hints. It provides access to MCP capabilities like logging, progress reporting, resource reading, user interaction, and request metadata.
+
+#### Getting Context in Functions
+
+To use context in a tool or resource function, add a parameter with the `Context` type annotation:
+
+```python
+from mcp.server.fastmcp import Context, FastMCP
+
+mcp = FastMCP(name="Context Example")
+
+
+@mcp.tool()
+async def my_tool(x: int, ctx: Context) -> str:
+    """Tool that uses context capabilities."""
+    # The context parameter can have any name as long as it's type-annotated
+    return await process_with_context(x, ctx)
+```
+
+#### Context Properties and Methods
+
+The Context object provides the following capabilities:
+
+- `ctx.request_id` - Unique ID for the current request
+- `ctx.client_id` - Client ID if available
+- `ctx.fastmcp` - Access to the FastMCP server instance (see [FastMCP Properties](#fastmcp-properties))
+- `ctx.session` - Access to the underlying session for advanced communication (see [Session Properties and Methods](#session-properties-and-methods))
+- `ctx.request_context` - Access to request-specific data and lifespan resources (see [Request Context Properties](#request-context-properties))
+- `await ctx.debug(message)` - Send debug log message
+- `await ctx.info(message)` - Send info log message  
+- `await ctx.warning(message)` - Send warning log message
+- `await ctx.error(message)` - Send error log message
+- `await ctx.log(level, message, logger_name=None)` - Send log with custom level
+- `await ctx.report_progress(progress, total=None, message=None)` - Report operation progress
+- `await ctx.read_resource(uri)` - Read a resource by URI
+- `await ctx.elicit(message, schema)` - Request additional information from user with validation
 
 <!-- snippet-source examples/snippets/servers/tool_progress.py -->
 ```python
@@ -807,6 +877,99 @@ For a complete example with separate Authorization Server and Resource Server im
 - **Client**: Discovers AS through RFC 9728, obtains tokens, and uses them with the MCP server
 
 See [TokenVerifier](src/mcp/server/auth/provider.py) for more details on implementing token validation.
+
+### FastMCP Properties
+
+The FastMCP server instance accessible via `ctx.fastmcp` provides access to server configuration and metadata:
+
+- `ctx.fastmcp.name` - The server's name as defined during initialization
+- `ctx.fastmcp.instructions` - Server instructions/description provided to clients
+- `ctx.fastmcp.settings` - Complete server configuration object containing:
+  - `debug` - Debug mode flag
+  - `log_level` - Current logging level
+  - `host` and `port` - Server network configuration
+  - `mount_path`, `sse_path`, `streamable_http_path` - Transport paths
+  - `stateless_http` - Whether the server operates in stateless mode
+  - And other configuration options
+
+```python
+@mcp.tool()
+def server_info(ctx: Context) -> dict:
+    """Get information about the current server."""
+    return {
+        "name": ctx.fastmcp.name,
+        "instructions": ctx.fastmcp.instructions,
+        "debug_mode": ctx.fastmcp.settings.debug,
+        "log_level": ctx.fastmcp.settings.log_level,
+        "host": ctx.fastmcp.settings.host,
+        "port": ctx.fastmcp.settings.port,
+    }
+```
+
+### Session Properties and Methods
+
+The session object accessible via `ctx.session` provides advanced control over client communication:
+
+- `ctx.session.client_params` - Client initialization parameters and declared capabilities
+- `await ctx.session.send_log_message(level, data, logger)` - Send log messages with full control
+- `await ctx.session.create_message(messages, max_tokens)` - Request LLM sampling/completion
+- `await ctx.session.send_progress_notification(token, progress, total, message)` - Direct progress updates
+- `await ctx.session.send_resource_updated(uri)` - Notify clients that a specific resource changed
+- `await ctx.session.send_resource_list_changed()` - Notify clients that the resource list changed
+- `await ctx.session.send_tool_list_changed()` - Notify clients that the tool list changed
+- `await ctx.session.send_prompt_list_changed()` - Notify clients that the prompt list changed
+
+```python
+@mcp.tool()
+async def notify_data_update(resource_uri: str, ctx: Context) -> str:
+    """Update data and notify clients of the change."""
+    # Perform data update logic here
+    
+    # Notify clients that this specific resource changed
+    await ctx.session.send_resource_updated(AnyUrl(resource_uri))
+    
+    # If this affects the overall resource list, notify about that too
+    await ctx.session.send_resource_list_changed()
+    
+    return f"Updated {resource_uri} and notified clients"
+```
+
+### Request Context Properties
+
+The request context accessible via `ctx.request_context` contains request-specific information and resources:
+
+- `ctx.request_context.lifespan_context` - Access to resources initialized during server startup
+  - Database connections, configuration objects, shared services
+  - Type-safe access to resources defined in your server's lifespan function
+- `ctx.request_context.meta` - Request metadata from the client including:
+  - `progressToken` - Token for progress notifications
+  - Other client-provided metadata
+- `ctx.request_context.request` - The original MCP request object for advanced processing
+- `ctx.request_context.request_id` - Unique identifier for this request
+
+```python
+# Example with typed lifespan context
+@dataclass
+class AppContext:
+    db: Database
+    config: AppConfig
+
+@mcp.tool()
+def query_with_config(query: str, ctx: Context) -> str:
+    """Execute a query using shared database and configuration."""
+    # Access typed lifespan context
+    app_ctx: AppContext = ctx.request_context.lifespan_context
+    
+    # Use shared resources
+    connection = app_ctx.db
+    settings = app_ctx.config
+    
+    # Execute query with configuration
+    result = connection.execute(query, timeout=settings.query_timeout)
+    return str(result)
+```
+
+_Full lifespan example: [examples/snippets/servers/lifespan_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lifespan_example.py)_
 
 ## Running Your Server
 
