@@ -81,7 +81,7 @@ class TestProtectedResourceMetadataInvalid:
             }
         )
 
-    def test_valid_witn_invalid_resource_documentation(self):
+    def test_valid_with_invalid_resource_documentation(self):
         """Should throw when parsing metadata with resource_name and invalid resource_documentation."""
         with pytest.raises(ValueError):
             ProtectedResourceMetadata.model_validate(
