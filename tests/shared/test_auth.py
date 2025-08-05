@@ -111,7 +111,7 @@ class TestProtectedResourceMetadataInvalid:
                 "resource_policy_uri": "https://example.com/resource/policy",
                 "resource_tos_uri": "https://example.com/resource/tos",
                 "tls_client_certificate_bound_access_tokens": True,
-                # authorization_details_types_supported is a complext type
+                # authorization_details_types_supported is a complex type
                 # so we use an empty list for simplicity
                 # see RFC9396
                 "authorization_details_types_supported": [],
