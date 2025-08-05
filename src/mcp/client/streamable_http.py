@@ -29,6 +29,7 @@ from mcp.types import (
     JSONRPCRequest,
     JSONRPCResponse,
     RequestId,
+    INVALID_REQUEST,
 )
 
 logger = logging.getLogger(__name__)
@@ -268,7 +269,7 @@ class StreamableHTTPTransport:
 
             if response.status_code == 400:
                 if isinstance(message.root, JSONRPCRequest):
-                    await self._send_bad_request_error(
+                    await self._send_invalid_request_error(
                         ctx.read_stream_writer,
                         message.root.id,
                     )
@@ -367,16 +368,16 @@ class StreamableHTTPTransport:
         session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
         await read_stream_writer.send(session_message)
 
-    async def _send_bad_request_error(
+    async def _send_invalid_request_error(
         self,
         read_stream_writer: StreamWriter,
         request_id: RequestId,
     ) -> None:
-        """Send a bad request error response."""
+        """Send an invalid request error response."""
         jsonrpc_error = JSONRPCError(
             jsonrpc="2.0",
             id=request_id,
-            error=ErrorData(code=32600, message="Bad request"),
+            error=ErrorData(code=INVALID_REQUEST, message="Invalid request"),
         )
         session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
         await read_stream_writer.send(session_message)
