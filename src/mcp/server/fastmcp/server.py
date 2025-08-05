@@ -4,16 +4,13 @@ from __future__ import annotations as _annotations
 
 import inspect
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
-from contextlib import (
-    AbstractAsyncContextManager,
-    asynccontextmanager,
-)
+from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Iterable, Sequence
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal
 
 import anyio
 import pydantic_core
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
@@ -25,10 +22,7 @@ from starlette.routing import Mount, Route
 from starlette.types import Receive, Scope, Send
 
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
-from mcp.server.auth.middleware.bearer_auth import (
-    BearerAuthBackend,
-    RequireAuthMiddleware,
-)
+from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, elicit_with_validation
@@ -48,12 +42,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
-from mcp.types import (
-    AnyFunction,
-    ContentBlock,
-    GetPromptResult,
-    ToolAnnotations,
-)
+from mcp.types import AnyFunction, ContentBlock, GetPromptResult, ToolAnnotations
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
@@ -79,58 +68,57 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     )
 
     # Server settings
-    debug: bool = False
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    debug: bool
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
     # HTTP settings
-    host: str = "127.0.0.1"
-    port: int = 8000
-    mount_path: str = "/"  # Mount path (e.g. "/github", defaults to root path)
-    sse_path: str = "/sse"
-    message_path: str = "/messages/"
-    streamable_http_path: str = "/mcp"
+    host: str
+    port: int
+    mount_path: str
+    sse_path: str
+    message_path: str
+    streamable_http_path: str
 
     # StreamableHTTP settings
-    json_response: bool = False
-    stateless_http: bool = False  # If True, uses true stateless mode (new transport per request)
+    json_response: bool
+    stateless_http: bool
+    """Define if the server should create a new transport per request."""
 
     # resource settings
-    warn_on_duplicate_resources: bool = True
+    warn_on_duplicate_resources: bool
 
     # tool settings
-    warn_on_duplicate_tools: bool = True
+    warn_on_duplicate_tools: bool
 
     # prompt settings
-    warn_on_duplicate_prompts: bool = True
+    warn_on_duplicate_prompts: bool
 
-    dependencies: list[str] = Field(
-        default_factory=list,
-        description="List of dependencies to install in the server environment",
-    )
+    # TODO(Marcelo): Investigate if this is used. If it is, it's probably a good idea to remove it.
+    dependencies: list[str]
+    """A list of dependencies to install in the server environment."""
 
-    lifespan: Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]] | None = Field(
-        None, description="Lifespan context manager"
-    )
+    lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None
+    """A async context manager that will be called when the server is started."""
 
-    auth: AuthSettings | None = None
+    auth: AuthSettings | None
 
     # Transport security settings (DNS rebinding protection)
-    transport_security: TransportSecuritySettings | None = None
+    transport_security: TransportSecuritySettings | None
 
 
 def lifespan_wrapper(
-    app: FastMCP,
-    lifespan: Callable[[FastMCP], AbstractAsyncContextManager[LifespanResultT]],
-) -> Callable[[MCPServer[LifespanResultT, Request]], AbstractAsyncContextManager[object]]:
+    app: FastMCP[LifespanResultT],
+    lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]],
+) -> Callable[[MCPServer[LifespanResultT, Request]], AbstractAsyncContextManager[LifespanResultT]]:
     @asynccontextmanager
-    async def wrap(s: MCPServer[LifespanResultT, Request]) -> AsyncIterator[object]:
+    async def wrap(_: MCPServer[LifespanResultT, Request]) -> AsyncIterator[LifespanResultT]:
         async with lifespan(app) as context:
             yield context
 
     return wrap
 
 
-class FastMCP:
+class FastMCP(Generic[LifespanResultT]):
     def __init__(
         self,
         name: str | None = None,
@@ -140,14 +128,50 @@ class FastMCP:
         event_store: EventStore | None = None,
         *,
         tools: list[Tool] | None = None,
-        **settings: Any,
+        debug: bool = False,
+        log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
+        host: str = "127.0.0.1",
+        port: int = 8000,
+        mount_path: str = "/",
+        sse_path: str = "/sse",
+        message_path: str = "/messages/",
+        streamable_http_path: str = "/mcp",
+        json_response: bool = False,
+        stateless_http: bool = False,
+        warn_on_duplicate_resources: bool = True,
+        warn_on_duplicate_tools: bool = True,
+        warn_on_duplicate_prompts: bool = True,
+        dependencies: Collection[str] = (),
+        lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
+        auth: AuthSettings | None = None,
+        transport_security: TransportSecuritySettings | None = None,
     ):
-        self.settings = Settings(**settings)
+        self.settings = Settings(
+            debug=debug,
+            log_level=log_level,
+            host=host,
+            port=port,
+            mount_path=mount_path,
+            sse_path=sse_path,
+            message_path=message_path,
+            streamable_http_path=streamable_http_path,
+            json_response=json_response,
+            stateless_http=stateless_http,
+            warn_on_duplicate_resources=warn_on_duplicate_resources,
+            warn_on_duplicate_tools=warn_on_duplicate_tools,
+            warn_on_duplicate_prompts=warn_on_duplicate_prompts,
+            dependencies=list(dependencies),
+            lifespan=lifespan,
+            auth=auth,
+            transport_security=transport_security,
+        )
 
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
             instructions=instructions,
-            lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),
+            # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an FastMCP and Server.
+            # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
+            lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
         self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
         self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
@@ -257,7 +281,7 @@ class FastMCP:
             for info in tools
         ]
 
-    def get_context(self) -> Context[ServerSession, object, Request]:
+    def get_context(self) -> Context[ServerSession, LifespanResultT, Request]:
         """
         Returns a Context object. Note that the context will only be valid
         during a request; outside a request, most methods will error.

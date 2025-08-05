@@ -526,8 +526,8 @@ class OAuthClientProvider(httpx.Auth):
                                 break
                             except ValidationError:
                                 continue
-                        elif oauth_metadata_response.status_code != 404:
-                            break  # Non-404 error, stop trying
+                        elif oauth_metadata_response.status_code < 400 or oauth_metadata_response.status_code >= 500:
+                            break  # Non-4XX error, stop trying
 
                     # Step 3: Register client if needed
                     registration_request = await self._register_client()
