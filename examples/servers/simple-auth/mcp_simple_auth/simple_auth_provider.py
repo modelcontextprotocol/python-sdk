@@ -238,6 +238,52 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider):
             scope=" ".join(authorization_code.scopes),
         )
 
+    async def exchange_client_credentials(self, client: OAuthClientInformationFull, scopes: list[str]) -> OAuthToken:
+        """Exchange client credentials for an MCP access token."""
+        mcp_token = f"mcp_{secrets.token_hex(32)}"
+        self.tokens[mcp_token] = AccessToken(
+            token=mcp_token,
+            client_id=client.client_id,
+            scopes=scopes,
+            expires_at=int(time.time()) + 3600,
+        )
+        return OAuthToken(
+            access_token=mcp_token,
+            token_type="Bearer",
+            expires_in=3600,
+            scope=" ".join(scopes),
+        )
+
+    async def exchange_token(
+        self,
+        client: OAuthClientInformationFull,
+        subject_token: str,
+        subject_token_type: str,
+        actor_token: str | None,
+        actor_token_type: str | None,
+        scope: list[str] | None,
+        audience: str | None,
+        resource: str | None,
+    ) -> OAuthToken:
+        """Exchange an external token for an MCP access token."""
+        if not subject_token:
+            raise ValueError("Invalid subject token")
+
+        mcp_token = f"mcp_{secrets.token_hex(32)}"
+        self.tokens[mcp_token] = AccessToken(
+            token=mcp_token,
+            client_id=client.client_id,
+            scopes=scope or [self.settings.mcp_scope],
+            expires_at=int(time.time()) + 3600,
+            resource=resource,
+        )
+        return OAuthToken(
+            access_token=mcp_token,
+            token_type="Bearer",
+            expires_in=3600,
+            scope=" ".join(scope or [self.settings.mcp_scope]),
+        )
+
     async def load_access_token(self, token: str) -> AccessToken | None:
         """Load and validate an access token."""
         access_token = self.tokens.get(token)
