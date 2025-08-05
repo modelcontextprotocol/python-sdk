@@ -166,31 +166,34 @@ class StreamableHTTPSessionManager:
             security_settings=self.security_settings,
         )
 
-        # Start server in a new task
-        async def run_stateless_server(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED):
-            async with http_transport.connect() as streams:
-                read_stream, write_stream = streams
-                task_status.started()
-                try:
-                    await self.app.run(
-                        read_stream,
-                        write_stream,
-                        self.app.create_initialization_options(),
-                        stateless=True,
-                    )
-                except Exception:
-                    logger.exception("Stateless session crashed")
+        # Use a separate task group
+        async with anyio.create_task_group() as request_tg:
 
-        # Assert task group is not None for type checking
-        assert self._task_group is not None
-        # Start the server task
-        await self._task_group.start(run_stateless_server)
+            async def run_stateless_server(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED):
+                async with http_transport.connect() as streams:
+                    read_stream, write_stream = streams
+                    task_status.started()
+                    try:
+                        await self.app.run(
+                            read_stream,
+                            write_stream,
+                            self.app.create_initialization_options(),
+                            stateless=True,
+                        )
+                    except Exception:
+                        logger.exception("Stateless session crashed")
 
-        # Handle the HTTP request and return the response
-        await http_transport.handle_request(scope, receive, send)
+            # Start the server task in the request-scoped task group
+            await request_tg.start(run_stateless_server)
 
-        # Terminate the transport after the request is handled
-        await http_transport.terminate()
+            try:
+                # Handle the HTTP request and return the response
+                await http_transport.handle_request(scope, receive, send)
+            finally:
+                # Terminate the transport after the request is handled
+                await http_transport.terminate()
+                # Cancel the task group to ensure the server task is cleaned up
+                request_tg.cancel_scope.cancel()
 
     async def _handle_stateful_request(
         self,
