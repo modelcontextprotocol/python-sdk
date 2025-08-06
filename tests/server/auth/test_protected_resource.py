@@ -5,10 +5,11 @@ Integration tests for MCP Oauth Protected Resource.
 import httpx
 import pytest
 from inline_snapshot import snapshot
-from mcp.server.auth.routes import create_protected_resource_routes
-from mcp.shared.auth import ProtectedResourceMetadata
-from pydantic import AnyHttpUrl, Field
+from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
+
+from mcp.server.auth.routes import create_protected_resource_routes
+
 
 @pytest.fixture
 def protected_resource_app():

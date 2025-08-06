@@ -11,7 +11,6 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
-from inline_snapshot import snapshot
 from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 
@@ -1197,4 +1196,3 @@ class TestAuthorizeEndpointErrors:
         # State should be preserved
         assert "state" in query_params
         assert query_params["state"][0] == "test_state"
-
