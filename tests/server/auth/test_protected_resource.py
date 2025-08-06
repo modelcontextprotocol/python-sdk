@@ -37,22 +37,19 @@ async def protected_resource_test_client(protected_resource_app: Starlette):
         yield client
 
 
-class TestProtectedResourceMetadata:
-    """Test the Protected Resource Metadata model."""
+@pytest.mark.anyio
+async def test_metadata_endpoint(self, test_client: httpx.AsyncClient):
+    """Test the OAuth 2.0 Protected Resource metadata endpoint."""
 
-    @pytest.mark.anyio
-    async def test_metadata_endpoint(self, protected_resource_test_client: httpx.AsyncClient):
-        """Test the OAuth 2.0 Protected Resource metadata endpoint."""
-
-        response = await protected_resource_test_client.get("/.well-known/oauth-protected-resource")
-        metadata = response.json()
-        assert metadata == snapshot(
-            {
-                "resource": "https://example.com/resource",
-                "authorization_servers": ["https://auth.example.com/authorization"],
-                "scopes_supported": ["read", "write"],
-                "resource_name": "Example Resource",
-                "resource_documentation": "https://docs.example.com/resource",
-                "bearer_methods_supported": ["header"],
-            }
-        )
+    response = await protected_resource_test_client.get("/.well-known/oauth-protected-resource")
+    metadata = response.json()
+    assert metadata == snapshot(
+        {
+            "resource": "https://example.com/resource",
+            "authorization_servers": ["https://auth.example.com/authorization"],
+            "scopes_supported": ["read", "write"],
+            "resource_name": "Example Resource",
+            "resource_documentation": "https://docs.example.com/resource",
+            "bearer_methods_supported": ["header"],
+        }
+    )
