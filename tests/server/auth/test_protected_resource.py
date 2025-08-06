@@ -29,7 +29,7 @@ def protected_resource_app():
 
 
 @pytest.fixture
-async def protected_resource_test_client(protected_resource_app: Starlette):
+async def test_client(protected_resource_app: Starlette):
     """Fixture to create an HTTP client for the protected resource app."""
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=protected_resource_app), base_url="https://mcptest.com"
