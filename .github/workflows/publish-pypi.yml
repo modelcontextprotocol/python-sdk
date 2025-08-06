@@ -31,6 +31,8 @@ jobs:
           path: dist/
 
   checks:
+    permissions:
+      contents: read
     uses: ./.github/workflows/shared.yml
 
   pypi-publish:
