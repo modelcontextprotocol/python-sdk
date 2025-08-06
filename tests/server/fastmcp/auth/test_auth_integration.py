@@ -26,6 +26,7 @@ from mcp.server.auth.routes import (
     ClientRegistrationOptions,
     RevocationOptions,
     create_auth_routes,
+    create_protected_resource_routes,
 )
 from mcp.shared.auth import (
     OAuthClientInformationFull,
@@ -214,6 +215,25 @@ def auth_app(mock_oauth_provider):
     app = Starlette(routes=auth_routes)
 
     return app
+
+
+@pytest.fixture
+def protected_resource_app(auth_app):
+    """Fixture to create protected resource routes for testing."""
+
+    print(auth_app.router.routes)
+    # Create the protected resource routes
+    protected_resource_routes = create_protected_resource_routes(
+        resource_url=AnyHttpUrl("https://example.com/resource"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com/authorization")],
+        scopes_supported=["read", "write"],
+        resource_name="Example Resource",
+        resource_documentation=AnyHttpUrl("https://docs.example.com/resource"),
+    )
+
+    # add routes to the auth app
+    auth_app.router.routes.extend(protected_resource_routes)
+    return auth_app
 
 
 @pytest.fixture
@@ -1201,3 +1221,26 @@ class TestAuthorizeEndpointErrors:
         # State should be preserved
         assert "state" in query_params
         assert query_params["state"][0] == "test_state"
+
+
+class TestProtectedResourceMetadata:
+    """Test the Protected Resource Metadata model."""
+
+    @pytest.mark.anyio
+    async def test_metadata_endpoint(self, protected_resource_app: Starlette, test_client: httpx.AsyncClient):
+        """Test the OAuth 2.0 Protected Resource metadata endpoint."""
+        print("Sending request to protected resource metadata endpoint")
+        response = await test_client.get("/.well-known/oauth-protected-resource")
+        print(f"Got response: {response.status_code}")
+        if response.status_code != 200:
+            print(f"Response content: {response.content}")
+        assert response.status_code == 200
+
+        metadata = response.json()
+        print(f"Protected Resource Metadata: {metadata}")
+        assert metadata["resource"] == "https://example.com/resource"
+        assert metadata["authorization_servers"] == ["https://auth.example.com/authorization"]
+        assert metadata["scopes_supported"] == ["read", "write"]
+        assert metadata["resource_name"] == "Example Resource"
+        assert metadata["resource_documentation"] == "https://docs.example.com/resource"
+        assert metadata["bearer_methods_supported"] == ["header"]

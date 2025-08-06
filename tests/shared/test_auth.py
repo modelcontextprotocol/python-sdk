@@ -1,6 +1,7 @@
 """Tests for OAuth 2.0 shared code."""
 
 import pytest
+
 from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
 
 
