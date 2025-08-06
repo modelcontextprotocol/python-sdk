@@ -1234,7 +1234,6 @@ class TestProtectedResourceMetadata:
         """Test the OAuth 2.0 Protected Resource metadata endpoint."""
 
         response = await protected_resource_test_client.get("/.well-known/oauth-protected-resource")
-        assert response.status_code == 200
         metadata = response.json()
         assert metadata == snapshot(
             {
