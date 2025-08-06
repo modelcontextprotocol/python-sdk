@@ -12,7 +12,7 @@ from mcp.server.auth.routes import create_protected_resource_routes
 
 
 @pytest.fixture
-def protected_resource_app():
+def test_app():
     """Fixture to create protected resource routes for testing."""
 
     # Create the protected resource routes
@@ -29,21 +29,18 @@ def protected_resource_app():
 
 
 @pytest.fixture
-async def test_client(protected_resource_app: Starlette):
+async def test_client(test_app: Starlette):
     """Fixture to create an HTTP client for the protected resource app."""
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=protected_resource_app), base_url="https://mcptest.com"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=test_app), base_url="https://mcptest.com") as client:
         yield client
 
 
 @pytest.mark.anyio
-async def test_metadata_endpoint(self, test_client: httpx.AsyncClient):
+async def test_metadata_endpoint(test_client: httpx.AsyncClient):
     """Test the OAuth 2.0 Protected Resource metadata endpoint."""
 
-    response = await protected_resource_test_client.get("/.well-known/oauth-protected-resource")
-    metadata = response.json()
-    assert metadata == snapshot(
+    response = await test_client.get("/.well-known/oauth-protected-resource")
+    assert response.json() == snapshot(
         {
             "resource": "https://example.com/resource",
             "authorization_servers": ["https://auth.example.com/authorization"],
