@@ -44,6 +44,18 @@ def main(port: int, transport: str) -> int:
             for name in SAMPLE_RESOURCES.keys()
         ]
 
+    @app.list_resource_templates()
+    async def list_resource_templates() -> list[types.ResourceTemplate]:
+        return [
+            types.ResourceTemplate(
+                uriTemplate="file:///{name}.txt",
+                name="resource template example",
+                title="resource template example",
+                description="Get txt file content by name",
+                mimeType="text/plain",
+            ),
+        ]
+
     @app.read_resource()
     async def read_resource(uri: AnyUrl) -> str | bytes:
         if uri.path is None:
