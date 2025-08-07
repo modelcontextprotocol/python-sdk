@@ -3,14 +3,17 @@ Tests for refactored OAuth client authentication implementation.
 """
 
 import time
+import urllib
+import urllib.parse
 from unittest import mock
 
 import httpx
+import jwt
 import pytest
 from inline_snapshot import Is, snapshot
 from pydantic import AnyHttpUrl, AnyUrl
 
-from mcp.client.auth import OAuthClientProvider, PKCEParameters
+from mcp.client.auth import JWTParameters, OAuthClientProvider, PKCEParameters, RFC7523OAuthClientProvider
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -76,6 +79,25 @@ def oauth_provider(client_metadata, mock_storage):
         return "test_auth_code", "test_state"
 
     return OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+        redirect_handler=redirect_handler,
+        callback_handler=callback_handler,
+    )
+
+
+@pytest.fixture
+def rfc7523_oauth_provider(client_metadata, mock_storage):
+    async def redirect_handler(url: str) -> None:
+        """Mock redirect handler."""
+        pass
+
+    async def callback_handler() -> tuple[str, str | None]:
+        """Mock callback handler."""
+        return "test_auth_code", "test_state"
+
+    return RFC7523OAuthClientProvider(
         server_url="https://api.example.com/v1/mcp",
         client_metadata=client_metadata,
         storage=mock_storage,
@@ -262,7 +284,7 @@ class TestOAuthFallback:
         ]
 
     @pytest.mark.anyio
-    async def test_oauth_discovery_fallback_conditions(self, oauth_provider):
+    async def test_oauth_discovery_fallback_conditions(self, oauth_provider: OAuthClientProvider):
         """Test the conditions during which an AS metadata discovery fallback will be attempted."""
         # Ensure no tokens are stored
         oauth_provider.context.current_tokens = None
@@ -346,7 +368,9 @@ class TestOAuthFallback:
         )
 
         # Mock the authorization process to minimize unnecessary state in this test
-        oauth_provider._perform_authorization = mock.AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
+        oauth_provider._perform_authorization_code_grant = mock.AsyncMock(
+            return_value=("test_auth_code", "test_code_verifier")
+        )
 
         # Next request should fall back to legacy behavior and auth with the RS (mocked /authorize, next is /token)
         token_request = await auth_flow.asend(oauth_metadata_response_3)
@@ -405,7 +429,7 @@ class TestOAuthFallback:
         assert request is None
 
     @pytest.mark.anyio
-    async def test_token_exchange_request(self, oauth_provider):
+    async def test_token_exchange_request_authorization_code(self, oauth_provider):
         """Test token exchange request building."""
         # Set up required context
         oauth_provider.context.client_info = OAuthClientInformationFull(
@@ -414,7 +438,7 @@ class TestOAuthFallback:
             redirect_uris=[AnyUrl("http://localhost:3030/callback")],
         )
 
-        request = await oauth_provider._exchange_token("test_auth_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_auth_code", "test_verifier")
 
         assert request.method == "POST"
         assert str(request.url) == "https://api.example.com/token"
@@ -427,6 +451,91 @@ class TestOAuthFallback:
         assert "code_verifier=test_verifier" in content
         assert "client_id=test_client" in content
         assert "client_secret=test_secret" in content
+
+    @pytest.mark.anyio
+    async def test_token_exchange_request_jwt_predefined(self, rfc7523_oauth_provider: RFC7523OAuthClientProvider):
+        """Test token exchange request building with a predefined JWT assertion."""
+        # Set up required context
+        rfc7523_oauth_provider.context.client_info = OAuthClientInformationFull(
+            grant_types=["urn:ietf:params:oauth:grant-type:jwt-bearer"],
+            token_endpoint_auth_method="private_key_jwt",
+            redirect_uris=None,
+            scope="read write",
+        )
+        rfc7523_oauth_provider.context.client_metadata = rfc7523_oauth_provider.context.client_info
+        rfc7523_oauth_provider.context.protocol_version = "2025-06-18"
+        rfc7523_oauth_provider.jwt_parameters = JWTParameters(
+            # https://www.jwt.io
+            assertion="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.KMUFsIDTnFmyG3nMiGM6H9FNFUROf3wh7SmqJp-QV30"
+        )
+
+        request = await rfc7523_oauth_provider._exchange_token_jwt_bearer()
+
+        assert request.method == "POST"
+        assert str(request.url) == "https://api.example.com/token"
+        assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
+
+        # Check form data
+        content = urllib.parse.unquote_plus(request.content.decode())
+        assert "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer" in content
+        assert "scope=read write" in content
+        assert "resource=https://api.example.com/v1/mcp" in content
+        assert (
+            "assertion=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.KMUFsIDTnFmyG3nMiGM6H9FNFUROf3wh7SmqJp-QV30"
+            in content
+        )
+
+    @pytest.mark.anyio
+    async def test_token_exchange_request_jwt(self, rfc7523_oauth_provider: RFC7523OAuthClientProvider):
+        """Test token exchange request building wiith a generated JWT assertion."""
+        # Set up required context
+        rfc7523_oauth_provider.context.client_info = OAuthClientInformationFull(
+            grant_types=["urn:ietf:params:oauth:grant-type:jwt-bearer"],
+            token_endpoint_auth_method="private_key_jwt",
+            redirect_uris=None,
+            scope="read write",
+        )
+        rfc7523_oauth_provider.context.client_metadata = rfc7523_oauth_provider.context.client_info
+        rfc7523_oauth_provider.context.protocol_version = "2025-06-18"
+        rfc7523_oauth_provider.jwt_parameters = JWTParameters(
+            issuer="foo",
+            subject="1234567890",
+            claims={
+                "name": "John Doe",
+                "admin": True,
+                "iat": 1516239022,
+            },
+            jwt_signing_algorithm="HS256",
+            jwt_signing_key="a-string-secret-at-least-256-bits-long",
+            jwt_lifetime_seconds=300,
+        )
+
+        request = await rfc7523_oauth_provider._exchange_token_jwt_bearer()
+
+        assert request.method == "POST"
+        assert str(request.url) == "https://api.example.com/token"
+        assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
+
+        # Check form data
+        content = urllib.parse.unquote_plus(request.content.decode()).split("&")
+        assert "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer" in content
+        assert "scope=read write" in content
+        assert "resource=https://api.example.com/v1/mcp" in content
+
+        # Check assertion
+        assertion = next(param for param in content if param.startswith("assertion="))[len("assertion=") :]
+        claims = jwt.decode(
+            assertion,
+            key="a-string-secret-at-least-256-bits-long",
+            algorithms=["HS256"],
+            audience="https://api.example.com/token",
+            subject="1234567890",
+            issuer="foo",
+            verify=True,
+        )
+        assert claims["name"] == "John Doe"
+        assert claims["admin"]
+        assert claims["iat"] == 1516239022
 
     @pytest.mark.anyio
     async def test_refresh_token_request(self, oauth_provider, valid_tokens):
@@ -468,7 +577,7 @@ class TestProtectedResourceMetadata:
         )
 
         # Test in token exchange
-        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" in content
         # Check URL-encoded resource parameter
@@ -499,7 +608,7 @@ class TestProtectedResourceMetadata:
         )
 
         # Test in token exchange
-        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" not in content
 
@@ -529,7 +638,7 @@ class TestProtectedResourceMetadata:
         )
 
         # Test in token exchange
-        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" in content
 
@@ -600,7 +709,7 @@ class TestAuthFlow:
             pass  # Expected
 
     @pytest.mark.anyio
-    async def test_auth_flow_with_no_tokens(self, oauth_provider, mock_storage):
+    async def test_auth_flow_with_no_tokens(self, oauth_provider: OAuthClientProvider, mock_storage):
         """Test auth flow when no tokens are available, triggering the full OAuth flow."""
         # Ensure no tokens are stored
         oauth_provider.context.current_tokens = None
@@ -669,7 +778,9 @@ class TestAuthFlow:
         )
 
         # Mock the authorization process
-        oauth_provider._perform_authorization = mock.AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
+        oauth_provider._perform_authorization_code_grant = mock.AsyncMock(
+            return_value=("test_auth_code", "test_code_verifier")
+        )
 
         # Next request should be to exchange token
         token_request = await auth_flow.asend(registration_response)
