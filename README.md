@@ -1159,6 +1159,27 @@ The streamable HTTP transport supports:
 - JSON or SSE response formats
 - Better scalability for multi-node deployments
 
+#### CORS Configuration for Browser-Based Clients
+
+If you'd like your server to be accessible by browser-based MCP clients, you'll need to configure CORS headers. The `Mcp-Session-Id` header must be exposed for browser clients to access it:
+
+```python
+from starlette.middleware.cors import CORSMiddleware
+
+# Add CORS middleware to your Starlette app
+app = CORSMiddleware(
+    app,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_methods=["GET", "POST", "DELETE"],  # MCP streamable HTTP methods
+    expose_headers=["Mcp-Session-Id"],
+)
+```
+
+This configuration is necessary because:
+- The MCP streamable HTTP transport uses the `Mcp-Session-Id` header for session management
+- Browsers restrict access to response headers unless explicitly exposed via CORS
+- Without this configuration, browser-based clients won't be able to read the session ID from initialization responses
+
 ### Mounting to an Existing ASGI Server
 
 By default, SSE servers are mounted at `/sse` and Streamable HTTP servers are mounted at `/mcp`. You can customize these paths using the methods described below.
