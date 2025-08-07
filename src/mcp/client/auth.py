@@ -431,7 +431,7 @@ class OAuthClientProvider(httpx.Auth):
         return token_url
 
     async def _exchange_token_authorization_code(
-        self, auth_code: str, code_verifier: str, *, token_data: dict[str, Any] = {}
+        self, auth_code: str, code_verifier: str, *, token_data: dict[str, Any] | None = {}
     ) -> httpx.Request:
         """Build token exchange request for authorization_code flow."""
         if self.context.client_metadata.redirect_uris is None:
@@ -440,6 +440,7 @@ class OAuthClientProvider(httpx.Auth):
             raise OAuthFlowError("Missing client info")
 
         token_url = self._get_token_endpoint()
+        token_data = token_data or {}
         token_data.update(
             {
                 "grant_type": "authorization_code",
@@ -644,9 +645,10 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
         self.jwt_parameters = jwt_parameters
 
     async def _exchange_token_authorization_code(
-        self, auth_code: str, code_verifier: str, *, token_data: dict[str, Any] = {}
+        self, auth_code: str, code_verifier: str, *, token_data: dict[str, Any] | None = None
     ) -> httpx.Request:
         """Build token exchange request for authorization_code flow."""
+        token_data = token_data or {}
         if self.context.client_metadata.token_endpoint_auth_method == "private_key_jwt":
             self._add_client_authentication_jwt(token_data=token_data)
         return await super()._exchange_token_authorization_code(auth_code, code_verifier, token_data=token_data)
