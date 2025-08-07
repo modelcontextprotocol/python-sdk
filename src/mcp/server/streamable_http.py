@@ -286,7 +286,7 @@ class StreamableHTTPServerTransport:
             await self._handle_get_request(request, send)
         elif request.method == "DELETE":
             await self._handle_delete_request(request, send)
-        elif await request.method == "OPTIONS":
+        elif request.method == "OPTIONS":
             await self._handle_options_request(request, send)
         else:
             await self._handle_unsupported_request(request, send)
