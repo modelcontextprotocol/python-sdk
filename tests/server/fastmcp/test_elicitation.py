@@ -116,7 +116,7 @@ async def test_elicitation_schema_validation():
 
     # Test cases for invalid schemas
     class InvalidListSchema(BaseModel):
-        names: list[str] = Field(description="List of names")
+        numbers: list[int] = Field(description="List of numbers")
 
     class NestedModel(BaseModel):
         value: str
@@ -139,7 +139,7 @@ async def test_elicitation_schema_validation():
         await client_session.initialize()
 
         # Test both invalid schemas
-        for tool_name, field_name in [("invalid_list", "names"), ("nested_model", "nested")]:
+        for tool_name, field_name in [("invalid_list", "numbers"), ("nested_model", "nested")]:
             result = await client_session.call_tool(tool_name, {})
             assert len(result.content) == 1
             assert isinstance(result.content[0], TextContent)
@@ -197,7 +197,7 @@ async def test_elicitation_with_optional_fields():
     # Test invalid optional field
     class InvalidOptionalSchema(BaseModel):
         name: str = Field(description="Name")
-        optional_list: list[str] | None = Field(default=None, description="Invalid optional list")
+        optional_list: list[int] | None = Field(default=None, description="Invalid optional list")
 
     @mcp.tool(description="Tool with invalid optional field")
     async def invalid_optional_tool(ctx: Context[ServerSession, None]) -> str:  # pragma: no cover
@@ -219,6 +219,25 @@ async def test_elicitation_with_optional_fields():
         {},
         text_contains=["Validation failed:", "optional_list"],
     )
+
+    # Test valid list[str] for multi-select enum
+    class ValidMultiSelectSchema(BaseModel):
+        name: str = Field(description="Name")
+        tags: list[str] = Field(description="Tags")
+
+    @mcp.tool(description="Tool with valid list[str] field")
+    async def valid_multiselect_tool(ctx: Context[ServerSession, None]) -> str:
+        result = await ctx.elicit(message="Please provide tags", schema=ValidMultiSelectSchema)
+        if result.action == "accept" and result.data:
+            return f"Name: {result.data.name}, Tags: {', '.join(result.data.tags)}"
+        return f"User {result.action}"
+
+    async def multiselect_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
+        if "Please provide tags" in params.message:
+            return ElicitResult(action="accept", content={"name": "Test", "tags": ["tag1", "tag2"]})
+        return ElicitResult(action="decline")
+
+    await call_tool_and_assert(mcp, multiselect_callback, "valid_multiselect_tool", {}, "Name: Test, Tags: tag1, tag2")
 
 
 @pytest.mark.anyio
@@ -274,3 +293,89 @@ async def test_elicitation_with_default_values():
     await call_tool_and_assert(
         mcp, callback_override, "defaults_tool", {}, "Name: John, Age: 25, Subscribe: False, Email: john@example.com"
     )
+
+
+@pytest.mark.anyio
+async def test_elicitation_with_enum_titles():
+    """Test elicitation with enum schemas using oneOf/anyOf for titles."""
+    mcp = FastMCP(name="ColorPreferencesApp")
+
+    # Test single-select with titles using oneOf
+    class FavoriteColorSchema(BaseModel):
+        user_name: str = Field(description="Your name")
+        favorite_color: str = Field(
+            description="Select your favorite color",
+            json_schema_extra={
+                "oneOf": [
+                    {"const": "red", "title": "Red"},
+                    {"const": "green", "title": "Green"},
+                    {"const": "blue", "title": "Blue"},
+                    {"const": "yellow", "title": "Yellow"},
+                ]
+            },
+        )
+
+    @mcp.tool(description="Single color selection")
+    async def select_favorite_color(ctx: Context) -> str:
+        result = await ctx.elicit(message="Select your favorite color", schema=FavoriteColorSchema)
+        if result.action == "accept" and result.data:
+            return f"User: {result.data.user_name}, Favorite: {result.data.favorite_color}"
+        return f"User {result.action}"
+
+    # Test multi-select with titles using anyOf
+    class FavoriteColorsSchema(BaseModel):
+        user_name: str = Field(description="Your name")
+        favorite_colors: list[str] = Field(
+            description="Select your favorite colors",
+            json_schema_extra={
+                "items": {
+                    "anyOf": [
+                        {"const": "red", "title": "Red"},
+                        {"const": "green", "title": "Green"},
+                        {"const": "blue", "title": "Blue"},
+                        {"const": "yellow", "title": "Yellow"},
+                    ]
+                }
+            },
+        )
+
+    @mcp.tool(description="Multiple color selection")
+    async def select_favorite_colors(ctx: Context) -> str:
+        result = await ctx.elicit(message="Select your favorite colors", schema=FavoriteColorsSchema)
+        if result.action == "accept" and result.data:
+            return f"User: {result.data.user_name}, Colors: {', '.join(result.data.favorite_colors)}"
+        return f"User {result.action}"
+
+    # Test deprecated enumNames format
+    class DeprecatedColorSchema(BaseModel):
+        user_name: str = Field(description="Your name")
+        color: str = Field(
+            description="Select a color",
+            json_schema_extra={"enum": ["red", "green", "blue"], "enumNames": ["Red", "Green", "Blue"]},
+        )
+
+    @mcp.tool(description="Deprecated enum format")
+    async def select_color_deprecated(ctx: Context) -> str:
+        result = await ctx.elicit(message="Select a color (deprecated format)", schema=DeprecatedColorSchema)
+        if result.action == "accept" and result.data:
+            return f"User: {result.data.user_name}, Color: {result.data.color}"
+        return f"User {result.action}"
+
+    async def enum_callback(context, params):
+        if "colors" in params.message and "deprecated" not in params.message:
+            return ElicitResult(action="accept", content={"user_name": "Bob", "favorite_colors": ["red", "green"]})
+        elif "color" in params.message:
+            if "deprecated" in params.message:
+                return ElicitResult(action="accept", content={"user_name": "Charlie", "color": "green"})
+            else:
+                return ElicitResult(action="accept", content={"user_name": "Alice", "favorite_color": "blue"})
+        return ElicitResult(action="decline")
+
+    # Test single-select with titles
+    await call_tool_and_assert(mcp, enum_callback, "select_favorite_color", {}, "User: Alice, Favorite: blue")
+
+    # Test multi-select with titles
+    await call_tool_and_assert(mcp, enum_callback, "select_favorite_colors", {}, "User: Bob, Colors: red, green")
+
+    # Test deprecated enumNames format
+    await call_tool_and_assert(mcp, enum_callback, "select_color_deprecated", {}, "User: Charlie, Color: green")
