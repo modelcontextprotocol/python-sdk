@@ -52,6 +52,16 @@ from mcp.types import Tool as MCPTool
 logger = get_logger(__name__)
 
 
+class SilentResponse(Response):
+    """A response that does not send any HTTP response back to the client."""
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        return
+
+
 class Settings(BaseSettings, Generic[LifespanResultT]):
     """FastMCP server settings.
 
@@ -748,7 +758,7 @@ class FastMCP(Generic[LifespanResultT]):
                     streams[1],
                     self._mcp_server.create_initialization_options(),
                 )
-            return Response()
+            return SilentResponse()
 
         # Create routes
         routes: list[Route | Mount] = []
