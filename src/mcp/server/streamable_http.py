@@ -627,14 +627,10 @@ class StreamableHTTPServerTransport:
         headers = {
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": request.headers.get("Access-Control-Request-Headers", "")
+            "Access-Control-Allow-Headers": request.headers.get("Access-Control-Request-Headers", ""),
         }
 
-        response = Response(
-            content=None,
-            status_code=HTTPStatus.NO_CONTENT,
-            headers=headers
-        )
+        response = Response(content=None, status_code=HTTPStatus.NO_CONTENT, headers=headers)
         await response(request.scope, request.receive, send)
 
     async def terminate(self) -> None:
