@@ -198,8 +198,8 @@ class TestOAuthFlow:
     """Test OAuth flow methods."""
 
     @pytest.mark.anyio
-    async def test_discover_protected_resource_request(self, client_metadata, mock_storage):
-        """Test protected resource discovery request building maintains backward compatibility."""
+    async def test_protected_resource_discovery_urls_generation(self, client_metadata, mock_storage):
+        """Test that discovery URL generation works correctly for different server URLs."""
 
         async def redirect_handler(url: str) -> None:
             pass
@@ -207,6 +207,22 @@ class TestOAuthFlow:
         async def callback_handler() -> tuple[str, str | None]:
             return "test_auth_code", "test_state"
 
+        # Test with path component - should have both path-specific and base endpoints
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/api/2.0/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        urls = provider._get_protected_resource_discovery_urls()
+        assert urls == [
+            "https://api.example.com/.well-known/oauth-protected-resource/api/2.0/mcp",
+            "https://api.example.com/.well-known/oauth-protected-resource",
+        ]
+
+        # Test without path component - should only have base endpoint
         provider = OAuthClientProvider(
             server_url="https://api.example.com",
             client_metadata=client_metadata,
@@ -215,25 +231,8 @@ class TestOAuthFlow:
             callback_handler=callback_handler,
         )
 
-        # Test without WWW-Authenticate (fallback)
-        init_response = httpx.Response(
-            status_code=401, headers={}, request=httpx.Request("GET", "https://request-api.example.com")
-        )
-
-        request = await provider._discover_protected_resource(init_response)
-        assert request.method == "GET"
-        assert str(request.url) == "https://api.example.com/.well-known/oauth-protected-resource"
-        assert "mcp-protocol-version" in request.headers
-
-        # Test with WWW-Authenticate header
-        init_response.headers["WWW-Authenticate"] = (
-            'Bearer resource_metadata="https://prm.example.com/.well-known/oauth-protected-resource/path"'
-        )
-
-        request = await provider._discover_protected_resource(init_response)
-        assert request.method == "GET"
-        assert str(request.url) == "https://prm.example.com/.well-known/oauth-protected-resource/path"
-        assert "mcp-protocol-version" in request.headers
+        urls = provider._get_protected_resource_discovery_urls()
+        assert urls == ["https://api.example.com/.well-known/oauth-protected-resource"]
 
     @pytest.mark.anyio
     def test_create_oauth_metadata_request(self, oauth_provider):
@@ -697,6 +696,177 @@ class TestAuthFlow:
         assert oauth_provider.context.current_tokens is not None
         assert oauth_provider.context.current_tokens.access_token == "new_access_token"
         assert oauth_provider.context.token_expiry_time is not None
+
+    @pytest.mark.anyio
+    async def test_auth_flow_protected_resource_fallback(self, client_metadata, mock_storage):
+        """Test that the OAuth flow correctly implements fallback from path-specific to base endpoint."""
+
+        async def redirect_handler(url: str) -> None:
+            pass
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/api/2.0/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        provider.context.current_tokens = None
+        provider.context.token_expiry_time = None
+        provider._initialized = True
+
+        test_request = httpx.Request("GET", "https://api.example.com/api/2.0/mcp")
+        auth_flow = provider.async_auth_flow(test_request)
+
+        # Step 1: Original request without auth
+        request = await auth_flow.__anext__()
+        assert "Authorization" not in request.headers
+
+        # Step 2: 401 triggers protected resource discovery - should try path-specific first
+        response = httpx.Response(401, request=test_request)
+        path_discovery_request = await auth_flow.asend(response)
+        assert (
+            str(path_discovery_request.url)
+            == "https://api.example.com/.well-known/oauth-protected-resource/api/2.0/mcp"
+        )
+
+        # Step 3: Path-specific fails with 404 - should trigger fallback
+        path_404_response = httpx.Response(404, request=path_discovery_request)
+        base_discovery_request = await auth_flow.asend(path_404_response)
+        assert str(base_discovery_request.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+
+        # Step 4: Base endpoint succeeds - should store metadata and continue to OAuth discovery
+        successful_response = httpx.Response(
+            200,
+            content=b'{"resource": "https://api.example.com", "authorization_servers": ["https://api.example.com"]}',
+            request=base_discovery_request,
+        )
+
+        # Verify the fallback worked and metadata was stored
+        await auth_flow.asend(successful_response)
+        assert provider.context.protected_resource_metadata is not None
+        assert str(provider.context.protected_resource_metadata.resource) == "https://api.example.com/"
+
+        # Clean up the generator
+        try:
+            await auth_flow.aclose()
+        except Exception:
+            pass
+
+    @pytest.mark.anyio
+    async def test_auth_flow_www_authenticate_no_fallback(self, client_metadata, mock_storage):
+        """Test that WWW-Authenticate header skips fallback logic entirely."""
+
+        async def redirect_handler(url: str) -> None:
+            pass
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/api/2.0/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        provider.context.current_tokens = None
+        provider.context.token_expiry_time = None
+        provider._initialized = True
+
+        test_request = httpx.Request("GET", "https://api.example.com/api/2.0/mcp")
+        auth_flow = provider.async_auth_flow(test_request)
+
+        # Step 1: Original request without auth
+        request = await auth_flow.__anext__()
+        assert "Authorization" not in request.headers
+
+        # Step 2: 401 with WWW-Authenticate should use that URL directly
+        response = httpx.Response(
+            401,
+            headers={
+                "WWW-Authenticate": 'Bearer resource_metadata="https://custom.example.com/.well-known/oauth-protected-resource"'
+            },
+            request=test_request,
+        )
+
+        www_auth_request = await auth_flow.asend(response)
+        assert str(www_auth_request.url) == "https://custom.example.com/.well-known/oauth-protected-resource"
+
+        # Step 3: Should proceed directly to OAuth metadata discovery (no fallback attempted)
+        successful_response = httpx.Response(
+            200,
+            content=b'{"resource": "https://api.example.com/api/2.0/mcp", "authorization_servers": ["https://api.example.com"]}',
+            request=www_auth_request,
+        )
+
+        await auth_flow.asend(successful_response)
+        assert provider.context.protected_resource_metadata is not None
+
+        # Clean up the generator
+        try:
+            await auth_flow.aclose()
+        except Exception:
+            pass
+
+    @pytest.mark.anyio
+    async def test_auth_flow_no_fallback_on_success(self, client_metadata, mock_storage):
+        """Test that first successful discovery response stops the fallback process."""
+
+        async def redirect_handler(url: str) -> None:
+            pass
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/api/2.0/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        provider.context.current_tokens = None
+        provider.context.token_expiry_time = None
+        provider._initialized = True
+
+        test_request = httpx.Request("GET", "https://api.example.com/api/2.0/mcp")
+        auth_flow = provider.async_auth_flow(test_request)
+
+        # Step 1: Original request without auth
+        request = await auth_flow.__anext__()
+        assert "Authorization" not in request.headers
+
+        # Step 2: 401 triggers path-specific discovery
+        response = httpx.Response(401, request=test_request)
+        path_discovery_request = await auth_flow.asend(response)
+        assert (
+            str(path_discovery_request.url)
+            == "https://api.example.com/.well-known/oauth-protected-resource/api/2.0/mcp"
+        )
+
+        # Step 3: Path-specific succeeds - should skip fallback and go to OAuth discovery
+        successful_response = httpx.Response(
+            200,
+            content=b'{"resource": "https://api.example.com/api/2.0/mcp", "authorization_servers": ["https://api.example.com"]}',
+            request=path_discovery_request,
+        )
+
+        await auth_flow.asend(successful_response)
+        assert provider.context.protected_resource_metadata is not None
+        assert str(provider.context.protected_resource_metadata.resource) == "https://api.example.com/api/2.0/mcp"
+
+        # Clean up the generator
+        try:
+            await auth_flow.aclose()
+        except Exception:
+            pass
 
 
 @pytest.mark.parametrize(

@@ -108,10 +108,6 @@ class OAuthContext:
     # State
     lock: anyio.Lock = field(default_factory=anyio.Lock)
 
-    # Discovery state for fallback support
-    discovery_base_url: str | None = None
-    discovery_pathname: str | None = None
-
     def get_authorization_base_url(self, server_url: str) -> str:
         """Extract base URL by removing path component."""
         parsed = urlparse(server_url)
@@ -228,16 +224,23 @@ class OAuthClientProvider(httpx.Auth):
 
         return None
 
-    async def _discover_protected_resource(self, init_response: httpx.Response) -> httpx.Request:
-        # RFC9728: Try to extract resource_metadata URL from WWW-Authenticate header of the initial response
-        url = self._extract_resource_metadata_from_www_auth(init_response)
+    def _get_protected_resource_discovery_urls(self) -> list[str]:
+        """Generate ordered list of URLs for protected resource discovery attempts."""
+        urls: list[str] = []
+        parsed = urlparse(self.context.server_url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
 
-        if not url:
-            # Fallback to well-known discovery
-            auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
-            url = urljoin(auth_base_url, "/.well-known/oauth-protected-resource")
+        if parsed.path and parsed.path != "/":
+            # Try path-specific endpoint first
+            path_component = parsed.path.rstrip("/")
+            urls.append(urljoin(base_url, f"/.well-known/oauth-protected-resource{path_component}"))
+            # Then fallback to base endpoint
+            urls.append(urljoin(base_url, "/.well-known/oauth-protected-resource"))
+        else:
+            # No path, just use base endpoint
+            urls.append(urljoin(base_url, "/.well-known/oauth-protected-resource"))
 
-        return httpx.Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
+        return urls
 
     async def _handle_protected_resource_response(self, response: httpx.Response) -> None:
         """Handle discovery response."""
@@ -510,9 +513,28 @@ class OAuthClientProvider(httpx.Auth):
                 try:
                     # OAuth flow must be inline due to generator constraints
                     # Step 1: Discover protected resource metadata (RFC9728 with WWW-Authenticate support)
-                    discovery_request = await self._discover_protected_resource(response)
-                    discovery_response = yield discovery_request
-                    await self._handle_protected_resource_response(discovery_response)
+                    # Check if WWW-Authenticate provides resource_metadata URL first
+                    www_auth_url = self._extract_resource_metadata_from_www_auth(response)
+                    if www_auth_url:
+                        discovery_request = httpx.Request(
+                            "GET", www_auth_url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION}
+                        )
+                        discovery_response = yield discovery_request
+                        await self._handle_protected_resource_response(discovery_response)
+                    else:
+                        # Try well-known discovery URLs with fallback
+                        discovery_urls = self._get_protected_resource_discovery_urls()
+                        for url in discovery_urls:
+                            discovery_request = httpx.Request(
+                                "GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION}
+                            )
+                            discovery_response = yield discovery_request
+
+                            if discovery_response.status_code == 200:
+                                await self._handle_protected_resource_response(discovery_response)
+                                break  # Success, stop trying other URLs
+                            elif discovery_response.status_code != 404:
+                                break  # Non-404 error, stop trying
 
                     # Step 2: Discover OAuth metadata (with fallback for legacy servers)
                     discovery_urls = self._get_discovery_urls()

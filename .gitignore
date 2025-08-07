@@ -168,3 +168,4 @@ cython_debug/
 .vscode/
 .windsurfrules
 **/CLAUDE.local.md
+.idea
