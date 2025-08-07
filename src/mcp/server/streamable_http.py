@@ -286,6 +286,8 @@ class StreamableHTTPServerTransport:
             await self._handle_get_request(request, send)
         elif request.method == "DELETE":
             await self._handle_delete_request(request, send)
+        elif await request.method == "OPTIONS":
+            await self._handle_options_request(request, send)
         else:
             await self._handle_unsupported_request(request, send)
 
@@ -617,6 +619,21 @@ class StreamableHTTPServerTransport:
         response = self._create_json_response(
             None,
             HTTPStatus.OK,
+        )
+        await response(request.scope, request.receive, send)
+
+    async def _handle_options_request(self, request: Request, send: Send) -> None:
+        """Handle OPTIONS requests for CORS preflight."""
+        headers = {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": request.headers.get("Access-Control-Request-Headers", "")
+        }
+
+        response = Response(
+            content=None,
+            status_code=HTTPStatus.NO_CONTENT,
+            headers=headers
         )
         await response(request.scope, request.receive, send)
 
