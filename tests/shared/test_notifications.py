@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, cast
 
 import anyio
@@ -10,11 +11,11 @@ from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
+from mcp.shared.message import SessionMessage
 from mcp.shared.progress import progress
 from mcp.shared.session import (
     BaseSession,
     RequestResponder,
-    SessionMessage,
 )
 
 
@@ -333,3 +334,191 @@ async def test_progress_context_manager():
     assert server_progress_updates[3]["progress"] == 100
     assert server_progress_updates[3]["total"] == 100
     assert server_progress_updates[3]["message"] == "Processing results..."
+
+
+@pytest.mark.anyio
+async def test_initialized_notification():
+    """Test that the server receives and handles InitializedNotification."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    server = Server("test")
+    initialized_received = asyncio.Event()
+
+    @server.initialized_notification()
+    async def handle_initialized(notification: types.InitializedNotification):
+        initialized_received.set()
+
+    async def run_server():
+        await server.run(
+            client_to_server_receive,
+            server_to_client_send,
+            server.create_initialization_options(),
+        )
+
+    async def message_handler(
+        message: (RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception),
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=message_handler,
+        ) as client_session,
+        anyio.create_task_group() as tg,
+    ):
+        tg.start_soon(run_server)
+        await client_session.initialize()
+        await initialized_received.wait()
+        tg.cancel_scope.cancel()
+
+    assert initialized_received.is_set()
+
+
+@pytest.mark.anyio
+async def test_roots_list_changed_notification():
+    """Test that the server receives and handles RootsListChangedNotification."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    server = Server("test")
+    roots_list_changed_received = asyncio.Event()
+
+    @server.roots_list_changed_notification()
+    async def handle_roots_list_changed(
+        notification: types.RootsListChangedNotification,
+    ):
+        roots_list_changed_received.set()
+
+    async def run_server():
+        await server.run(
+            client_to_server_receive,
+            server_to_client_send,
+            server.create_initialization_options(),
+        )
+
+    async def message_handler(
+        message: (RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception),
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=message_handler,
+        ) as client_session,
+        anyio.create_task_group() as tg,
+    ):
+        tg.start_soon(run_server)
+        await client_session.initialize()
+        await client_session.send_notification(
+            types.ClientNotification(
+                root=types.RootsListChangedNotification(method="notifications/roots/list_changed", params=None)
+            )
+        )
+        await roots_list_changed_received.wait()
+        tg.cancel_scope.cancel()
+
+    assert roots_list_changed_received.is_set()
+
+
+@pytest.mark.anyio
+async def test_initialized_notification_with_session():
+    """Test that the server receives and handles InitializedNotification with a session."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    server = Server("test")
+    initialized_received = asyncio.Event()
+    received_session = None
+
+    @server.initialized_notification()
+    async def handle_initialized(notification: types.InitializedNotification, session: ServerSession):
+        nonlocal received_session
+        received_session = session
+        initialized_received.set()
+
+    async def run_server():
+        await server.run(
+            client_to_server_receive,
+            server_to_client_send,
+            server.create_initialization_options(),
+        )
+
+    async def message_handler(
+        message: (RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception),
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=message_handler,
+        ) as client_session,
+        anyio.create_task_group() as tg,
+    ):
+        tg.start_soon(run_server)
+        await client_session.initialize()
+        await initialized_received.wait()
+        tg.cancel_scope.cancel()
+
+    assert initialized_received.is_set()
+    assert isinstance(received_session, ServerSession)
+
+
+@pytest.mark.anyio
+async def test_roots_list_changed_notification_with_session():
+    """Test that the server receives and handles RootsListChangedNotification with a session."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    server = Server("test")
+    roots_list_changed_received = asyncio.Event()
+    received_session = None
+
+    @server.roots_list_changed_notification()
+    async def handle_roots_list_changed(notification: types.RootsListChangedNotification, session: ServerSession):
+        nonlocal received_session
+        received_session = session
+        roots_list_changed_received.set()
+
+    async def run_server():
+        await server.run(
+            client_to_server_receive,
+            server_to_client_send,
+            server.create_initialization_options(),
+        )
+
+    async def message_handler(
+        message: (RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception),
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=message_handler,
+        ) as client_session,
+        anyio.create_task_group() as tg,
+    ):
+        tg.start_soon(run_server)
+        await client_session.initialize()
+        await client_session.send_notification(
+            types.ClientNotification(
+                root=types.RootsListChangedNotification(method="notifications/roots/list_changed", params=None)
+            )
+        )
+        await roots_list_changed_received.wait()
+        tg.cancel_scope.cancel()
+
+    assert roots_list_changed_received.is_set()
+    assert isinstance(received_session, ServerSession)
