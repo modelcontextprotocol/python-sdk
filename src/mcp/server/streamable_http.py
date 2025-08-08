@@ -767,7 +767,6 @@ class StreamableHTTPServerTransport:
                             async with msg_reader:
                                 async for event_message in msg_reader:
                                     event_data = self._create_event_data(event_message)
-
                                     await sse_stream_writer.send(event_data)
                 except Exception:
                     logger.exception("Error in replay sender")

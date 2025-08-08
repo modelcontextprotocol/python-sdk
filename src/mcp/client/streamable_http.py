@@ -29,6 +29,7 @@ from mcp.types import (
     JSONRPCRequest,
     JSONRPCResponse,
     RequestId,
+    ResumeCapability,
 )
 
 logger = logging.getLogger(__name__)
@@ -136,7 +137,7 @@ class StreamableHTTPTransport:
     def _maybe_extract_protocol_version_from_message(
         self,
         message: JSONRPCMessage,
-    ) -> None:
+    ) -> JSONRPCMessage:
         """Extract protocol version from initialization response message."""
         if isinstance(message.root, JSONRPCResponse) and message.root.result:
             try:
@@ -144,9 +145,17 @@ class StreamableHTTPTransport:
                 init_result = InitializeResult.model_validate(message.root.result)
                 self.protocol_version = str(init_result.protocolVersion)
                 logger.info(f"Negotiated protocol version: {self.protocol_version}")
+                if init_result.capabilities.resume is None:
+                    # resumeablity is predicated on the server and the transport
+                    # this assumes that if the server hasn't explicitly configured
+                    # that streamable http transports are resumeable
+                    init_result.capabilities.resume = ResumeCapability(resumable=True)
+                    message.root.result = init_result.model_dump()
             except Exception as exc:
                 logger.warning(f"Failed to parse initialization response as InitializeResult: {exc}")
                 logger.warning(f"Raw result: {message.root.result}")
+
+        return message
 
     async def _handle_sse_event(
         self,
@@ -164,7 +173,7 @@ class StreamableHTTPTransport:
 
                 # Extract protocol version from initialization response
                 if is_initialization:
-                    self._maybe_extract_protocol_version_from_message(message)
+                    message = self._maybe_extract_protocol_version_from_message(message)
 
                 # If this is a response and we have original_request_id, replace it
                 if original_request_id is not None and isinstance(message.root, JSONRPCResponse | JSONRPCError):
@@ -303,7 +312,7 @@ class StreamableHTTPTransport:
 
             # Extract protocol version from initialization response
             if is_initialization:
-                self._maybe_extract_protocol_version_from_message(message)
+                message = self._maybe_extract_protocol_version_from_message(message)
 
             session_message = SessionMessage(message)
             await read_stream_writer.send(session_message)
@@ -333,7 +342,10 @@ class StreamableHTTPTransport:
                     break
         except Exception as e:
             logger.exception("Error reading SSE stream:")
-            await ctx.read_stream_writer.send(e)
+            try:
+                await ctx.read_stream_writer.send(e)
+            except anyio.ClosedResourceError:
+                pass
 
     async def _handle_unexpected_content_type(
         self,
@@ -471,8 +483,8 @@ async def streamablehttp_client(
     read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
-    async with anyio.create_task_group() as tg:
-        try:
+    try:
+        async with anyio.create_task_group() as tg:
             logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 
             async with httpx_client_factory(
@@ -504,6 +516,6 @@ async def streamablehttp_client(
                     if transport.session_id and terminate_on_close:
                         await transport.terminate_session(client)
                     tg.cancel_scope.cancel()
-        finally:
-            await read_stream_writer.aclose()
-            await write_stream.aclose()
+    finally:
+        await read_stream_writer.aclose()
+        await write_stream.aclose()
