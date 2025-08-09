@@ -325,6 +325,39 @@ class TestServerTools:
             assert result.structuredContent is None
 
     @pytest.mark.anyio
+    async def test_tool_audio_suffix_detection(self, tmp_path: Path):
+        # Test different audio file extensions
+        test_cases = [
+            ("test.wav", "audio/wav"),
+            ("test.mp3", "audio/mpeg"),
+            ("test.ogg", "audio/ogg"),
+            ("test.flac", "audio/flac"),
+            ("test.aac", "audio/aac"),
+            ("test.m4a", "audio/mp4"),
+            ("test.unknown", "application/octet-stream"),  # Unknown extension fallback
+        ]
+
+        mcp = FastMCP()
+        mcp.add_tool(audio_tool_fn)
+        async with client_session(mcp._mcp_server) as client:
+            for filename, expected_mime_type in test_cases:
+                # Create a test audio file with the specific extension
+                audio_path = tmp_path / filename
+                audio_path.write_bytes(b"fake audio data")
+
+                result = await client.call_tool("audio_tool_fn", {"path": str(audio_path)})
+                assert len(result.content) == 1
+                content = result.content[0]
+                assert isinstance(content, AudioContent)
+                assert content.type == "audio"
+                assert content.mimeType == expected_mime_type, (
+                    f"Expected {expected_mime_type} for {filename}, got {content.mimeType}"
+                )
+                # Verify base64 encoding
+                decoded = base64.b64decode(content.data)
+                assert decoded == b"fake audio data"
+
+    @pytest.mark.anyio
     async def test_tool_mixed_content(self):
         mcp = FastMCP()
         mcp.add_tool(mixed_content_tool_fn)
