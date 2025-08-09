@@ -337,7 +337,7 @@ def json_server_port() -> int:
         return s.getsockname()[1]
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def basic_server(basic_server_port: int) -> Generator[None, None, None]:
     """Start a basic server."""
     proc = multiprocessing.Process(target=run_server, kwargs={"port": basic_server_port}, daemon=True)
@@ -455,7 +455,7 @@ def json_server_url(json_server_port: int) -> str:
 
 
 # Basic request validation tests
-def test_accept_header_validation(basic_server_url: str):
+def test_accept_header_validation(basic_server: None, basic_server_url: str):
     """Test that Accept header is properly validated."""
     # Test without Accept header
     response = requests.post(
@@ -467,7 +467,7 @@ def test_accept_header_validation(basic_server_url: str):
     assert "Not Acceptable" in response.text
 
 
-def test_content_type_validation(basic_server_url: str):
+def test_content_type_validation(basic_server: None, basic_server_url: str):
     """Test that Content-Type header is properly validated."""
     # Test with incorrect Content-Type
     response = requests.post(
@@ -483,7 +483,7 @@ def test_content_type_validation(basic_server_url: str):
     assert "Invalid Content-Type" in response.text
 
 
-def test_json_validation(basic_server_url: str):
+def test_json_validation(basic_server: None, basic_server_url: str):
     """Test that JSON content is properly validated."""
     # Test with invalid JSON
     response = requests.post(
@@ -498,7 +498,7 @@ def test_json_validation(basic_server_url: str):
     assert "Parse error" in response.text
 
 
-def test_json_parsing(basic_server_url: str):
+def test_json_parsing(basic_server: None, basic_server_url: str):
     """Test that JSON content is properly parse."""
     # Test with valid JSON but invalid JSON-RPC
     response = requests.post(
@@ -513,7 +513,7 @@ def test_json_parsing(basic_server_url: str):
     assert "Validation error" in response.text
 
 
-def test_method_not_allowed(basic_server_url: str):
+def test_method_not_allowed(basic_server: None, basic_server_url: str):
     """Test that unsupported HTTP methods are rejected."""
     # Test with unsupported method (PUT)
     response = requests.put(
@@ -528,7 +528,7 @@ def test_method_not_allowed(basic_server_url: str):
     assert "Method Not Allowed" in response.text
 
 
-def test_session_validation(basic_server_url: str):
+def test_session_validation(basic_server: None, basic_server_url: str):
     """Test session ID validation."""
     # session_id not used directly in this test
 
@@ -603,7 +603,7 @@ def test_streamable_http_transport_init_validation():
         StreamableHTTPServerTransport(mcp_session_id="test\n")
 
 
-def test_session_termination(basic_server_url: str):
+def test_session_termination(basic_server: None, basic_server_url: str):
     """Test session termination via DELETE and subsequent request handling."""
     response = requests.post(
         f"{basic_server_url}/mcp",
@@ -643,7 +643,7 @@ def test_session_termination(basic_server_url: str):
     assert "Session has been terminated" in response.text
 
 
-def test_response(basic_server_url: str):
+def test_response(basic_server: None, basic_server_url: str):
     """Test response handling for a valid request."""
     mcp_url = f"{basic_server_url}/mcp"
     response = requests.post(
@@ -693,7 +693,7 @@ def test_json_response(json_response_server: None, json_server_url: str):
     assert response.headers.get("Content-Type") == "application/json"
 
 
-def test_get_sse_stream(basic_server_url: str):
+def test_get_sse_stream(basic_server: None, basic_server_url: str):
     """Test establishing an SSE stream via GET request."""
     # First, we need to initialize a session
     mcp_url = f"{basic_server_url}/mcp"
@@ -753,7 +753,7 @@ def test_get_sse_stream(basic_server_url: str):
     assert second_get.status_code == 409
 
 
-def test_get_validation(basic_server_url: str):
+def test_get_validation(basic_server: None, basic_server_url: str):
     """Test validation for GET requests."""
     # First, we need to initialize a session
     mcp_url = f"{basic_server_url}/mcp"
@@ -808,14 +808,14 @@ def test_get_validation(basic_server_url: str):
 
 # Client-specific fixtures
 @pytest.fixture
-async def http_client(basic_server_url: str):
+async def http_client(basic_server: None, basic_server_url: str):
     """Create test client matching the SSE test pattern."""
     async with httpx.AsyncClient(base_url=basic_server_url) as client:
         yield client
 
 
 @pytest.fixture
-async def initialized_client_session(basic_server_url: str):
+async def initialized_client_session(basic_server: None, basic_server_url: str):
     """Create initialized StreamableHTTP client session."""
     async with streamablehttp_client(f"{basic_server_url}/mcp") as (
         read_stream,
@@ -831,7 +831,7 @@ async def initialized_client_session(basic_server_url: str):
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_basic_connection(basic_server_url: str):
+async def test_streamablehttp_client_basic_connection(basic_server: None, basic_server_url: str):
     """Test basic client connection with initialization."""
     async with streamablehttp_client(f"{basic_server_url}/mcp") as (
         read_stream,
@@ -883,9 +883,13 @@ async def test_streamablehttp_client_error_handling(initialized_client_session: 
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_session_persistence(basic_server_url: str):
+async def test_streamablehttp_client_session_persistence(basic_server: None, basic_server_url: str):
     """Test that session ID persists across requests."""
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, _):
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
         async with ClientSession(
             read_stream,
             write_stream,
@@ -909,7 +913,11 @@ async def test_streamablehttp_client_session_persistence(basic_server_url: str):
 @pytest.mark.anyio
 async def test_streamablehttp_client_json_response(json_response_server: None, json_server_url: str):
     """Test client with JSON response mode."""
-    async with streamablehttp_client(f"{json_server_url}/mcp") as (read_stream, write_stream, _):
+    async with streamablehttp_client(f"{json_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
         async with ClientSession(
             read_stream,
             write_stream,
@@ -931,7 +939,7 @@ async def test_streamablehttp_client_json_response(json_response_server: None, j
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_get_stream(basic_server_url: str):
+async def test_streamablehttp_client_get_stream(basic_server: None, basic_server_url: str):
     """Test GET stream functionality for server-initiated messages."""
     import mcp.types as types
     from mcp.shared.session import RequestResponder
@@ -972,13 +980,17 @@ async def test_streamablehttp_client_get_stream(basic_server_url: str):
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_session_termination(basic_server_url: str):
+async def test_streamablehttp_client_session_termination(basic_server: None, basic_server_url: str):
     """Test client session termination functionality."""
 
     captured_session_id = None
 
     # Create the streamablehttp_client with a custom httpx client to capture headers
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, get_session_id):
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        get_session_id,
+    ):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the session
             result = await session.initialize()
@@ -1009,7 +1021,9 @@ async def test_streamablehttp_client_session_termination(basic_server_url: str):
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_session_termination_204(basic_server_url: str, monkeypatch: pytest.MonkeyPatch):
+async def test_streamablehttp_client_session_termination_204(
+    basic_server: None, basic_server_url: str, monkeypatch: pytest.MonkeyPatch
+):
     """Test client session termination functionality with a 204 response.
 
     This test patches the httpx client to return a 204 response for DELETEs.
@@ -1192,12 +1206,13 @@ async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventS
 
             # We should have received the remaining notifications
             assert len(captured_notifications) == 1
+
             assert isinstance(captured_notifications[0].root, types.LoggingMessageNotification)
             assert captured_notifications[0].root.params.data == "Second notification after lock"
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_server_sampling(basic_server_url: str):
+async def test_streamablehttp_server_sampling(basic_server: None, basic_server_url: str):
     """Test server-initiated sampling request through streamable HTTP transport."""
     # Variable to track if sampling callback was invoked
     sampling_callback_invoked = False
@@ -1224,7 +1239,11 @@ async def test_streamablehttp_server_sampling(basic_server_url: str):
         )
 
     # Create client with sampling callback
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, _):
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
         async with ClientSession(
             read_stream,
             write_stream,
@@ -1284,12 +1303,7 @@ class ContextAwareServerTest(Server):
                 headers_info = {}
                 if ctx.request and isinstance(ctx.request, Request):
                     headers_info = dict(ctx.request.headers)
-                return [
-                    TextContent(
-                        type="text",
-                        text=json.dumps(headers_info),
-                    )
-                ]
+                return [TextContent(type="text", text=json.dumps(headers_info))]
 
             elif name == "echo_context":
                 # Return full context information
@@ -1304,7 +1318,12 @@ class ContextAwareServerTest(Server):
                     context_data["headers"] = dict(request.headers)
                     context_data["method"] = request.method
                     context_data["path"] = request.url.path
-                return [TextContent(type="text", text=json.dumps(context_data))]
+                return [
+                    TextContent(
+                        type="text",
+                        text=json.dumps(context_data),
+                    )
+                ]
 
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
@@ -1314,16 +1333,28 @@ def run_context_aware_server(port: int):
     """Run the context-aware test server."""
     server = ContextAwareServerTest()
 
-    session_manager = StreamableHTTPSessionManager(app=server, event_store=None, json_response=False)
+    session_manager = StreamableHTTPSessionManager(
+        app=server,
+        event_store=None,
+        json_response=False,
+    )
 
     app = Starlette(
         debug=True,
-        routes=[Mount("/mcp", app=session_manager.handle_request)],
+        routes=[
+            Mount("/mcp", app=session_manager.handle_request),
+        ],
         lifespan=lambda app: session_manager.run(),
     )
 
-    config = uvicorn.Config(app=app, host="127.0.0.1", port=port, log_level="error")
-    server_instance = uvicorn.Server(config=config)
+    server_instance = uvicorn.Server(
+        config=uvicorn.Config(
+            app=app,
+            host="127.0.0.1",
+            port=port,
+            log_level="error",
+        )
+    )
     server_instance.run()
 
 
@@ -1425,7 +1456,11 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
 @pytest.mark.anyio
 async def test_client_includes_protocol_version_header_after_init(context_aware_server: None, basic_server_url: str):
     """Test that client includes mcp-protocol-version header after initialization."""
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, _):
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize and get the negotiated version
             init_result = await session.initialize()
@@ -1443,7 +1478,7 @@ async def test_client_includes_protocol_version_header_after_init(context_aware_
             assert headers_data[MCP_PROTOCOL_VERSION_HEADER] == negotiated_version
 
 
-def test_server_validates_protocol_version_header(basic_server_url: str):
+def test_server_validates_protocol_version_header(basic_server: None, basic_server_url: str):
     """Test that server returns 400 Bad Request version if header unsupported or invalid."""
     # First initialize a session to get a valid session ID
     init_response = requests.post(
@@ -1501,7 +1536,7 @@ def test_server_validates_protocol_version_header(basic_server_url: str):
     assert response.status_code == 200
 
 
-def test_server_backwards_compatibility_no_protocol_version(basic_server_url: str):
+def test_server_backwards_compatibility_no_protocol_version(basic_server: None, basic_server_url: str):
     """Test server accepts requests without protocol version header."""
     # First initialize a session to get a valid session ID
     init_response = requests.post(
@@ -1531,13 +1566,17 @@ def test_server_backwards_compatibility_no_protocol_version(basic_server_url: st
 
 
 @pytest.mark.anyio
-async def test_client_crash_handled(basic_server_url: str):
+async def test_client_crash_handled(basic_server: None, basic_server_url: str):
     """Test that cases where the client crashes are handled gracefully."""
 
     # Simulate bad client that crashes after init
     async def bad_client():
         """Client that triggers ClosedResourceError"""
-        async with streamablehttp_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, _):
+        async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+            read_stream,
+            write_stream,
+            _,
+        ):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
                 raise Exception("client crash")
@@ -1551,7 +1590,11 @@ async def test_client_crash_handled(basic_server_url: str):
         await anyio.sleep(0.1)
 
     # Try a good client, it should still be able to connect and list tools
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, _):
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
         async with ClientSession(read_stream, write_stream) as session:
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
