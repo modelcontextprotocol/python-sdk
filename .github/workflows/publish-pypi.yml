@@ -7,6 +7,8 @@ on:
 jobs:
   release-build:
     name: Build distribution
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     needs: [checks]
     steps:
@@ -31,6 +33,8 @@ jobs:
           path: dist/
 
   checks:
+    permissions:
+      contents: read
     uses: ./.github/workflows/shared.yml
 
   pypi-publish:
