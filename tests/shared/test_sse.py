@@ -487,9 +487,9 @@ def test_sse_message_id_coercion():
 @pytest.mark.parametrize(
     "endpoint, expected_result",
     [
-        # Valid endpoints - should normalize and work
+        # Accept: relative path forms; endpoint is stored verbatim (no normalization)
         ("/messages/", "/messages/"),
-        ("messages/", "/messages/"),
+        ("messages/", "messages/"),
         ("/", "/"),
         # Invalid endpoints - should raise ValueError
         ("http://example.com/messages/", ValueError),
@@ -500,13 +500,23 @@ def test_sse_message_id_coercion():
     ],
 )
 def test_sse_server_transport_endpoint_validation(endpoint: str, expected_result: str | type[Exception]):
-    """Test that SseServerTransport properly validates and normalizes endpoints."""
+    """Validate relative endpoint semantics and storage.
+
+    Context on URL joining (urllib.parse.urljoin):
+    - Joining a segment starting with "/" resets to the host root:
+      urljoin("http://host/hello/world", "/messages") -> "http://host/messages"
+    - Joining a relative segment appends relative to the base:
+      urljoin("http://host/hello/world", "messages") -> "http://host/hello/messages"
+      urljoin("http://host/hello/world/", "messages/") -> "http://host/hello/world/messages/"
+
+    The transport validates that endpoints are relative path segments (no scheme/host/query/fragment)
+    and stores accepted values exactly as provided.
+    """
     if isinstance(expected_result, type) and issubclass(expected_result, Exception):
         # Test invalid endpoints that should raise an exception
         with pytest.raises(expected_result, match="is not a relative path.*expecting a relative path"):
             SseServerTransport(endpoint)
     else:
-        # Test valid endpoints that should normalize correctly
+        # Endpoint should be stored exactly as provided (no normalization)
         sse = SseServerTransport(endpoint)
         assert sse._endpoint == expected_result
-        assert sse._endpoint.startswith("/")
