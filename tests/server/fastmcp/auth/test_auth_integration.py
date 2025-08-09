@@ -7,6 +7,7 @@ import hashlib
 import secrets
 import time
 import unittest.mock
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -22,24 +23,17 @@ from mcp.server.auth.provider import (
     RefreshToken,
     construct_redirect_uri,
 )
-from mcp.server.auth.routes import (
-    ClientRegistrationOptions,
-    RevocationOptions,
-    create_auth_routes,
-)
-from mcp.shared.auth import (
-    OAuthClientInformationFull,
-    OAuthToken,
-)
+from mcp.server.auth.routes import ClientRegistrationOptions, RevocationOptions, create_auth_routes
+from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 
 # Mock OAuth provider for testing
-class MockOAuthProvider(OAuthAuthorizationServerProvider):
+class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToken, AccessToken]):
     def __init__(self):
-        self.clients = {}
-        self.auth_codes = {}  # code -> {client_id, code_challenge, redirect_uri}
-        self.tokens = {}  # token -> {client_id, scopes, expires_at}
-        self.refresh_tokens = {}  # refresh_token -> access_token
+        self.clients: dict[str, OAuthClientInformationFull] = {}
+        self.auth_codes: dict[str, AuthorizationCode] = {}  # code -> {client_id, code_challenge, redirect_uri}
+        self.tokens: dict[str, AccessToken] = {}  # token -> {client_id, scopes, expires_at}
+        self.refresh_tokens: dict[str, str] = {}  # refresh_token -> access_token
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         return self.clients.get(client_id)
@@ -196,7 +190,7 @@ def mock_oauth_provider():
 
 
 @pytest.fixture
-def auth_app(mock_oauth_provider):
+def auth_app(mock_oauth_provider: MockOAuthProvider):
     # Create auth router
     auth_routes = create_auth_routes(
         mock_oauth_provider,
@@ -217,13 +211,15 @@ def auth_app(mock_oauth_provider):
 
 
 @pytest.fixture
-async def test_client(auth_app):
+async def test_client(auth_app: Starlette):
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=auth_app), base_url="https://mcptest.com") as client:
         yield client
 
 
 @pytest.fixture
-async def registered_client(test_client: httpx.AsyncClient, request):
+async def registered_client(
+    test_client: httpx.AsyncClient, request: pytest.FixtureRequest
+) -> OAuthClientInformationFull:
     """Create and register a test client.
 
     Parameters can be customized via indirect parameterization:
@@ -259,7 +255,12 @@ def pkce_challenge():
 
 
 @pytest.fixture
-async def auth_code(test_client, registered_client, pkce_challenge, request):
+async def auth_code(
+    test_client: httpx.AsyncClient,
+    registered_client: dict[str, Any],
+    pkce_challenge: dict[str, str],
+    request: pytest.FixtureRequest,
+):
     """Get an authorization code.
 
     Parameters can be customized via indirect parameterization:
@@ -300,7 +301,13 @@ async def auth_code(test_client, registered_client, pkce_challenge, request):
 
 
 @pytest.fixture
-async def tokens(test_client, registered_client, auth_code, pkce_challenge, request):
+async def tokens(
+    test_client: httpx.AsyncClient,
+    registered_client: dict[str, Any],
+    auth_code: dict[str, str],
+    pkce_challenge: dict[str, str],
+    request: pytest.FixtureRequest,
+):
     """Exchange authorization code for tokens.
 
     Parameters can be customized via indirect parameterization:
@@ -373,7 +380,12 @@ class TestAuthEndpoints:
         assert "error_description" in error_response  # Contains validation error messages
 
     @pytest.mark.anyio
-    async def test_token_invalid_auth_code(self, test_client, registered_client, pkce_challenge):
+    async def test_token_invalid_auth_code(
+        self,
+        test_client: httpx.AsyncClient,
+        registered_client: dict[str, Any],
+        pkce_challenge: dict[str, str],
+    ):
         """Test token endpoint error - authorization code does not exist."""
         # Try to use a non-existent authorization code
         response = await test_client.post(
@@ -398,11 +410,11 @@ class TestAuthEndpoints:
     @pytest.mark.anyio
     async def test_token_expired_auth_code(
         self,
-        test_client,
-        registered_client,
-        auth_code,
-        pkce_challenge,
-        mock_oauth_provider,
+        test_client: httpx.AsyncClient,
+        registered_client: dict[str, Any],
+        auth_code: dict[str, str],
+        pkce_challenge: dict[str, str],
+        mock_oauth_provider: MockOAuthProvider,
     ):
         """Test token endpoint error - authorization code has expired."""
         # Get the current time for our time mocking
@@ -451,7 +463,13 @@ class TestAuthEndpoints:
         ],
         indirect=True,
     )
-    async def test_token_redirect_uri_mismatch(self, test_client, registered_client, auth_code, pkce_challenge):
+    async def test_token_redirect_uri_mismatch(
+        self,
+        test_client: httpx.AsyncClient,
+        registered_client: dict[str, Any],
+        auth_code: dict[str, str],
+        pkce_challenge: dict[str, str],
+    ):
         """Test token endpoint error - redirect URI mismatch."""
         # Try to use the code with a different redirect URI
         response = await test_client.post(
@@ -472,7 +490,9 @@ class TestAuthEndpoints:
         assert "redirect_uri did not match" in error_response["error_description"]
 
     @pytest.mark.anyio
-    async def test_token_code_verifier_mismatch(self, test_client, registered_client, auth_code):
+    async def test_token_code_verifier_mismatch(
+        self, test_client: httpx.AsyncClient, registered_client: dict[str, Any], auth_code: dict[str, str]
+    ):
         """Test token endpoint error - PKCE code verifier mismatch."""
         # Try to use the code with an incorrect code verifier
         response = await test_client.post(
@@ -493,7 +513,7 @@ class TestAuthEndpoints:
         assert "incorrect code_verifier" in error_response["error_description"]
 
     @pytest.mark.anyio
-    async def test_token_invalid_refresh_token(self, test_client, registered_client):
+    async def test_token_invalid_refresh_token(self, test_client: httpx.AsyncClient, registered_client: dict[str, Any]):
         """Test token endpoint error - refresh token does not exist."""
         # Try to use a non-existent refresh token
         response = await test_client.post(
@@ -513,11 +533,10 @@ class TestAuthEndpoints:
     @pytest.mark.anyio
     async def test_token_expired_refresh_token(
         self,
-        test_client,
-        registered_client,
-        auth_code,
-        pkce_challenge,
-        mock_oauth_provider,
+        test_client: httpx.AsyncClient,
+        registered_client: dict[str, Any],
+        auth_code: dict[str, str],
+        pkce_challenge: dict[str, str],
     ):
         """Test token endpoint error - refresh token has expired."""
         # Step 1: First, let's create a token and refresh token at the current time
@@ -560,7 +579,13 @@ class TestAuthEndpoints:
             assert "refresh token has expired" in error_response["error_description"]
 
     @pytest.mark.anyio
-    async def test_token_invalid_scope(self, test_client, registered_client, auth_code, pkce_challenge):
+    async def test_token_invalid_scope(
+        self,
+        test_client: httpx.AsyncClient,
+        registered_client: dict[str, Any],
+        auth_code: dict[str, str],
+        pkce_challenge: dict[str, str],
+    ):
         """Test token endpoint error - invalid scope in refresh token request."""
         # Exchange authorization code for tokens
         token_response = await test_client.post(
@@ -664,8 +689,9 @@ class TestAuthEndpoints:
     @pytest.mark.anyio
     async def test_client_registration_empty_redirect_uris(self, test_client: httpx.AsyncClient):
         """Test client registration with empty redirect_uris array."""
+        redirect_uris: list[str] = []
         client_metadata = {
-            "redirect_uris": [],  # Empty array
+            "redirect_uris": redirect_uris,  # Empty array
             "client_name": "Test Client",
         }
 
@@ -682,12 +708,7 @@ class TestAuthEndpoints:
         )
 
     @pytest.mark.anyio
-    async def test_authorize_form_post(
-        self,
-        test_client: httpx.AsyncClient,
-        mock_oauth_provider: MockOAuthProvider,
-        pkce_challenge,
-    ):
+    async def test_authorize_form_post(self, test_client: httpx.AsyncClient, pkce_challenge: dict[str, str]):
         """Test the authorization endpoint using POST with form-encoded data."""
         # Register a client
         client_metadata = {
@@ -730,7 +751,7 @@ class TestAuthEndpoints:
         self,
         test_client: httpx.AsyncClient,
         mock_oauth_provider: MockOAuthProvider,
-        pkce_challenge,
+        pkce_challenge: dict[str, str],
     ):
         """Test the full authorization flow."""
         # 1. Register a client
@@ -836,7 +857,7 @@ class TestAuthEndpoints:
         assert await mock_oauth_provider.load_access_token(new_token_response["access_token"]) is None
 
     @pytest.mark.anyio
-    async def test_revoke_invalid_token(self, test_client, registered_client):
+    async def test_revoke_invalid_token(self, test_client: httpx.AsyncClient, registered_client: dict[str, Any]):
         """Test revoking an invalid token."""
         response = await test_client.post(
             "/revoke",
@@ -850,7 +871,7 @@ class TestAuthEndpoints:
         assert response.status_code == 200
 
     @pytest.mark.anyio
-    async def test_revoke_with_malformed_token(self, test_client, registered_client):
+    async def test_revoke_with_malformed_token(self, test_client: httpx.AsyncClient, registered_client: dict[str, Any]):
         response = await test_client.post(
             "/revoke",
             data={
@@ -874,10 +895,7 @@ class TestAuthEndpoints:
             "scope": "read write profile admin",  # 'admin' is not in valid_scopes
         }
 
-        response = await test_client.post(
-            "/register",
-            json=client_metadata,
-        )
+        response = await test_client.post("/register", json=client_metadata)
         assert response.status_code == 400
         error_data = response.json()
         assert "error" in error_data
@@ -895,10 +913,7 @@ class TestAuthEndpoints:
             # No scope specified
         }
 
-        response = await test_client.post(
-            "/register",
-            json=client_metadata,
-        )
+        response = await test_client.post("/register", json=client_metadata)
         assert response.status_code == 201
         client_info = response.json()
 
@@ -920,10 +935,7 @@ class TestAuthEndpoints:
             "grant_types": ["authorization_code"],
         }
 
-        response = await test_client.post(
-            "/register",
-            json=client_metadata,
-        )
+        response = await test_client.post("/register", json=client_metadata)
         assert response.status_code == 400
         error_data = response.json()
         assert "error" in error_data
@@ -935,7 +947,7 @@ class TestAuthorizeEndpointErrors:
     """Test error handling in the OAuth authorization endpoint."""
 
     @pytest.mark.anyio
-    async def test_authorize_missing_client_id(self, test_client: httpx.AsyncClient, pkce_challenge):
+    async def test_authorize_missing_client_id(self, test_client: httpx.AsyncClient, pkce_challenge: dict[str, str]):
         """Test authorization endpoint with missing client_id.
 
         According to the OAuth2.0 spec, if client_id is missing, the server should
@@ -959,7 +971,7 @@ class TestAuthorizeEndpointErrors:
         assert "client_id" in response.text.lower()
 
     @pytest.mark.anyio
-    async def test_authorize_invalid_client_id(self, test_client: httpx.AsyncClient, pkce_challenge):
+    async def test_authorize_invalid_client_id(self, test_client: httpx.AsyncClient, pkce_challenge: dict[str, str]):
         """Test authorization endpoint with invalid client_id.
 
         According to the OAuth2.0 spec, if client_id is invalid, the server should
@@ -984,7 +996,7 @@ class TestAuthorizeEndpointErrors:
 
     @pytest.mark.anyio
     async def test_authorize_missing_redirect_uri(
-        self, test_client: httpx.AsyncClient, registered_client, pkce_challenge
+        self, test_client: httpx.AsyncClient, registered_client: dict[str, Any], pkce_challenge: dict[str, str]
     ):
         """Test authorization endpoint with missing redirect_uri.
 
@@ -1010,7 +1022,7 @@ class TestAuthorizeEndpointErrors:
 
     @pytest.mark.anyio
     async def test_authorize_invalid_redirect_uri(
-        self, test_client: httpx.AsyncClient, registered_client, pkce_challenge
+        self, test_client: httpx.AsyncClient, registered_client: dict[str, Any], pkce_challenge: dict[str, str]
     ):
         """Test authorization endpoint with invalid redirect_uri.
 
@@ -1050,7 +1062,7 @@ class TestAuthorizeEndpointErrors:
         indirect=True,
     )
     async def test_authorize_missing_redirect_uri_multiple_registered(
-        self, test_client: httpx.AsyncClient, registered_client, pkce_challenge
+        self, test_client: httpx.AsyncClient, registered_client: dict[str, Any], pkce_challenge: dict[str, str]
     ):
         """Test endpoint with missing redirect_uri with multiple registered URIs.
 
@@ -1076,7 +1088,7 @@ class TestAuthorizeEndpointErrors:
 
     @pytest.mark.anyio
     async def test_authorize_unsupported_response_type(
-        self, test_client: httpx.AsyncClient, registered_client, pkce_challenge
+        self, test_client: httpx.AsyncClient, registered_client: dict[str, Any], pkce_challenge: dict[str, str]
     ):
         """Test authorization endpoint with unsupported response_type.
 
@@ -1110,7 +1122,7 @@ class TestAuthorizeEndpointErrors:
 
     @pytest.mark.anyio
     async def test_authorize_missing_response_type(
-        self, test_client: httpx.AsyncClient, registered_client, pkce_challenge
+        self, test_client: httpx.AsyncClient, registered_client: dict[str, Any], pkce_challenge: dict[str, str]
     ):
         """Test authorization endpoint with missing response_type.
 
@@ -1142,7 +1154,9 @@ class TestAuthorizeEndpointErrors:
         assert query_params["state"][0] == "test_state"
 
     @pytest.mark.anyio
-    async def test_authorize_missing_pkce_challenge(self, test_client: httpx.AsyncClient, registered_client):
+    async def test_authorize_missing_pkce_challenge(
+        self, test_client: httpx.AsyncClient, registered_client: dict[str, Any]
+    ):
         """Test authorization endpoint with missing PKCE code_challenge.
 
         Missing PKCE parameters should result in invalid_request error.
@@ -1171,7 +1185,9 @@ class TestAuthorizeEndpointErrors:
         assert query_params["state"][0] == "test_state"
 
     @pytest.mark.anyio
-    async def test_authorize_invalid_scope(self, test_client: httpx.AsyncClient, registered_client, pkce_challenge):
+    async def test_authorize_invalid_scope(
+        self, test_client: httpx.AsyncClient, registered_client: dict[str, Any], pkce_challenge: dict[str, str]
+    ):
         """Test authorization endpoint with invalid scope.
 
         Invalid scope should redirect with invalid_scope error.

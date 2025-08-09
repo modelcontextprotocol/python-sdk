@@ -5,11 +5,7 @@ import pytest
 
 import mcp
 from mcp import types
-from mcp.client.session_group import (
-    ClientSessionGroup,
-    SseServerParameters,
-    StreamableHttpParameters,
-)
+from mcp.client.session_group import ClientSessionGroup, SseServerParameters, StreamableHttpParameters
 from mcp.client.stdio import StdioServerParameters
 from mcp.shared.exceptions import McpError
 
@@ -54,7 +50,7 @@ class TestClientSessionGroup:
         mock_session = mock.AsyncMock()
 
         # --- Prepare Session Group ---
-        def hook(name, server_info):
+        def hook(name: str, server_info: types.Implementation) -> str:
             return f"{(server_info.name)}-{name}"
 
         mcp_session_group = ClientSessionGroup(component_name_hook=hook)
@@ -79,7 +75,7 @@ class TestClientSessionGroup:
             {"name": "value1", "args": {}},
         )
 
-    async def test_connect_to_server(self, mock_exit_stack):
+    async def test_connect_to_server(self, mock_exit_stack: contextlib.AsyncExitStack):
         """Test connecting to a server and aggregating components."""
         # --- Mock Dependencies ---
         mock_server_info = mock.Mock(spec=types.Implementation)
@@ -116,7 +112,7 @@ class TestClientSessionGroup:
         mock_session.list_resources.assert_awaited_once()
         mock_session.list_prompts.assert_awaited_once()
 
-    async def test_connect_to_server_with_name_hook(self, mock_exit_stack):
+    async def test_connect_to_server_with_name_hook(self, mock_exit_stack: contextlib.AsyncExitStack):
         """Test connecting with a component name hook."""
         # --- Mock Dependencies ---
         mock_server_info = mock.Mock(spec=types.Implementation)
@@ -208,7 +204,7 @@ class TestClientSessionGroup:
         assert "res1" not in group._resources
         assert "prm1" not in group._prompts
 
-    async def test_connect_to_server_duplicate_tool_raises_error(self, mock_exit_stack):
+    async def test_connect_to_server_duplicate_tool_raises_error(self, mock_exit_stack: contextlib.AsyncExitStack):
         """Test McpError raised when connecting a server with a dup name."""
         # --- Setup Pre-existing State ---
         group = ClientSessionGroup(exit_stack=mock_exit_stack)
@@ -282,9 +278,9 @@ class TestClientSessionGroup:
     )
     async def test_establish_session_parameterized(
         self,
-        server_params_instance,
-        client_type_name,  # Just for clarity or conditional logic if needed
-        patch_target_for_client_func,
+        server_params_instance: StdioServerParameters | SseServerParameters | StreamableHttpParameters,
+        client_type_name: str,  # Just for clarity or conditional logic if needed
+        patch_target_for_client_func: str,
     ):
         with mock.patch("mcp.client.session_group.mcp.ClientSession") as mock_ClientSession_class:
             with mock.patch(patch_target_for_client_func) as mock_specific_client_func:
@@ -338,8 +334,10 @@ class TestClientSessionGroup:
                 # --- Assertions ---
                 # 1. Assert the correct specific client function was called
                 if client_type_name == "stdio":
+                    assert isinstance(server_params_instance, StdioServerParameters)
                     mock_specific_client_func.assert_called_once_with(server_params_instance)
                 elif client_type_name == "sse":
+                    assert isinstance(server_params_instance, SseServerParameters)
                     mock_specific_client_func.assert_called_once_with(
                         url=server_params_instance.url,
                         headers=server_params_instance.headers,
@@ -347,6 +345,7 @@ class TestClientSessionGroup:
                         sse_read_timeout=server_params_instance.sse_read_timeout,
                     )
                 elif client_type_name == "streamablehttp":
+                    assert isinstance(server_params_instance, StreamableHttpParameters)
                     mock_specific_client_func.assert_called_once_with(
                         url=server_params_instance.url,
                         headers=server_params_instance.headers,

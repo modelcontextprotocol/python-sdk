@@ -1,6 +1,7 @@
 import contextlib
 import logging
 from collections.abc import AsyncIterator
+from typing import Any
 
 import anyio
 import click
@@ -45,7 +46,7 @@ def main(
     app = Server("mcp-streamable-http-demo")
 
     @app.call_tool()
-    async def call_tool(name: str, arguments: dict) -> list[types.ContentBlock]:
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
         ctx = app.request_context
         interval = arguments.get("interval", 1.0)
         count = arguments.get("count", 5)
@@ -54,10 +55,7 @@ def main(
         # Send the specified number of notifications with the given interval
         for i in range(count):
             # Include more detailed message for resumability demonstration
-            notification_msg = (
-                f"[{i + 1}/{count}] Event from '{caller}' - "
-                f"Use Last-Event-ID to resume if disconnected"
-            )
+            notification_msg = f"[{i + 1}/{count}] Event from '{caller}' - Use Last-Event-ID to resume if disconnected"
             await ctx.session.send_log_message(
                 level="info",
                 data=notification_msg,
@@ -79,10 +77,7 @@ def main(
         return [
             types.TextContent(
                 type="text",
-                text=(
-                    f"Sent {count} notifications with {interval}s interval"
-                    f" for caller: {caller}"
-                ),
+                text=(f"Sent {count} notifications with {interval}s interval for caller: {caller}"),
             )
         ]
 
@@ -91,10 +86,7 @@ def main(
         return [
             types.Tool(
                 name="start-notification-stream",
-                description=(
-                    "Sends a stream of notifications with configurable count"
-                    " and interval"
-                ),
+                description=("Sends a stream of notifications with configurable count and interval"),
                 inputSchema={
                     "type": "object",
                     "required": ["interval", "count", "caller"],
@@ -109,9 +101,7 @@ def main(
                         },
                         "caller": {
                             "type": "string",
-                            "description": (
-                                "Identifier of the caller to include in notifications"
-                            ),
+                            "description": ("Identifier of the caller to include in notifications"),
                         },
                     },
                 },
@@ -136,9 +126,7 @@ def main(
     )
 
     # ASGI handler for streamable HTTP connections
-    async def handle_streamable_http(
-        scope: Scope, receive: Receive, send: Send
-    ) -> None:
+    async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
         await session_manager.handle_request(scope, receive, send)
 
     @contextlib.asynccontextmanager

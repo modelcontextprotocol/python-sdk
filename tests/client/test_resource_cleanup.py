@@ -1,14 +1,12 @@
+from typing import Any
 from unittest.mock import patch
 
 import anyio
 import pytest
 
-from mcp.shared.session import BaseSession
-from mcp.types import (
-    ClientRequest,
-    EmptyResult,
-    PingRequest,
-)
+from mcp.shared.message import SessionMessage
+from mcp.shared.session import BaseSession, RequestId, SendResultT
+from mcp.types import ClientNotification, ClientRequest, ClientResult, EmptyResult, ErrorData, PingRequest
 
 
 @pytest.mark.anyio
@@ -20,13 +18,13 @@ async def test_send_request_stream_cleanup():
     """
 
     # Create a mock session with the minimal required functionality
-    class TestSession(BaseSession):
-        async def _send_response(self, request_id, response):
+    class TestSession(BaseSession[ClientRequest, ClientNotification, ClientResult, Any, Any]):
+        async def _send_response(self, request_id: RequestId, response: SendResultT | ErrorData) -> None:
             pass
 
     # Create streams
-    write_stream_send, write_stream_receive = anyio.create_memory_object_stream(1)
-    read_stream_send, read_stream_receive = anyio.create_memory_object_stream(1)
+    write_stream_send, write_stream_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    read_stream_send, read_stream_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     # Create the session
     session = TestSession(
@@ -37,14 +35,10 @@ async def test_send_request_stream_cleanup():
     )
 
     # Create a test request
-    request = ClientRequest(
-        PingRequest(
-            method="ping",
-        )
-    )
+    request = ClientRequest(PingRequest(method="ping"))
 
     # Patch the _write_stream.send method to raise an exception
-    async def mock_send(*args, **kwargs):
+    async def mock_send(*args: Any, **kwargs: Any):
         raise RuntimeError("Simulated network error")
 
     # Record the response streams before the test

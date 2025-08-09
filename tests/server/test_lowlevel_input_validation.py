@@ -263,7 +263,7 @@ async def test_enum_constraint_validation():
 
 
 @pytest.mark.anyio
-async def test_tool_not_in_list_logs_warning(caplog):
+async def test_tool_not_in_list_logs_warning(caplog: pytest.LogCaptureFixture):
     """Test that calling a tool not in list_tools logs a warning and skips validation."""
     tools = [
         Tool(

@@ -2,22 +2,19 @@ import anyio
 import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
+from starlette.requests import Request
 
 
-def create_messages(
-    context: str | None = None, topic: str | None = None
-) -> list[types.PromptMessage]:
+def create_messages(context: str | None = None, topic: str | None = None) -> list[types.PromptMessage]:
     """Create the messages for the prompt."""
-    messages = []
+    messages: list[types.PromptMessage] = []
 
     # Add context if provided
     if context:
         messages.append(
             types.PromptMessage(
                 role="user",
-                content=types.TextContent(
-                    type="text", text=f"Here is some relevant context: {context}"
-                ),
+                content=types.TextContent(type="text", text=f"Here is some relevant context: {context}"),
             )
         )
 
@@ -28,11 +25,7 @@ def create_messages(
     else:
         prompt += "whatever questions I may have."
 
-    messages.append(
-        types.PromptMessage(
-            role="user", content=types.TextContent(type="text", text=prompt)
-        )
-    )
+    messages.append(types.PromptMessage(role="user", content=types.TextContent(type="text", text=prompt)))
 
     return messages
 
@@ -54,8 +47,7 @@ def main(port: int, transport: str) -> int:
             types.Prompt(
                 name="simple",
                 title="Simple Assistant Prompt",
-                description="A simple prompt that can take optional context and topic "
-                "arguments",
+                description="A simple prompt that can take optional context and topic arguments",
                 arguments=[
                     types.PromptArgument(
                         name="context",
@@ -72,9 +64,7 @@ def main(port: int, transport: str) -> int:
         ]
 
     @app.get_prompt()
-    async def get_prompt(
-        name: str, arguments: dict[str, str] | None = None
-    ) -> types.GetPromptResult:
+    async def get_prompt(name: str, arguments: dict[str, str] | None = None) -> types.GetPromptResult:
         if name != "simple":
             raise ValueError(f"Unknown prompt: {name}")
 
@@ -82,9 +72,7 @@ def main(port: int, transport: str) -> int:
             arguments = {}
 
         return types.GetPromptResult(
-            messages=create_messages(
-                context=arguments.get("context"), topic=arguments.get("topic")
-            ),
+            messages=create_messages(context=arguments.get("context"), topic=arguments.get("topic")),
             description="A simple prompt with optional context and topic arguments",
         )
 
@@ -96,13 +84,9 @@ def main(port: int, transport: str) -> int:
 
         sse = SseServerTransport("/messages/")
 
-        async def handle_sse(request):
-            async with sse.connect_sse(
-                request.scope, request.receive, request._send
-            ) as streams:
-                await app.run(
-                    streams[0], streams[1], app.create_initialization_options()
-                )
+        async def handle_sse(request: Request):
+            async with sse.connect_sse(request.scope, request.receive, request._send) as streams:  # type: ignore[reportPrivateUsage]
+                await app.run(streams[0], streams[1], app.create_initialization_options())
             return Response()
 
         starlette_app = Starlette(
@@ -121,9 +105,7 @@ def main(port: int, transport: str) -> int:
 
         async def arun():
             async with stdio_server() as streams:
-                await app.run(
-                    streams[0], streams[1], app.create_initialization_options()
-                )
+                await app.run(streams[0], streams[1], app.create_initialization_options())
 
         anyio.run(arun)
 

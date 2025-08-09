@@ -1,5 +1,6 @@
 import logging
 from contextlib import contextmanager
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -53,7 +54,7 @@ class TestClientOutputSchemaValidation:
             ]
 
         @server.call_tool()
-        async def call_tool(name: str, arguments: dict):
+        async def call_tool(name: str, arguments: dict[str, Any]):
             # Return invalid structured content - age is string instead of integer
             # The low-level server will wrap this in CallToolResult
             return {"name": "John", "age": "invalid"}  # Invalid: age should be int
@@ -92,7 +93,7 @@ class TestClientOutputSchemaValidation:
             ]
 
         @server.call_tool()
-        async def call_tool(name: str, arguments: dict):
+        async def call_tool(name: str, arguments: dict[str, Any]):
             # Return invalid structured content - result is string instead of integer
             return {"result": "not_a_number"}  # Invalid: should be int
 
@@ -123,7 +124,7 @@ class TestClientOutputSchemaValidation:
             ]
 
         @server.call_tool()
-        async def call_tool(name: str, arguments: dict):
+        async def call_tool(name: str, arguments: dict[str, Any]):
             # Return invalid structured content - values should be integers
             return {"alice": "100", "bob": "85"}  # Invalid: values should be int
 
@@ -158,7 +159,7 @@ class TestClientOutputSchemaValidation:
             ]
 
         @server.call_tool()
-        async def call_tool(name: str, arguments: dict):
+        async def call_tool(name: str, arguments: dict[str, Any]):
             # Return structured content missing required field 'email'
             return {"name": "John", "age": 30}  # Missing required 'email'
 
@@ -170,17 +171,17 @@ class TestClientOutputSchemaValidation:
                 assert "Invalid structured content returned by tool get_person" in str(exc_info.value)
 
     @pytest.mark.anyio
-    async def test_tool_not_listed_warning(self, caplog):
+    async def test_tool_not_listed_warning(self, caplog: pytest.LogCaptureFixture):
         """Test that client logs warning when tool is not in list_tools but has outputSchema"""
         server = Server("test-server")
 
         @server.list_tools()
-        async def list_tools():
+        async def list_tools() -> list[Tool]:
             # Return empty list - tool is not listed
             return []
 
         @server.call_tool()
-        async def call_tool(name: str, arguments: dict):
+        async def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
             # Server still responds to the tool call with structured content
             return {"result": 42}
 

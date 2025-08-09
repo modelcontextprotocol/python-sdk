@@ -197,6 +197,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 
 
 # Mock database class for example
@@ -242,7 +243,7 @@ mcp = FastMCP("My App", lifespan=app_lifespan)
 
 # Access type-safe lifespan context in tools
 @mcp.tool()
-def query_db(ctx: Context) -> str:
+def query_db(ctx: Context[ServerSession, AppContext]) -> str:
     """Tool that uses initialized resources."""
     db = ctx.request_context.lifespan_context.db
     return db.query()
@@ -314,12 +315,13 @@ Tools can optionally receive a Context object by including a parameter with the 
 <!-- snippet-source examples/snippets/servers/tool_progress.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 
 mcp = FastMCP(name="Progress Example")
 
 
 @mcp.tool()
-async def long_running_task(task_name: str, ctx: Context, steps: int = 5) -> str:
+async def long_running_task(task_name: str, ctx: Context[ServerSession, None], steps: int = 5) -> str:
     """Execute a task with progress updates."""
     await ctx.info(f"Starting: {task_name}")
 
@@ -445,7 +447,7 @@ def get_user(user_id: str) -> UserProfile:
 
 # Classes WITHOUT type hints cannot be used for structured output
 class UntypedConfig:
-    def __init__(self, setting1, setting2):
+    def __init__(self, setting1, setting2):  # type: ignore[reportMissingParameterType]
         self.setting1 = setting1
         self.setting2 = setting2
 
@@ -571,12 +573,13 @@ The Context object provides the following capabilities:
 <!-- snippet-source examples/snippets/servers/tool_progress.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 
 mcp = FastMCP(name="Progress Example")
 
 
 @mcp.tool()
-async def long_running_task(task_name: str, ctx: Context, steps: int = 5) -> str:
+async def long_running_task(task_name: str, ctx: Context[ServerSession, None], steps: int = 5) -> str:
     """Execute a task with progress updates."""
     await ctx.info(f"Starting: {task_name}")
 
@@ -694,6 +697,7 @@ Request additional information from users. This example shows an Elicitation dur
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 
 mcp = FastMCP(name="Elicitation Example")
 
@@ -709,12 +713,7 @@ class BookingPreferences(BaseModel):
 
 
 @mcp.tool()
-async def book_table(
-    date: str,
-    time: str,
-    party_size: int,
-    ctx: Context,
-) -> str:
+async def book_table(date: str, time: str, party_size: int, ctx: Context[ServerSession, None]) -> str:
     """Book a table with date availability check."""
     # Check if date is available
     if date == "2024-12-25":
@@ -750,13 +749,14 @@ Tools can interact with LLMs through sampling (generating text):
 <!-- snippet-source examples/snippets/servers/sampling.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 from mcp.types import SamplingMessage, TextContent
 
 mcp = FastMCP(name="Sampling Example")
 
 
 @mcp.tool()
-async def generate_poem(topic: str, ctx: Context) -> str:
+async def generate_poem(topic: str, ctx: Context[ServerSession, None]) -> str:
     """Generate a poem using LLM sampling."""
     prompt = f"Write a short poem about {topic}"
 
@@ -785,12 +785,13 @@ Tools can send logs and notifications through the context:
 <!-- snippet-source examples/snippets/servers/notifications.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 
 mcp = FastMCP(name="Notifications Example")
 
 
 @mcp.tool()
-async def process_data(data: str, ctx: Context) -> str:
+async def process_data(data: str, ctx: Context[ServerSession, None]) -> str:
     """Process data with logging."""
     # Different log levels
     await ctx.debug(f"Debug: Processing '{data}'")
@@ -1244,6 +1245,7 @@ Run from the repository root:
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import mcp.server.stdio
 import mcp.types as types
@@ -1272,7 +1274,7 @@ class Database:
 
 
 @asynccontextmanager
-async def server_lifespan(_server: Server) -> AsyncIterator[dict]:
+async def server_lifespan(_server: Server) -> AsyncIterator[dict[str, Any]]:
     """Manage server startup and shutdown lifecycle."""
     # Initialize resources on startup
     db = await Database.connect()
@@ -1304,7 +1306,7 @@ async def handle_list_tools() -> list[types.Tool]:
 
 
 @server.call_tool()
-async def query_db(name: str, arguments: dict) -> list[types.TextContent]:
+async def query_db(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
     """Handle database query tool call."""
     if name != "query_db":
         raise ValueError(f"Unknown tool: {name}")
@@ -1558,7 +1560,7 @@ server_params = StdioServerParameters(
 
 # Optional: create a sampling callback
 async def handle_sampling_message(
-    context: RequestContext, params: types.CreateMessageRequestParams
+    context: RequestContext[ClientSession, None], params: types.CreateMessageRequestParams
 ) -> types.CreateMessageResult:
     print(f"Sampling request: {params.messages}")
     return types.CreateMessageResult(

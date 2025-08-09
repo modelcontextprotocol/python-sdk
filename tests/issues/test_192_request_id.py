@@ -12,6 +12,7 @@ from mcp.types import (
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
+    JSONRPCResponse,
     NotificationParams,
 )
 
@@ -23,8 +24,8 @@ async def test_request_id_match() -> None:
     custom_request_id = "test-123"
 
     # Create memory streams for communication
-    client_writer, client_reader = anyio.create_memory_object_stream(1)
-    server_writer, server_reader = anyio.create_memory_object_stream(1)
+    client_writer, client_reader = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    server_writer, server_reader = anyio.create_memory_object_stream[SessionMessage | Exception](1)
 
     # Server task to process the request
     async def run_server():
@@ -85,6 +86,9 @@ async def test_request_id_match() -> None:
         response = await server_reader.receive()
 
         # Verify response ID matches request ID
+        assert isinstance(response, SessionMessage)
+        assert isinstance(response.message, JSONRPCMessage)
+        assert isinstance(response.message.root, JSONRPCResponse)
         assert response.message.root.id == custom_request_id, "Response ID should match request ID"
 
         # Cancel server task

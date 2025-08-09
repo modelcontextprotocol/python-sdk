@@ -1,11 +1,6 @@
 import pytest
 
-from mcp.types import (
-    LATEST_PROTOCOL_VERSION,
-    ClientRequest,
-    JSONRPCMessage,
-    JSONRPCRequest,
-)
+from mcp.types import LATEST_PROTOCOL_VERSION, ClientRequest, JSONRPCMessage, JSONRPCRequest
 
 
 @pytest.mark.anyio

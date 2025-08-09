@@ -1,5 +1,7 @@
 """Test that cancelled requests don't cause double responses."""
 
+from typing import Any
+
 import anyio
 import pytest
 
@@ -41,7 +43,7 @@ async def test_server_remains_functional_after_cancel():
         ]
 
     @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict | None) -> list:
+    async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
         nonlocal call_count, first_request_id
         if name == "test_tool":
             call_count += 1

@@ -6,6 +6,9 @@ on:
 permissions:
   contents: read
 
+env:
+  COLUMNS: 150
+
 jobs:
   pre-commit:
     runs-on: ubuntu-latest

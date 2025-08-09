@@ -3,6 +3,7 @@ Tests for OAuth error handling in the auth handlers.
 """
 
 import unittest.mock
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -11,15 +12,14 @@ from httpx import ASGITransport
 from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 
-from mcp.server.auth.provider import (
-    AuthorizeError,
-    RegistrationError,
-    TokenError,
-)
+from mcp.server.auth.provider import AuthorizeError, RegistrationError, TokenError
 from mcp.server.auth.routes import create_auth_routes
-from tests.server.fastmcp.auth.test_auth_integration import (
-    MockOAuthProvider,
-)
+
+# TODO(Marcelo): This TYPE_CHECKING shouldn't be here, but pytest doesn't seem to get the module correctly.
+if TYPE_CHECKING:
+    from ...server.fastmcp.auth.test_auth_integration import MockOAuthProvider
+else:
+    from tests.server.fastmcp.auth.test_auth_integration import MockOAuthProvider
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def oauth_provider():
 
 
 @pytest.fixture
-def app(oauth_provider):
+def app(oauth_provider: MockOAuthProvider):
     from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 
     # Enable client registration
@@ -49,7 +49,7 @@ def app(oauth_provider):
 
 
 @pytest.fixture
-def client(app):
+def client(app: Starlette):
     transport = ASGITransport(app=app)
     # Use base_url without a path since routes are directly on the app
     return httpx.AsyncClient(transport=transport, base_url="http://localhost")
@@ -74,7 +74,7 @@ def pkce_challenge():
 
 
 @pytest.fixture
-async def registered_client(client):
+async def registered_client(client: httpx.AsyncClient) -> dict[str, Any]:
     """Create and register a test client."""
     # Default client metadata
     client_metadata = {
@@ -94,7 +94,7 @@ async def registered_client(client):
 
 class TestRegistrationErrorHandling:
     @pytest.mark.anyio
-    async def test_registration_error_handling(self, client, oauth_provider):
+    async def test_registration_error_handling(self, client: httpx.AsyncClient, oauth_provider: MockOAuthProvider):
         # Mock the register_client method to raise a registration error
         with unittest.mock.patch.object(
             oauth_provider,
@@ -128,7 +128,13 @@ class TestRegistrationErrorHandling:
 
 class TestAuthorizeErrorHandling:
     @pytest.mark.anyio
-    async def test_authorize_error_handling(self, client, oauth_provider, registered_client, pkce_challenge):
+    async def test_authorize_error_handling(
+        self,
+        client: httpx.AsyncClient,
+        oauth_provider: MockOAuthProvider,
+        registered_client: dict[str, Any],
+        pkce_challenge: dict[str, str],
+    ):
         # Mock the authorize method to raise an authorize error
         with unittest.mock.patch.object(
             oauth_provider,
@@ -165,7 +171,13 @@ class TestAuthorizeErrorHandling:
 
 class TestTokenErrorHandling:
     @pytest.mark.anyio
-    async def test_token_error_handling_auth_code(self, client, oauth_provider, registered_client, pkce_challenge):
+    async def test_token_error_handling_auth_code(
+        self,
+        client: httpx.AsyncClient,
+        oauth_provider: MockOAuthProvider,
+        registered_client: dict[str, Any],
+        pkce_challenge: dict[str, str],
+    ):
         # Register the client and get an auth code
         client_id = registered_client["client_id"]
         client_secret = registered_client["client_secret"]
@@ -218,7 +230,13 @@ class TestTokenErrorHandling:
             assert data["error_description"] == "The authorization code is invalid"
 
     @pytest.mark.anyio
-    async def test_token_error_handling_refresh_token(self, client, oauth_provider, registered_client, pkce_challenge):
+    async def test_token_error_handling_refresh_token(
+        self,
+        client: httpx.AsyncClient,
+        oauth_provider: MockOAuthProvider,
+        registered_client: dict[str, Any],
+        pkce_challenge: dict[str, str],
+    ):
         # Register the client and get tokens
         client_id = registered_client["client_id"]
         client_secret = registered_client["client_secret"]

@@ -2,6 +2,8 @@
 Tests for completion handler with context functionality.
 """
 
+from typing import Any
+
 import pytest
 
 from mcp.server.lowlevel import Server
@@ -21,7 +23,7 @@ async def test_completion_handler_receives_context():
     server = Server("test-server")
 
     # Track what the handler receives
-    received_args = {}
+    received_args: dict[str, Any] = {}
 
     @server.completion()
     async def handle_completion(
