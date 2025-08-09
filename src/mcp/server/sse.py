@@ -2,16 +2,15 @@
 SSE Server Transport Module
 
 This module implements a Server-Sent Events (SSE) transport layer for MCP servers.
-Fixes the URL path joining issue when using subpaths/proxied servers.
+Endpoints are specified as relative paths. This aligns with common client URL
+construction patterns (for example, `urllib.parse.urljoin`) and works correctly
+when applications are deployed behind proxies or at subpaths.
 
 Example usage:
 ```python
-    # Option 1: Create an SSE transport with absolute path (leading slash)
-    # This treats "/messages/" as absolute within the app
-    sse = SseServerTransport("/messages/")
-
-    # Option 2: Create an SSE transport with relative path (no leading slash)
-    # This treats "messages/" as relative to the root path - RECOMMENDED for proxied servers
+    # Recommended: provide a relative path segment (no scheme/host/query/fragment).
+    # Using "messages/" works well with clients that build absolute URLs using
+    # `urllib.parse.urljoin`, including in proxied/subpath deployments.
     sse = SseServerTransport("messages/")
 
     # Create Starlette routes for SSE and message handling
@@ -36,14 +35,16 @@ Example usage:
     uvicorn.run(starlette_app, host="127.0.0.1", port=port)
 ```
 
-Path behavior examples:
-- With root_path="" and endpoint="/messages/": Final path = "/messages/"
-- With root_path="" and endpoint="messages/": Final path = "/messages/"
-- With root_path="/api" and endpoint="/messages/": Final path = "/api/messages/"
-- With root_path="/api" and endpoint="messages/": Final path = "/api/messages/"
+Path behavior examples inside the server (final path emitted to clients):
+- root_path="" and endpoint="messages/"  -> "/messages/"
+- root_path="/api" and endpoint="messages/" -> "/api/messages/"
 
-For servers behind proxies or mounted at subpaths, use the relative path format
-(without leading slash) to ensure proper URL joining with urllib.parse.urljoin().
+Note: When clients use `urllib.parse.urljoin(base, path)`, joining a segment that
+starts with "/" replaces the base path. Providing a relative segment like
+`"messages/?id=1"` preserves the base path as intended.
+
+For servers behind proxies or mounted at subpaths, prefer a relative path without
+leading slash (e.g., "messages/") to ensure correct joining with `urljoin`.
 
 Note: The handle_sse function must return a Response to avoid a "TypeError: 'NoneType'
 object is not callable" error when client disconnects. The example above returns
@@ -98,8 +99,10 @@ class SseServerTransport:
         messages to the relative path given.
 
         Args:
-            endpoint: A relative path where messages should be posted
-                    (e.g., "/messages/" or "messages/").
+            endpoint: Relative path segment where messages should be posted
+                    (e.g., "messages/"). Avoid scheme/host/query/fragment. When
+                    clients construct absolute URLs using `urllib.parse.urljoin`,
+                    relative segments preserve any existing base path.
             security_settings: Optional security settings for DNS rebinding protection.
 
         Note:
@@ -111,8 +114,8 @@ class SseServerTransport:
             3. Portability: The same endpoint configuration works across different
                environments (development, staging, production)
 
-        The endpoint path handling has been updated to work correctly with urllib.parse.urljoin()
-        when servers are behind proxies or mounted at subpaths.
+        The endpoint path handling preserves the provided relative path and is
+        suitable for deployments under proxies or subpaths.
 
         Raises:
             ValueError: If the endpoint is a full URL instead of a relative path
@@ -120,16 +123,15 @@ class SseServerTransport:
 
         super().__init__()
 
-        # Validate that endpoint is a relative path and not a full URL
+        # Validate that endpoint is a relative path and not a full URL.
         if "://" in endpoint or endpoint.startswith("//") or "?" in endpoint or "#" in endpoint:
             raise ValueError(
-                f"Given endpoint: {endpoint} is not a relative path (e.g., '/messages/' or 'messages/'), "
-                "expecting a relative path (e.g., '/messages/' or 'messages/')."
+                f"Given endpoint: {endpoint} is not a relative path (e.g., 'messages/'), "
+                "expecting a relative path with no scheme/host/query/fragment."
             )
 
-        # Handle leading slash more intelligently
-        # Remove automatic leading slash enforcement to support proper URL joining
-        # Store the endpoint as-is, allowing both "/messages/" and "messages/" formats
+        # Store the endpoint as provided to retain relative-path semantics and make
+        # client URL construction predictable across deployment topologies.
         self._endpoint = endpoint
         self._read_stream_writers = {}
         self._security = TransportSecurityMiddleware(security_settings)
@@ -139,8 +141,9 @@ class SseServerTransport:
         """
         Helper method to properly construct the message path
 
-        This method handles the path construction logic that was causing issues
-        with urllib.parse.urljoin() when servers are proxied or mounted at subpaths.
+        Constructs the message path relative to the app's mount point and the
+        provided `root_path`. The stored endpoint is treated as path-absolute if
+        it starts with "/", otherwise as a relative segment.
 
         Args:
             root_path: The root path from ASGI scope (e.g., "" or "/api_prefix")
@@ -151,10 +154,10 @@ class SseServerTransport:
         # Clean up the root path
         clean_root_path = root_path.rstrip("/")
 
-        # If endpoint starts with "/", it's meant to be absolute within the app
-        # If endpoint doesn't start with "/", it's meant to be relative to root_path
+        # If endpoint starts with "/", treat it as path-absolute from the app mount;
+        # otherwise, treat it as relative to `root_path`.
         if self._endpoint.startswith("/"):
-            # Absolute path within the app - just concatenate
+            # Path-absolute within the app mount - just concatenate
             full_path = clean_root_path + self._endpoint
         else:
             # Relative path - ensure proper joining
