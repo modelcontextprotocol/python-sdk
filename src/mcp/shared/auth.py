@@ -114,20 +114,20 @@ class OAuthMetadata(BaseModel):
     registration_endpoint: AnyHttpUrl | None = None
     scopes_supported: list[str] | None = None
     response_types_supported: list[str] = ["code"]
-    response_modes_supported: list[Literal["query", "fragment", "form_post"]] | None = None
+    response_modes_supported: list[str] | None = None
     grant_types_supported: list[str] | None = None
     token_endpoint_auth_methods_supported: list[str] | None = None
-    token_endpoint_auth_signing_alg_values_supported: None = None
+    token_endpoint_auth_signing_alg_values_supported: list[str] | None = None
     service_documentation: AnyHttpUrl | None = None
     ui_locales_supported: list[str] | None = None
     op_policy_uri: AnyHttpUrl | None = None
     op_tos_uri: AnyHttpUrl | None = None
     revocation_endpoint: AnyHttpUrl | None = None
     revocation_endpoint_auth_methods_supported: list[str] | None = None
-    revocation_endpoint_auth_signing_alg_values_supported: None = None
+    revocation_endpoint_auth_signing_alg_values_supported: list[str] | None = None
     introspection_endpoint: AnyHttpUrl | None = None
     introspection_endpoint_auth_methods_supported: list[str] | None = None
-    introspection_endpoint_auth_signing_alg_values_supported: None = None
+    introspection_endpoint_auth_signing_alg_values_supported: list[str] | None = None
     code_challenge_methods_supported: list[str] | None = None
 
 
