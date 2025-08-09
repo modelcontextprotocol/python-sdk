@@ -807,7 +807,7 @@ class FastMCP(Generic[LifespanResultT]):
             )
             routes.append(
                 Mount(
-                    self.settings.message_path,
+                    normalized_message_endpoint,
                     app=RequireAuthMiddleware(sse.handle_post_message, required_scopes, resource_metadata_url),
                 )
             )
@@ -827,7 +827,7 @@ class FastMCP(Generic[LifespanResultT]):
             )
             routes.append(
                 Mount(
-                    self.settings.message_path,
+                    normalized_message_endpoint,
                     app=sse.handle_post_message,
                 )
             )
