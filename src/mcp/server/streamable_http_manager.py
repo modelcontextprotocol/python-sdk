@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import threading
 from collections.abc import AsyncIterator
 from http import HTTPStatus
 from typing import Any
@@ -75,7 +74,7 @@ class StreamableHTTPSessionManager:
         # The task group will be set during lifespan
         self._task_group = None
         # Thread-safe tracking of run() calls
-        self._run_lock = threading.Lock()
+        self._run_lock = anyio.Lock()
         self._has_started = False
 
     @contextlib.asynccontextmanager
@@ -97,7 +96,7 @@ class StreamableHTTPSessionManager:
                 yield
         """
         # Thread-safe check to ensure run() is only called once
-        with self._run_lock:
+        async with self._run_lock:
             if self._has_started:
                 raise RuntimeError(
                     "StreamableHTTPSessionManager .run() can only be called "
@@ -189,6 +188,9 @@ class StreamableHTTPSessionManager:
 
         # Handle the HTTP request and return the response
         await http_transport.handle_request(scope, receive, send)
+
+        # Terminate the transport after the request is handled
+        await http_transport.terminate()
 
     async def _handle_stateful_request(
         self,
