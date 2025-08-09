@@ -88,10 +88,19 @@ Issues = "https://github.com/modelcontextprotocol/python-sdk/issues"
 packages = ["src/mcp"]
 
 [tool.pyright]
+typeCheckingMode = "strict"
 include = ["src/mcp", "tests", "examples/servers", "examples/snippets"]
 venvPath = "."
 venv = ".venv"
-strict = ["src/mcp/**/*.py"]
+# The FastAPI style of using decorators in tests gives a `reportUnusedFunction` error.
+# See https://github.com/microsoft/pyright/issues/7771 for more details.
+# TODO(Marcelo): We should remove `reportPrivateUsage = false`. The idea is that we should test the workflow that uses
+# those private functions instead of testing the private functions directly. It makes it easier to maintain the code source
+# and refactor code that is not public.
+executionEnvironments = [
+  { root = "tests", reportUnusedFunction = false, reportPrivateUsage = false },
+  { root = "examples/servers", reportUnusedFunction = false },
+]
 
 [tool.ruff.lint]
 select = ["C4", "E", "F", "I", "PERF", "UP"]
