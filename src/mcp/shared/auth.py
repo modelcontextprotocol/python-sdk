@@ -114,7 +114,7 @@ class OAuthMetadata(BaseModel):
     registration_endpoint: AnyHttpUrl | None = None
     scopes_supported: list[str] | None = None
     response_types_supported: list[str] = ["code"]
-    response_modes_supported: list[Literal["query", "fragment", "form_post"]] | None = None
+    response_modes_supported: list[str] | None = None
     grant_types_supported: list[str] | None = None
     token_endpoint_auth_methods_supported: list[str] | None = None
     token_endpoint_auth_signing_alg_values_supported: list[str] | None = None
