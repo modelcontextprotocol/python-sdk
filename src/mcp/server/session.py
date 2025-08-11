@@ -38,7 +38,7 @@ be instantiated directly by users of the MCP framework.
 """
 
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Any, TypeVar, Optional, Awaitable, Callable
 
 import anyio
 import anyio.lowlevel
@@ -67,7 +67,6 @@ ServerRequestResponder = (
     RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception
 )
 
-
 class ServerSession(
     BaseSession[
         types.ServerRequest,
@@ -86,6 +85,7 @@ class ServerSession(
         write_stream: MemoryObjectSendStream[SessionMessage],
         init_options: InitializationOptions,
         stateless: bool = False,
+        on_initialized: Optional[Callable[[str], Awaitable[None]]] = None
     ) -> None:
         super().__init__(read_stream, write_stream, types.ClientRequest, types.ClientNotification)
         self._initialization_state = (
@@ -98,9 +98,17 @@ class ServerSession(
         ](0)
         self._exit_stack.push_async_callback(lambda: self._incoming_message_stream_reader.aclose())
 
+        from uuid import uuid4, UUID
+        self._session_id: UUID = uuid4()
+        self._on_initialized = on_initialized
+
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
         return self._client_params
+    
+    @property
+    def session_id(self) -> str:
+        return str(self._session_id)
 
     def check_client_capability(self, capability: types.ClientCapabilities) -> bool:
         """Check if the client supports a specific capability."""
@@ -171,6 +179,10 @@ class ServerSession(
         match notification.root:
             case types.InitializedNotification():
                 self._initialization_state = InitializationState.Initialized
+                 # One-time "session initialized" hook for higher-level MCP observers (e.g., FSM).
+                # Lets higher layers register per-session state after we mark initialized. Keep fast.
+                if self._on_initialized:
+                    await self._on_initialized(self.session_id)  # observer-style registration
             case _:
                 if self._initialization_state != InitializationState.Initialized:
                     raise RuntimeError("Received notification before initialization was complete")

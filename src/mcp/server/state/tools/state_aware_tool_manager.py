@@ -1,20 +1,35 @@
-from typing import Any
-from mcp.server.fastmcp.tools import Tool, ToolManager  # Der native ToolManager
-from mcp.server.state.state_machine import ToolResultType, StateMachine, InputSymbol
-from mcp.server.fastmcp.utilities.logging import get_logger
+from __future__ import annotations
+
+from typing import Any, Sequence
 
 import mcp.types as types
+from mcp.server.fastmcp import Context
+from mcp.server.fastmcp.tools import Tool, ToolManager
+from mcp.server.fastmcp.utilities.logging import get_logger
+from mcp.server.session import ServerSession
+from mcp.server.lowlevel.server import LifespanResultT
+from mcp.server.state.machine import InputSymbol, StateMachine, ToolResultType
+from starlette.requests import Request
 
-logger = get_logger(__name__)
+logger = get_logger(f"{__name__}.StateAwareToolManager")
 
 class StateAwareToolManager:
+    """State-aware facade over ToolManager (composition).
+
+    Wraps a StateMachine (global or session-scoped) and delegates to the native
+    ToolManager; stays fully compatible with registrations and APIs.
+    """
+
     def __init__(self, state_machine: StateMachine, tool_manager: ToolManager):
         self._tool_manager = tool_manager
         self._state_machine = state_machine
 
     def list_tools(self) -> list[Tool]:
-        """Listet Tools, die in der aktuellen StateMachine verfügbar sind."""
+        """Return tools allowed in the current_state.
 
+        Session-aware when the machine is session-scoped. Missing registrations
+        are logged as warnings (soft), not raised as errors.
+        """
         tool_names = self._state_machine.get_available_inputs().get("tools", set())
 
         available_tools: list[Tool] = []
@@ -23,27 +38,35 @@ class StateAwareToolManager:
             if tool:
                 available_tools.append(tool)
             else:
-                logger.warning(f"Tool '{name}' was expected in'{self._state_machine.current_state}' but not present.")
-
+                logger.warning(
+                    "Tool '%s' expected in state '%s' but not registered.",
+                    name,
+                    self._state_machine.current_state,
+                )
         return available_tools
 
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
-        """Führt ein Tool aus und übergibt das Ergebnis der StateMachine als InputSymbol."""
-        result = None
-        resultType = ToolResultType.SUCCESS
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        ctx: Context[ServerSession, LifespanResultT, Request],
+    ) -> Sequence[types.ContentBlock] | dict[str, Any]:
+        """Execute via native manager; transition FSM on SUCCESS/ERROR.
 
+        Forwards Context. Transitions the state machine after execution:
+        SUCCESS on normal completion, ERROR on exception.
+
+        TODO: Pre-validate that `name` is allowed in the current state.
+        """
         tool = self._tool_manager.get_tool(name)
         if not tool:
             raise ValueError(f"Tool '{name}' not found.")
 
         try:
-            result = await tool.run(arguments, context=None, convert_result=True)
+            result = await tool.run(arguments, context=ctx, convert_result=True)
+            self._state_machine.transition(InputSymbol.for_tool(name, ToolResultType.SUCCESS))
+            return result
         except Exception as e:
-            logger.exception(f"Exception during execution of tool '{name}'")
-            result = types.TextContent(type="text", text=str(e))
-            resultType = ToolResultType.ERROR
-
-        symbol = InputSymbol.for_tool(name, resultType)
-        self._state_machine.transition(symbol)
-
-        return result
+            self._state_machine.transition(InputSymbol.for_tool(name, ToolResultType.ERROR))
+            logger.exception("Exception during execution of tool '%s'", name)
+            raise ValueError(str(e)) from e

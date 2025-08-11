@@ -1,50 +1,65 @@
+from __future__ import annotations
+
 from typing import Any
+
+import pydantic_core
+from mcp.types import GetPromptResult
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
-from mcp.server.state.state_machine import PromptResultType, StateMachine, InputSymbol
 from mcp.server.fastmcp.utilities.logging import get_logger
+from mcp.server.state.machine import InputSymbol, PromptResultType, StateMachine
 
-import mcp.types as types
-
-logger = get_logger(__name__)
+logger = get_logger(f"{__name__}.StateAwarePromptManager")
 
 class StateAwarePromptManager:
+    """State-aware facade over PromptManager (composition).
+
+    Wraps a StateMachine (global or session-scoped) and delegates to the native
+    PromptManager; stays fully compatible with registrations and APIs.
+    """
+
     def __init__(self, state_machine: StateMachine, prompt_manager: PromptManager):
         self._prompt_manager = prompt_manager
         self._state_machine = state_machine
 
     def list_prompts(self) -> list[Prompt]:
-        """Listet Prompts, die in der aktuellen StateMachine verfügbar sind."""
+        """Return prompts allowed in the current_state.
+
+        Session-aware when the machine is session-scoped. Missing registrations
+        are logged as warnings (soft), not raised as errors.
+        """
         prompt_names = self._state_machine.get_available_inputs().get("prompts", set())
 
-        available_prompts: list[Prompt] = []
+        available: list[Prompt] = []
         for name in prompt_names:
             prompt = self._prompt_manager.get_prompt(name)
             if prompt:
-                available_prompts.append(prompt)
+                available.append(prompt)
             else:
                 logger.warning(
-                    f"Prompt '{name}' was expected in '{self._state_machine.current_state}' but not present."
+                    "Prompt '%s' expected in state '%s' but not registered.",
+                    name,
+                    self._state_machine.current_state,
                 )
+        return available
 
-        return available_prompts
+    async def get_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> GetPromptResult:
+        """Resolve via native manager; transition FSM on SUCCESS/ERROR.
 
-    async def call_prompt(self, name: str, arguments: dict[str, Any]) -> Any:
-        """Führt einen Prompt aus und übergibt das Ergebnis als InputSymbol an die StateMachine."""
-        result = None
-        resultType = PromptResultType.SUCCESS
-
-        prompt = self._prompt_manager.get_prompt(name)
-        if not prompt:
-            raise ValueError(f"Prompt '{name}' not found.")
-
+        TODO: Pre-validate that `name` is permitted in the current state.
+        """
         try:
-            result = await prompt.render(arguments)
+            prompt = self._prompt_manager.get_prompt(name)
+            if not prompt:
+                raise ValueError(f"Unknown prompt: {name}")
+
+            messages = await prompt.render(arguments)
+
+            self._state_machine.transition(InputSymbol.for_prompt(name, PromptResultType.SUCCESS))
+            return GetPromptResult(
+                description=prompt.description,
+                messages=pydantic_core.to_jsonable_python(messages),
+            )
         except Exception as e:
-            logger.exception(f"Exception during rendering of prompt '{name}'")
-            result = types.TextContent(type="text", text=str(e))
-            resultType = PromptResultType.ERROR
-
-        symbol = InputSymbol.for_prompt(name, resultType)
-        self._state_machine.transition(symbol)
-
-        return result
+            self._state_machine.transition(InputSymbol.for_prompt(name, PromptResultType.ERROR))
+            logger.exception("Error getting prompt %s", name)
+            raise ValueError(str(e)) from e

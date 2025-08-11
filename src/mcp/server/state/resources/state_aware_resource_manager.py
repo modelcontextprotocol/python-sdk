@@ -1,58 +1,65 @@
-from typing import Any
+from __future__ import annotations
+
+from typing import Any, Iterable
+
+from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.resources import Resource, ResourceManager
-from mcp.server.state.state_machine import ResourceResultType, StateMachine, InputSymbol
 from mcp.server.fastmcp.utilities.logging import get_logger
+from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.server.state.machine import InputSymbol, ResourceResultType, StateMachine
 
-import mcp.types as types
-
-logger = get_logger(__name__)
+logger = get_logger(f"{__name__}.StateAwareResourceManager")
 
 class StateAwareResourceManager:
+    """State-aware facade over ResourceManager (composition).
+
+    Wraps a StateMachine (global or session-scoped) and delegates to the native
+    ResourceManager; stays fully compatible with registrations and APIs.
+
+    Note: resource templates (list_resource_templates) are not overridden here and
+    continue to be handled by FastMCP until semantics are finalized.
+    """
+
     def __init__(self, state_machine: StateMachine, resource_manager: ResourceManager):
         self._resource_manager = resource_manager
         self._state_machine = state_machine
 
-    def list_resources(self) -> list[Resource]:
-        """Listet Ressourcen, die in der aktuellen StateMachine verfügbar sind."""
+    async def list_resources(self) -> list[Resource]:
+        """Return resources allowed in the current_state.
 
-        resource_names = self._state_machine.get_available_inputs().get("resources", set())
+        Session-aware when the machine is session-scoped. Missing registrations
+        are logged as warnings (soft), not raised as errors.
+        """
+        resource_uris = self._state_machine.get_available_inputs().get("resources", set())
 
-        available_resources: list[Resource] = []
-        for name in resource_names:
-            # Ressourcen können sowohl über URI als auch Namen referenziert sein
-            resource = self._get_resource_by_name(name)
-            if resource:
-                available_resources.append(resource)
+        available: list[Resource] = []
+        for uri in resource_uris:
+            resource = await self._resource_manager.get_resource(uri)
+            if resource is not None:
+                available.append(resource)
             else:
                 logger.warning(
-                    f"Resource '{name}' was expected in '{self._state_machine.current_state}' but not present."
+                    "Resource '%s' expected in state '%s' but not registered.",
+                    uri,
+                    self._state_machine.current_state,
                 )
+        return available
 
-        return available_resources
+    async def read_resource(self, uri: str | Any) -> Iterable[ReadResourceContents]:
+        """Read via native manager; transition FSM on SUCCESS/ERROR.
 
-    async def get_resource(self, uri: str | Any) -> Any:
-        """Lädt eine Resource und übergibt das Ergebnis als InputSymbol an die StateMachine."""
-        result = None
-        resultType = ResourceResultType.SUCCESS
-
+        TODO: Pre-validate that `uri` is permitted in the current state.
+        """
         try:
-            result = await self._resource_manager.get_resource(uri)
+            resource = await self._resource_manager.get_resource(uri)
+            if not resource:
+                raise ResourceError(f"Unknown resource: {uri}")
+
+            content = await resource.read()
+            self._state_machine.transition(InputSymbol.for_resource(str(uri), ResourceResultType.SUCCESS))
+
+            return [ReadResourceContents(content=content, mime_type=resource.mime_type)]
         except Exception as e:
-            logger.exception(f"Exception during loading of resource '{uri}'")
-            result = types.TextContent(type="text", text=str(e))
-            resultType = ResourceResultType.ERROR
-
-        symbol = InputSymbol.for_resource(str(uri), resultType)
-        self._state_machine.transition(symbol)
-
-        return result
-
-    def _get_resource_by_name(self, name: str) -> Resource | None:
-        """Hilfsfunktion, um eine Ressource anhand des Namens zu finden."""
-        for res in self._resource_manager.list_resources():
-            if res.name == name or str(res.uri) == name:
-                return res
-        return None
-
-    
-# TODO: ResourcesTemplates prüfen und ergänzen
+            self._state_machine.transition(InputSymbol.for_resource(str(uri), ResourceResultType.ERROR))
+            logger.exception("Error reading resource %s", uri)
+            raise ResourceError(str(e)) from e
