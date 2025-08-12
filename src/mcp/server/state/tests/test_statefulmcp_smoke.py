@@ -39,7 +39,7 @@ async def test_session_store(app_linear_machine: StatefulMCP):
     assert sid in app._session_stores
 
     session_store = app._session_stores[sid]
-    await session_store.set("k_session", "v_session")
-    assert (await session_store.get("k_session")) == "v_session"
+    await session_store.aset("k_session", "v_session")
+    assert (await session_store.aget("k_session")) == "v_session"
 
 

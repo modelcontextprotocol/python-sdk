@@ -1,47 +1,88 @@
-# server_session_store.py (oder neben StatefulMCP)
+from __future__ import annotations
+
 from typing import Any, Mapping
 import copy
-import anyio
+import threading
 
 class ServerSessionData:
-    """Thread-safe key-value store scoped to a server session.
+    """Thread-safe key-value store scoped to one server session.
 
-    Methods are async to coordinate access with a lock. Values are user-defined.
+    Design:
+      - **Synchronous core** guarded by a threading.RLock → usable from sync and async code.
+      - **Async convenience wrappers** (`a*` methods) simply call the sync core.
+      - Very short critical sections (dict ops), so using sync methods from async code is fine.
     """
+
     def __init__(self, initial: Mapping[str, Any] | None = None) -> None:
         self._data: dict[str, Any] = dict(initial or {})
-        self._lock = anyio.Lock()
+        self._lock = threading.RLock()
 
-    async def set(self, key: str, value: Any) -> None:
-        async with self._lock:
+    # ----- synchronous API (primary) -----
+
+    def set(self, key: str, value: Any) -> None:
+        """Set a value (thread-safe)."""
+        with self._lock:
             self._data[key] = value
 
-    async def get(self, key: str, default: Any = None) -> Any:
-        async with self._lock:
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get a value (thread-safe)."""
+        with self._lock:
             return self._data.get(key, default)
 
-    async def update(self, mapping: Mapping[str, Any] | None = None, /, **kwargs: Any) -> None:
-        async with self._lock:
+    def update(self, mapping: Mapping[str, Any] | None = None, /, **kwargs: Any) -> None:
+        """Update multiple keys (thread-safe)."""
+        with self._lock:
             if mapping:
                 self._data.update(mapping)
             if kwargs:
                 self._data.update(kwargs)
 
-    async def pop(self, key: str, default: Any = None) -> Any:
-        async with self._lock:
+    def pop(self, key: str, default: Any = None) -> Any:
+        """Pop a value (thread-safe)."""
+        with self._lock:
             return self._data.pop(key, default)
 
-    async def clear(self) -> None:
-        async with self._lock:
+    def clear(self) -> None:
+        """Clear all values (thread-safe)."""
+        with self._lock:
             self._data.clear()
 
-    async def reset(self) -> None:
-        await self.clear()
+    def reset(self) -> None:
+        """Alias for clear()."""
+        self.clear()
 
-    async def keys(self) -> list[str]:
-        async with self._lock:
+    def keys(self) -> list[str]:
+        """List keys (thread-safe snapshot)."""
+        with self._lock:
             return list(self._data.keys())
 
-    async def snapshot(self) -> dict[str, Any]:
-        async with self._lock:
-            return copy.deepcopy(self._data)  # read-only copy
+    def snapshot(self) -> dict[str, Any]:
+        """Deep copy of all data (thread-safe)."""
+        with self._lock:
+            return copy.deepcopy(self._data)
+
+    # ----- async convenience wrappers -----
+
+    async def aset(self, key: str, value: Any) -> None:
+        self.set(key, value)
+
+    async def aget(self, key: str, default: Any = None) -> Any:
+        return self.get(key, default)
+
+    async def aupdate(self, mapping: Mapping[str, Any] | None = None, /, **kwargs: Any) -> None:
+        self.update(mapping, **kwargs)
+
+    async def apop(self, key: str, default: Any = None) -> Any:
+        return self.pop(key, default)
+
+    async def aclear(self) -> None:
+        self.clear()
+
+    async def areset(self) -> None:
+        self.reset()
+
+    async def akeys(self) -> list[str]:
+        return self.keys()
+
+    async def asnapshot(self) -> dict[str, Any]:
+        return self.snapshot()
