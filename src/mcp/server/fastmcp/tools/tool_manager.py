@@ -38,6 +38,10 @@ class ToolManager:
         """Get tool by name."""
         return self._tools.get(name)
 
+    def has_tool(self, name: str) -> bool:
+        """Check if a tool exists."""
+        return name in self._tools
+
     def list_tools(self) -> list[Tool]:
         """List all registered tools."""
         return list(self._tools.values())

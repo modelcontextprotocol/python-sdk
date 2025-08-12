@@ -418,14 +418,15 @@ class FastMCP(Generic[LifespanResultT]):
             )
 
         def decorator(fn: AnyFunction) -> AnyFunction:
-            self.add_tool(
-                fn,
-                name=name,
-                title=title,
-                description=description,
-                annotations=annotations,
-                structured_output=structured_output,
-            )
+            if not self._tool_manager.has_tool(fn.__name__):
+                self.add_tool(
+                    fn,
+                    name=name,
+                    title=title,
+                    description=description,
+                    annotations=annotations,
+                    structured_output=structured_output,
+                )
             return fn
 
         return decorator
