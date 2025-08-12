@@ -10,10 +10,12 @@ from .resources import StateAwareResourceManager
 
 from .server import StatefulMCP
 from .machine import InputSymbol
-from .builder import StateMachineDefinition
+from .builder import StateMachineDefinition, StateAPI, TransitionAPI
 
 __all__: list[str] = [
     "StatefulMCP",
+    "StateAPI",
+    "TransitionAPI",
     "InputSymbol",
     "StateMachineDefinition",
     "SessionScopedStateMachine",
