@@ -4,6 +4,11 @@ Integration tests for FastMCP server functionality.
 These tests validate the proper functioning of FastMCP features using focused,
 single-feature servers across different transports (SSE and StreamableHTTP).
 """
+# TODO(Marcelo): The `examples` package is not being imported as package. We need to solve this.
+# pyright: reportUnknownMemberType=false
+# pyright: reportMissingImports=false
+# pyright: reportUnknownVariableType=false
+# pyright: reportUnknownArgumentType=false
 
 import json
 import multiprocessing
@@ -13,6 +18,7 @@ from collections.abc import Generator
 
 import pytest
 import uvicorn
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 
 from examples.snippets.servers import (
@@ -29,17 +35,27 @@ from examples.snippets.servers import (
 )
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import GetSessionIdCallback, streamablehttp_client
+from mcp.shared.context import RequestContext
+from mcp.shared.message import SessionMessage
+from mcp.shared.session import RequestResponder
 from mcp.types import (
+    ClientResult,
+    CreateMessageRequestParams,
     CreateMessageResult,
+    ElicitRequestParams,
     ElicitResult,
     GetPromptResult,
     InitializeResult,
     LoggingMessageNotification,
+    LoggingMessageNotificationParams,
+    NotificationParams,
     ProgressNotification,
+    ProgressNotificationParams,
     ReadResourceResult,
     ResourceListChangedNotification,
     ServerNotification,
+    ServerRequest,
     TextContent,
     TextResourceContents,
     ToolListChangedNotification,
@@ -50,12 +66,14 @@ class NotificationCollector:
     """Collects notifications from the server for testing."""
 
     def __init__(self):
-        self.progress_notifications: list = []
-        self.log_messages: list = []
-        self.resource_notifications: list = []
-        self.tool_notifications: list = []
+        self.progress_notifications: list[ProgressNotificationParams] = []
+        self.log_messages: list[LoggingMessageNotificationParams] = []
+        self.resource_notifications: list[NotificationParams | None] = []
+        self.tool_notifications: list[NotificationParams | None] = []
 
-    async def handle_generic_notification(self, message) -> None:
+    async def handle_generic_notification(
+        self, message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception
+    ) -> None:
         """Handle any server notification and route to appropriate handler."""
         if isinstance(message, ServerNotification):
             if isinstance(message.root, ProgressNotification):
@@ -123,7 +141,7 @@ def run_server_with_transport(module_name: str, port: int, transport: str) -> No
 
 
 @pytest.fixture
-def server_transport(request, server_port: int) -> Generator[str, None, None]:
+def server_transport(request: pytest.FixtureRequest, server_port: int) -> Generator[str, None, None]:
     """Start server in a separate process with specified MCP instance and transport.
 
     Args:
@@ -177,7 +195,14 @@ def create_client_for_transport(transport: str, server_url: str):
         raise ValueError(f"Invalid transport: {transport}")
 
 
-def unpack_streams(client_streams):
+def unpack_streams(
+    client_streams: tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]]
+    | tuple[
+        MemoryObjectReceiveStream[SessionMessage | Exception],
+        MemoryObjectSendStream[SessionMessage],
+        GetSessionIdCallback,
+    ],
+):
     """Unpack client streams handling different return values from SSE vs StreamableHTTP.
 
     SSE client returns (read_stream, write_stream)
@@ -197,7 +222,9 @@ def unpack_streams(client_streams):
 
 
 # Callback functions for testing
-async def sampling_callback(context, params) -> CreateMessageResult:
+async def sampling_callback(
+    context: RequestContext[ClientSession, None], params: CreateMessageRequestParams
+) -> CreateMessageResult:
     """Sampling callback for tests."""
     return CreateMessageResult(
         role="assistant",
@@ -209,7 +236,7 @@ async def sampling_callback(context, params) -> CreateMessageResult:
     )
 
 
-async def elicitation_callback(context, params):
+async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
     """Elicitation callback for tests."""
     # For restaurant booking test
     if "No tables available" in params.message:
@@ -367,7 +394,7 @@ async def test_tool_progress(server_transport: str, server_url: str) -> None:
     transport = server_transport
     collector = NotificationCollector()
 
-    async def message_handler(message):
+    async def message_handler(message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception):
         await collector.handle_generic_notification(message)
         if isinstance(message, Exception):
             raise message
@@ -508,7 +535,7 @@ async def test_notifications(server_transport: str, server_url: str) -> None:
     transport = server_transport
     collector = NotificationCollector()
 
-    async def message_handler(message):
+    async def message_handler(message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception):
         await collector.handle_generic_notification(message)
         if isinstance(message, Exception):
             raise message

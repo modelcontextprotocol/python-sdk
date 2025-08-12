@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
@@ -12,7 +13,7 @@ class TestResourceTemplate:
     def test_template_creation(self):
         """Test creating a template from a function."""
 
-        def my_func(key: str, value: int) -> dict:
+        def my_func(key: str, value: int) -> dict[str, Any]:
             return {"key": key, "value": value}
 
         template = ResourceTemplate.from_function(
@@ -23,13 +24,12 @@ class TestResourceTemplate:
         assert template.uri_template == "test://{key}/{value}"
         assert template.name == "test"
         assert template.mime_type == "text/plain"  # default
-        test_input = {"key": "test", "value": 42}
-        assert template.fn(**test_input) == my_func(**test_input)
+        assert template.fn(key="test", value=42) == my_func(key="test", value=42)
 
     def test_template_matches(self):
         """Test matching URIs against a template."""
 
-        def my_func(key: str, value: int) -> dict:
+        def my_func(key: str, value: int) -> dict[str, Any]:
             return {"key": key, "value": value}
 
         template = ResourceTemplate.from_function(
@@ -50,7 +50,7 @@ class TestResourceTemplate:
     async def test_create_resource(self):
         """Test creating a resource from a template."""
 
-        def my_func(key: str, value: int) -> dict:
+        def my_func(key: str, value: int) -> dict[str, Any]:
             return {"key": key, "value": value}
 
         template = ResourceTemplate.from_function(

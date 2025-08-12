@@ -12,13 +12,19 @@ import sys
 import tempfile
 import textwrap
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import anyio
 import pytest
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import _create_platform_compatible_process, stdio_client
-from tests.shared.test_win32_utils import escape_path_for_python
+
+# TODO(Marcelo): This doesn't seem to be the right path. We should fix this.
+if TYPE_CHECKING:
+    from ..shared.test_win32_utils import escape_path_for_python
+else:
+    from tests.shared.test_win32_utils import escape_path_for_python
 
 
 @pytest.mark.anyio
@@ -52,10 +58,10 @@ async def test_lifespan_cleanup_executed():
         from pathlib import Path
         from contextlib import asynccontextmanager
         from mcp.server.fastmcp import FastMCP
-        
+
         STARTUP_MARKER = {escape_path_for_python(startup_marker)}
         CLEANUP_MARKER = {escape_path_for_python(cleanup_marker)}
-        
+
         @asynccontextmanager
         async def lifespan(server):
             # Write startup marker
@@ -65,13 +71,13 @@ async def test_lifespan_cleanup_executed():
             finally:
                 # This cleanup code now runs properly during shutdown
                 Path(CLEANUP_MARKER).write_text("cleaned up")
-        
+
         mcp = FastMCP("test-server", lifespan=lifespan)
-        
+
         @mcp.tool()
         def echo(text: str) -> str:
             return text
-        
+
         if __name__ == "__main__":
             mcp.run()
     """)
@@ -160,10 +166,10 @@ async def test_stdin_close_triggers_cleanup():
         from pathlib import Path
         from contextlib import asynccontextmanager
         from mcp.server.fastmcp import FastMCP
-        
+
         STARTUP_MARKER = {escape_path_for_python(startup_marker)}
         CLEANUP_MARKER = {escape_path_for_python(cleanup_marker)}
-        
+
         @asynccontextmanager
         async def lifespan(server):
             # Write startup marker
@@ -173,13 +179,13 @@ async def test_stdin_close_triggers_cleanup():
             finally:
                 # This cleanup code runs when stdin closes, enabling graceful shutdown
                 Path(CLEANUP_MARKER).write_text("cleaned up")
-        
+
         mcp = FastMCP("test-server", lifespan=lifespan)
-        
+
         @mcp.tool()
         def echo(text: str) -> str:
             return text
-        
+
         if __name__ == "__main__":
             # The server should exit gracefully when stdin closes
             try:
