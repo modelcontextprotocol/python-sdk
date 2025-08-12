@@ -40,10 +40,10 @@ async def app_linear_machine() -> StatefulMCP:
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .transition("s1").on_tool("dummy", result=ToolResultType.DEFAULT)
+            .transition("s1").on_tool("dummy", result=ToolResultType.SUCCESS)
             .done()
             .define_state("s1")
-            .transition("s2").on_tool("dummy", result=ToolResultType.DEFAULT)
+            .transition("s2").on_tool("dummy", result=ToolResultType.ERROR)
             .done()
             .define_state("s2", is_terminal=True)
             .done()

@@ -61,28 +61,43 @@ class _InternalStateMachineBuilder:
         self._prompt_manager = prompt_manager
 
     def add_or_update_state(
-            self, name: str, 
-            is_initial: bool=False, 
-            is_terminal: bool=False
-        ) -> None:
-        """Add a state or update its configuration.
-        
-        Note: transitions will be removed when updating the configuration.
+        self,
+        name: str,
+        is_initial: bool = False,
+        is_terminal: bool = False,
+        *,
+        update: bool = False,
+    ) -> None:
+        """Add a state or (optionally) update its configuration.
+
+        Behavior:
+        - Not exists: create the state (ignores `update`).
+        - Exists & update=False: ignore (no changes). Logged at DEBUG.
+        - Exists & update=True: replace the configuration (transitions are reset).
+
+        Initial-state rule:
+        - If `is_initial=True` and another initial is already set, raise ValueError.
         """
-        if name in self._states:
-            logger.debug("State '%s' already exists; configuration will be updated.", name)
+        exists = name in self._states
+
+        if exists and not update:
+            logger.debug("State '%s' already exists; update=False. Configuration will be ignored.", name)
+            return
+
+        # Validate initial flag before writing
+        if is_initial and self._initial is not None and self._initial != name:
+            raise ValueError(
+                f"Initial state already set to '{self._initial}'; cannot set '{name}' as initial."
+            )
+
+        if exists and update:
+            logger.debug("State '%s' exists; configuration will be updated.", name)
+
+        # Note: updating replaces the State object and clears transitions by design
+        self._states[name] = State(name=name, is_initial=is_initial, is_terminal=is_terminal)
 
         if is_initial:
-            if self._initial is None or self._initial == name:
-                self._initial = name
-            else:
-                msg = (
-                    f"Initial state already set to '{self._initial}'; "
-                    f"cannot set '{name}' as initial."
-                )
-                raise ValueError(msg)
-
-        self._states[name] = State(name=name, is_initial=is_initial, is_terminal=is_terminal)
+            self._initial = name
 
     def add_transition(
         self,
@@ -158,11 +173,16 @@ class StateAPI:
         self._name = state_name
 
     def transition(self, to_state: str) -> "TransitionAPI":
-        """Ensure that ``to_state`` exists (create if missing) and return a TransitionAPI to attach inputs.
+        """Ensure ``to_state`` exists (create if missing) and return a TransitionAPI to attach inputs.
 
-        By default the created state is terminal; re-declare the state (e.g., via define_state) to change its flags.
+        Behavior:
+        - Creates the target state as **terminal by default** (placeholder).
+        - **Never updates** an existing state's config (uses update=False).
+        - To change flags later, **re-declare** it via `define_state(...)`.
+
+        Calling `transition(to_state)` multiple times will not alter an already-declared state's flags.
         """
-        self._builder.add_or_update_state(to_state, is_initial=False, is_terminal=True)  
+        self._builder.add_or_update_state(to_state, is_initial=False, is_terminal=True, update=False)
         return TransitionAPI(self._builder, self._name, to_state)
 
     def done(self) -> "StateMachineDefinition":
@@ -223,13 +243,13 @@ class StateMachineDefinition:
 
     Users never call build methods; the server builds and validates at startup.
 
-    Decorator style::
+    **Decorator style**::
 
         @app.statebuilder.state("start", is_initial=True)
         def _(s):
             s.transition("next").on_tool("my_tool")
 
-    Fluent style::
+    **Fluent style**::
 
         app.statebuilder
             .define_state("start", is_initial=True)
@@ -248,17 +268,28 @@ class StateMachineDefinition:
         return obj
 
     def define_state(self, name: str, is_initial: bool = False, is_terminal: bool = False) -> StateAPI:
-        """Declare a state and return a StateAPI to continue in fluent style."""
-        self._builder.add_or_update_state(name, is_initial, is_terminal)
-        return StateAPI(self._builder, name)
+        """Declare (or update) a state and return a StateAPI to continue in fluent style.
 
+        If the state was already declared (via this method or the decorator), this **replaces the configuration**
+        (last call wins). **Note:** updating **replaces the State object** and **clears existing transitions**,
+        which must be reattached.
+        """
+        self._builder.add_or_update_state(name, is_initial=is_initial, is_terminal=is_terminal, update=True)
+        return StateAPI(self._builder, name)
+    
     def state(
         self,
         name: str,
         is_initial: bool = False,
         is_terminal: bool = False,
     ) -> Callable[[F], F]:
-        """Decorator for declarative state definition. The decorated function receives a StateAPI."""
+        """Decorator for declarative state definition.
+
+        The decorated function receives a StateAPI to attach transitions.
+        If the state already exists, this **updates** its configuration (last call wins).
+        **Note:** updating **replaces the State object** and **clears existing transitions**,
+        which must be reattached.
+        """
         def decorator(func: F) -> F:
             state_api: StateAPI = self.define_state(name, is_initial, is_terminal)
             func(state_api)

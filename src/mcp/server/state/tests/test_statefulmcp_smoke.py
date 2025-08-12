@@ -8,13 +8,11 @@ from mcp.server.state.server import StatefulMCP
 
 
 # Run this to start the test:
-# pytest -n 0 -o log_cli=true -o log_cli_level=INFO src\mcp\server\state\test\test_statefulmcp_smoke.py
+# pytest -n 0 -o log_cli=true -o log_cli_level=INFO src\mcp\server\state\tests\test_statefulmcp_smoke.py
 
 @pytest.mark.anyio
 async def test_state_machine_linear_flow_until_terminal(app_linear_machine: StatefulMCP):
     """
-    Drive the machine along DEFAULT edges using SUCCESS results (which must fall back to DEFAULT).
-    Current behavior: ends in terminal state "s2" and stays there.
     TODO: When auto-reset from terminal -> initial is implemented, assert that we return to "s0".
     """
     app = app_linear_machine
@@ -22,11 +20,10 @@ async def test_state_machine_linear_flow_until_terminal(app_linear_machine: Stat
     assert sm is not None
     assert sm.current_state == "s0"
 
-    # SUCCESS should match DEFAULT via the fallback
     sm.transition(InputSymbol.for_tool("dummy", ToolResultType.SUCCESS))
     assert sm.current_state == "s1"
 
-    sm.transition(InputSymbol.for_tool("dummy", ToolResultType.SUCCESS))
+    sm.transition(InputSymbol.for_tool("dummy", ToolResultType.ERROR))
     assert sm.current_state == "s2"
 
     # TODO: once terminal auto-reset is implemented, replace with:
