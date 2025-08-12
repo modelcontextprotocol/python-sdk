@@ -32,6 +32,7 @@ DEFAULT_INHERITED_ENV_VARS = (
         "HOMEPATH",
         "LOCALAPPDATA",
         "PATH",
+        "PATHEXT",
         "PROCESSOR_ARCHITECTURE",
         "SYSTEMDRIVE",
         "SYSTEMROOT",
