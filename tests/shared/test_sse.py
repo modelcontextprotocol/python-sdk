@@ -501,7 +501,6 @@ def test_sse_message_id_coercion():
     ],
 )
 def test_sse_server_transport_endpoint_validation(endpoint: str, expected_result: str | type[Exception]):
-
     """Validate relative endpoint semantics and storage.
 
     Context on URL joining (urllib.parse.urljoin):
