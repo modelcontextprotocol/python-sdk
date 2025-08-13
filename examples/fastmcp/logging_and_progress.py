@@ -25,4 +25,9 @@ async def echo(text: str, ctx: Context) -> str:
 
     await ctx.info("Finished processing echo for input: " + text)
     await ctx.report_progress(progress=100, total=100)
+
+    # Progress notifications are process asynchronously by the client.
+    # A small delay here helps ensure the last notification is processed by the client.
+    await asyncio.sleep(0.1)
+
     return text
