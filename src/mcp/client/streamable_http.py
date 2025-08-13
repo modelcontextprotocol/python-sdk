@@ -400,17 +400,22 @@ class StreamableHTTPTransport:
                         sse_read_timeout=self.sse_read_timeout,
                     )
 
-                    async def handle_request_async():
-                        if is_resumption:
-                            await self._handle_resumption_request(ctx)
-                        else:
-                            await self._handle_post_request(ctx)
+                    async def handle_request_async(ctx: RequestContext, is_resumption: bool) -> None:
+                        try:
+                            if is_resumption:
+                                await self._handle_resumption_request(ctx)
+                            else:
+                                await self._handle_post_request(ctx)
+                        except Exception as e:
+                            # Send error to read stream so client knows request failed
+                            logger.error("Request handler error: %s", e)
+                            await ctx.read_stream_writer.send(e)
 
                     # If this is a request, start a new task to handle it
                     if isinstance(message.root, JSONRPCRequest):
-                        tg.start_soon(handle_request_async)
+                        tg.start_soon(handle_request_async, ctx, is_resumption)
                     else:
-                        await handle_request_async()
+                        await handle_request_async(ctx, is_resumption)
 
         except Exception:
             logger.exception("Error in post_writer")
