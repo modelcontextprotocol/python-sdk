@@ -49,7 +49,7 @@ required-version = ">=0.7.2"
 
 [dependency-groups]
 dev = [
-    "pyright>=1.1.391",
+    "pyright>=1.1.400",
     "pytest>=8.3.4",
     "ruff>=0.8.5",
     "trio>=0.26.2",
