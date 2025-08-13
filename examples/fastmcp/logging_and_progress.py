@@ -1,5 +1,5 @@
 """
-FastMCP Echo Server
+FastMCP Echo Server that sends log messages and progress updates to the client
 """
 
 import asyncio
@@ -7,12 +7,12 @@ import asyncio
 from mcp.server.fastmcp import Context, FastMCP
 
 # Create server
-mcp = FastMCP("Echo Server")
+mcp = FastMCP("Echo Server with logging and progress updates")
 
 
 @mcp.tool()
 async def echo(text: str, ctx: Context) -> str:
-    """Echo the input text. Send log messages and progress updates."""
+    """Echo the input text sending log messages and progress updates during processing."""
     await ctx.report_progress(progress=0, total=100)
     await ctx.info("Starting to process echo for input: " + text)
 
