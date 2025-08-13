@@ -49,7 +49,7 @@ jobs:
           version: 0.7.2
 
       - name: Install the project
-        run: uv sync --frozen --all-extras --python ${{ matrix.python-version }} --resolution $${{ matrix.dep-resolution }}
+        run: uv sync --frozen --all-extras --python ${{ matrix.python-version }} --resolution ${{ matrix.dep-resolution }}
 
       - name: Run pytest
         run: uv run --frozen --no-sync pytest
