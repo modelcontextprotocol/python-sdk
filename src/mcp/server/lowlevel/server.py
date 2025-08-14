@@ -73,7 +73,7 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from typing import Any, Generic, TypeAlias, Optional, Callable, Awaitable, cast
+from typing import Any, Generic, TypeAlias,  Callable, Awaitable, cast
 
 import anyio
 import jsonschema
@@ -152,7 +152,6 @@ class Server(Generic[LifespanResultT, RequestT]):
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self.notification_options = NotificationOptions()
         self._tool_cache: dict[str, types.Tool] = {}
-        self._on_session_initialized: Optional[Callable[[str], Awaitable[None]]] = None  # optional one-time session init hook
 
         logger.debug("Initializing server %r", name)
 
@@ -344,9 +343,6 @@ class Server(Generic[LifespanResultT, RequestT]):
             return func
 
         return decorator
-    
-    def set_session_initialized_hook(self, hook: Callable[[str], Awaitable[None]]) -> None:
-        self._on_session_initialized = hook  # register callback to observe session start (for stateful higher layers)
 
     def set_logging_level(self):
         def decorator(func: Callable[[types.LoggingLevel], Awaitable[None]]):
@@ -586,7 +582,6 @@ class Server(Generic[LifespanResultT, RequestT]):
                     write_stream,
                     initialization_options,
                     stateless=stateless,
-                    on_initialized=self._on_session_initialized,  # wire hook into session; fires once after MCP Initialized
                 )
             )
 

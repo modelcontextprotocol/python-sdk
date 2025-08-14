@@ -28,18 +28,3 @@ async def test_state_machine_linear_flow_until_terminal(app_linear_machine: Stat
 
     # TODO: once terminal auto-reset is implemented, replace with:
     # assert sm.current_state == "s0"
-
-@pytest.mark.anyio
-async def test_session_store(app_linear_machine: StatefulMCP):
-    app = app_linear_machine
-
-    # Session-scope: store is created on session init and usable
-    sid = "test-session-1"
-    await app._on_session_initialized(sid)
-    assert sid in app._session_stores
-
-    session_store = app._session_stores[sid]
-    await session_store.aset("k_session", "v_session")
-    assert (await session_store.aget("k_session")) == "v_session"
-
-

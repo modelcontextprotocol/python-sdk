@@ -25,7 +25,7 @@ At startup the server transfers the accumulated declarations to the private
 builder, chooses global or session-scoped machine, then builds and validates.
 """
 
-from typing import Optional, Callable, TypeVar
+from typing import Optional, Callable, TypeVar, Any
 
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.server.fastmcp.tools import ToolManager
@@ -132,14 +132,14 @@ class _InternalStateMachineBuilder:
         machine = StateMachine(initial_state=initial, states=self._states)
         return machine
     
-    def build_session_scoped(self, *, session_resolver: Callable[[], Optional[str]]) -> "SessionScopedStateMachine":
+    def build_session_scoped(self, *, context_resolver: Callable[[], Optional[Any]]) -> "SessionScopedStateMachine":
         """Build a session-scoped machine (state tracked per session id, with global fallback)."""
         self._validate()
         initial = self._initial or next(iter(self._states))
         return SessionScopedStateMachine(
             initial_state=initial,
             states=self._states,
-            session_resolver=session_resolver,
+            context_resolver=context_resolver,
         )
 
     def _validate(self):

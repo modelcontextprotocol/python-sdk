@@ -29,11 +29,12 @@ It can be synchronous or awaitable; awaitables are scheduled fire-and-forget.
 import asyncio, inspect
 
 from dataclasses import dataclass, field
-from typing import Optional, Callable
+from typing import Optional, Callable, Any
 from collections import defaultdict
 
 from mcp.server.fastmcp.utilities.logging import get_logger
 
+from mcp.server.state.helper.extract_session_id import extract_session_id
 from mcp.server.state.types import ResourceResultType, ToolResultType, PromptResultType, DEFAULT_QUALIFIER
 
 logger = get_logger(__name__)
@@ -169,28 +170,42 @@ class SessionScopedStateMachine(StateMachine):
         initial_state: str,
         states: dict[str, State],
         *,
-        session_resolver: Callable[[], Optional[str]],
+        context_resolver: Callable[[], Optional[Any]],
     ):
-        """Inject a resolver that yields the active session id; state is tracked per session."""
+        """Inject a resolver that yields the current request Context; state is tracked per session id."""
         super().__init__(initial_state, states)
-        self._resolve_sid = session_resolver
-        self._current_by_session: dict[str, str] = {}
+        self._resolve_context = context_resolver
+        self._current_by_session_id: dict[str, str] = {}
 
-    def ensure_session(self, session_id: str) -> None:
-        """Initialize session-local state with the initial state if unseen."""
-        self._current_by_session.setdefault(session_id, self._initial)
+    def ensure_session_id(self, session_id: str) -> None:
+        """Initialize state for the given session_id if unseen."""
+        self._current_by_session_id.setdefault(session_id, self._initial)
+        logger.info("Registered inital state for session %s", session_id)
+
+    def cleanup_session_id(self, session_id: str) -> None:
+        """Remove state tracking for the given session_id."""
+        self._current_by_session_id.pop(session_id, None)
+
+    def _resolve_sid(self) -> Optional[str]:
+        """Resolve session id from the current request context (global fallback when unavailable)."""
+        ctx = self._resolve_context()
+        if ctx is None:
+            return None
+        return extract_session_id(ctx)
 
     @property
     def current_state(self) -> str:
-        """Return the session-local state if a session id is resolved; otherwise fall back to the global state."""
+        """Return the state for the resolved session id; otherwise fall back to the global state."""
         sid = self._resolve_sid()
         if not sid:
             return super().current_state
-        return self._current_by_session.get(sid, self._initial)
+        self.ensure_session_id(sid)
+        return self._current_by_session_id.get(sid, self._initial)
 
     def _set_current_state(self, new_state: str) -> None:
-        """Set the session-local state if a session id is resolved; otherwise set the global state."""
+        """Set the state for the resolved session id; otherwise set the global state."""
         sid = self._resolve_sid()
         if not sid:
             return super()._set_current_state(new_state)
-        self._current_by_session[sid] = new_state
+        self.ensure_session_id(sid)
+        self._current_by_session_id[sid] = new_state

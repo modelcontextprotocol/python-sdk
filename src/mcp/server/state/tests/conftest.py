@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from mcp.server.state.server import StatefulMCP, StatefulMCPContext
+from mcp.server.state.server import StatefulMCP
 from mcp.server.state.types import ToolResultType
 
 

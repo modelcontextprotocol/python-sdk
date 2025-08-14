@@ -25,18 +25,15 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Literal, Sequence, Generic
+from typing import Any, Iterable, Literal, Sequence
 
 import anyio
-from pydantic import AnyUrl, PrivateAttr
-from starlette.requests import Request
+from pydantic import AnyUrl
 
-from mcp.server.fastmcp import FastMCP, Context as FastMCPContext
+from mcp.server.fastmcp import FastMCP, Context
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.server.lowlevel.server import LifespanResultT
-from mcp.server.session import ServerSession, ServerSessionT
-from mcp.shared.context import LifespanContextT, RequestContext, RequestT
+from mcp.server.lowlevel.server import LifespanResultT, ServerSession
 from mcp.types import (
     ContentBlock,
     GetPromptResult,
@@ -50,7 +47,6 @@ from mcp.server.state.builder import StateMachineDefinition
 from mcp.server.state.machine import SessionScopedStateMachine
 from mcp.server.state.prompts.state_aware_prompt_manager import StateAwarePromptManager
 from mcp.server.state.resources.state_aware_resource_manager import StateAwareResourceManager
-from mcp.server.state.store import ServerSessionData
 from mcp.server.state.tools.state_aware_tool_manager import StateAwareToolManager
 
 
@@ -65,23 +61,19 @@ class StatefulMCP(FastMCP[LifespanResultT]):
       - list_prompts / get_prompt
 
     Session scoping:
-      Uses the low-level “session initialized” hook to bind per-session state.
-      If the hook is unavailable, the machine behaves globally.
-
-    Session data storage:
-      Each session gets its own data store at initialization. 
-      In handlers it is available as `ctx.session_store`.
+      State inside the state machine is bound per state for each session.
+      If `request_context` is not avaiable the state machine will fall back to a global state.
 
     Important:
       Define states via `statebuilder`; otherwise no tools/resources/prompts are
-      visible and startup validation may fail (e.g., missing initial state).
+      visible and startup validation will fail (e.g., missing initial state).
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         # Parent initialization sets up _mcp_server and native managers
         super().__init__(*args, **kwargs)
 
-        # Public DSL to define/validate the state machine
+        # Public DSL to define
         self._state_definition = StateMachineDefinition(self._tool_manager, self._resource_manager, self._prompt_manager)
 
         # Session-scoped state machine runtime (built in run())
@@ -89,21 +81,10 @@ class StatefulMCP(FastMCP[LifespanResultT]):
         self._registered_sessions: set[str] = set()
         self._reg_lock = anyio.Lock()
 
-        # Per-session user data stores
-        self._session_stores: dict[str, ServerSessionData] = {}
-        self._stores_lock = anyio.Lock()
-
-        # TODO: !!! Add a cleanup for session on disconnect or a certain amount of time !!!
-
-        # Our state-aware managers (created in run())
+        # Our state-aware managers (built in run())
         self._stateful_tools: StateAwareToolManager | None = None
         self._stateful_resources: StateAwareResourceManager | None = None
         self._stateful_prompts: StateAwarePromptManager | None = None
-
-        # Optional low-level hook: register a session exactly once at MCP Initialized.
-        # State machine & managers are guaranteed to exist by the time requests can arrive (after run()).
-        if hasattr(self._mcp_server, "set_session_initialized_hook"):
-            self._mcp_server.set_session_initialized_hook(self._on_session_initialized)
 
     ### Public surface
 
@@ -130,21 +111,8 @@ class StatefulMCP(FastMCP[LifespanResultT]):
                 .done()
         """
         return self._state_definition
-    
-    @property
-    def session_store(self) -> ServerSessionData:
-        """Return the data store for the current session. 
-        Raises an error if called outside of a request context.
-        """
-        sid = self._sid()  # raises error if called outside of request 
-        store = self._session_stores.get(sid)
-        if store is None:
-            msg = (
-                f"No session store registered for session '{sid}'."
-                "This indicates the session initialization hook did not run."
-            )
-            raise ValueError(msg)
-        return store
+
+    ### Server lifecycle
 
     def run(
         self,
@@ -155,8 +123,6 @@ class StatefulMCP(FastMCP[LifespanResultT]):
         self._build_state_machine_once()
         self._init_stateful_managers_once()
         return super().run(transport=transport, mount_path=mount_path)
-
-    ### State machine lifecycle & manager wiring 
 
     def _build_state_machine_once(self) -> None:
         """Startup-only state machine bootstrap.
@@ -173,16 +139,14 @@ class StatefulMCP(FastMCP[LifespanResultT]):
 
         internal = self._state_definition._to_internal_builder()  # pyright: ignore[reportPrivateUsage]
 
-        def _resolve_sid() -> str | None:
+        def _resolve_context() -> Context[ServerSession, LifespanResultT] | None:
             try:
-                sid = self._sid()
-                logger.debug("State machine resolver: resolved session id %s", sid)
-                return sid
+                return super().get_context()
             except Exception as e:
-                logger.warning("State machine resolver: could not resolve session id (%s); falling back to global mode", e)
+                logger.warning("State machine resolver: could not resolve context; falling back to global mode: %s", e)
                 return None
 
-        self._state_machine = internal.build_session_scoped(session_resolver=_resolve_sid)
+        self._state_machine = internal.build_session_scoped(context_resolver=_resolve_context)
         logger.info("State machine bootstrap: build complete and ready")
 
     def _init_stateful_managers_once(self) -> None:
@@ -211,55 +175,6 @@ class StatefulMCP(FastMCP[LifespanResultT]):
                 prompt_manager=self._prompt_manager,
             )
 
-    async def _on_session_initialized(self, session_id: str) -> None:
-        """One-time registration for a newly initialized session.
-
-        Ensures a state machine session entry and creates the per-session data store.
-        Assumes state machine and managers were created in `run()`.
-        """
-        logger.info("Session init: received session id %s; starting initialization", session_id)
-
-        if self._state_machine is None:
-            raise RuntimeError("State machine not initialized; `run()` must be called before serving requests")
-
-        # ensure state machine session
-        if session_id not in self._registered_sessions:
-            async with self._reg_lock:
-                if session_id not in self._registered_sessions:
-                    self._state_machine.ensure_session(session_id)
-                    self._registered_sessions.add(session_id)
-                    logger.info("Session init: registered state machine session for %s", session_id)
-        else:
-            logger.debug("Session init: state machine session already registered for %s", session_id)
-
-        # ensure data store
-        if session_id not in self._session_stores:
-            async with self._stores_lock:
-                if session_id not in self._session_stores:
-                    self._session_stores.setdefault(session_id, ServerSessionData())
-                    logger.info("Session init: created data store for %s", session_id)
-        else:
-            logger.debug("Session init: data store already exists for %s", session_id)
-
-    ### Helpers
-    
-    def get_context(self) -> FastMCPContext[ServerSession, LifespanResultT, Request]:
-        """Override FastMCP.
-
-        Return the request Context and attach a `session_store` alias so handlers and tools
-        can access per-session data without modifying FastMCP internals. 
-        """
-        base = super().get_context()
-        return StatefulMCPContext(
-            request_context=base.request_context,
-            statefulmcp=self,                  # pass the server instance
-            session_store=self.session_store,  # resolved per-session
-        )
-
-    def _sid(self) -> str:
-        """Current session_id as a string."""
-        return self._mcp_server.request_context.session.session_id # from lowlevel, to avoid recurison (session_store)
-
     ### Overridden FastMCP methods (delegating to state-aware managers)
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Sequence[ContentBlock] | dict[str, Any]:
@@ -272,7 +187,7 @@ class StatefulMCP(FastMCP[LifespanResultT]):
 
         Example usage::
 
-            def tool_with_context(ctx: Context) -> str:
+            def tool_with_context(ctx: StatefulMCPContext) -> str:
                 return ctx.request_context.session.session_id
 
         Note:
@@ -364,30 +279,3 @@ class StatefulMCP(FastMCP[LifespanResultT]):
             )
             for prompt in prompts
         ]
-
-
-### Extend the FastMCP Context with session store
-
-class StatefulMCPContext(
-    FastMCPContext[ServerSessionT, LifespanContextT, RequestT],
-    Generic[ServerSessionT, LifespanContextT, RequestT],
-):
-    """FastMCP Context extended with a per-session ServerSessionData."""
-
-    # Context is a Pydantic BaseModel. Adding attributes dynamically (setattr) is typically blocked.
-    # PrivateAttr keeps the store out of validation/serialization/schema.
-    _session_store: ServerSessionData = PrivateAttr()
-
-    def __init__(
-        self,
-        request_context: RequestContext[ServerSessionT, LifespanContextT, RequestT] | None,
-        statefulmcp: StatefulMCP,  
-        session_store: ServerSessionData,
-        **kwargs: Any,
-    ):
-        super().__init__(request_context=request_context, fastmcp=statefulmcp, **kwargs)
-        self._session_store = session_store
-
-    @property
-    def session_store(self) -> ServerSessionData:
-        return self._session_store
