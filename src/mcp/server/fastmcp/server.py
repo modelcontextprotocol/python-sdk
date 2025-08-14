@@ -26,6 +26,7 @@ from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAut
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, elicit_with_validation
+from mcp.server.fastmcp.authorizer import AllowAllAuthorizer, Authorizer
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
@@ -105,6 +106,8 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # Transport security settings (DNS rebinding protection)
     transport_security: TransportSecuritySettings | None
 
+    authorizer: Authorizer | None = None
+
 
 def lifespan_wrapper(
     app: FastMCP[LifespanResultT],
@@ -145,6 +148,7 @@ class FastMCP(Generic[LifespanResultT]):
         lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
         transport_security: TransportSecuritySettings | None = None,
+        authorizer: Authorizer | None = None,
     ):
         self.settings = Settings(
             debug=debug,
@@ -164,6 +168,7 @@ class FastMCP(Generic[LifespanResultT]):
             lifespan=lifespan,
             auth=auth,
             transport_security=transport_security,
+            authorizer=authorizer,
         )
 
         self._mcp_server = MCPServer(
@@ -173,9 +178,20 @@ class FastMCP(Generic[LifespanResultT]):
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
-        self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
-        self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
-        self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
+        authorizer = self.settings.authorizer or AllowAllAuthorizer()
+        self._tool_manager = ToolManager(
+            tools=tools,
+            warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools,
+            authorizer=authorizer,
+        )
+        self._resource_manager = ResourceManager(
+            warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources,
+            authorizer=authorizer,
+        )
+        self._prompt_manager = PromptManager(
+            warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts,
+            authorizer=authorizer,
+        )
         # Validate auth configuration
         if self.settings.auth is not None:
             if auth_server_provider and token_verifier:
@@ -268,7 +284,8 @@ class FastMCP(Generic[LifespanResultT]):
 
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""
-        tools = self._tool_manager.list_tools()
+        context = self.get_context()
+        tools = self._tool_manager.list_tools(context)
         return [
             MCPTool(
                 name=info.name,
@@ -299,8 +316,8 @@ class FastMCP(Generic[LifespanResultT]):
 
     async def list_resources(self) -> list[MCPResource]:
         """List all available resources."""
-
-        resources = self._resource_manager.list_resources()
+        context = self.get_context()
+        resources = self._resource_manager.list_resources(context)
         return [
             MCPResource(
                 uri=resource.uri,
@@ -313,7 +330,8 @@ class FastMCP(Generic[LifespanResultT]):
         ]
 
     async def list_resource_templates(self) -> list[MCPResourceTemplate]:
-        templates = self._resource_manager.list_templates()
+        context = self.get_context()
+        templates = self._resource_manager.list_templates(context)
         return [
             MCPResourceTemplate(
                 uriTemplate=template.uri_template,
@@ -326,8 +344,8 @@ class FastMCP(Generic[LifespanResultT]):
 
     async def read_resource(self, uri: AnyUrl | str) -> Iterable[ReadResourceContents]:
         """Read a resource by URI."""
-
-        resource = await self._resource_manager.get_resource(uri)
+        context = self.get_context()
+        resource = await self._resource_manager.get_resource(uri, context)
         if not resource:
             raise ResourceError(f"Unknown resource: {uri}")
 
@@ -956,9 +974,9 @@ class FastMCP(Generic[LifespanResultT]):
             lifespan=lambda app: self.session_manager.run(),
         )
 
-    async def list_prompts(self) -> list[MCPPrompt]:
+    async def list_prompts(self, context: Context[ServerSession, object, Request] | None = None) -> list[MCPPrompt]:
         """List all available prompts."""
-        prompts = self._prompt_manager.list_prompts()
+        prompts = self._prompt_manager.list_prompts(context)
         return [
             MCPPrompt(
                 name=prompt.name,
@@ -976,13 +994,15 @@ class FastMCP(Generic[LifespanResultT]):
             for prompt in prompts
         ]
 
-    async def get_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> GetPromptResult:
+    async def get_prompt(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        context: Context[ServerSession, object, Request] | None = None,
+    ) -> GetPromptResult:
         """Get a prompt by name with arguments."""
         try:
-            prompt = self._prompt_manager.get_prompt(name)
-            if not prompt:
-                raise ValueError(f"Unknown prompt: {name}")
-
+            prompt = await self._prompt_manager.render_prompt(name, arguments, context)
             messages = await prompt.render(arguments)
 
             return GetPromptResult(
