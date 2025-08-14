@@ -71,7 +71,7 @@ def get_user(user_id: str) -> UserProfile:
 
 # Classes WITHOUT type hints cannot be used for structured output
 class UntypedConfig:
-    def __init__(self, setting1, setting2):
+    def __init__(self, setting1, setting2):  # type: ignore[reportMissingParameterType]
         self.setting1 = setting1
         self.setting2 = setting2
 
