@@ -1,4 +1,6 @@
-# pyright: reportPrivateUsage=false, reportUnusedFunction=false, reportUnusedImport=false, reportUnusedVariable=false, reportMissingTypeArgument=false, reportUnknownParameterType=false
+# pyright: reportPrivateUsage=false, reportUnusedFunction=false, reportUnusedImport=false, reportUnusedVariable=false
+# pyright: reportUnknownArgumentType=false, reportMissingTypeArgument=false, reportUnknownParameterType=false
+
 from __future__ import annotations
 
 import pytest
@@ -6,13 +8,6 @@ import pytest
 from mcp.server.state.server import StatefulMCP
 from mcp.server.state.machine import InputSymbol
 from mcp.server.state.types import ToolResultType
-
-
-@pytest.fixture
-def anyio_backend():
-    # Run tests on asyncio only (no trio dependency required)
-    return "asyncio"
-
 
 @pytest.fixture
 async def app_branch_cycle_machine() -> StatefulMCP:

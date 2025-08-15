@@ -32,6 +32,8 @@ from mcp.server.fastmcp.tools import ToolManager
 from mcp.server.fastmcp.resources import ResourceManager
 from mcp.server.fastmcp.prompts import PromptManager
 
+from mcp.server.fastmcp.server import Context
+from mcp.server.lowlevel.server import LifespanResultT, ServerSession
 from mcp.server.state.types import ResourceResultType, ToolResultType, PromptResultType
 from mcp.server.state.machine import State, Transition, InputSymbol, StateMachine, SessionScopedStateMachine
 from mcp.server.state.validator import StateMachineValidator, ValidationIssue
@@ -40,7 +42,7 @@ logger = get_logger(f"{__name__}.StateMachineBuilder")
 
 ### Helper Types 
 
-Callback = Callable[[], None]  # Small alias to keep signatures readable for tooling and type checkers
+Callback = Callable[..., Any]  # Allow every input and every output
 F = TypeVar("F", bound=Callable[["StateAPI"], None])  # Decorator receives a StateAPI
 
 ### Internal Builder 
@@ -55,7 +57,7 @@ class _InternalStateMachineBuilder:
     """
 
     def __init__(self, tool_manager: ToolManager | None, resource_manager: ResourceManager | None, prompt_manager: PromptManager | None):
-        self._states: dict[str, State] = {} # TODO: change this to a list (compare will work based on dataclass)
+        self._states: dict[str, State] = {}
         self._initial: Optional[str] = None
         self._tool_manager = tool_manager
         self._resource_manager = resource_manager
@@ -126,14 +128,17 @@ class _InternalStateMachineBuilder:
 
         state.transitions.append(new_tr)
 
-    def build(self) -> StateMachine:
+    def build(self, *, context_resolver: Callable[[], Context[ServerSession, LifespanResultT]] | None) -> StateMachine:
         """Build a global machine (single current state for the process)."""
         self._validate()
         initial = self._initial or next(iter(self._states))
-        machine = StateMachine(initial_state=initial, states=self._states)
-        return machine
+        return StateMachine(
+            initial_state=initial,
+            states=self._states,
+            context_resolver=context_resolver,
+        )
     
-    def build_session_scoped(self, *, context_resolver: Callable[[], Optional[Any]]) -> "SessionScopedStateMachine":
+    def build_session_scoped(self, *, context_resolver: Callable[[], Context[ServerSession, LifespanResultT]] | None) -> "SessionScopedStateMachine":
         """Build a session-scoped machine (state tracked per session id, with global fallback)."""
         self._validate()
         initial = self._initial or next(iter(self._states))

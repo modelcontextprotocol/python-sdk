@@ -1,4 +1,5 @@
 # pyright: reportPrivateUsage=false, reportUnusedFunction=false, reportUnusedImport=false, reportUnusedVariable=false
+# pyright: reportUnknownArgumentType=false, reportMissingTypeArgument=false, reportUnknownParameterType=false
 
 import pytest
 from pytest import LogCaptureFixture

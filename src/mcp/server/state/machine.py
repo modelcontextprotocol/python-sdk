@@ -32,10 +32,14 @@ from dataclasses import dataclass, field
 from typing import Optional, Callable, Any
 from collections import defaultdict
 
-from mcp.server.fastmcp.utilities.logging import get_logger
-
 from mcp.server.state.helper.extract_session_id import extract_session_id
+from mcp.server.state.helper.inject_context import inject_context
+
+from mcp.server.fastmcp.server import Context
+from mcp.server.lowlevel.server import LifespanResultT, ServerSession
 from mcp.server.state.types import ResourceResultType, ToolResultType, PromptResultType, DEFAULT_QUALIFIER
+
+from mcp.server.fastmcp.utilities.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -81,8 +85,8 @@ class State:
     """Named state of the machine. May be initial or terminal (never both)."""
 
     name: str
-    is_initial: bool = False
-    is_terminal: bool = False
+    is_initial: bool = field(default=False, compare=False)
+    is_terminal: bool = field(default=False, compare=False)
     transitions: list[Transition] = field(default_factory=list[Transition], compare=False, repr=False)  
 
 
@@ -91,21 +95,37 @@ class State:
 class StateMachine:
     """Deterministic state machine over InputSymbol triples."""
 
-    def __init__(self, initial_state: str, states: dict[str, State]):
+    def __init__(
+            self, 
+            initial_state: str,
+            states: dict[str, State],
+            *,
+            context_resolver: Callable[[], Optional[Context[ServerSession, LifespanResultT]]] | None = None,
+        ):
         """Bind an initial state and the immutable state graph."""
         self._states = states
         self._initial = initial_state
         self._current = initial_state
+        self._resolve_context = context_resolver
 
     @property
     def current_state(self) -> str:
         """Return the current state name."""
         return self._current
-
+    
     # allow subclasses to change how "current" is written
     def _set_current_state(self, new_state: str) -> None:
         """Set the current state (override to customize persistence or scoping)."""
         self._current = new_state
+
+    def _is_terminal_state(self, state_name: str) -> bool:
+        """Return True if the given state is marked terminal/final."""
+        s = self._states.get(state_name)
+        return bool(s and (getattr(s, "is_terminal", False) or getattr(s, "terminal", False)))
+
+    def _reset_to_initial(self) -> None:
+        """Reset to initial state."""
+        self._set_current_state(self._initial)
 
     def get_available_inputs(self) -> dict[str, set[str]]:
         """List available tool/resource/prompt names from outgoing transitions of the current state."""
@@ -150,28 +170,18 @@ class StateMachine:
             self._reset_to_initial()
 
     def _apply(self, state: State, symbol: InputSymbol) -> bool:
-        """Try to apply a transition for ``symbol``; update state and run callback if found."""
+        """Try to apply a transition for `symbol`; update state and run callback if found."""
         for tr in state.transitions:
             if symbol == tr.input_symbol:
-                # WRITE via setter
-                self._set_current_state(tr.to_state)
+                self._set_current_state(tr.to_state) # Always use setter
                 if tr.callback:
-                    coro = tr.callback()
-                    # TODO: Maybe change this later with some kind of handler?
-                    if inspect.isawaitable(coro):  # async? fire & forget
-                        asyncio.create_task(coro)
+                    # resolve once here; your resolver may return Context or None
+                    ctx = self._resolve_context() if callable(self._resolve_context) else None
+                    result = inject_context(tr.callback, ctx)
+                    if inspect.isawaitable(result):
+                        asyncio.ensure_future(result)  # Async? fire & forget
                 return True
         return False
-    
-    def _is_terminal_state(self, state_name: str) -> bool:
-        """Return True if the given state is marked terminal/final."""
-        s = self._states.get(state_name)
-        return bool(s and (getattr(s, "is_terminal", False) or getattr(s, "terminal", False)))
-
-    def _reset_to_initial(self) -> None:
-        """Reset to initial state."""
-        self._set_current_state(self._initial)
-
 
 ### Final Runtime State Machine (Session scoped)
 
@@ -183,11 +193,10 @@ class SessionScopedStateMachine(StateMachine):
         initial_state: str,
         states: dict[str, State],
         *,
-        context_resolver: Callable[[], Optional[Any]],
+        context_resolver: Callable[[], Optional[Any]] | None = None,
     ):
         """Inject a resolver that yields the current request Context; state is tracked per session id."""
-        super().__init__(initial_state, states)
-        self._resolve_context = context_resolver
+        super().__init__(initial_state, states, context_resolver=context_resolver)
         self._current_by_session_id: dict[str, str] = {}
 
     def ensure_session_id(self, session_id: str) -> None:
@@ -201,10 +210,14 @@ class SessionScopedStateMachine(StateMachine):
 
     def _resolve_sid(self) -> Optional[str]:
         """Resolve session id from the current request context (global fallback when unavailable)."""
-        ctx = self._resolve_context()
-        if ctx is None:
+        if callable(self._resolve_context):
+            ctx = self._resolve_context()
+            if ctx is None:
+                return None
+            return extract_session_id(ctx)
+        else:
+            logger.warning("No callable function to resolve context provided - falling back to global mode.")
             return None
-        return extract_session_id(ctx)
 
     @property
     def current_state(self) -> str:
@@ -222,3 +235,5 @@ class SessionScopedStateMachine(StateMachine):
             return super()._set_current_state(new_state)
         self.ensure_session_id(sid)
         self._current_by_session_id[sid] = new_state
+
+
