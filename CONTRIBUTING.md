@@ -10,15 +10,15 @@ Thank you for your interest in contributing to the MCP Python SDK! This document
 4. Clone your fork: `git clone https://github.com/YOUR-USERNAME/python-sdk.git`
 5. Install dependencies:
 
-```bash
-uv sync --frozen --all-extras --dev
-```
+   ```bash
+   uv sync --frozen --all-extras --dev
+   ```
 
 6. Set up pre-commit hooks:
 
-```bash
-uv tool install pre-commit --with pre-commit-uv --force-reinstall
-```
+   ```bash
+   uv tool install pre-commit --with pre-commit-uv --force-reinstall
+   ```
 
 ## Development Workflow
 
@@ -33,34 +33,34 @@ uv tool install pre-commit --with pre-commit-uv --force-reinstall
 
 4. Ensure tests pass:
 
-```bash
-uv run pytest
-```
+   ```bash
+   uv run pytest
+   ```
 
 5. Run type checking:
 
-```bash
-uv run pyright
-```
+   ```bash
+   uv run pyright
+   ```
 
 6. Run linting:
 
-```bash
-uv run ruff check .
-uv run ruff format .
-```
+   ```bash
+   uv run ruff check .
+   uv run ruff format .
+   ```
 
 7. Update README snippets if you modified example code:
 
-```bash
-uv run scripts/update_readme_snippets.py
-```
+   ```bash
+   uv run scripts/update_readme_snippets.py
+   ```
 
 8. (Optional) Run pre-commit hooks on all files:
 
-```bash
-pre-commit run --all-files
-```
+   ```bash
+   pre-commit run --all-files
+   ```
 
 9. Submit a pull request to the same branch you branched from
 
@@ -70,22 +70,22 @@ To build and view the documentation locally:
 
 1. Install documentation dependencies (included with `--dev` flag above):
 
-```bash
-uv sync --frozen --group docs
-```
+   ```bash
+   uv sync --frozen --group docs
+   ```
 
 2. Serve the documentation locally:
 
-```bash
-uv run mkdocs serve
-```
+   ```bash
+   uv run mkdocs serve
+   ```
 
-**Note for macOS users**: If you encounter a [Cairo library error](https://squidfunk.github.io/mkdocs-material/plugins/requirements/image-processing/#cairo-library-was-not-found), set the library path before running mkdocs:
+   **Note for macOS users**: If you encounter a [Cairo library error](https://squidfunk.github.io/mkdocs-material/plugins/requirements/image-processing/#cairo-library-was-not-found), set the library path before running mkdocs:
 
-```bash
-export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib
-uv run mkdocs serve
-```
+   ```bash
+   export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib
+   uv run mkdocs serve
+   ```
 
 3. Open your browser to `http://127.0.0.1:8000/python-sdk/` to view the documentation
 
