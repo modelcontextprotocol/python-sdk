@@ -64,6 +64,33 @@ pre-commit run --all-files
 
 9. Submit a pull request to the same branch you branched from
 
+## Building and viewing documentation
+
+To build and view the documentation locally:
+
+1. Install documentation dependencies (included with `--dev` flag above):
+
+```bash
+uv sync --frozen --group docs
+```
+
+2. Serve the documentation locally:
+
+```bash
+uv run mkdocs serve
+```
+
+**Note for macOS users**: If you encounter a [Cairo library error](https://squidfunk.github.io/mkdocs-material/plugins/requirements/image-processing/#cairo-library-was-not-found), set the library path before running mkdocs:
+
+```bash
+export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib
+uv run mkdocs serve
+```
+
+3. Open your browser to `http://127.0.0.1:8000/python-sdk/` to view the documentation
+
+The documentation will auto-reload when you make changes to files in `docs/`, `mkdocs.yml`, or `src/mcp/`.
+
 ## Code Style
 
 - We use `ruff` for linting and formatting
