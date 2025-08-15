@@ -144,10 +144,10 @@ class OAuthMetadata(BaseModel):
     op_tos_uri: AnyHttpUrl | None = None
     revocation_endpoint: AnyHttpUrl | None = None
     revocation_endpoint_auth_methods_supported: list[str] | None = None
-    revocation_endpoint_auth_signing_alg_values_supported: None = None
+    revocation_endpoint_auth_signing_alg_values_supported: list[str] | None = None
     introspection_endpoint: AnyHttpUrl | None = None
     introspection_endpoint_auth_methods_supported: list[str] | None = None
-    introspection_endpoint_auth_signing_alg_values_supported: None = None
+    introspection_endpoint_auth_signing_alg_values_supported: list[str] | None = None
     code_challenge_methods_supported: list[str] | None = None
 
 

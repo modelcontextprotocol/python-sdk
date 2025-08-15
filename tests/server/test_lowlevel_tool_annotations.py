@@ -39,6 +39,7 @@ async def test_lowlevel_server_tool_annotations():
             )
         ]
 
+    tools_result = None
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
 
