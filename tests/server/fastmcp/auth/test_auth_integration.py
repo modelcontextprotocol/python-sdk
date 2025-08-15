@@ -1291,7 +1291,9 @@ class TestAuthorizeEndpointErrors:
         [{"grant_types": ["client_credentials"]}],
         indirect=True,
     )
-    async def test_client_credentials_token(self, test_client: httpx.AsyncClient, registered_client):
+    async def test_client_credentials_token(
+        self, test_client: httpx.AsyncClient, registered_client: dict[str, str]
+    ) -> None:
         response = await test_client.post(
             "/token",
             data={
@@ -1318,7 +1320,9 @@ class TestAuthorizeEndpointErrors:
         [{"grant_types": ["token_exchange"]}],
         indirect=True,
     )
-    async def test_token_exchange_success(self, test_client: httpx.AsyncClient, registered_client):
+    async def test_token_exchange_success(
+        self, test_client: httpx.AsyncClient, registered_client: dict[str, str]
+    ) -> None:
         response = await test_client.post(
             "/token",
             data={
@@ -1339,7 +1343,9 @@ class TestAuthorizeEndpointErrors:
         [{"grant_types": ["token_exchange"]}],
         indirect=True,
     )
-    async def test_token_exchange_invalid_subject(self, test_client: httpx.AsyncClient, registered_client):
+    async def test_token_exchange_invalid_subject(
+        self, test_client: httpx.AsyncClient, registered_client: dict[str, str]
+    ) -> None:
         response = await test_client.post(
             "/token",
             data={
@@ -1360,7 +1366,9 @@ class TestAuthorizeEndpointErrors:
         [{"grant_types": ["client_credentials", "token_exchange"]}],
         indirect=True,
     )
-    async def test_client_credentials_and_token_exchange(self, test_client: httpx.AsyncClient, registered_client):
+    async def test_client_credentials_and_token_exchange(
+        self, test_client: httpx.AsyncClient, registered_client: dict[str, str]
+    ) -> None:
         cc_response = await test_client.post(
             "/token",
             data={
