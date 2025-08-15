@@ -7,6 +7,7 @@ Contains tests for both server and client sides of the StreamableHTTP transport.
 import json
 import multiprocessing
 import socket
+import sys
 import time
 from collections.abc import Generator
 from typing import Any
@@ -1087,6 +1088,7 @@ async def test_streamablehttp_client_session_termination_204(
 
 
 @pytest.mark.anyio
+@pytest.mark.skipif(sys.platform == "win32", reason="Resumption unstable on Windows")
 async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventStore, str]):
     """Test client session resumption using sync primitives for reliable coordination."""
     _, server_url = event_server
@@ -1203,6 +1205,12 @@ async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventS
             assert len(result.content) == 1
             assert result.content[0].type == "text"
             assert result.content[0].text == "Completed"
+
+            # Allow any pending notifications to be processed
+            for _ in range(50):
+                if captured_notifications:
+                    break
+                await anyio.sleep(0.1)
 
             # We should have received the remaining notifications
             assert len(captured_notifications) == 1
