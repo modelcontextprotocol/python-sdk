@@ -62,6 +62,7 @@ dev = [
 ]
 docs = [
     "mkdocs>=1.6.1",
+    "mkdocs-api-autonav>=0.3.1",
     "mkdocs-glightbox>=0.4.0",
     "mkdocs-material[imaging]>=9.5.45",
     "mkdocstrings-python>=1.12.2",

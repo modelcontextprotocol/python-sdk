@@ -122,7 +122,7 @@ async def lifespan(_: Server[LifespanResultT, RequestT]) -> AsyncIterator[dict[s
     """Default lifespan context manager that does nothing.
 
     Args:
-        server: The server instance this lifespan is managing
+        _: The server instance this lifespan is managing
 
     Returns:
         An empty context object

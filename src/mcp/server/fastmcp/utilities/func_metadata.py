@@ -185,11 +185,12 @@ def func_metadata(
         func: The function to convert to a pydantic model
         skip_names: A list of parameter names to skip. These will not be included in
             the model.
-        structured_output: Controls whether the tool's output is structured or unstructured
-            - If None, auto-detects based on the function's return type annotation
-            - If True, unconditionally creates a structured tool (return type annotation permitting)
-            - If False, unconditionally creates an unstructured tool
+        structured_output: Controls whether the tool's output is structured or unstructured.
+            If None, auto-detects based on the function's return type annotation.
+            If True, unconditionally creates a structured tool (return type annotation permitting).
+            If False, unconditionally creates an unstructured tool.
 
+    Note:
         If structured, creates a Pydantic model for the function's result based on its annotation.
         Supports various return types:
             - BaseModel subclasses (used directly)

@@ -12,7 +12,6 @@ site_url: https://modelcontextprotocol.github.io/python-sdk
 
 nav:
   - Home: index.md
-  - API Reference: api.md
 
 theme:
   name: "material"
@@ -118,3 +117,5 @@ plugins:
             - url: https://docs.python.org/3/objects.inv
             - url: https://docs.pydantic.dev/latest/objects.inv
             - url: https://typing-extensions.readthedocs.io/en/latest/objects.inv
+  - api-autonav:
+      modules: ['src/mcp']

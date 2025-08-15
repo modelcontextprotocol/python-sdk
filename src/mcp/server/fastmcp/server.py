@@ -1275,7 +1275,6 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             level: Log level (debug, info, warning, error)
             message: Log message
             logger_name: Optional logger name
-            **extra: Additional structured data to include
         """
         await self.request_context.session.send_log_message(
             level=level,

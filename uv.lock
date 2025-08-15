@@ -619,6 +619,7 @@ dev = [
 ]
 docs = [
     { name = "mkdocs" },
+    { name = "mkdocs-api-autonav" },
     { name = "mkdocs-glightbox" },
     { name = "mkdocs-material", extra = ["imaging"] },
     { name = "mkdocstrings-python" },
@@ -659,6 +660,7 @@ dev = [
 ]
 docs = [
     { name = "mkdocs", specifier = ">=1.6.1" },
+    { name = "mkdocs-api-autonav", specifier = ">=0.3.1" },
     { name = "mkdocs-glightbox", specifier = ">=0.4.0" },
     { name = "mkdocs-material", extras = ["imaging"], specifier = ">=9.5.45" },
     { name = "mkdocstrings-python", specifier = ">=1.12.2" },
@@ -929,6 +931,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/bc/c6/bbd4f061bd16b378247f12953ffcb04786a618ce5e904b8c5a01a0309061/mkdocs-1.6.1.tar.gz", hash = "sha256:7b432f01d928c084353ab39c57282f29f92136665bdd6abf7c1ec8d822ef86f2", size = 3889159, upload-time = "2024-08-30T12:24:06.899Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/22/5b/dbc6a8cddc9cfa9c4971d59fb12bb8d42e161b7e7f8cc89e49137c5b279c/mkdocs-1.6.1-py3-none-any.whl", hash = "sha256:db91759624d1647f3f34aa0c3f327dd2601beae39a366d6e064c03468d35c20e", size = 3864451, upload-time = "2024-08-30T12:24:05.054Z" },
+]
+
+[[package]]
+name = "mkdocs-api-autonav"
+version = "0.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "mkdocs" },
+    { name = "mkdocstrings-python" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/dd/9f/c73e0b79b9be34f3dd975e7ba175ef6397a986f470f9aafac491d53699f8/mkdocs_api_autonav-0.3.1.tar.gz", hash = "sha256:5d37ad53a03600acff0f7d67fad122a38800d172777d3c4f8c0dfbb9b58e8c29", size = 15980, upload-time = "2025-08-08T04:08:50.167Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cd/60/5acc016c75cac9758eff0cbf032d2504c8baca701d5ea4a784932e4764af/mkdocs_api_autonav-0.3.1-py3-none-any.whl", hash = "sha256:363cdf24ec12670971049291b72806ee55ae6560611ffd6ed2fdeb69c43e6d4f", size = 12033, upload-time = "2025-08-08T04:08:48.349Z" },
 ]
 
 [[package]]
