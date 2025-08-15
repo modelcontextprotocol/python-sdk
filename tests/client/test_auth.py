@@ -1,9 +1,11 @@
-"""
-Tests for refactored OAuth client authentication implementation.
-"""
+"""Tests for refactored OAuth client authentication implementation."""
+
+# pyright: reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnknownMemberType=false
 
 import asyncio
 import time
+from collections.abc import AsyncGenerator
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
@@ -142,7 +144,9 @@ def oauth_token():
 
 
 @pytest.fixture
-async def client_credentials_provider(client_credentials_metadata, mock_storage):
+async def client_credentials_provider(
+    client_credentials_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> ClientCredentialsProvider:
     return ClientCredentialsProvider(
         server_url="https://api.example.com/v1/mcp",
         client_metadata=client_credentials_metadata,
@@ -151,7 +155,9 @@ async def client_credentials_provider(client_credentials_metadata, mock_storage)
 
 
 @pytest.fixture
-async def token_exchange_provider(client_credentials_metadata, mock_storage):
+async def token_exchange_provider(
+    client_credentials_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> TokenExchangeProvider:
     return TokenExchangeProvider(
         server_url="https://api.example.com/v1/mcp",
         client_metadata=client_credentials_metadata,
@@ -428,12 +434,20 @@ class TestOAuthFallback:
         # Mock the authorization process to minimize unnecessary state in this test
         oauth_provider._perform_authorization = AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
 
-        # Next request should fall back to legacy behavior and auth with the RS (mocked /authorize, next is /token)
-        token_request = await auth_flow.asend(oauth_metadata_response_3)
+        # Next request should fall back to legacy behavior: register then obtain token
+        registration_request = await auth_flow.asend(oauth_metadata_response_3)
+        assert str(registration_request.url) == "https://api.example.com/register"
+        assert registration_request.method == "POST"
+
+        registration_response = httpx.Response(
+            200,
+            content=b'{"client_id":"c","redirect_uris":["http://localhost:3030/callback"]}',
+            request=registration_request,
+        )
+        token_request = await auth_flow.asend(registration_response)
         assert str(token_request.url) == "https://api.example.com/token"
         assert token_request.method == "POST"
 
-        # Send a successful token response
         token_response = httpx.Response(
             200,
             content=(
@@ -442,7 +456,7 @@ class TestOAuthFallback:
             ),
             request=token_request,
         )
-        token_request = await auth_flow.asend(token_response)
+        await auth_flow.asend(token_response)
 
     @pytest.mark.anyio
     async def test_handle_metadata_response_success(self, oauth_provider: OAuthClientProvider):
@@ -457,13 +471,13 @@ class TestOAuthFallback:
 
         # Should set metadata
         await oauth_provider._handle_oauth_metadata_response(response)
-        assert oauth_provider.context.oauth_metadata is not None
-        assert str(oauth_provider.context.oauth_metadata.issuer) == "https://auth.example.com/"
+        assert oauth_provider._metadata is not None
+        assert str(oauth_provider._metadata.issuer) == "https://auth.example.com/"
 
     @pytest.mark.anyio
     async def test_register_client_request(self, oauth_provider: OAuthClientProvider):
         """Test client registration request building."""
-        request = await oauth_provider._register_client()
+        request = oauth_provider._create_registration_request(oauth_provider.context.oauth_metadata)
 
         assert request is not None
         assert request.method == "POST"
@@ -479,9 +493,10 @@ class TestOAuthFallback:
             redirect_uris=[AnyUrl("http://localhost:3030/callback")],
         )
         oauth_provider.context.client_info = client_info
+        oauth_provider._client_info = client_info
 
         # Should return None (skip registration)
-        request = await oauth_provider._register_client()
+        request = oauth_provider._create_registration_request(oauth_provider.context.oauth_metadata)
         assert request is None
 
     @pytest.mark.anyio
@@ -785,15 +800,15 @@ class TestClientCredentialsProvider:
     @pytest.mark.anyio
     async def test_request_token_success(
         self,
-        client_credentials_provider,
-        oauth_metadata,
-        oauth_client_info,
-        oauth_token,
-    ):
+        client_credentials_provider: ClientCredentialsProvider,
+        oauth_metadata: OAuthMetadata,
+        oauth_client_info: OAuthClientInformationFull,
+        oauth_token: OAuthToken,
+    ) -> None:
         client_credentials_provider._metadata = oauth_metadata
         client_credentials_provider._client_info = oauth_client_info
 
-        token_json = oauth_token.model_dump(by_alias=True, mode="json")
+        token_json: dict[str, Any] = oauth_token.model_dump(by_alias=True, mode="json")
         token_json.pop("refresh_token", None)
 
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -808,12 +823,15 @@ class TestClientCredentialsProvider:
             await client_credentials_provider.ensure_token()
 
             mock_client.post.assert_called_once()
-            args, kwargs = mock_client.post.call_args
+            _args, kwargs = mock_client.post.call_args
             assert kwargs["data"]["resource"] == "https://api.example.com/v1/mcp"
+            assert client_credentials_provider._current_tokens is not None
             assert client_credentials_provider._current_tokens.access_token == oauth_token.access_token
 
     @pytest.mark.anyio
-    async def test_async_auth_flow(self, client_credentials_provider, oauth_token):
+    async def test_async_auth_flow(
+        self, client_credentials_provider: ClientCredentialsProvider, oauth_token: OAuthToken
+    ) -> None:
         client_credentials_provider._current_tokens = oauth_token
         client_credentials_provider._token_expiry_time = time.time() + 3600
 
@@ -821,7 +839,7 @@ class TestClientCredentialsProvider:
         mock_response = Mock()
         mock_response.status_code = 200
 
-        auth_flow = client_credentials_provider.async_auth_flow(request)
+        auth_flow: AsyncGenerator[httpx.Request, httpx.Response] = client_credentials_provider.async_auth_flow(request)
         updated_request = await auth_flow.__anext__()
         assert updated_request.headers["Authorization"] == f"Bearer {oauth_token.access_token}"
         try:
@@ -834,15 +852,15 @@ class TestTokenExchangeProvider:
     @pytest.mark.anyio
     async def test_request_token_success(
         self,
-        token_exchange_provider,
-        oauth_metadata,
-        oauth_client_info,
-        oauth_token,
-    ):
+        token_exchange_provider: TokenExchangeProvider,
+        oauth_metadata: OAuthMetadata,
+        oauth_client_info: OAuthClientInformationFull,
+        oauth_token: OAuthToken,
+    ) -> None:
         token_exchange_provider._metadata = oauth_metadata
         token_exchange_provider._client_info = oauth_client_info
 
-        token_json = oauth_token.model_dump(by_alias=True, mode="json")
+        token_json: dict[str, Any] = oauth_token.model_dump(by_alias=True, mode="json")
         token_json.pop("refresh_token", None)
 
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -857,8 +875,9 @@ class TestTokenExchangeProvider:
             await token_exchange_provider.ensure_token()
 
             mock_client.post.assert_called_once()
-            args, kwargs = mock_client.post.call_args
+            _args, kwargs = mock_client.post.call_args
             assert kwargs["data"]["resource"] == "https://api.example.com/v1/mcp"
+            assert token_exchange_provider._current_tokens is not None
             assert token_exchange_provider._current_tokens.access_token == oauth_token.access_token
 
 
