@@ -119,6 +119,84 @@ def lifespan_wrapper(
 
 
 class FastMCP(Generic[LifespanResultT]):
+    """FastMCP - A high-level, ergonomic interface for creating MCP servers.
+
+    FastMCP provides a decorator-based API for building MCP servers with automatic
+    parameter validation, structured output support, and built-in transport handling.
+    It supports stdio, SSE, and Streamable HTTP transports out of the box.
+
+    Features include automatic validation using Pydantic, structured output conversion,
+    context injection for MCP capabilities, lifespan management, multiple transport
+    support, and built-in OAuth 2.1 authentication.
+
+    Args:
+        name: Human-readable name for the server. If None, defaults to "FastMCP"
+        instructions: Optional instructions/description for the server
+        auth_server_provider: OAuth authorization server provider for authentication
+        token_verifier: Token verifier for validating OAuth tokens
+        event_store: Event store for Streamable HTTP transport persistence
+        tools: Pre-configured tools to register with the server
+        debug: Enable debug mode for additional logging
+        log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        host: Host address for HTTP transports
+        port: Port number for HTTP transports
+        mount_path: Base mount path for SSE transport
+        sse_path: Path for SSE endpoint
+        message_path: Path for message endpoint
+        streamable_http_path: Path for Streamable HTTP endpoint
+        json_response: Whether to use JSON responses instead of SSE for Streamable HTTP
+        stateless_http: Whether to operate in stateless mode for Streamable HTTP
+        warn_on_duplicate_resources: Whether to warn when duplicate resources are registered
+        warn_on_duplicate_tools: Whether to warn when duplicate tools are registered
+        warn_on_duplicate_prompts: Whether to warn when duplicate prompts are registered
+        dependencies: List of package dependencies (currently unused)
+        lifespan: Async context manager for server startup/shutdown lifecycle
+        auth: Authentication settings for OAuth 2.1 support
+        transport_security: Transport security settings
+
+    Examples:
+        Basic server creation:
+
+        ```python
+        from mcp.server.fastmcp import FastMCP
+
+        # Create a server
+        mcp = FastMCP("My Server")
+
+        # Add a tool
+        @mcp.tool()
+        def add_numbers(a: int, b: int) -> int:
+            \"\"\"Add two numbers together.\"\"\"
+            return a + b
+
+        # Add a resource
+        @mcp.resource("greeting://{name}")
+        def get_greeting(name: str) -> str:
+            \"\"\"Get a personalized greeting.\"\"\"
+            return f"Hello, {name}!"
+
+        # Run the server
+        if __name__ == "__main__":
+            mcp.run()
+        ```
+
+        Server with authentication:
+
+        ```python
+        from mcp.server.auth.settings import AuthSettings
+        from pydantic import AnyHttpUrl
+
+        mcp = FastMCP(
+            "Protected Server",
+            auth=AuthSettings(
+                issuer_url=AnyHttpUrl("https://auth.example.com"),
+                resource_server_url=AnyHttpUrl("http://localhost:8000"),
+                required_scopes=["read", "write"]
+            )
+        )
+        ```
+    """
+
     def __init__(
         self,
         name: str | None = None,
@@ -282,9 +360,21 @@ class FastMCP(Generic[LifespanResultT]):
         ]
 
     def get_context(self) -> Context[ServerSession, LifespanResultT, Request]:
-        """
-        Returns a Context object. Note that the context will only be valid
-        during a request; outside a request, most methods will error.
+        """Get the current request context for accessing MCP capabilities.
+
+        The context provides access to logging, progress reporting, resource reading,
+        user interaction, and request metadata. It's only valid during request
+        processing - calling context methods outside of a request will raise errors.
+
+        Returns:
+            Context object for the current request with access to MCP capabilities.
+
+        Raises:
+            LookupError: If called outside of a request context.
+
+        Note:
+            This method should typically only be called from within tool, resource,
+            or prompt handlers where a request context is active.
         """
         try:
             request_context = self._mcp_server.request_context
@@ -293,12 +383,29 @@ class FastMCP(Generic[LifespanResultT]):
         return Context(request_context=request_context, fastmcp=self)
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Sequence[ContentBlock] | dict[str, Any]:
-        """Call a tool by name with arguments."""
+        """Call a registered tool by name with the provided arguments.
+
+        Args:
+            name: Name of the tool to call
+            arguments: Dictionary of arguments to pass to the tool
+
+        Returns:
+            Tool execution result, either as content blocks or structured data
+
+        Raises:
+            ToolError: If the tool is not found or execution fails
+            ValidationError: If the arguments don't match the tool's schema
+        """
         context = self.get_context()
         return await self._tool_manager.call_tool(name, arguments, context=context, convert_result=True)
 
     async def list_resources(self) -> list[MCPResource]:
-        """List all available resources."""
+        """List all available resources registered with this server.
+
+        Returns:
+            List of MCP Resource objects containing URI, name, description, and MIME type
+            information for each registered resource.
+        """
 
         resources = self._resource_manager.list_resources()
         return [
@@ -313,6 +420,15 @@ class FastMCP(Generic[LifespanResultT]):
         ]
 
     async def list_resource_templates(self) -> list[MCPResourceTemplate]:
+        """List all available resource templates registered with this server.
+
+        Resource templates define URI patterns that can be dynamically resolved
+        with different parameters to access multiple related resources.
+
+        Returns:
+            List of MCP ResourceTemplate objects containing URI templates, names,
+            and descriptions for each registered resource template.
+        """
         templates = self._resource_manager.list_templates()
         return [
             MCPResourceTemplate(
@@ -325,7 +441,17 @@ class FastMCP(Generic[LifespanResultT]):
         ]
 
     async def read_resource(self, uri: AnyUrl | str) -> Iterable[ReadResourceContents]:
-        """Read a resource by URI."""
+        """Read the contents of a resource by its URI.
+
+        Args:
+            uri: The URI of the resource to read
+
+        Returns:
+            Iterable of ReadResourceContents containing the resource data
+
+        Raises:
+            ResourceError: If the resource is not found or cannot be read
+        """
 
         resource = await self._resource_manager.get_resource(uri)
         if not resource:
@@ -1011,33 +1137,36 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
 
     This provides a cleaner interface to MCP's RequestContext functionality.
     It gets injected into tool and resource functions that request it via type hints.
-
-    To use context in a tool function, add a parameter with the Context type annotation:
-
-    ```python
-    @server.tool()
-    def my_tool(x: int, ctx: Context) -> str:
-        # Log messages to the client
-        ctx.info(f"Processing {x}")
-        ctx.debug("Debug info")
-        ctx.warning("Warning message")
-        ctx.error("Error message")
-
-        # Report progress
-        ctx.report_progress(50, 100)
-
-        # Access resources
-        data = ctx.read_resource("resource://data")
-
-        # Get request info
-        request_id = ctx.request_id
-        client_id = ctx.client_id
-
-        return str(x)
-    ```
+    The context provides access to logging, progress reporting, resource reading,
+    user interaction, and request metadata.
 
     The context parameter name can be anything as long as it's annotated with Context.
     The context is optional - tools that don't need it can omit the parameter.
+
+    Examples:
+        Using context in a tool function:
+
+        ```python
+        @server.tool()
+        def my_tool(x: int, ctx: Context) -> str:
+            # Log messages to the client
+            ctx.info(f"Processing {x}")
+            ctx.debug("Debug info")
+            ctx.warning("Warning message")
+            ctx.error("Error message")
+
+            # Report progress
+            ctx.report_progress(50, 100)
+
+            # Access resources
+            data = ctx.read_resource("resource://data")
+
+            # Get request info
+            request_id = ctx.request_id
+            client_id = ctx.client_id
+
+            return str(x)
+        ```
     """
 
     _request_context: RequestContext[ServerSessionT, LifespanContextT, RequestT] | None

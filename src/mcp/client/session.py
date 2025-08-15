@@ -107,6 +107,46 @@ class ClientSession(
         types.ServerNotification,
     ]
 ):
+    """A client session for communicating with an MCP server.
+
+    This class provides a high-level interface for MCP client operations, including
+    tool calling, resource management, prompt handling, and protocol initialization.
+    It manages the bidirectional communication channel with an MCP server and handles
+    protocol-level concerns like message validation and capability negotiation.
+
+    The session supports various MCP capabilities:
+
+    - Tool execution with structured output validation
+    - Resource access and subscription management
+    - Prompt template retrieval and completion
+    - Progress notifications and logging
+    - Custom sampling, elicitation, and root listing callbacks
+
+    Args:
+        read_stream: Stream for receiving messages from the server.
+        write_stream: Stream for sending messages to the server.
+        read_timeout_seconds: Optional timeout for read operations.
+        sampling_callback: Optional callback for handling sampling requests from the server.
+        elicitation_callback: Optional callback for handling elicitation requests from the server.
+        list_roots_callback: Optional callback for handling root listing requests from the server.
+        logging_callback: Optional callback for handling log messages from the server.
+        message_handler: Optional custom handler for incoming messages and exceptions.
+        client_info: Optional client implementation information.
+
+    Example:
+        ```python
+        async with create_client_session() as session:
+            # Initialize the session
+            await session.initialize()
+
+            # List available tools
+            tools = await session.list_tools()
+
+            # Call a tool
+            result = await session.call_tool("my_tool", {"arg": "value"})
+        ```
+    """
+
     def __init__(
         self,
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -135,6 +175,17 @@ class ClientSession(
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
 
     async def initialize(self) -> types.InitializeResult:
+        """Initialize the MCP session with the server.
+
+        Sends an initialization request to establish capabilities and protocol version.
+        This must be called before any other operations can be performed.
+
+        Returns:
+            Server's initialization response containing capabilities and metadata
+
+        Raises:
+            McpError: If initialization fails or protocol version is unsupported
+        """
         sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
         elicitation = (
             types.ElicitationCapability() if self._elicitation_callback is not _default_elicitation_callback else None
@@ -288,7 +339,81 @@ class ClientSession(
         read_timeout_seconds: timedelta | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> types.CallToolResult:
-        """Send a tools/call request with optional progress callback support."""
+        """Execute a tool on the connected MCP server.
+
+        This method sends a tools/call request to execute a specific tool with provided
+        arguments. The server will validate the arguments against the tool's input schema
+        and return structured or unstructured content based on the tool's configuration.
+
+        For tools that return structured output, the result will be automatically validated
+        against the tool's output schema if one is defined. Tools may also return various
+        content types including text, images, and embedded resources.
+
+        Args:
+            name: The name of the tool to execute. Must match a tool exposed by the server.
+            arguments: Optional dictionary of arguments to pass to the tool. The structure
+                must match the tool's input schema. Defaults to None for tools that don't
+                require arguments.
+            read_timeout_seconds: Optional timeout for the tool execution. If not specified,
+                uses the session's default read timeout. Useful for long-running tools.
+            progress_callback: Optional callback function to receive progress updates during
+                tool execution. The callback receives progress notifications as they're sent
+                by the server.
+
+        Returns:
+            CallToolResult containing the tool's response. The result includes:
+            - content: List of content blocks (text, images, embedded resources)
+            - structuredContent: Validated structured data if the tool has an output schema
+            - isError: Boolean indicating if the tool execution failed
+
+        Raises:
+            RuntimeError: If the tool returns structured content that doesn't match its
+                output schema, or if the tool name is not found on the server.
+            ValidationError: If the provided arguments don't match the tool's input schema.
+            TimeoutError: If the tool execution exceeds the specified timeout.
+
+        Example:
+            ```python
+            # Simple tool call without arguments
+            result = await session.call_tool("ping")
+
+            # Tool call with arguments
+            result = await session.call_tool("add", {"a": 5, "b": 3})
+
+            # Access text content
+            for content in result.content:
+                if isinstance(content, types.TextContent):
+                    print(content.text)
+
+            # Access structured output (if available)
+            if result.structuredContent:
+                user_data = result.structuredContent
+                print(f"Result: {user_data}")
+
+            # Handle tool execution errors
+            if result.isError:
+                print("Tool execution failed")
+
+            # Long-running tool with progress tracking
+            def on_progress(progress_token, progress, total, message):
+                percent = (progress / total) * 100 if total else 0
+                print(f"Progress: {percent:.1f}% - {message}")
+
+            result = await session.call_tool(
+                "long_task",
+                {"steps": 10},
+                read_timeout_seconds=timedelta(minutes=5),
+                progress_callback=on_progress
+            )
+            ```
+
+        Note:
+            Tools may return different content types:
+            - TextContent: Plain text responses
+            - ImageContent: Generated images with MIME type and binary data
+            - EmbeddedResource: File contents or external resources
+            - Structured data via structuredContent when output schema is defined
+        """
 
         result = await self.send_request(
             types.ClientRequest(

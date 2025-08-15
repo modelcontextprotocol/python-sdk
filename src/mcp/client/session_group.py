@@ -75,12 +75,14 @@ class ClientSessionGroup:
     the client and can be accessed via the session.
 
     Example Usage:
-        name_fn = lambda name, server_info: f"{(server_info.name)}_{name}"
-        async with ClientSessionGroup(component_name_hook=name_fn) as group:
-            for server_params in server_params:
-                await group.connect_to_server(server_param)
-            ...
 
+    ```python
+    name_fn = lambda name, server_info: f"{(server_info.name)}_{name}"
+    async with ClientSessionGroup(component_name_hook=name_fn) as group:
+        for server_params in server_params:
+            await group.connect_to_server(server_param)
+        # ...
+    ```
     """
 
     class _ComponentNames(BaseModel):

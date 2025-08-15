@@ -48,7 +48,23 @@ class Tool(BaseModel):
         annotations: ToolAnnotations | None = None,
         structured_output: bool | None = None,
     ) -> Tool:
-        """Create a Tool from a function."""
+        """Create a Tool from a function.
+
+        Args:
+            fn: The function to wrap as a tool
+            name: Optional name for the tool (defaults to function name)
+            title: Optional human-readable title for the tool
+            description: Optional description (defaults to function docstring)
+            context_kwarg: Name of parameter that should receive the Context object
+            annotations: Optional tool annotations for additional metadata
+            structured_output: Whether to enable structured output for this tool
+
+        Returns:
+            Tool instance configured from the function
+
+        Raises:
+            ValueError: If the function is a lambda without a provided name
+        """
         from mcp.server.fastmcp.server import Context
 
         func_name = name or fn.__name__
@@ -93,7 +109,19 @@ class Tool(BaseModel):
         context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
         convert_result: bool = False,
     ) -> Any:
-        """Run the tool with arguments."""
+        """Run the tool with the provided arguments.
+
+        Args:
+            arguments: Dictionary of arguments to pass to the tool function
+            context: Optional MCP context for accessing capabilities
+            convert_result: Whether to convert the result using the function metadata
+
+        Returns:
+            The tool's execution result, potentially converted based on convert_result
+
+        Raises:
+            ToolError: If tool execution fails or validation errors occur
+        """
         try:
             result = await self.fn_metadata.call_fn_with_arg_validation(
                 self.fn,

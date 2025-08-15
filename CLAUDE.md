@@ -132,3 +132,6 @@ This document contains critical information about working with this codebase. Fo
 - **Only catch `Exception` for**:
   - Top-level handlers that must not crash
   - Cleanup blocks (log at debug level)
+
+- Always use sentence case for all headings and heading-like text in any Markdown-formatted content, including docstrings.
+- Example snippets in docsstrings MUST only appear within the Examples section of the docstring. You MAY include multiple examples in the Examples section.

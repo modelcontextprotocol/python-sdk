@@ -17,7 +17,15 @@ logger = get_logger(__name__)
 
 
 class ToolManager:
-    """Manages FastMCP tools."""
+    """Manages registration and execution of FastMCP tools.
+
+    The ToolManager handles tool registration, validation, and execution.
+    It maintains a registry of tools and provides methods for adding,
+    retrieving, and calling tools.
+
+    Attributes:
+        warn_on_duplicate_tools: Whether to warn when duplicate tools are registered
+    """
 
     def __init__(
         self,
@@ -35,11 +43,22 @@ class ToolManager:
         self.warn_on_duplicate_tools = warn_on_duplicate_tools
 
     def get_tool(self, name: str) -> Tool | None:
-        """Get tool by name."""
+        """Get a registered tool by name.
+
+        Args:
+            name: Name of the tool to retrieve
+
+        Returns:
+            Tool instance if found, None otherwise
+        """
         return self._tools.get(name)
 
     def list_tools(self) -> list[Tool]:
-        """List all registered tools."""
+        """List all registered tools.
+
+        Returns:
+            List of all Tool instances registered with this manager
+        """
         return list(self._tools.values())
 
     def add_tool(
