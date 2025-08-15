@@ -88,8 +88,6 @@ class State:
 
 ### Final Runtime State Machine
 
-# TODO: implement auto transition to initial if final state is reached
-
 class StateMachine:
     """Deterministic state machine over InputSymbol triples."""
 
@@ -128,6 +126,29 @@ class StateMachine:
             "prompts": inputs.get("prompts", set()),
         }
 
+    def transition(self, input_symbol: InputSymbol) -> None:
+        """Apply exact-match transition; if none, retry with DEFAULT qualifier as a fallback (no-op if still unmatched)."""
+        # READ via property (do it always like this to keep session compability)
+        state = self._states.get(self.current_state)
+        if state is None:
+            raise RuntimeError(f"State '{self.current_state}' not defined")
+
+        if self._apply(state, input_symbol):
+            # after apply: check if terminal; if so, reset to initial
+            if self._is_terminal_state(self.current_state):
+                self._reset_to_initial()
+            return
+
+        fallback = InputSymbol(
+            type=input_symbol.type,
+            name=input_symbol.name,
+            qualifier=DEFAULT_QUALIFIER,
+        )
+        self._apply(state, fallback)  # no-op if no match
+        # after apply (fallback): check if terminal; if so, reset to initial
+        if self._is_terminal_state(self.current_state):
+            self._reset_to_initial()
+
     def _apply(self, state: State, symbol: InputSymbol) -> bool:
         """Try to apply a transition for ``symbol``; update state and run callback if found."""
         for tr in state.transitions:
@@ -141,23 +162,15 @@ class StateMachine:
                         asyncio.create_task(coro)
                 return True
         return False
+    
+    def _is_terminal_state(self, state_name: str) -> bool:
+        """Return True if the given state is marked terminal/final."""
+        s = self._states.get(state_name)
+        return bool(s and (getattr(s, "is_terminal", False) or getattr(s, "terminal", False)))
 
-    def transition(self, input_symbol: InputSymbol) -> None:
-        """Apply exact-match transition; if none, retry with DEFAULT qualifier as a fallback (no-op if still unmatched)."""
-        # READ via property (do it always like this to keep session compability)
-        state = self._states.get(self.current_state)
-        if state is None:
-            raise RuntimeError(f"State '{self.current_state}' not defined")
-
-        if self._apply(state, input_symbol):
-            return
-
-        fallback = InputSymbol(
-            type=input_symbol.type,
-            name=input_symbol.name,
-            qualifier=DEFAULT_QUALIFIER,
-        )
-        self._apply(state, fallback)  # no-op if no match
+    def _reset_to_initial(self) -> None:
+        """Reset to initial state."""
+        self._set_current_state(self._initial)
 
 
 ### Final Runtime State Machine (Session scoped)
