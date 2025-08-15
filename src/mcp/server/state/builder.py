@@ -34,6 +34,7 @@ from mcp.server.fastmcp.prompts import PromptManager
 
 from mcp.server.state.types import ResourceResultType, ToolResultType, PromptResultType
 from mcp.server.state.machine import State, Transition, InputSymbol, StateMachine, SessionScopedStateMachine
+from mcp.server.state.validator import StateMachineValidator, ValidationIssue
 
 logger = get_logger(f"{__name__}.StateMachineBuilder")
 
@@ -53,7 +54,7 @@ class _InternalStateMachineBuilder:
     accessed from user code.
     """
 
-    def __init__(self, tool_manager: ToolManager, resource_manager: ResourceManager, prompt_manager: PromptManager):
+    def __init__(self, tool_manager: ToolManager | None, resource_manager: ResourceManager | None, prompt_manager: PromptManager | None):
         self._states: dict[str, State] = {} # TODO: change this to a list (compare will work based on dataclass)
         self._initial: Optional[str] = None
         self._tool_manager = tool_manager
@@ -141,23 +142,29 @@ class _InternalStateMachineBuilder:
             states=self._states,
             context_resolver=context_resolver,
         )
+        
+    def _validate(self) -> None:
+        """Run structural and reference checks """
 
-    def _validate(self):
-        """Run structural and reference checks (TODO: move to a dedicated Validator class).
+        issues: list[ValidationIssue] = StateMachineValidator(
+            states=self._states,
+            initial_state=self._initial,
+            tool_manager=self._tool_manager,         # ToolManager
+            prompt_manager=self._prompt_manager,     # PromptManager
+            resource_manager=self._resource_manager, # ResourceManager
+        ).validate()
 
-        Planned validations:
-        - Exactly one initial state exists.
-        - At least one reachable terminal state exists.
-        - Terminal states have no outgoing transitions (optional rule).
-        - All referenced tools/prompts/resources exist in their managers.
-        - (Optional) Every state is reachable from the initial state.
-        """
-        # Example manager lookups (to be implemented):
-        # self._tool_manager.get_tool(name)
-        # self._prompt_manager.get_prompt(name)
-        # self._resource_manager.get_resource(name)
-        pass
+        # Separate issues by severity
+        errors = [i.message for i in issues if i.level == "error"]
+        warnings = [i.message for i in issues if i.level == "warning"]
 
+        # Log warnings
+        for w in warnings:
+            logger.warning("State machine validation warning: %s", w)
+
+        # Fail if errors exist
+        if errors:
+            raise ValueError("Invalid state machine:\n- " + "\n- ".join(errors))
 
 ### Public API DSL
 
