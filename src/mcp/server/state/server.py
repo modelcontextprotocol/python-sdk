@@ -141,7 +141,7 @@ class StatefulMCP(FastMCP[LifespanResultT]):
 
         def _resolve_context() -> Context[ServerSession, LifespanResultT] | None:
             try:
-                return super().get_context()
+                return self.get_context()
             except Exception as e:
                 logger.warning("State machine resolver: could not resolve context; falling back to global mode: %s", e)
                 return None
