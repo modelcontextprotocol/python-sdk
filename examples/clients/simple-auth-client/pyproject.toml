@@ -15,7 +15,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
 ]
 dependencies = [
-    "click>=8.0.0",
+    "click>=8.2.0",
     "mcp>=1.0.0",
 ]
 

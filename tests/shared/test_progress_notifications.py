@@ -217,6 +217,8 @@ async def test_progress_context_manager():
 
     server = Server(name="ProgressContextTestServer")
 
+    progress_token = None
+
     # Register progress handler
     @server.progress_notification()
     async def handle_progress(
