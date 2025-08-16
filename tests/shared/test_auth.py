@@ -37,3 +37,25 @@ class TestOAuthMetadata:
                 "userinfo_endpoint": "https://example.com/oauth2/userInfo",
             }
         )
+
+    def test_oauth_with_jarm(self):
+        """Should not throw when parsing OAuth metadata that includes JARM response modes."""
+        OAuthMetadata.model_validate(
+            {
+                "issuer": "https://example.com",
+                "authorization_endpoint": "https://example.com/oauth2/authorize",
+                "token_endpoint": "https://example.com/oauth2/token",
+                "scopes_supported": ["read", "write"],
+                "response_types_supported": ["code", "token"],
+                "response_modes_supported": [
+                    "query",
+                    "fragment",
+                    "form_post",
+                    "query.jwt",
+                    "fragment.jwt",
+                    "form_post.jwt",
+                    "jwt",
+                ],
+                "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
+            }
+        )
