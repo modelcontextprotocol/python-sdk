@@ -417,7 +417,7 @@ class TestServerTools:
         mcp.add_tool(mixed_list_fn)  # type: ignore
         async with client_session(mcp._mcp_server) as client:
             result = await client.call_tool("mixed_list_fn", {})
-            assert len(result.content) == 4
+            assert len(result.content) == 5
             # Check text conversion
             content1 = result.content[0]
             assert isinstance(content1, TextContent)
