@@ -10,7 +10,7 @@ from starlette.routing import Mount, Route
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.prompts.base import Message, UserMessage
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
-from mcp.server.fastmcp.utilities.types import Image, Audio
+from mcp.server.fastmcp.utilities.types import Audio, Image
 from mcp.server.session import ServerSession
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import (
@@ -342,7 +342,7 @@ class TestServerTools:
         """Test that Audio helper correctly detects MIME types from file suffixes"""
         mcp = FastMCP()
         mcp.add_tool(audio_tool_fn)
-        
+
         # Create a test audio file with the specific extension
         audio_path = tmp_path / filename
         audio_path.write_bytes(b"fake audio data")
@@ -397,7 +397,7 @@ class TestServerTools:
         image_path = tmp_path / "test.png"
         image_path.write_bytes(b"test image data")
 
-        # Create a test audio 
+        # Create a test audio
         audio_path = tmp_path / "test.wav"
         audio_path.write_bytes(b"test audio data")
 
@@ -405,7 +405,6 @@ class TestServerTools:
         # We need to fix this.
         def mixed_list_fn() -> list:  # type: ignore
             return [  # type: ignore
-
                 "text message",
                 Image(image_path),
                 Audio(audio_path),

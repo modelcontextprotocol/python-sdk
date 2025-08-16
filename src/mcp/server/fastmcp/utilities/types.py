@@ -63,9 +63,9 @@ class Audio:
         data: bytes | None = None,
         format: str | None = None,
     ):
-        if not bool(path) ^ bool(data): 
+        if not bool(path) ^ bool(data):
             raise ValueError("Either path or data can be provided")
-        
+
         self.path = Path(path) if path else None
         self.data = data
         self._format = format
