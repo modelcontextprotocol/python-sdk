@@ -1,3 +1,9 @@
+# NOTE: Those were added because we actually want to test wrong type annotations.
+# pyright: reportUnknownParameterType=false
+# pyright: reportMissingParameterType=false
+# pyright: reportUnknownArgumentType=false
+# pyright: reportUnknownLambdaType=false
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
 
@@ -58,7 +64,7 @@ def complex_arguments_fn(
     an_int_with_equals_field: int = Field(1, ge=0),
     int_annotated_with_default: Annotated[int, Field(description="hey")] = 5,
 ) -> str:
-    _ = (
+    _: Any = (
         an_int,
         must_be_none,
         must_be_none_dumb_annotation,
@@ -240,7 +246,7 @@ def test_structured_output_dict_str_types():
 @pytest.mark.anyio
 async def test_lambda_function():
     """Test lambda function schema and validation"""
-    fn = lambda x, y=5: x  # noqa: E731
+    fn: Callable[[str, int], str] = lambda x, y=5: x  # noqa: E731
     meta = func_metadata(lambda x, y=5: x)
 
     # Test schema
@@ -899,7 +905,7 @@ def test_structured_output_unserializable_type_error():
     class ConfigWithCallable:
         name: str
         # Callable defaults are not JSON serializable and will trigger Pydantic warnings
-        callback: Any = lambda x: x * 2
+        callback: Callable[[Any], Any] = lambda x: x * 2
 
     def func_returning_config_with_callable() -> ConfigWithCallable:
         return ConfigWithCallable()
@@ -955,7 +961,7 @@ def test_structured_output_aliases():
 
     # Check that the actual output uses aliases too
     result = ModelWithAliases(**{"first": "hello", "second": "world"})
-    unstructured_content, structured_content = meta.convert_result(result)
+    _, structured_content = meta.convert_result(result)
 
     # The structured content should use aliases to match the schema
     assert "first" in structured_content
@@ -967,7 +973,7 @@ def test_structured_output_aliases():
 
     # Also test the case where we have a model with defaults to ensure aliases work in all cases
     result_with_defaults = ModelWithAliases()  # Uses default None values
-    unstructured_content_defaults, structured_content_defaults = meta.convert_result(result_with_defaults)
+    _, structured_content_defaults = meta.convert_result(result_with_defaults)
 
     # Even with defaults, should use aliases in output
     assert "first" in structured_content_defaults
