@@ -324,10 +324,9 @@ class TestServerTools:
             # Check structured content - Image return type should NOT have structured output
             assert result.structuredContent is None
 
-    @pytest.mark.anyio
-    async def test_tool_audio_suffix_detection(self, tmp_path: Path):
-        # Test different audio file extensions
-        test_cases = [
+    @pytest.mark.parametrize(
+        "filename,expected_mime_type",
+        [
             ("test.wav", "audio/wav"),
             ("test.mp3", "audio/mpeg"),
             ("test.ogg", "audio/ogg"),
@@ -335,27 +334,28 @@ class TestServerTools:
             ("test.aac", "audio/aac"),
             ("test.m4a", "audio/mp4"),
             ("test.unknown", "application/octet-stream"),  # Unknown extension fallback
-        ]
-
+        ],
+    )
+    @pytest.mark.anyio
+    async def test_tool_audio_suffix_detection(self, tmp_path: Path, filename: str, expected_mime_type: str):
+        """Test that Audio helper correctly detects MIME types from file suffixes"""
         mcp = FastMCP()
         mcp.add_tool(audio_tool_fn)
-        async with client_session(mcp._mcp_server) as client:
-            for filename, expected_mime_type in test_cases:
-                # Create a test audio file with the specific extension
-                audio_path = tmp_path / filename
-                audio_path.write_bytes(b"fake audio data")
+        
+        # Create a test audio file with the specific extension
+        audio_path = tmp_path / filename
+        audio_path.write_bytes(b"fake audio data")
 
-                result = await client.call_tool("audio_tool_fn", {"path": str(audio_path)})
-                assert len(result.content) == 1
-                content = result.content[0]
-                assert isinstance(content, AudioContent)
-                assert content.type == "audio"
-                assert content.mimeType == expected_mime_type, (
-                    f"Expected {expected_mime_type} for {filename}, got {content.mimeType}"
-                )
-                # Verify base64 encoding
-                decoded = base64.b64decode(content.data)
-                assert decoded == b"fake audio data"
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("audio_tool_fn", {"path": str(audio_path)})
+            assert len(result.content) == 1
+            content = result.content[0]
+            assert isinstance(content, AudioContent)
+            assert content.type == "audio"
+            assert content.mimeType == expected_mime_type
+            # Verify base64 encoding
+            decoded = base64.b64decode(content.data)
+            assert decoded == b"fake audio data"
 
     @pytest.mark.anyio
     async def test_tool_mixed_content(self):
@@ -389,17 +389,22 @@ class TestServerTools:
                     assert structured_result[i][key] == value
 
     @pytest.mark.anyio
-    async def test_tool_mixed_list_with_image(self, tmp_path: Path):
+    async def test_tool_mixed_list_with_audio_and_image(self, tmp_path: Path):
         """Test that lists containing Image objects and other types are handled
         correctly"""
         # Create a test image
         image_path = tmp_path / "test.png"
         image_path.write_bytes(b"test image data")
 
+        # Create a test audio 
+        audio_path = tmp_path / "test.wav"
+        audio_path.write_bytes(b"test audio data")
+
         def mixed_list_fn() -> list:
             return [
                 "text message",
                 Image(image_path),
+                Audio(audio_path),
                 {"key": "value"},
                 TextContent(type="text", text="direct content"),
             ]
@@ -418,56 +423,20 @@ class TestServerTools:
             assert isinstance(content2, ImageContent)
             assert content2.mimeType == "image/png"
             assert base64.b64decode(content2.data) == b"test image data"
-            # Check dict conversion
-            content3 = result.content[2]
-            assert isinstance(content3, TextContent)
-            assert '"key": "value"' in content3.text
-            # Check direct TextContent
-            content4 = result.content[3]
-            assert isinstance(content4, TextContent)
-            assert content4.text == "direct content"
-            # Check structured content - untyped list with Image objects should NOT have structured output
-            assert result.structuredContent is None
-
-    @pytest.mark.anyio
-    async def test_tool_mixed_list_with_audio(self, tmp_path: Path):
-        """Test that lists containing Audio objects and other types are handled
-        correctly"""
-        # Create a test audio
-        audio_path = tmp_path / "test.wav"
-        audio_path.write_bytes(b"test audio data")
-
-        def mixed_list_fn() -> list:
-            return [
-                "text message",
-                Audio(audio_path),
-                {"key": "value"},
-                TextContent(type="text", text="direct content"),
-            ]
-
-        mcp = FastMCP()
-        mcp.add_tool(mixed_list_fn)
-        async with client_session(mcp._mcp_server) as client:
-            result = await client.call_tool("mixed_list_fn", {})
-            assert len(result.content) == 4
-            # Check text conversion
-            content1 = result.content[0]
-            assert isinstance(content1, TextContent)
-            assert content1.text == "text message"
             # Check audio conversion
-            content2 = result.content[1]
-            assert isinstance(content2, AudioContent)
-            assert content2.mimeType == "audio/wav"
-            assert base64.b64decode(content2.data) == b"test audio data"
-            # Check dict conversion
             content3 = result.content[2]
-            assert isinstance(content3, TextContent)
-            assert '"key": "value"' in content3.text
-            # Check direct TextContent
+            assert isinstance(content3, AudioContent)
+            assert content3.mimeType == "audio/wav"
+            assert base64.b64decode(content3.data) == b"test audio data"
+            # Check dict conversion
             content4 = result.content[3]
             assert isinstance(content4, TextContent)
-            assert content4.text == "direct content"
-            # Check structured content - untyped list with Audio objects should NOT have structured output
+            assert '"key": "value"' in content4.text
+            # Check direct TextContent
+            content5 = result.content[4]
+            assert isinstance(content5, TextContent)
+            assert content5.text == "direct content"
+            # Check structured content - untyped list with Image objects should NOT have structured output
             assert result.structuredContent is None
 
     @pytest.mark.anyio

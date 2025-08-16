@@ -63,11 +63,9 @@ class Audio:
         data: bytes | None = None,
         format: str | None = None,
     ):
-        if path is None and data is None:
-            raise ValueError("Either path or data must be provided")
-        if path is not None and data is not None:
-            raise ValueError("Only one of path or data can be provided")
-
+        if not bool(path) ^ bool(data): 
+            raise ValueError("Either path or data can be provided")
+        
         self.path = Path(path) if path else None
         self.data = data
         self._format = format
