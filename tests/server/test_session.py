@@ -1,3 +1,5 @@
+from typing import Any
+
 import anyio
 import pytest
 
@@ -16,8 +18,10 @@ from mcp.types import (
     CompletionContext,
     CompletionsCapability,
     InitializedNotification,
+    Prompt,
     PromptReference,
     PromptsCapability,
+    Resource,
     ResourcesCapability,
     ResourceTemplateReference,
     ServerCapabilities,
@@ -80,7 +84,7 @@ async def test_server_session_initialize():
 async def test_server_capabilities():
     server = Server("test")
     notification_options = NotificationOptions()
-    experimental_capabilities = {}
+    experimental_capabilities: dict[str, Any] = {}
 
     # Initially no capabilities
     caps = server.get_capabilities(notification_options, experimental_capabilities)
@@ -90,7 +94,7 @@ async def test_server_capabilities():
 
     # Add a prompts handler
     @server.list_prompts()
-    async def list_prompts():
+    async def list_prompts() -> list[Prompt]:
         return []
 
     caps = server.get_capabilities(notification_options, experimental_capabilities)
@@ -100,7 +104,7 @@ async def test_server_capabilities():
 
     # Add a resources handler
     @server.list_resources()
-    async def list_resources():
+    async def list_resources() -> list[Resource]:
         return []
 
     caps = server.get_capabilities(notification_options, experimental_capabilities)
