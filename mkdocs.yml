@@ -1,17 +1,46 @@
-site_name: MCP Server
-site_description: MCP Server
-strict: true
+site_name: MCP Python SDK
+site_description: Python implementation of the Model Context Protocol (MCP)
+strict: false
 
-repo_name: modelcontextprotocol/python-sdk
-repo_url: https://github.com/modelcontextprotocol/python-sdk
+repo_name: mmacy/python-sdk
+repo_url: https://github.com/mmacy/python-sdk
 edit_uri: edit/main/docs/
-site_url: https://modelcontextprotocol.github.io/python-sdk
+site_url: https://mmacy.github.io/python-sdk
 
 # TODO(Marcelo): Add Anthropic copyright?
 # copyright: © Model Context Protocol 2025 to present
 
 nav:
   - Home: index.md
+  - Getting started:
+    - Quickstart: quickstart.md
+    - Installation: installation.md
+  - Core concepts:
+    - Servers: servers.md
+    - Resources: resources.md
+    - Tools: tools.md
+    - Prompts: prompts.md
+    - Context: context.md
+  - Advanced features:
+    - Images: images.md
+    - Authentication: authentication.md
+    - Sampling: sampling.md
+    - Elicitation: elicitation.md
+    - Progress & logging: progress-logging.md
+  - Transport & deployment:
+    - Running servers: running-servers.md
+    - Streamable HTTP: streamable-http.md
+    - ASGI integration: asgi-integration.md
+  - Client development:
+    - Writing clients: writing-clients.md
+    - OAuth for clients: oauth-clients.md
+    - Display utilities: display-utilities.md
+    - Parsing results: parsing-results.md
+  - Advanced usage:
+    - Low-level server: low-level-server.md
+    - Structured output: structured-output.md
+    - Completions: completions.md
+  - API reference: reference/
 
 theme:
   name: "material"
@@ -98,24 +127,23 @@ watch:
 
 plugins:
   - search
-  - social
+  # - social  # Disabled due to Cairo dependency issues
   - glightbox
   - mkdocstrings:
       handlers:
         python:
           paths: [src/mcp]
           options:
-            relative_crossrefs: true
+            group_by_category: false
             members_order: source
+            relative_crossrefs: true
             separate_signature: true
             show_signature_annotations: true
+            show_source: false
             signature_crossrefs: true
-            group_by_category: false
-            # 3 because docs are in pages with an H2 just above them
-            heading_level: 3
           import:
             - url: https://docs.python.org/3/objects.inv
             - url: https://docs.pydantic.dev/latest/objects.inv
             - url: https://typing-extensions.readthedocs.io/en/latest/objects.inv
   - api-autonav:
-      modules: ['src/mcp']
+      modules: ["src/mcp"]

@@ -1,15 +1,13 @@
-"""MCP Python SDK - Model Context Protocol implementation for Python.
+"""An implementation of the [Model Context Protocol (MCP) specification](https://modelcontextprotocol.io/specification/latest) in Python.
 
-The Model Context Protocol (MCP) allows applications to provide context for LLMs in a
-standardized way, separating the concerns of providing context from the actual LLM
-interaction. This Python SDK implements the full MCP specification, making it easy to:
+Use the MCP Python SDK to:
 
 - Build MCP clients that can connect to any MCP server
-- Create MCP servers that expose resources, prompts and tools
+- Build MCP servers that expose resources, prompts, and tools
 - Use standard transports like stdio, SSE, and Streamable HTTP
-- Handle all MCP protocol messages and lifecycle events
+- Handle MCP protocol messages and lifecycle events
 
-## Quick start - creating a server
+## Example - create a [`FastMCP`][mcp.server.fastmcp.FastMCP] server
 
 ```python
 from mcp.server.fastmcp import FastMCP
@@ -26,7 +24,7 @@ if __name__ == "__main__":
     mcp.run()
 ```
 
-## Quick start - creating a client
+## Example - create a client
 
 ```python
 from mcp import ClientSession, StdioServerParameters, stdio_client
@@ -42,7 +40,6 @@ async with stdio_client(server_params) as (read, write):
         result = await session.call_tool("add", {"a": 5, "b": 3})
 ```
 
-For more examples and documentation, see: https://modelcontextprotocol.io
 """
 
 from .client.session import ClientSession
