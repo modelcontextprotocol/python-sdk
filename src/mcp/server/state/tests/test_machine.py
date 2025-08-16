@@ -79,7 +79,6 @@ async def app_branch_cycle_machine() -> StatefulMCP:
             .transition("s1").on_tool("t_login", result=ToolResultType.SUCCESS)
             .transition("sA").on_tool("t_alt", result=ToolResultType.SUCCESS)
             .done()
-            
 
             # s1
             .define_state("s1")

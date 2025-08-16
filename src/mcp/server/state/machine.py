@@ -26,24 +26,19 @@ A transition may define an optional callback executed after the state update.
 It can be synchronous or awaitable; awaitables are scheduled fire-and-forget.
 """
 
-import asyncio, inspect
-
+from typing import Optional
 from dataclasses import dataclass, field
-from typing import Optional, Callable, Any
 from collections import defaultdict
 
 from mcp.server.state.helper.extract_session_id import extract_session_id
-from mcp.server.state.helper.inject_context import inject_context
+from mcp.server.state.helper.callback import apply_callback_with_context
+from mcp.server.state.types import Callback, ContextResolver
 
-from mcp.server.fastmcp.server import Context
-from mcp.server.lowlevel.server import LifespanResultT, ServerSession
 from mcp.server.state.types import ResourceResultType, ToolResultType, PromptResultType, DEFAULT_QUALIFIER
 
 from mcp.server.fastmcp.utilities.logging import get_logger
 
 logger = get_logger(__name__)
-
-Callback = Callable[[], None]
 
 ### Internal Structures 
 
@@ -77,7 +72,7 @@ class Transition:
 
     to_state: str
     input_symbol: InputSymbol
-    callback: Optional[Callback] = field(default=None, compare=False, repr=False)  # ignored for equality and repr
+    callback: Callback = field(default=None, compare=False, repr=False)  # ignored for equality and repr
 
 
 @dataclass(frozen=True)
@@ -89,49 +84,56 @@ class State:
     is_terminal: bool = field(default=False, compare=False)
     transitions: list[Transition] = field(default_factory=list[Transition], compare=False, repr=False)  
 
-
 ### Final Runtime State Machine
 
 class StateMachine:
     """Deterministic state machine over InputSymbol triples."""
 
     def __init__(
-            self, 
-            initial_state: str,
-            states: dict[str, State],
-            *,
-            context_resolver: Callable[[], Optional[Context[ServerSession, LifespanResultT]]] | None = None,
-        ):
+        self,
+        initial_state: str,
+        states: dict[str, State],
+        *,
+        context_resolver: ContextResolver = None,
+    ):
         """Bind an initial state and the immutable state graph."""
         self._states = states
         self._initial = initial_state
-        self._current = initial_state
+        self._current = None  # do not change because of on_initial callback
         self._resolve_context = context_resolver
 
     @property
-    def current_state(self) -> str:
-        """Return the current state name."""
+    def current_state(self) -> str: # Always READ via property
+        """
+        Returns the current state name. 
+
+        If `_current` is not yet set (`None`), it is initialized with `_initial`
+        and the corresponding `on_initial` callback is invoked if present.
+
+        **Note**: This can be overidden allows subclasses to change how "current" is retrieved.
+        """
+        if self._current is None:
+            self._set_current_state(self._initial)
+            return self._initial
+
         return self._current
-    
-    # allow subclasses to change how "current" is written
-    def _set_current_state(self, new_state: str) -> None:
-        """Set the current state (override to customize persistence or scoping)."""
+
+    def _set_current_state(self, new_state: str) -> None: # Always WRTIE via setter
+        """Set the current state. If state is initial it will apply `on_initial` callback. 
+        
+        **Note**: This can be overidden allows subclasses to change how "current" is written.
+        """
         self._current = new_state
 
     def _is_terminal_state(self, state_name: str) -> bool:
         """Return True if the given state is marked terminal/final."""
         s = self._states.get(state_name)
-        return bool(s and (getattr(s, "is_terminal", False) or getattr(s, "terminal", False)))
-
-    def _reset_to_initial(self) -> None:
-        """Reset to initial state."""
-        self._set_current_state(self._initial)
+        return s.is_terminal if s else False
 
     def get_available_inputs(self) -> dict[str, set[str]]:
         """List available tool/resource/prompt names from outgoing transitions of the current state."""
         inputs: dict[str, set[str]] = defaultdict(set)
-        # READ via property (already OK)
-        state = self._states[self.current_state]
+        state = self._states[self.current_state]  
         for tr in state.transitions:
             symbol = tr.input_symbol
             if symbol.type == "tool":
@@ -148,15 +150,14 @@ class StateMachine:
 
     def transition(self, input_symbol: InputSymbol) -> None:
         """Apply exact-match transition; if none, retry with DEFAULT qualifier as a fallback (no-op if still unmatched)."""
-        # READ via property (do it always like this to keep session compability)
-        state = self._states.get(self.current_state)
+        state = self._states.get(self.current_state) # Always READ via property
+
         if state is None:
             raise RuntimeError(f"State '{self.current_state}' not defined")
 
         if self._apply(state, input_symbol):
-            # after apply: check if terminal; if so, reset to initial
             if self._is_terminal_state(self.current_state):
-                self._reset_to_initial()
+                self._set_current_state(self._initial)
             return
 
         fallback = InputSymbol(
@@ -164,24 +165,21 @@ class StateMachine:
             name=input_symbol.name,
             qualifier=DEFAULT_QUALIFIER,
         )
+
         self._apply(state, fallback)  # no-op if no match
-        # after apply (fallback): check if terminal; if so, reset to initial
+
         if self._is_terminal_state(self.current_state):
-            self._reset_to_initial()
+            self._set_current_state(self._initial)
 
     def _apply(self, state: State, symbol: InputSymbol) -> bool:
         """Try to apply a transition for `symbol`; update state and run callback if found."""
         for tr in state.transitions:
             if symbol == tr.input_symbol:
-                self._set_current_state(tr.to_state) # Always use setter
-                if tr.callback:
-                    # resolve once here; your resolver may return Context or None
-                    ctx = self._resolve_context() if callable(self._resolve_context) else None
-                    result = inject_context(tr.callback, ctx)
-                    if inspect.isawaitable(result):
-                        asyncio.ensure_future(result)  # Async? fire & forget
+                self._set_current_state(tr.to_state)  
+                apply_callback_with_context(tr.callback, self._resolve_context) 
                 return True
         return False
+
 
 ### Final Runtime State Machine (Session scoped)
 
@@ -193,16 +191,20 @@ class SessionScopedStateMachine(StateMachine):
         initial_state: str,
         states: dict[str, State],
         *,
-        context_resolver: Callable[[], Optional[Any]] | None = None,
+        context_resolver: ContextResolver = None,
     ):
-        """Inject a resolver that yields the current request Context; state is tracked per session id."""
-        super().__init__(initial_state, states, context_resolver=context_resolver)
+        super().__init__(
+            initial_state,
+            states,
+            context_resolver=context_resolver,
+        )
         self._current_by_session_id: dict[str, str] = {}
 
     def ensure_session_id(self, session_id: str) -> None:
         """Initialize state for the given session_id if unseen."""
-        self._current_by_session_id.setdefault(session_id, self._initial)
-        logger.info("Registered inital state for session %s", session_id)
+        if session_id not in self._current_by_session_id:
+            self._current_by_session_id[session_id] = self._initial
+            logger.info("Registered initial state for session %s", session_id)
 
     def cleanup_session_id(self, session_id: str) -> None:
         """Remove state tracking for the given session_id."""
@@ -223,17 +225,23 @@ class SessionScopedStateMachine(StateMachine):
     def current_state(self) -> str:
         """Return the state for the resolved session id; otherwise fall back to the global state."""
         sid = self._resolve_sid()
+
+        # Fallback to global mode
         if not sid:
             return super().current_state
+        
+        # Session scoped logic
         self.ensure_session_id(sid)
         return self._current_by_session_id.get(sid, self._initial)
 
     def _set_current_state(self, new_state: str) -> None:
         """Set the state for the resolved session id; otherwise set the global state."""
         sid = self._resolve_sid()
+
+        # Fallback to global mode
         if not sid:
             return super()._set_current_state(new_state)
+        
+        # Session scoped logic
         self.ensure_session_id(sid)
         self._current_by_session_id[sid] = new_state
-
-

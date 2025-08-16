@@ -25,16 +25,14 @@ At startup the server transfers the accumulated declarations to the private
 builder, chooses global or session-scoped machine, then builds and validates.
 """
 
-from typing import Optional, Callable, TypeVar, Any
+from typing import Optional, Callable, TypeVar
 
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.server.fastmcp.tools import ToolManager
 from mcp.server.fastmcp.resources import ResourceManager
 from mcp.server.fastmcp.prompts import PromptManager
 
-from mcp.server.fastmcp.server import Context
-from mcp.server.lowlevel.server import LifespanResultT, ServerSession
-from mcp.server.state.types import ResourceResultType, ToolResultType, PromptResultType
+from mcp.server.state.types import ResourceResultType, ToolResultType, PromptResultType, Callback, ContextResolver
 from mcp.server.state.machine import State, Transition, InputSymbol, StateMachine, SessionScopedStateMachine
 from mcp.server.state.validator import StateMachineValidator, ValidationIssue
 
@@ -42,7 +40,6 @@ logger = get_logger(f"{__name__}.StateMachineBuilder")
 
 ### Helper Types 
 
-Callback = Callable[..., Any]  # Allow every input and every output
 F = TypeVar("F", bound=Callable[["StateAPI"], None])  # Decorator receives a StateAPI
 
 ### Internal Builder 
@@ -107,7 +104,7 @@ class _InternalStateMachineBuilder:
         from_state: str,
         to_state: str,
         symbol: InputSymbol,
-        callback: Optional[Callback] = None,
+        callback: Callback = None,
     ) -> None:
         """Add a transition; warn and ignore on duplicates or ambiguities."""
         state = self._states[from_state]
@@ -128,7 +125,7 @@ class _InternalStateMachineBuilder:
 
         state.transitions.append(new_tr)
 
-    def build(self, *, context_resolver: Callable[[], Context[ServerSession, LifespanResultT]] | None) -> StateMachine:
+    def build(self, *, context_resolver: ContextResolver = None) -> StateMachine:
         """Build a global machine (single current state for the process)."""
         self._validate()
         initial = self._initial or next(iter(self._states))
@@ -138,7 +135,7 @@ class _InternalStateMachineBuilder:
             context_resolver=context_resolver,
         )
     
-    def build_session_scoped(self, *, context_resolver: Callable[[], Context[ServerSession, LifespanResultT]] | None) -> "SessionScopedStateMachine":
+    def build_session_scoped(self, *, context_resolver: ContextResolver = None) -> "SessionScopedStateMachine":
         """Build a session-scoped machine (state tracked per session id, with global fallback)."""
         self._validate()
         initial = self._initial or next(iter(self._states))
@@ -218,7 +215,7 @@ class TransitionAPI:
         self,
         name: str,
         result: ToolResultType = ToolResultType.DEFAULT,
-        callback: Optional[Callback] = None,
+        callback: Callback = None,
     ) -> StateAPI:
         """Trigger on a tool result (DEFAULT, SUCCESS, or ERROR). Optional callback runs on fire."""
         symbol = InputSymbol.for_tool(name, result)
@@ -229,7 +226,7 @@ class TransitionAPI:
         self,
         name: str,
         result: PromptResultType = PromptResultType.DEFAULT,
-        callback: Optional[Callback] = None,
+        callback: Callback = None,
     ) -> StateAPI:
         """Trigger on a prompt result (DEFAULT, SUCCESS, or ERROR). Optional callback runs on fire."""
         symbol = InputSymbol.for_prompt(name, result)
@@ -240,7 +237,7 @@ class TransitionAPI:
         self,
         name: str,
         result: ResourceResultType = ResourceResultType.DEFAULT,
-        callback: Optional[Callback] = None,
+        callback: Callback = None,
     ) -> StateAPI:
         """Trigger on a resource result (DEFAULT, SUCCESS, or ERROR). Optional callback runs on fire."""
         symbol = InputSymbol.for_resource(name, result)

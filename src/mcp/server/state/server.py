@@ -27,13 +27,12 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Literal, Sequence
 
-import anyio
 from pydantic import AnyUrl
 
-from mcp.server.fastmcp import FastMCP, Context
-from mcp.server.fastmcp.utilities.logging import get_logger
+from mcp.server.fastmcp import FastMCP
+
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.server.lowlevel.server import LifespanResultT, ServerSession
+from mcp.server.lowlevel.server import LifespanResultT
 from mcp.types import (
     ContentBlock,
     GetPromptResult,
@@ -43,11 +42,14 @@ from mcp.types import (
     Tool as MCPTool,
 )
 
+from mcp.server.state.types import FastMCPContext
 from mcp.server.state.builder import StateMachineDefinition
-from mcp.server.state.machine import SessionScopedStateMachine
+from mcp.server.state.machine import StateMachine, SessionScopedStateMachine
 from mcp.server.state.prompts.state_aware_prompt_manager import StateAwarePromptManager
 from mcp.server.state.resources.state_aware_resource_manager import StateAwareResourceManager
 from mcp.server.state.tools.state_aware_tool_manager import StateAwareToolManager
+
+from mcp.server.fastmcp.utilities.logging import get_logger
 
 
 logger = get_logger(f"{__name__}.StatefulMCP")
@@ -69,17 +71,23 @@ class StatefulMCP(FastMCP[LifespanResultT]):
       visible and startup validation will fail (e.g., missing initial state).
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+            self, 
+            global_mode: bool = True, 
+            *args: Any, 
+            **kwargs: Any
+        ) -> None:
         # Parent initialization sets up _mcp_server and native managers
         super().__init__(*args, **kwargs)
 
         # Public DSL to define
         self._state_definition = StateMachineDefinition(self._tool_manager, self._resource_manager, self._prompt_manager)
 
+        # user defined configs
+        self._global_mode = global_mode # runs state machine with shared/global state
+
         # Session-scoped state machine runtime (built in run())
-        self._state_machine: SessionScopedStateMachine | None = None
-        self._registered_sessions: set[str] = set()
-        self._reg_lock = anyio.Lock()
+        self._state_machine: StateMachine | SessionScopedStateMachine | None = None
 
         # Our state-aware managers (built in run())
         self._stateful_tools: StateAwareToolManager | None = None
@@ -135,19 +143,22 @@ class StatefulMCP(FastMCP[LifespanResultT]):
         if self._state_machine is not None:
             return
 
-        logger.info("State machine bootstrap: begin building and validating from DSL")
+        logger.debug("State machine bootstrap: begin building and validating from DSL")
 
         internal = self._state_definition._to_internal_builder()  # pyright: ignore[reportPrivateUsage]
 
-        def _resolve_context() -> Context[ServerSession, LifespanResultT] | None:
+        # Pretty important stuff. This resolver is necessary to run a session scoped state machine.
+        def _resolve_context() -> FastMCPContext | None:
             try:
                 return self.get_context()
             except Exception as e:
                 logger.warning("State machine resolver: could not resolve context; falling back to global mode: %s", e)
                 return None
 
-        self._state_machine = internal.build_session_scoped(context_resolver=_resolve_context)
-        logger.info("State machine bootstrap: build complete and ready")
+        self._state_machine = internal.build(context_resolver=_resolve_context) if self._global_mode \
+            else internal.build_session_scoped(context_resolver=_resolve_context)
+
+        logger.debug("State machine bootstrap: build complete and ready")
 
     def _init_stateful_managers_once(self) -> None:
         """Instantiate state-aware managers once the state machine exists."""
@@ -155,21 +166,21 @@ class StatefulMCP(FastMCP[LifespanResultT]):
             raise RuntimeError("State machine must be built before initializing stateful managers")
         
         if self._stateful_tools is None:
-            logger.info("State machine wiring: initializing StateAwareToolManager")
+            logger.debug("State machine wiring: initializing StateAwareToolManager")
             self._stateful_tools = StateAwareToolManager(
                 state_machine=self._state_machine,
                 tool_manager=self._tool_manager,
             )
 
         if self._stateful_resources is None:
-            logger.info("State machine wiring: initializing StateAwareResourceManager")
+            logger.debug("State machine wiring: initializing StateAwareResourceManager")
             self._stateful_resources = StateAwareResourceManager(
                 state_machine=self._state_machine,
                 resource_manager=self._resource_manager,
             )
 
         if self._stateful_prompts is None:
-            logger.info("State machine wiring: initializing StateAwarePromptManager")
+            logger.debug("State machine wiring: initializing StateAwarePromptManager")
             self._stateful_prompts = StateAwarePromptManager(
                 state_machine=self._state_machine,
                 prompt_manager=self._prompt_manager,

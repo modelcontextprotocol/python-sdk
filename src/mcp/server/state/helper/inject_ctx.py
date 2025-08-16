@@ -4,9 +4,9 @@ import inspect
 
 from typing import Any, Callable, Optional, get_type_hints, get_origin, get_args, Union
 
-from mcp.server.lowlevel.server import LifespanResultT, ServerSession
-
 from mcp.server.fastmcp.server import Context
+from mcp.server.state.types import FastMCPContext
+
 from mcp.server.fastmcp.utilities.logging import get_logger
 
 logger = get_logger(__name__)
@@ -28,7 +28,7 @@ def _is_context_type(ann: Any) -> bool:
     return False
 
 
-def inject_context(fn: Callable[..., Any], ctx: Optional[Context[ServerSession, LifespanResultT]] | None) -> Any:
+def inject_context(fn: Callable[..., Any], ctx: FastMCPContext | None) -> Any:
     """
     If `fn` has a parameter annotated as Context (or Optional/Annotated Context),
     inject `ctx` by keyword. If `ctx` is None, log a warning and inject None anyway.
