@@ -24,17 +24,30 @@ An input symbol is a triple ``(type, name, result)`` where:
 At startup the server transfers the accumulated declarations to the private
 builder, chooses global or session-scoped machine, then builds and validates.
 """
+from typing import Callable, Optional, TypeVar
 
-from typing import Optional, Callable, TypeVar
-
-from mcp.server.fastmcp.utilities.logging import get_logger
-from mcp.server.fastmcp.tools import ToolManager
-from mcp.server.fastmcp.resources import ResourceManager
 from mcp.server.fastmcp.prompts import PromptManager
-
-from mcp.server.state.types import ResourceResultType, ToolResultType, PromptResultType, Callback, ContextResolver
-from mcp.server.state.machine import State, Transition, InputSymbol, StateMachine, SessionScopedStateMachine
+from mcp.server.fastmcp.resources import ResourceManager
+from mcp.server.fastmcp.tools import ToolManager
+from mcp.server.fastmcp.utilities.logging import get_logger
+from mcp.server.state.machine.state_machine import (
+    InputSymbol,
+    State,
+    StateMachine,
+    Transition,
+)
+from mcp.server.state.machine.state_machine_session_scoped import (
+    SessionScopedStateMachine,
+)
+from mcp.server.state.types import (
+    Callback,
+    ContextResolver,
+    PromptResultType,
+    ResourceResultType,
+    ToolResultType,
+)
 from mcp.server.state.validator import StateMachineValidator, ValidationIssue
+
 
 logger = get_logger(f"{__name__}.StateMachineBuilder")
 
@@ -135,7 +148,7 @@ class _InternalStateMachineBuilder:
             context_resolver=context_resolver,
         )
     
-    def build_session_scoped(self, *, context_resolver: ContextResolver = None) -> "SessionScopedStateMachine":
+    def build_session_scoped(self, *, context_resolver: ContextResolver = None) -> SessionScopedStateMachine:
         """Build a session-scoped machine (state tracked per session id, with global fallback)."""
         self._validate()
         initial = self._initial or next(iter(self._states))

@@ -3,10 +3,16 @@ from __future__ import annotations
 from typing import Any
 
 import pydantic_core
+
 from mcp.types import GetPromptResult
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.utilities.logging import get_logger
-from mcp.server.state.machine import InputSymbol, PromptResultType, StateMachine
+from mcp.server.state.machine.state_machine import (
+    InputSymbol,
+    PromptResultType,
+    StateMachine,
+)
+
 
 logger = get_logger(f"{__name__}.StateAwarePromptManager")
 

@@ -5,7 +5,12 @@ import pytest
 from pytest import LogCaptureFixture
 
 from mcp.server.state.server import StatefulMCP
-from mcp.server.state.types import ToolResultType, PromptResultType, ResourceResultType
+from mcp.server.state.types import (
+    PromptResultType,
+    ResourceResultType,
+    ToolResultType,
+)
+
 
 def test_validation_error_no_initial_state():
     """No state is marked as initial → validator must fail on build."""

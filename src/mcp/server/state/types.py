@@ -3,10 +3,10 @@ from typing import Any, Awaitable, Callable, Optional, TypeAlias
 
 from starlette.requests import Request
 
-from mcp.server.session import ServerSession
 from mcp.server.fastmcp import Context
-
 from mcp.server.lowlevel.server import LifespanResultT
+from mcp.server.session import ServerSession
+
 
 # Shorter version of Context from FastMCP
 FastMCPContext = Context[ServerSession, LifespanResultT, Request]

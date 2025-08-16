@@ -4,21 +4,19 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Optional
 
-from mcp.server.state.machine import State, InputSymbol
-
-from mcp.server.fastmcp.tools import ToolManager
-from mcp.server.fastmcp.tools.base import Tool
 from mcp.server.fastmcp.prompts import PromptManager
 from mcp.server.fastmcp.prompts.base import Prompt
 from mcp.server.fastmcp.resources import ResourceManager
 from mcp.server.fastmcp.resources.base import Resource
+from mcp.server.fastmcp.tools import ToolManager
+from mcp.server.fastmcp.tools.base import Tool
+from mcp.server.state.machine import InputSymbol, State
 
 
 @dataclass(frozen=True)
 class ValidationIssue:
     level: str  # "error" | "warning"
     message: str
-
 
 class StateMachineValidator:
     """

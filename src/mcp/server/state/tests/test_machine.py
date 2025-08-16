@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import pytest
 
+from mcp.server.state.machine.state_machine import InputSymbol
 from mcp.server.state.server import StatefulMCP
-from mcp.server.state.machine import InputSymbol
 from mcp.server.state.types import ToolResultType
+
 
 @pytest.fixture
 async def app_branch_cycle_machine() -> StatefulMCP:

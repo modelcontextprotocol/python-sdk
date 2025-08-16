@@ -4,10 +4,11 @@
 import pytest
 from pytest import LogCaptureFixture
 
+from mcp.server.state.builder import _InternalStateMachineBuilder
+from mcp.server.state.machine.state_machine import InputSymbol
 from mcp.server.state.server import StatefulMCP
 from mcp.server.state.types import ToolResultType
-from mcp.server.state.machine import InputSymbol
-from mcp.server.state.builder import _InternalStateMachineBuilder
+
 
 def test_builder_raises_on_second_initial_state():
     """

@@ -29,10 +29,6 @@ from typing import Any, Iterable, Literal, Sequence
 
 from pydantic import AnyUrl
 
-from mcp.server.fastmcp import FastMCP
-
-from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.server.lowlevel.server import LifespanResultT
 from mcp.types import (
     ContentBlock,
     GetPromptResult,
@@ -42,14 +38,20 @@ from mcp.types import (
     Tool as MCPTool,
 )
 
-from mcp.server.state.types import FastMCPContext
-from mcp.server.state.builder import StateMachineDefinition
-from mcp.server.state.machine import StateMachine, SessionScopedStateMachine
-from mcp.server.state.prompts.state_aware_prompt_manager import StateAwarePromptManager
-from mcp.server.state.resources.state_aware_resource_manager import StateAwareResourceManager
-from mcp.server.state.tools.state_aware_tool_manager import StateAwareToolManager
-
+from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.utilities.logging import get_logger
+from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.server.lowlevel.server import LifespanResultT
+from mcp.server.state.builder import StateMachineDefinition
+from mcp.server.state.machine.state_machine import StateMachine
+from mcp.server.state.prompts.state_aware_prompt_manager import (
+    StateAwarePromptManager,
+)
+from mcp.server.state.resources.state_aware_resource_manager import (
+    StateAwareResourceManager,
+)
+from mcp.server.state.tools.state_aware_tool_manager import StateAwareToolManager
+from mcp.server.state.types import FastMCPContext
 
 
 logger = get_logger(f"{__name__}.StatefulMCP")
@@ -87,7 +89,7 @@ class StatefulMCP(FastMCP[LifespanResultT]):
         self._global_mode = global_mode # runs state machine with shared/global state
 
         # Session-scoped state machine runtime (built in run())
-        self._state_machine: StateMachine | SessionScopedStateMachine | None = None
+        self._state_machine: StateMachine | None = None
 
         # Our state-aware managers (built in run())
         self._stateful_tools: StateAwareToolManager | None = None

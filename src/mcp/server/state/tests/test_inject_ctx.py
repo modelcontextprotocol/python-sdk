@@ -1,15 +1,16 @@
 # pyright: reportPrivateUsage=false, reportUnusedFunction=false, reportUnusedImport=false, reportUnusedVariable=false
 # pyright: reportUnknownArgumentType=false, reportMissingTypeArgument=false, reportUnknownParameterType=false
 
-import pytest
 import asyncio
 
+import pytest
 from pytest import LogCaptureFixture
 
+from mcp.server.fastmcp.server import Context
+from mcp.server.state.machine.state_machine import InputSymbol
 from mcp.server.state.server import StatefulMCP
-from mcp.server.state.machine import InputSymbol
 from mcp.server.state.types import ToolResultType
-from mcp.server.fastmcp import Context
+
 
 @pytest.mark.anyio
 async def test_context_injected_with_statefulmcp(caplog: LogCaptureFixture):

@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
+from starlette.requests import Request
+
 import mcp.types as types
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.logging import get_logger
-from mcp.server.session import ServerSession
 from mcp.server.lowlevel.server import LifespanResultT
-from mcp.server.state.machine import InputSymbol, StateMachine, ToolResultType
-from starlette.requests import Request
+from mcp.server.session import ServerSession
+from mcp.server.state import InputSymbol, StateMachine, ToolResultType
+
 
 logger = get_logger(f"{__name__}.StateAwareToolManager")
 

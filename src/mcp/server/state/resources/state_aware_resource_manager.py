@@ -1,13 +1,19 @@
 from __future__ import annotations
 
-from pydantic import AnyUrl
 from typing import Iterable
+
+from pydantic import AnyUrl
 
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.resources import Resource, ResourceManager
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.server.state.machine import InputSymbol, ResourceResultType, StateMachine
+from mcp.server.state.machine.state_machine import (
+    InputSymbol,
+    ResourceResultType,
+    StateMachine,
+)
+
 
 logger = get_logger(f"{__name__}.StateAwareResourceManager")
 
