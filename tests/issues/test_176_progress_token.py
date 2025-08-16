@@ -36,6 +36,12 @@ async def test_progress_token_zero_first_call():
 
     # Verify progress notifications
     assert mock_session.send_progress_notification.call_count == 3, "All progress notifications should be sent"
-    mock_session.send_progress_notification.assert_any_call(progress_token=0, progress=0.0, total=10.0, message=None, related_request_id='test-request')
-    mock_session.send_progress_notification.assert_any_call(progress_token=0, progress=5.0, total=10.0, message=None, related_request_id='test-request')
-    mock_session.send_progress_notification.assert_any_call(progress_token=0, progress=10.0, total=10.0, message=None, related_request_id='test-request')
+    mock_session.send_progress_notification.assert_any_call(
+        progress_token=0, progress=0.0, total=10.0, message=None, related_request_id="test-request"
+    )
+    mock_session.send_progress_notification.assert_any_call(
+        progress_token=0, progress=5.0, total=10.0, message=None, related_request_id="test-request"
+    )
+    mock_session.send_progress_notification.assert_any_call(
+        progress_token=0, progress=10.0, total=10.0, message=None, related_request_id="test-request"
+    )
