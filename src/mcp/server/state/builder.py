@@ -117,11 +117,11 @@ class _InternalStateMachineBuilder:
         from_state: str,
         to_state: str,
         symbol: InputSymbol,
-        callback: Callback = None,
+        effect: Callback = None,
     ) -> None:
         """Add a transition; warn and ignore on duplicates or ambiguities."""
         state = self._states[from_state]
-        new_tr = Transition(to_state=to_state, input_symbol=symbol, callback=callback)
+        new_tr = Transition(to_state=to_state, input_symbol=symbol, effect=effect)
 
         # duplicate?
         if new_tr in state.transitions:

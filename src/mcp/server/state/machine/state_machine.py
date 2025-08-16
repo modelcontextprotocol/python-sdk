@@ -70,11 +70,11 @@ class InputSymbol:
 
 @dataclass(frozen=True)
 class Transition:
-    """Directed edge: on exact input symbol, move to ``to_state`` and then run optional callback."""
+    """Directed edge: on exact input symbol, move to ``to_state`` and then run optional effect."""
 
     to_state: str
     input_symbol: InputSymbol
-    callback: Callback = field(default=None, compare=False, repr=False)  # ignored for equality and repr
+    effect: Callback = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -126,11 +126,11 @@ class StateMachine:
         return s.is_terminal if s else False
     
     def _apply(self, state: State, symbol: InputSymbol) -> bool:
-        """Try to apply a transition for `symbol`; update state and run callback if found."""
+        """Try to apply a transition for `symbol`; update state and run effect if found."""
         for tr in state.transitions:
             if symbol == tr.input_symbol:
                 self._set_current_state(tr.to_state)  
-                apply_callback_with_context(tr.callback, self._resolve_context) 
+                apply_callback_with_context(tr.effect, self._resolve_context) 
                 return True
         return False
 
