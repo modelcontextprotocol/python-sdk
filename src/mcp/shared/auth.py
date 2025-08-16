@@ -114,20 +114,20 @@ class OAuthMetadata(BaseModel):
     registration_endpoint: AnyHttpUrl | None = None
     scopes_supported: list[str] | None = None
     response_types_supported: list[str] = ["code"]
-    response_modes_supported: list[Literal["query", "fragment", "form_post"]] | None = None
+    response_modes_supported: list[str] | None = None
     grant_types_supported: list[str] | None = None
     token_endpoint_auth_methods_supported: list[str] | None = None
-    token_endpoint_auth_signing_alg_values_supported: None = None
+    token_endpoint_auth_signing_alg_values_supported: list[str] | None = None
     service_documentation: AnyHttpUrl | None = None
     ui_locales_supported: list[str] | None = None
     op_policy_uri: AnyHttpUrl | None = None
     op_tos_uri: AnyHttpUrl | None = None
     revocation_endpoint: AnyHttpUrl | None = None
     revocation_endpoint_auth_methods_supported: list[str] | None = None
-    revocation_endpoint_auth_signing_alg_values_supported: None = None
+    revocation_endpoint_auth_signing_alg_values_supported: list[str] | None = None
     introspection_endpoint: AnyHttpUrl | None = None
     introspection_endpoint_auth_methods_supported: list[str] | None = None
-    introspection_endpoint_auth_signing_alg_values_supported: None = None
+    introspection_endpoint_auth_signing_alg_values_supported: list[str] | None = None
     code_challenge_methods_supported: list[str] | None = None
 
 
@@ -139,6 +139,17 @@ class ProtectedResourceMetadata(BaseModel):
 
     resource: AnyHttpUrl
     authorization_servers: list[AnyHttpUrl] = Field(..., min_length=1)
+    jwks_uri: AnyHttpUrl | None = None
     scopes_supported: list[str] | None = None
     bearer_methods_supported: list[str] | None = Field(default=["header"])  # MCP only supports header method
+    resource_signing_alg_values_supported: list[str] | None = None
+    resource_name: str | None = None
     resource_documentation: AnyHttpUrl | None = None
+    resource_policy_uri: AnyHttpUrl | None = None
+    resource_tos_uri: AnyHttpUrl | None = None
+    # tls_client_certificate_bound_access_tokens default is False, but ommited here for clarity
+    tls_client_certificate_bound_access_tokens: bool | None = None
+    authorization_details_types_supported: list[str] | None = None
+    dpop_signing_alg_values_supported: list[str] | None = None
+    # dpop_bound_access_tokens_required default is False, but ommited here for clarity
+    dpop_bound_access_tokens_required: bool | None = None

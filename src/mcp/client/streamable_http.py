@@ -44,7 +44,7 @@ MCP_SESSION_ID = "mcp-session-id"
 MCP_PROTOCOL_VERSION = "mcp-protocol-version"
 LAST_EVENT_ID = "last-event-id"
 CONTENT_TYPE = "content-type"
-ACCEPT = "Accept"
+ACCEPT = "accept"
 
 
 JSON = "application/json"
@@ -257,6 +257,7 @@ class StreamableHTTPTransport:
                     ctx.metadata.on_resumption_token_update if ctx.metadata else None,
                 )
                 if is_complete:
+                    await event_source.response.aclose()
                     break
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
@@ -339,6 +340,7 @@ class StreamableHTTPTransport:
                 # If the SSE event indicates completion, like returning respose/error
                 # break the loop
                 if is_complete:
+                    await response.aclose()
                     break
         except Exception as e:
             logger.exception("Error reading SSE stream:")

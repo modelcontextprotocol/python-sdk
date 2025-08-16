@@ -37,6 +37,7 @@ async def test_client_session_initialize():
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     initialized_notification = None
+    result = None
 
     async def mock_server():
         nonlocal initialized_notification
@@ -244,6 +245,7 @@ async def test_client_session_version_negotiation_success():
     """Test successful version negotiation with supported version"""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    result = None
 
     async def mock_server():
         session_message = await client_to_server_receive.receive()
@@ -858,8 +860,8 @@ async def test_client_session_request_call_tool_with_rejoin():
         if isinstance(message, Exception):
             raise message
 
-    request_state_manager_1 = InMemoryRequestStateManager()
-    request_state_manager_2 = InMemoryRequestStateManager()
+    request_state_manager_1 = InMemoryRequestStateManager[types.ClientRequest, types.ClientResult]()
+    request_state_manager_2 = InMemoryRequestStateManager[types.ClientRequest, types.ClientResult]()
 
     async with (
         ClientSession(
