@@ -66,7 +66,11 @@ class StatefulMCP(FastMCP[LifespanResultT]):
 
     Session scoping:
       State inside the state machine is bound per state for each session.
-      If `request_context` is not avaiable the state machine will fall back to a global state.
+      If `request_context` is not available the state machine will fall back to a global state.
+
+    Configuration:
+      - `global_mode`: when True, runs a non-session-scoped state machine; all clients
+        share the same `current_state` while their lifespans remain isolated.
 
     Important:
       Define states via `statebuilder`; otherwise no tools/resources/prompts are
@@ -75,7 +79,7 @@ class StatefulMCP(FastMCP[LifespanResultT]):
 
     def __init__(
             self, 
-            global_mode: bool = True, 
+            global_mode: bool = False, 
             *args: Any, 
             **kwargs: Any
         ) -> None:
