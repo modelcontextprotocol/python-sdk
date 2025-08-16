@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Iterable
+from pydantic import AnyUrl
+from typing import Iterable
 
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.resources import Resource, ResourceManager
@@ -11,13 +12,13 @@ from mcp.server.state.machine import InputSymbol, ResourceResultType, StateMachi
 logger = get_logger(f"{__name__}.StateAwareResourceManager")
 
 class StateAwareResourceManager:
-    """State-aware facade over ResourceManager (composition).
+    """State-aware facade over ``ResourceManager`` (composition).
 
-    Wraps a StateMachine (global or session-scoped) and delegates to the native
-    ResourceManager; stays fully compatible with registrations and APIs.
+    Wraps a ``StateMachine`` (global or session-scoped) and delegates to the native
+    ``ResourceManager``; stays fully compatible with registrations and APIs.
 
-    Note: resource templates (list_resource_templates) are not overridden here and
-    continue to be handled by FastMCP until semantics are finalized.
+    **Note:** Resource templates (``list_resource_templates``) are not overridden here and
+    continue to be handled by **FastMCP** until semantics are finalized.
     """
 
     def __init__(self, state_machine: StateMachine, resource_manager: ResourceManager):
@@ -25,10 +26,9 @@ class StateAwareResourceManager:
         self._state_machine = state_machine
 
     async def list_resources(self) -> list[Resource]:
-        """Return resources allowed in the current_state.
+        """Return resources allowed in the **current_state**.
 
-        Session-aware when the machine is session-scoped. Missing registrations
-        are logged as warnings (soft), not raised as errors.
+        - Missing registrations are logged as warnings (soft), not raised as errors.
         """
         resource_uris = self._state_machine.get_available_inputs().get("resources", set())
 
@@ -45,16 +45,26 @@ class StateAwareResourceManager:
                 )
         return available
 
-    async def read_resource(self, uri: str | Any) -> Iterable[ReadResourceContents]:
-        """Read via native manager; transition FSM on SUCCESS/ERROR.
-
-        TODO: Pre-validate that `uri` is permitted in the current state.
+    async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:
         """
-        try:
-            resource = await self._resource_manager.get_resource(uri)
-            if not resource:
-                raise ResourceError(f"Unknown resource: {uri}")
+        Read the resource in the **current state**:
 
+        - **Pre-validate**: ensure resource is allowed and available in the current state; otherwise raise ``ResourceError``.
+        - **Execute**: resolve the resource and read its content.
+        - **Transition**: emit ``SUCCESS`` or ``ERROR`` via ``InputSymbol.for_resource(...)`` to drive a state transition.
+        """
+        allowed = self._state_machine.get_available_inputs().get("resources", set())
+        if str(uri) not in allowed:
+            raise ResourceError(
+                f"Resource '{uri}' is not allowed in state '{self._state_machine.current_state}'. "
+                f"Try `list/resources` first to check which resources are available."
+            )
+        
+        resource = await self._resource_manager.get_resource(uri)
+        if not resource:
+            raise ResourceError(f"Unknown resource: {uri}")
+
+        try:
             content = await resource.read()
             self._state_machine.transition(InputSymbol.for_resource(str(uri), ResourceResultType.SUCCESS))
 
@@ -63,3 +73,4 @@ class StateAwareResourceManager:
             self._state_machine.transition(InputSymbol.for_resource(str(uri), ResourceResultType.ERROR))
             logger.exception("Error reading resource %s", uri)
             raise ResourceError(str(e)) from e
+
