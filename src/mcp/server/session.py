@@ -301,7 +301,7 @@ class ServerSession(
         progress: float,
         total: float | None = None,
         message: str | None = None,
-        related_request_id: str | None = None,
+        related_request_id: types.RequestId | None = None,
     ) -> None:
         """Send a progress notification."""
         await self.send_notification(
