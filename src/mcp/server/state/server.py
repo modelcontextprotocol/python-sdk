@@ -79,8 +79,8 @@ class StatefulMCP(FastMCP[LifespanResultT]):
 
     def __init__(
             self, 
+            *args: Any,
             global_mode: bool = False, 
-            *args: Any, 
             **kwargs: Any
         ) -> None:
         # Parent initialization sets up _mcp_server and native managers
