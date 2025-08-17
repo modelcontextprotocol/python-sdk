@@ -1,39 +1,43 @@
 # pyright: reportPrivateUsage=false, reportUnusedFunction=false, reportUnusedImport=false, reportUnusedVariable=false
-# pyright: reportUnknownArgumentType=false, reportMissingTypeArgument=false, reportUnknownParameterType=false
+# pyright: reportUnknownArgumentType=false, reportMissingTypeArgument=false, reportUnknownParameterType=false, reportAssignmentType=false
 
 import asyncio
 
 import pytest
 from pytest import LogCaptureFixture
 
+from mcp.types import TextContent
 from mcp.server.fastmcp.server import Context
 from mcp.server.state.machine.state_machine import InputSymbol
 from mcp.server.state.server import StatefulMCP
-from mcp.server.state.types import ToolResultType
+from mcp.server.state.types import ToolResultType, PromptResultType
 
 
 @pytest.mark.anyio
 async def test_context_injected_on_effect(caplog: LogCaptureFixture):
-    """Ensure that when a Context resolver is available, the Context is injected into the callback."""
+    """Ensure that when a Context resolver is available, the Context is injected into the effect."""
     caplog.set_level("DEBUG")
 
-    app = StatefulMCP(name="ctx_inject_test")
+    app = StatefulMCP(name="inject_ctx_prompt_effect")
 
     called = {}
 
-    @app.tool()
-    async def t_trigger(ctx: Context) -> str:
+    async def ctx_effect(ctx: Context) -> str:
         called["ctx"] = ctx
         return "ok"
 
+    @app.tool()
+    def t_test(ctx: Context) -> str:
+        return "ok"
+
     # sanity: tool is registered
-    assert app._tool_manager.get_tool("t_trigger") is not None
+    assert app._tool_manager.get_tool("t_test") is not None
 
     # minimal machine: s0 -> s1 (callback expects Context)
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .transition("s1").on_tool("t_trigger", result=ToolResultType.SUCCESS, effect=t_trigger)
+            .transition("s1").on_tool("t_test", result=ToolResultType.SUCCESS, effect=ctx_effect)
     )
 
     app._build_state_machine_once()
@@ -42,7 +46,7 @@ async def test_context_injected_on_effect(caplog: LogCaptureFixture):
     sm = app._state_machine
     assert sm is not None
 
-    sm.transition(InputSymbol.for_tool("t_trigger", ToolResultType.SUCCESS))
+    sm.transition(InputSymbol.for_tool("t_test", ToolResultType.SUCCESS))
 
     for _ in range(10): # let the asyc t_trigger run
         if "ctx" in called:
@@ -53,3 +57,40 @@ async def test_context_injected_on_effect(caplog: LogCaptureFixture):
     assert called["ctx"] is not None, "Context should have been injected"
     assert any("Injecting context parameter for target" in rec.message for rec in caplog.records)
 
+@pytest.mark.anyio
+async def test_context_injected_on_prompt(caplog: LogCaptureFixture):
+    """Ensure that when a Context resolver is available, the Context is injected into the prompt."""
+    caplog.set_level("DEBUG")
+
+    app = StatefulMCP(name="inject_ctx_prompt_test")
+
+    called = {}
+
+    @app.prompt()
+    def p_ctx(ctx: Context) -> str:
+        called["ctx"] = ctx
+        return "ok"
+
+    # this does not trigger the prompt (native manager)
+    assert app._prompt_manager.get_prompt("p_ctx") is not None
+
+    # minimal machine: s0 -> s1 (callback expects Context)
+    (
+        app.statebuilder
+            .define_state("s0", is_initial=True)
+            .transition("s1").on_prompt("p_ctx", PromptResultType.SUCCESS)
+    )
+
+    app._build_state_machine_once()
+    app._init_stateful_managers_once()
+
+    sm = app._state_machine
+    assert sm is not None
+
+    # this does trigger the prompt (stateful manager)
+    prompt = await app.get_prompt("p_ctx")
+    content: TextContent = prompt.messages[0].content
+
+    assert content.text is "ok"
+    assert called["ctx"] is not None, "Context should have been injected"
+    assert any("Injecting context parameter for target" in rec.message for rec in caplog.records)

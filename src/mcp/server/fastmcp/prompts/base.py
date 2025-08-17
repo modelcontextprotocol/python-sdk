@@ -1,4 +1,5 @@
 """Base classes for FastMCP prompts."""
+from __future__ import annotations
 
 import inspect
 from collections.abc import Awaitable, Callable, Sequence
@@ -8,8 +9,6 @@ import pydantic_core
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
 from mcp.types import ContentBlock, TextContent
-
-from mcp.server.state.helper.inject_ctx import inject_context 
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -86,18 +85,30 @@ class Prompt(BaseModel):
         - A dict (converted to a message)
         - A sequence of any of the above
         """
-        func_name = name or fn.__name__
+        from mcp.server.fastmcp.server import Context  # local import to avoid cycles
 
+        func_name = name or fn.__name__
         if func_name == "<lambda>":
             raise ValueError("You must provide a name for lambda functions")
 
-        # Get schema from TypeAdapter - will fail if function isn't properly typed
+        # detect context kwarg
+        sig = inspect.signature(fn)
+        context_kwarg: str | None = None
+        for param_name, param in sig.parameters.items():
+            ann = param.annotation
+            if isinstance(ann, type) and issubclass(ann, Context):
+                context_kwarg = param_name
+                break
+
+        # Get schema from TypeAdapter
         parameters = TypeAdapter(fn).json_schema()
 
-        # Convert parameters to PromptArguments
+        # Convert parameters to PromptArguments (skip context_kwarg if present)
         arguments: list[PromptArgument] = []
         if "properties" in parameters:
             for param_name, param in parameters["properties"].items():
+                if param_name == context_kwarg:
+                    continue
                 required = param_name in parameters.get("required", [])
                 arguments.append(
                     PromptArgument(
@@ -133,6 +144,7 @@ class Prompt(BaseModel):
 
         try:
             # Call function and check if result is a coroutine
+            from mcp.server.state.helper.inject_ctx import inject_context 
             result = inject_context(self.fn, context, arguments) # This will be supported in FastMCP 2.0
             if inspect.iscoroutine(result):
                 result = await result
