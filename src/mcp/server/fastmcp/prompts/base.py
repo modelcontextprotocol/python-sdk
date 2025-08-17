@@ -2,12 +2,19 @@
 
 import inspect
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Any, Literal
+from typing import Any, Literal, TYPE_CHECKING
 
 import pydantic_core
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
 from mcp.types import ContentBlock, TextContent
+
+from mcp.server.state.helper.inject_ctx import inject_context 
+
+if TYPE_CHECKING:
+    from mcp.server.fastmcp.server import Context
+    from mcp.server.session import ServerSessionT
+    from mcp.shared.context import LifespanContextT, RequestT
 
 
 class Message(BaseModel):
@@ -111,7 +118,10 @@ class Prompt(BaseModel):
             fn=fn,
         )
 
-    async def render(self, arguments: dict[str, Any] | None = None) -> list[Message]:
+    async def render(
+            self, arguments: dict[str, Any] | None = None, 
+            context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
+        ) -> list[Message]:
         """Render the prompt with arguments."""
         # Validate required arguments
         if self.arguments:
@@ -123,7 +133,7 @@ class Prompt(BaseModel):
 
         try:
             # Call function and check if result is a coroutine
-            result = self.fn(**(arguments or {}))
+            result = inject_context(self.fn, context, arguments) # This will be supported in FastMCP 2.0
             if inspect.iscoroutine(result):
                 result = await result
 

@@ -2,15 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from starlette.requests import Request
-
 import mcp.types as types
-from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.logging import get_logger
-from mcp.server.lowlevel.server import LifespanResultT
-from mcp.server.session import ServerSession
 from mcp.server.state import InputSymbol, StateMachine, ToolResultType
+from mcp.server.state.types import FastMCPContext
 
 
 logger = get_logger(f"{__name__}.StateAwareToolManager")
@@ -51,7 +47,7 @@ class StateAwareToolManager:
         self,
         name: str,
         arguments: dict[str, Any],
-        ctx: Context[ServerSession, LifespanResultT, Request],
+        ctx: FastMCPContext
     ) -> Sequence[types.ContentBlock] | dict[str, Any]:
         """
         Execute the tool in the **current state**:

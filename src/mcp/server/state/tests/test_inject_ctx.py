@@ -13,7 +13,7 @@ from mcp.server.state.types import ToolResultType
 
 
 @pytest.mark.anyio
-async def test_context_injected_with_statefulmcp(caplog: LogCaptureFixture):
+async def test_context_injected_on_effect(caplog: LogCaptureFixture):
     """Ensure that when a Context resolver is available, the Context is injected into the callback."""
     caplog.set_level("DEBUG")
 
@@ -33,7 +33,7 @@ async def test_context_injected_with_statefulmcp(caplog: LogCaptureFixture):
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .transition("s1").on_tool("t_trigger", result=ToolResultType.SUCCESS, callback=t_trigger)
+            .transition("s1").on_tool("t_trigger", result=ToolResultType.SUCCESS, effect=t_trigger)
     )
 
     app._build_state_machine_once()
@@ -51,5 +51,5 @@ async def test_context_injected_with_statefulmcp(caplog: LogCaptureFixture):
 
     assert "ctx" in called, "Callback should have been called"
     assert called["ctx"] is not None, "Context should have been injected"
-    assert any("Injected context parameter" in rec.message for rec in caplog.records)
+    assert any("Injecting context parameter for target" in rec.message for rec in caplog.records)
 

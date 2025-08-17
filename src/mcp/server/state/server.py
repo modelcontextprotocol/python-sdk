@@ -232,7 +232,8 @@ class StatefulMCP(FastMCP[LifespanResultT]):
         session-scoped state machine to prompts allowed in the *current state* of the *current session*.
         """
         assert self._stateful_prompts is not None, "Stateful managers not initialized; call run() first"
-        return await self._stateful_prompts.get_prompt(name, arguments)
+        ctx = self.get_context()
+        return await self._stateful_prompts.get_prompt(name, arguments or {}, ctx)
 
 
     async def list_tools(self) -> list[MCPTool]:

@@ -228,33 +228,33 @@ class TransitionAPI:
         self,
         name: str,
         result: ToolResultType = ToolResultType.DEFAULT,
-        callback: Callback = None,
+        effect: Callback = None,
     ) -> StateAPI:
         """Trigger on a tool result (DEFAULT, SUCCESS, or ERROR). Optional callback runs on fire."""
         symbol = InputSymbol.for_tool(name, result)
-        self._builder.add_transition(self._from, self._to, symbol, callback)
+        self._builder.add_transition(self._from, self._to, symbol, effect)
         return StateAPI(self._builder, self._from)
 
     def on_prompt(
         self,
         name: str,
         result: PromptResultType = PromptResultType.DEFAULT,
-        callback: Callback = None,
+        effect: Callback = None,
     ) -> StateAPI:
         """Trigger on a prompt result (DEFAULT, SUCCESS, or ERROR). Optional callback runs on fire."""
         symbol = InputSymbol.for_prompt(name, result)
-        self._builder.add_transition(self._from, self._to, symbol, callback)
+        self._builder.add_transition(self._from, self._to, symbol, effect)
         return StateAPI(self._builder, self._from)
 
     def on_resource(
         self,
         name: str,
         result: ResourceResultType = ResourceResultType.DEFAULT,
-        callback: Callback = None,
+        effect: Callback = None,
     ) -> StateAPI:
         """Trigger on a resource result (DEFAULT, SUCCESS, or ERROR). Optional callback runs on fire."""
         symbol = InputSymbol.for_resource(name, result)
-        self._builder.add_transition(self._from, self._to, symbol, callback)
+        self._builder.add_transition(self._from, self._to, symbol, effect)
         return StateAPI(self._builder, self._from)
     
 

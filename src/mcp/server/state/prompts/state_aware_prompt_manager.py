@@ -7,6 +7,7 @@ import pydantic_core
 from mcp.types import GetPromptResult
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.utilities.logging import get_logger
+from mcp.server.state.types import FastMCPContext
 from mcp.server.state.machine.state_machine import (
     InputSymbol,
     PromptResultType,
@@ -48,7 +49,12 @@ class StateAwarePromptManager:
         return available
 
 
-    async def get_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> GetPromptResult:
+    async def get_prompt(
+            self, 
+            name: str, 
+            arguments: dict[str, Any],
+            ctx: FastMCPContext
+        ) -> GetPromptResult:
         """
         Execute the prompt in the **current state**:
 
@@ -68,7 +74,7 @@ class StateAwarePromptManager:
             raise ValueError(f"Unknown prompt: {name}")
 
         try:
-            messages = await prompt.render(arguments)
+            messages = await prompt.render(arguments, context=ctx)
 
             self._state_machine.transition(InputSymbol.for_prompt(name, PromptResultType.SUCCESS))
             return GetPromptResult(

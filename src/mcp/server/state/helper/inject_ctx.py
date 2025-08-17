@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import inspect
 
-from typing import Any, Callable, Optional, get_type_hints, get_origin, get_args, Union
+from typing import Any, Callable, get_type_hints, get_origin, get_args, Union
 
 from mcp.server.fastmcp.server import Context
-from mcp.server.state.types import FastMCPContext
+from mcp.server.session import ServerSessionT
+from mcp.shared.context import LifespanContextT, RequestT
 
 from mcp.server.fastmcp.utilities.logging import get_logger
 
@@ -28,41 +29,40 @@ def _is_context_type(ann: Any) -> bool:
     return False
 
 
-def inject_context(fn: Callable[..., Any], ctx: FastMCPContext | None) -> Any:
+def inject_context(
+    fn: Callable[..., Any],
+    ctx: Context[ServerSessionT, LifespanContextT, RequestT] | None,
+    arguments: dict[str, Any] | None = None,
+) -> Any:
     """
-    If `fn` has a parameter annotated as Context (or Optional/Annotated Context),
-    inject `ctx` by keyword. If `ctx` is None, log a warning and inject None anyway.
-    If no Context parameter exists, call without injection.
-
-    Works with future annotations via get_type_hints().
+    Call `fn` with given arguments, injecting `ctx` into any parameters annotated
+    as Context (or Optional/Annotated Context). If `ctx` is None, inject None and log a warning.
     """
 
-    # extract params
+    # Resolve annotations (with extras, so Annotated works)
     try:
-        resolved = get_type_hints(fn, globalns=fn.__globals__, localns=None, include_extras=True)
+        resolved = get_type_hints(fn, globalns=fn.__globals__, include_extras=True)
     except Exception:
-        # Fallback if resolution fails (string annotations may limit detection)
+        # fallback if resolution fails
         resolved = {name: p.annotation for name, p in inspect.signature(fn).parameters.items()}
 
-    # check params for context
-    target: Optional[str] = None
     sig = inspect.signature(fn)
+    call_args = dict(arguments or {})
+
     for name, param in sig.parameters.items():
+        if name in call_args:
+            continue  # user already provided, don't overwrite
         ann: Any = resolved.get(name, param.annotation)
         if _is_context_type(ann):
-            target = name
-            break
+            if ctx is None:
+                logger.warning(
+                    "Function %s expects Context parameter '%s', but ctx=None; injecting None",
+                    fn.__name__,
+                    name,
+                )
+            logger.debug("Injecting context parameter for target '%s'.", name)
+            call_args[name] = ctx
 
-    if target is None:
-        logger.debug("No context parameter found to inject.")
-        return fn()
+    return fn(**call_args)
 
-    if ctx is None:
-        logger.warning(
-            "Transition callback expects a Context parameter '%s', but provided context is None; injecting None.",
-            target,
-        )
-
-    logger.debug("Injected context parameter for target '%s'.", target)
-
-    return fn(**{target: ctx})
+    
