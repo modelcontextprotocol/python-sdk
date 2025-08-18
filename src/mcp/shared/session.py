@@ -292,7 +292,7 @@ class InMemoryRequestStateManager(
         assert request is not None
 
         try:
-            with anyio.fail_after(timeout):
+            with anyio.move_on_after(timeout):
                 return await receive_stream.receive()
         except anyio.EndOfStream:
             raise McpError(
@@ -301,8 +301,6 @@ class InMemoryRequestStateManager(
                     message=("Connection closed"),
                 )
             )
-        except TimeoutError:
-            return None
 
     async def handle_response(self, message: JSONRPCResponse | JSONRPCError) -> bool:
         send_stream, _ = self._response_streams.get(message.id, [None, None])
