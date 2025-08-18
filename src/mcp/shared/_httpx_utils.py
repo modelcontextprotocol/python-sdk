@@ -13,6 +13,7 @@ class McpHttpClientFactory(Protocol):
         headers: dict[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
         auth: httpx.Auth | None = None,
+        verify: bool | None = None,
     ) -> httpx.AsyncClient: ...
 
 
@@ -20,6 +21,7 @@ def create_mcp_http_client(
     headers: dict[str, str] | None = None,
     timeout: httpx.Timeout | None = None,
     auth: httpx.Auth | None = None,
+    verify: bool | None = None,
 ) -> httpx.AsyncClient:
     """Create a standardized httpx AsyncClient with MCP defaults.
 
@@ -32,6 +34,8 @@ def create_mcp_http_client(
         timeout: Request timeout as httpx.Timeout object.
             Defaults to 30 seconds if not specified.
         auth: Optional authentication handler.
+        verify: Either True to use default CA bundle, False to disable verification, or an instance of ssl.SSLContext.
+
 
     Returns:
         Configured httpx.AsyncClient instance with MCP defaults.
@@ -60,6 +64,10 @@ def create_mcp_http_client(
         auth = BasicAuth(username="user", password="pass")
         async with create_mcp_http_client(headers, timeout, auth) as client:
             response = await client.get("/protected-endpoint")
+
+        # With SSL verification disabled
+        async with create_mcp_http_client(verify=False) as client:
+            response = await client.get("/insecure-endpoint")
     """
     # Set MCP defaults
     kwargs: dict[str, Any] = {
@@ -79,5 +87,9 @@ def create_mcp_http_client(
     # Handle authentication
     if auth is not None:
         kwargs["auth"] = auth
+
+    # Handle SSL verification
+    if verify is not None:
+        kwargs["verify"] = verify
 
     return httpx.AsyncClient(**kwargs)
