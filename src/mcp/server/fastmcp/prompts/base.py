@@ -1,14 +1,17 @@
 """Base classes for FastMCP prompts."""
 from __future__ import annotations
 
+import functools
 import inspect
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Any, Literal, TYPE_CHECKING
+from typing import Any, Literal, TYPE_CHECKING, get_origin
+from functools import cached_property
 
 import pydantic_core
-from pydantic import BaseModel, Field, TypeAdapter, validate_call
+from pydantic import BaseModel, Field, TypeAdapter
 
 from mcp.types import ContentBlock, TextContent
+from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -68,6 +71,15 @@ class Prompt(BaseModel):
     description: str | None = Field(None, description="Description of what the prompt does")
     arguments: list[PromptArgument] | None = Field(None, description="Arguments that can be passed to the prompt")
     fn: Callable[..., PromptResult | Awaitable[PromptResult]] = Field(exclude=True)
+    fn_metadata: FuncMetadata = Field(
+        description="Metadata about the function including a pydantic model for prompt arguments"
+    )
+    is_async: bool = Field(description="Whether the prompt function is async")
+    context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
+
+    @cached_property
+    def output_schema(self) -> dict[str, Any] | None:
+        return self.fn_metadata.output_schema
 
     @classmethod
     def from_function(
@@ -76,6 +88,7 @@ class Prompt(BaseModel):
         name: str | None = None,
         title: str | None = None,
         description: str | None = None,
+        context_kwarg: str | None = None,
     ) -> "Prompt":
         """Create a Prompt from a function.
 
@@ -91,24 +104,36 @@ class Prompt(BaseModel):
         if func_name == "<lambda>":
             raise ValueError("You must provide a name for lambda functions")
 
-        # detect context kwarg
-        sig = inspect.signature(fn)
-        context_kwarg: str | None = None
-        for param_name, param in sig.parameters.items():
-            ann = param.annotation
-            if isinstance(ann, type) and issubclass(ann, Context):
-                context_kwarg = param_name
-                break
+        func_doc = description or fn.__doc__ or ""
+        is_async = _is_async_callable(fn)
 
-        # Get schema from TypeAdapter
-        parameters = TypeAdapter(fn).json_schema()
+        # Auto-detect context kwarg if not provided
+        if context_kwarg is None:
+            sig = inspect.signature(fn)
+            for param_name, param in sig.parameters.items():
+                if get_origin(param.annotation) is not None:
+                    continue
+                try:
+                    if isinstance(param.annotation, type) and issubclass(param.annotation, Context):
+                        context_kwarg = param_name
+                        break
+                except TypeError:
+                    # Handle cases where param.annotation is not a class
+                    continue
 
-        # Convert parameters to PromptArguments (skip context_kwarg if present)
+        # Get function metadata (excluding context kwarg from parameters)
+        func_arg_metadata = func_metadata(
+            fn,
+            skip_names=[context_kwarg] if context_kwarg is not None else [],
+        )
+
+        # Get parameters schema for arguments (context kwarg excluded)
+        parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
+
+        # Convert parameters to PromptArguments
         arguments: list[PromptArgument] = []
         if "properties" in parameters:
             for param_name, param in parameters["properties"].items():
-                if param_name == context_kwarg:
-                    continue
                 required = param_name in parameters.get("required", [])
                 arguments.append(
                     PromptArgument(
@@ -118,21 +143,22 @@ class Prompt(BaseModel):
                     )
                 )
 
-        # ensure the arguments are properly cast
-        fn = validate_call(fn)
-
         return cls(
             name=func_name,
             title=title,
-            description=description or fn.__doc__ or "",
+            description=func_doc,
             arguments=arguments,
             fn=fn,
+            fn_metadata=func_arg_metadata,
+            is_async=is_async,
+            context_kwarg=context_kwarg,
         )
 
     async def render(
-            self, arguments: dict[str, Any] | None = None, 
-            context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
-        ) -> list[Message]:
+        self, 
+        arguments: dict[str, Any] | None = None, 
+        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
+    ) -> list[Message]:
         """Render the prompt with arguments."""
         # Validate required arguments
         if self.arguments:
@@ -143,14 +169,16 @@ class Prompt(BaseModel):
                 raise ValueError(f"Missing required arguments: {missing}")
 
         try:
-            # Call function and check if result is a coroutine
-            from mcp.server.state.helper.inject_ctx import inject_context 
-            result = inject_context(self.fn, context, arguments) # This will be supported in FastMCP 2.0
-            if inspect.iscoroutine(result):
-                result = await result
+            # Use the same pattern as Tool.run()
+            result = await self.fn_metadata.call_fn_with_arg_validation(
+                self.fn,
+                self.is_async,
+                arguments or {},
+                {self.context_kwarg: context} if self.context_kwarg is not None else None,
+            )
 
             # Validate messages
-            if not isinstance(result, list | tuple):
+            if not isinstance(result, (list, tuple)):
                 result = [result]
 
             # Convert result to messages
@@ -173,3 +201,13 @@ class Prompt(BaseModel):
             return messages
         except Exception as e:
             raise ValueError(f"Error rendering prompt {self.name}: {e}")
+
+
+def _is_async_callable(obj: Any) -> bool:
+    """Check if an object is an async callable (copied from Tool implementation)."""
+    while isinstance(obj, functools.partial):
+        obj = obj.func
+
+    return inspect.iscoroutinefunction(obj) or (
+        callable(obj) and inspect.iscoroutinefunction(getattr(obj, "__call__", None))
+    )
