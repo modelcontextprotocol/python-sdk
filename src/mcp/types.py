@@ -715,7 +715,90 @@ class AudioContent(BaseModel):
 
 
 class SamplingMessage(BaseModel):
-    """Describes a message issued to or received from an LLM API."""
+    """Represents a message in an LLM conversation for sampling/generation requests.
+
+    SamplingMessage is used to structure conversation history when requesting LLM
+    text generation through the MCP sampling protocol. Each message represents a
+    single turn in the conversation with a specific role and content.
+
+    This class is primarily used with [`ServerSession.create_message`][mcp.server.session.ServerSession.create_message] to send
+    conversation context to LLMs via MCP clients. The message format follows
+    standard LLM conversation patterns with distinct roles for users and assistants.
+
+    Attributes:
+        role: The speaker role, either "user" for human input or "assistant" for AI responses.
+        content: The message content, which can be [`TextContent`][mcp.types.TextContent], 
+            [`ImageContent`][mcp.types.ImageContent], or [`AudioContent`][mcp.types.AudioContent].
+
+    Examples:
+        Creating a simple text message:
+
+        ```python
+        from mcp.types import SamplingMessage, TextContent
+
+        user_msg = SamplingMessage(
+            role="user",
+            content=TextContent(type="text", text="Hello, how are you?")
+        )
+        ```
+
+        Creating an assistant response:
+
+        ```python
+        assistant_msg = SamplingMessage(
+            role="assistant",
+            content=TextContent(type="text", text="I'm doing well, thank you!")
+        )
+        ```
+
+        Creating a message with image content:
+
+        ```python
+        import base64
+
+        # Assuming you have image_bytes containing image data
+        image_data = base64.b64encode(image_bytes).decode()
+        
+        image_msg = SamplingMessage(
+            role="user",
+            content=ImageContent(
+                type="image",
+                data=image_data,
+                mimeType="image/jpeg"
+            )
+        )
+        ```
+
+        Building a conversation history:
+
+        ```python
+        conversation = [
+            SamplingMessage(
+                role="user",
+                content=TextContent(type="text", text="What's 2+2?")
+            ),
+            SamplingMessage(
+                role="assistant",
+                content=TextContent(type="text", text="2+2 equals 4.")
+            ),
+            SamplingMessage(
+                role="user", 
+                content=TextContent(type="text", text="Now what's 4+4?")
+            )
+        ]
+        
+        # Use in create_message call  
+        result = await session.create_message(
+            messages=conversation,
+            max_tokens=50
+        )
+        ```
+
+    Note:
+        The role field is constrained to "user" or "assistant" only. The content
+        supports multiple media types, but actual support depends on the LLM provider
+        and client implementation.
+    """
 
     role: Role
     content: TextContent | ImageContent | AudioContent

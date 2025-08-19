@@ -119,7 +119,7 @@ def lifespan_wrapper(
 
 
 class FastMCP(Generic[LifespanResultT]):
-    """FastMCP - A high-level, ergonomic interface for creating MCP servers.
+    """A high-level ergonomic interface for creating MCP servers.
 
     FastMCP provides a decorator-based API for building MCP servers with automatic
     parameter validation, structured output support, and built-in transport handling.
@@ -313,7 +313,7 @@ class FastMCP(Generic[LifespanResultT]):
         transport: Literal["stdio", "sse", "streamable-http"] = "stdio",
         mount_path: str | None = None,
     ) -> None:
-        """Run the FastMCP server. Note this is a synchronous function.
+        """Run the FastMCP server. This is a synchronous function.
 
         Args:
             transport: Transport protocol to use ("stdio", "sse", or "streamable-http")
@@ -523,19 +523,22 @@ class FastMCP(Generic[LifespanResultT]):
                 - If False, unconditionally creates an unstructured tool
 
         Example:
-            @server.tool()
-            def my_tool(x: int) -> str:
-                return str(x)
 
-            @server.tool()
-            def tool_with_context(x: int, ctx: Context) -> str:
-                ctx.info(f"Processing {x}")
-                return str(x)
+        ```python
+        @server.tool()
+        def my_tool(x: int) -> str:
+            return str(x)
 
-            @server.tool()
-            async def async_tool(x: int, context: Context) -> str:
-                await context.report_progress(50, 100)
-                return str(x)
+        @server.tool()
+        def tool_with_context(x: int, ctx: Context) -> str:
+            ctx.info(f"Processing {x}")
+            return str(x)
+
+        @server.tool()
+        async def async_tool(x: int, context: Context) -> str:
+            await context.report_progress(50, 100)
+            return str(x)
+        ```
         """
         # Check if user passed function directly instead of calling decorator
         if callable(name):
@@ -565,12 +568,15 @@ class FastMCP(Generic[LifespanResultT]):
         - context: Optional CompletionContext with previously resolved arguments
 
         Example:
-            @mcp.completion()
-            async def handle_completion(ref, argument, context):
-                if isinstance(ref, ResourceTemplateReference):
-                    # Return completions based on ref, argument, and context
-                    return Completion(values=["option1", "option2"])
-                return None
+
+        ```python
+        @mcp.completion()
+        async def handle_completion(ref, argument, context):
+            if isinstance(ref, ResourceTemplateReference):
+                # Return completions based on ref, argument, and context
+                return Completion(values=["option1", "option2"])
+            return None
+        ```
         """
         return self._mcp_server.completion()
 
@@ -610,23 +616,26 @@ class FastMCP(Generic[LifespanResultT]):
             mime_type: Optional MIME type for the resource
 
         Example:
-            @server.resource("resource://my-resource")
-            def get_data() -> str:
-                return "Hello, world!"
 
-            @server.resource("resource://my-resource")
-            async get_data() -> str:
-                data = await fetch_data()
-                return f"Hello, world! {data}"
+        ```python
+        @server.resource("resource://my-resource")
+        def get_data() -> str:
+            return "Hello, world!"
 
-            @server.resource("resource://{city}/weather")
-            def get_weather(city: str) -> str:
-                return f"Weather for {city}"
+        @server.resource("resource://my-resource")
+        async get_data() -> str:
+            data = await fetch_data()
+            return f"Hello, world! {data}"
 
-            @server.resource("resource://{city}/weather")
-            async def get_weather(city: str) -> str:
-                data = await fetch_weather(city)
-                return f"Weather for {city}: {data}"
+        @server.resource("resource://{city}/weather")
+        def get_weather(city: str) -> str:
+            return f"Weather for {city}"
+
+        @server.resource("resource://{city}/weather")
+        async def get_weather(city: str) -> str:
+            data = await fetch_weather(city)
+            return f"Weather for {city}: {data}"
+        ```
         """
         # Check if user passed function directly instead of calling decorator
         if callable(uri):
@@ -692,32 +701,35 @@ class FastMCP(Generic[LifespanResultT]):
             title: Optional human-readable title for the prompt
             description: Optional description of what the prompt does
 
-        Example:
-            @server.prompt()
-            def analyze_table(table_name: str) -> list[Message]:
-                schema = read_table_schema(table_name)
-                return [
-                    {
-                        "role": "user",
-                        "content": f"Analyze this schema:\n{schema}"
-                    }
-                ]
+        Examples:
 
-            @server.prompt()
-            async def analyze_file(path: str) -> list[Message]:
-                content = await read_file(path)
-                return [
-                    {
-                        "role": "user",
-                        "content": {
-                            "type": "resource",
-                            "resource": {
-                                "uri": f"file://{path}",
-                                "text": content
-                            }
+        ```python
+        @server.prompt()
+        def analyze_table(table_name: str) -> list[Message]:
+            schema = read_table_schema(table_name)
+            return [
+                {
+                    "role": "user",
+                    "content": f"Analyze this schema: {schema}"
+                }
+            ]
+
+        @server.prompt()
+        async def analyze_file(path: str) -> list[Message]:
+            content = await read_file(path)
+            return [
+                {
+                    "role": "user",
+                    "content": {
+                        "type": "resource",
+                        "resource": {
+                            "uri": f"file://{path}",
+                            "text": content
                         }
                     }
-                ]
+                }
+            ]
+        ```
         """
         # Check if user passed function directly instead of calling decorator
         if callable(name):
@@ -756,9 +768,12 @@ class FastMCP(Generic[LifespanResultT]):
             include_in_schema: Whether to include in OpenAPI schema, defaults to True
 
         Example:
-            @server.custom_route("/health", methods=["GET"])
-            async def health_check(request: Request) -> Response:
-                return JSONResponse({"status": "ok"})
+
+        ```python
+        @server.custom_route("/health", methods=["GET"])
+        async def health_check(request: Request) -> Response:
+            return JSONResponse({"status": "ok"})
+        ```
         """
 
         def decorator(

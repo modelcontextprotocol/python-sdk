@@ -74,6 +74,7 @@ class Prompt(BaseModel):
         """Create a Prompt from a function.
 
         The function can return:
+
         - A string (converted to a message)
         - A Message object
         - A dict (converted to a message)

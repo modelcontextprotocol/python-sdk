@@ -23,6 +23,7 @@ class ResourceError(FastMCPError):
     """Raised when resource operations fail.
 
     This exception is raised for resource-related errors such as:
+
     - Resource not found for a given URI
     - Resource content cannot be read or generated
     - Resource template parameter validation failures
@@ -34,6 +35,7 @@ class ToolError(FastMCPError):
     """Raised when tool operations fail.
 
     This exception is raised for tool-related errors such as:
+
     - Tool not found for a given name
     - Tool execution failures or unhandled exceptions
     - Tool registration conflicts or validation errors

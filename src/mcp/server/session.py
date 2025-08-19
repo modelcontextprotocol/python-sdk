@@ -6,31 +6,30 @@ server and client in the MCP (Model Context Protocol) framework. It is most comm
 used in MCP servers to interact with the client.
 
 Common usage pattern:
-```
-    server = Server(name)
+```python
+server = Server(name)
 
-    @server.call_tool()
-    async def handle_tool_call(ctx: RequestContext, arguments: dict[str, Any]) -> Any:
-        # Check client capabilities before proceeding
-        if ctx.session.check_client_capability(
-            types.ClientCapabilities(experimental={"advanced_tools": dict()})
-        ):
-            # Perform advanced tool operations
-            result = await perform_advanced_tool_operation(arguments)
-        else:
-            # Fall back to basic tool operations
-            result = await perform_basic_tool_operation(arguments)
+@server.call_tool()
+async def handle_tool_call(ctx: RequestContext, arguments: dict[str, Any]) -> Any:
+    # Check client capabilities before proceeding
+    if ctx.session.check_client_capability(
+        types.ClientCapabilities(experimental={"advanced_tools": dict()})
+    ):
+        # Perform advanced tool operations
+        result = await perform_advanced_tool_operation(arguments)
+    else:
+        # Fall back to basic tool operations
+        result = await perform_basic_tool_operation(arguments)
+    return result
 
-        return result
-
-    @server.list_prompts()
-    async def handle_list_prompts(ctx: RequestContext) -> list[types.Prompt]:
-        # Access session for any necessary checks or operations
-        if ctx.session.client_params:
-            # Customize prompts based on client initialization parameters
-            return generate_custom_prompts(ctx.session.client_params)
-        else:
-            return default_prompts
+@server.list_prompts()
+async def handle_list_prompts(ctx: RequestContext) -> list[types.Prompt]:
+    # Access session for any necessary checks or operations
+    if ctx.session.client_params:
+        # Customize prompts based on client initialization parameters
+        return generate_custom_prompts(ctx.session.client_params)
+    else:
+        return default_prompts
 ```
 
 The ServerSession class is typically used internally by the Server class and should not
@@ -221,7 +220,86 @@ class ServerSession(
         model_preferences: types.ModelPreferences | None = None,
         related_request_id: types.RequestId | None = None,
     ) -> types.CreateMessageResult:
-        """Send a sampling/create_message request."""
+        """Send a message to an LLM through the MCP client for processing.
+
+        This method enables MCP servers to request LLM sampling from the connected client.
+        The client forwards the request to its configured LLM provider (OpenAI, Anthropic, etc.)
+        and returns the generated response. This is useful for tools that need LLM assistance
+        to process user requests or generate content.
+
+        The client must support the sampling capability for this method to work. Check
+        client capabilities using [`check_client_capability`][mcp.server.session.ServerSession.check_client_capability] before calling this method.
+
+        Args:
+            messages: List of [`SamplingMessage`][mcp.types.SamplingMessage] objects representing the conversation history.
+                Each message has a role ("user" or "assistant") and content (text, image, or audio).
+            max_tokens: Maximum number of tokens the LLM should generate in the response.
+            system_prompt: Optional system message to set the LLM's behavior and context.
+            include_context: Optional context inclusion preferences for the LLM request.
+            temperature: Optional sampling temperature (0.0-1.0) controlling response randomness.
+                Lower values make responses more deterministic.
+            stop_sequences: Optional list of strings that will cause the LLM to stop generating
+                when encountered in the response.
+            metadata: Optional arbitrary metadata to include with the request.
+            model_preferences: Optional preferences for which model the client should use.
+            related_request_id: Optional ID linking this request to a parent request for tracing.
+
+        Returns:
+            CreateMessageResult containing the LLM's response with role, content, model name,
+                and stop reason information.
+
+        Raises:
+            RuntimeError: If called before session initialization is complete.
+            Various exceptions: Depending on client implementation and LLM provider errors.
+
+        Examples:
+            Basic text generation:
+
+            ```python
+            from mcp.types import SamplingMessage, TextContent
+
+            result = await session.create_message(
+                messages=[
+                    SamplingMessage(
+                        role="user",
+                        content=TextContent(type="text", text="Explain quantum computing")
+                    )
+                ],
+                max_tokens=150
+            )
+            print(result.content.text)  # Generated explanation
+            ```
+
+            Multi-turn conversation with system prompt:
+
+            ```python
+            from mcp.types import SamplingMessage, TextContent
+
+            result = await session.create_message(
+                messages=[
+                    SamplingMessage(
+                        role="user",
+                        content=TextContent(type="text", text="What's the weather like?")
+                    ),
+                    SamplingMessage(
+                        role="assistant",
+                        content=TextContent(type="text", text="I don't have access to weather data.")
+                    ),
+                    SamplingMessage(
+                        role="user",
+                        content=TextContent(type="text", text="Then help me write a poem about rain")
+                    )
+                ],
+                max_tokens=100,
+                system_prompt="You are a helpful poetry assistant.",
+                temperature=0.8
+            )
+            ```
+
+        Note:
+            This method requires the client to have sampling capability enabled. Most modern
+            MCP clients support this, but always check capabilities before use in production code.
+        """
         return await self.send_request(
             request=types.ServerRequest(
                 types.CreateMessageRequest(

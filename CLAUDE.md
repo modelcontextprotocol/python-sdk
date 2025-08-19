@@ -135,3 +135,4 @@ This document contains critical information about working with this codebase. Fo
 
 - Always use sentence case for all headings and heading-like text in any Markdown-formatted content, including docstrings.
 - Example snippets in docsstrings MUST only appear within the Examples section of the docstring. You MAY include multiple examples in the Examples section.
+- Surround all lists, both ordered and unordered, with blank lines. Applies to Markdown in Markdown files as well as docstrings in Python files.
