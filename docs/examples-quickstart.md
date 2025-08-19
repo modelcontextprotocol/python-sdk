@@ -17,7 +17,7 @@ This example shows how to:
 - Add a dynamic resource that provides data (`greeting://`)
 - Add a prompt template for LLM interactions (`greet_user`)
 
-## Basic readme example
+## Basic server
 
 An even simpler starting point:
 

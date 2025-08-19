@@ -65,12 +65,10 @@ Tools for taking and processing screenshots:
 --8<-- "examples/fastmcp/screenshot.py"
 ```
 
-## Text processing tools
+## Text messaging tool
 
-Tools for text manipulation and processing:
+Tool to send a text message.
 
 ```python
 --8<-- "examples/fastmcp/text_me.py"
 ```
-
-All tool examples demonstrate different aspects of MCP tool development, from basic computation to complex system interactions.

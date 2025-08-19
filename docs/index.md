@@ -26,15 +26,15 @@ Complete API documentation is auto-generated from the source code and available 
 | [Complex input handling](examples-server-tools.md#complex-input-handling) | stdio | — | — | ✅ | — | — | — | — | — | — | — |
 | [Desktop integration](examples-server-tools.md#desktop-integration) | stdio | ✅ | — | ✅ | — | — | — | — | — | — | — |
 | [Enhanced echo server](examples-echo-servers.md#enhanced-echo-server) | stdio | ✅ | ✅ | ✅ | — | — | — | — | — | — | — |
-| [Memory and state management](examples-server-resources.md#memory-and-state-management) | stdio | — | — | ✅ | — | — | — | — | — | — | ✅ |
+| [Memory and state management](examples-server-resources.md#memory-and-state-management) | stdio | — | — | ✅ | — | — | — | — | — | — | — |
 | [Parameter descriptions](examples-server-tools.md#parameter-descriptions) | stdio | — | — | ✅ | — | — | — | — | — | — | — |
-| [Basic readme example](examples-quickstart.md#basic-readme-example) | stdio | ✅ | — | ✅ | — | — | — | — | — | — | — |
+| [Basic server](examples-quickstart.md#basic-server) | stdio | ✅ | — | ✅ | — | — | — | — | — | — | — |
 | [Screenshot tools](examples-server-tools.md#screenshot-tools) | stdio | — | — | ✅ | — | — | — | — | — | — | — |
 | [Simple echo server](examples-echo-servers.md#simple-echo-server) | stdio | — | — | ✅ | — | — | — | — | — | — | — |
-| [Text processing tools](examples-server-tools.md#text-processing-tools) | stdio | — | — | ✅ | — | — | — | — | — | — | ✅ |
+| [Text messaging tool](examples-server-tools.md#text-messaging-tool) | stdio | — | — | ✅ | — | — | — | — | — | — | ✅ |
 | [Unicode and internationalization](examples-server-tools.md#unicode-and-internationalization) | stdio | — | — | ✅ | — | — | — | — | — | — | — |
 | [Weather service with structured output](examples-structured-output.md#weather-service-with-structured-output) | stdio | — | — | ✅ | — | — | — | — | — | — | — |
-| [Complete authentication server](examples-authentication.md#complete-authentication-server) | stdio | — | — | — | — | — | — | — | — | ✅ | — |
+| [Complete authentication server](examples-authentication.md#complete-authentication-server) | streamable-http | — | — | — | — | — | — | — | — | ✅ | — |
 | [Legacy Authorization Server](examples-authentication.md#legacy-authorization-server) | streamable-http | — | — | ✅ | — | — | — | — | — | ✅ | ✅ |
 | [Resource server with introspection](examples-authentication.md#resource-server-with-introspection) | streamable-http | — | — | ✅ | — | — | — | — | — | ✅ | ✅ |
 | [Simple prompt server](examples-server-prompts.md#simple-prompt-server) | stdio | — | ✅ | — | — | — | — | — | — | — | — |
@@ -44,7 +44,7 @@ Complete API documentation is auto-generated from the source code and available 
 | [Simple tool server](examples-lowlevel-servers.md#simple-tool-server) | stdio | — | — | ✅ | — | — | — | — | — | — | — |
 | [Low-level structured output](examples-structured-output.md#low-level-structured-output) | stdio | — | — | ✅ | — | — | — | — | — | — | — |
 | [Basic prompts](examples-server-prompts.md#basic-prompts) | stdio | — | ✅ | — | — | — | — | — | — | — | — |
-| [Basic resources](examples-server-resources.md#basic-resources) | stdio | ✅ | — | — | — | — | — | — | — | — | — |
+| [Basic resources](examples-server-resources.md#basic-resources) | stdio | ✅ | — | — | — | — | — | — | — | — | ✅ |
 | [Basic tools](examples-server-tools.md#basic-tools) | stdio | — | — | ✅ | — | — | — | — | — | — | — |
 | [Completion support](examples-server-advanced.md#completion-support) | stdio | ✅ | ✅ | — | ✅ | — | — | — | — | — | — |
 | [Direct execution](examples-quickstart.md#direct-execution) | stdio | — | — | ✅ | — | — | — | — | — | — | — |
@@ -62,7 +62,6 @@ Complete API documentation is auto-generated from the source code and available 
 | [Mounting multiple servers](examples-transport-http.md#mounting-multiple-servers) | streamable-http | — | — | ✅ | — | — | — | — | — | — | ✅ |
 | [FastMCP structured output](examples-structured-output.md#fastmcp-structured-output) | stdio | — | — | ✅ | — | — | — | — | — | — | — |
 | [Tools with context and progress reporting](examples-server-tools.md#tools-with-context-and-progress-reporting) | stdio | — | — | ✅ | — | — | — | ✅ | ✅ | — | — |
-
 
 ### Clients
 
