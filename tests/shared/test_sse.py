@@ -3,6 +3,7 @@ import multiprocessing
 import socket
 import time
 from collections.abc import AsyncGenerator, Generator
+from typing import Any
 
 import anyio
 import httpx
@@ -75,7 +76,7 @@ class ServerTest(Server):
             ]
 
         @self.call_tool()
-        async def handle_call_tool(name: str, args: dict) -> list[TextContent]:
+        async def handle_call_tool(name: str, args: dict[str, Any]) -> list[TextContent]:
             return [TextContent(type="text", text=f"Called {name}")]
 
 
@@ -148,7 +149,7 @@ def server(server_port: int) -> Generator[None, None, None]:
 
 
 @pytest.fixture()
-async def http_client(server, server_url) -> AsyncGenerator[httpx.AsyncClient, None]:
+async def http_client(server: None, server_url: str) -> AsyncGenerator[httpx.AsyncClient, None]:
     """Create test client"""
     async with httpx.AsyncClient(base_url=server_url) as client:
         yield client
@@ -195,7 +196,7 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
 
 
 @pytest.fixture
-async def initialized_sse_client_session(server, server_url: str) -> AsyncGenerator[ClientSession, None]:
+async def initialized_sse_client_session(server: None, server_url: str) -> AsyncGenerator[ClientSession, None]:
     async with sse_client(server_url + "/sse", sse_read_timeout=0.5) as streams:
         async with ClientSession(*streams) as session:
             await session.initialize()
@@ -306,7 +307,7 @@ class RequestContextServer(Server[object, Request]):
         super().__init__("request_context_server")
 
         @self.call_tool()
-        async def handle_call_tool(name: str, args: dict) -> list[TextContent]:
+        async def handle_call_tool(name: str, args: dict[str, Any]) -> list[TextContent]:
             headers_info = {}
             context = self.request_context
             if context.request:
@@ -436,7 +437,7 @@ async def test_request_context_propagation(context_server: None, server_url: str
 @pytest.mark.anyio
 async def test_request_context_isolation(context_server: None, server_url: str) -> None:
     """Test that request contexts are isolated between different SSE clients."""
-    contexts = []
+    contexts: list[dict[str, Any]] = []
 
     # Create multiple clients with different headers
     for i in range(3):
@@ -502,7 +503,7 @@ def test_sse_message_id_coercion():
 )
 def test_sse_server_transport_endpoint_validation(endpoint: str, expected_result: str | type[Exception]):
     """Test that SseServerTransport properly validates and normalizes endpoints."""
-    if isinstance(expected_result, type) and issubclass(expected_result, Exception):
+    if isinstance(expected_result, type):
         # Test invalid endpoints that should raise an exception
         with pytest.raises(expected_result, match="is not a relative path.*expecting a relative path"):
             SseServerTransport(endpoint)
