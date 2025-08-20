@@ -1,6 +1,6 @@
 # Low-level server examples
 
-The [low-level server API](/python-sdk/reference/mcp/server/lowlevel/server/) provides maximum control over MCP protocol implementation. Use these patterns when you need fine-grained control or when [`FastMCP`][mcp.server.fastmcp.FastMCP] doesn't meet your requirements.
+The [low-level server API](reference/mcp/server/lowlevel/server.md) provides maximum control over MCP protocol implementation. Use these patterns when you need fine-grained control or when [`FastMCP`][mcp.server.fastmcp.FastMCP] doesn't meet your requirements.
 
 The low-level API provides the foundation that FastMCP is built upon, giving you access to all MCP protocol features with complete control over implementation details.
 

@@ -318,7 +318,7 @@ class ServerSession(
             logger: Optional name to identify the source of the log message.
                 Useful for categorizing logs from different components or modules
                 within your server (e.g., "database", "auth", "tool_handler").
-            related_request_id: Optional [`types.RequestId`][mcp.types.RequestId] linking this log to a specific client request.
+            related_request_id: Optional `types.RequestId` linking this log to a specific client request.
                 Use this to associate log messages with the request they relate to,
                 making it easier to trace request processing and debug issues.
 
@@ -600,7 +600,7 @@ class ServerSession(
             message: The prompt or question to present to the user.
             requestedSchema: A [`types.ElicitRequestedSchema`][mcp.types.ElicitRequestedSchema] 
                 defining the expected response structure according to JSON Schema.
-            related_request_id: Optional [`types.RequestId`][mcp.types.RequestId] linking 
+            related_request_id: Optional `types.RequestId` linking 
                 this elicitation to a specific client request for tracing.
 
         Returns:

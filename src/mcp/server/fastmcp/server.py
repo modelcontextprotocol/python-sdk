@@ -1487,7 +1487,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
                 and simple containers (list, dict) are allowed - no complex nested objects.
 
         Returns:
-            [`ElicitationResult`][mcp.server.fastmcp.utilities.types.ElicitationResult] containing:
+            `ElicitationResult` containing:
 
             - `action`: One of "accept", "decline", or "cancel" indicating user response
             - `data`: The structured response data (only populated if action is "accept")
@@ -1652,7 +1652,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         return str(self.request_context.request_id)
 
     @property
-    def session(self):
+    def session(self) -> ServerSession:
         """Access to the underlying ServerSession for advanced MCP operations.
 
         This property provides direct access to the [`ServerSession`][mcp.server.session.ServerSession]

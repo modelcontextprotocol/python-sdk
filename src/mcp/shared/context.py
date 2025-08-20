@@ -77,7 +77,7 @@ class RequestContext(Generic[SessionT, LifespanContextT, RequestT]):
     ```
 
     Attributes:
-        request_id: Unique identifier for the current request as a [`RequestId`][mcp.types.RequestId].
+        request_id: Unique identifier for the current request as a `RequestId`.
             Use this for logging, tracing, or linking related operations.
         meta: Optional request metadata including progress tokens and other client-provided
             information. May be `None` if no metadata was provided.

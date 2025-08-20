@@ -24,6 +24,10 @@ This document contains critical information about working with this codebase. Fo
    - Coverage: test edge cases and errors
    - New features require tests
    - Bug fixes require regression tests
+   - Documentation
+     - Test changes in docs/ and Python docstrings: `uv run mkdocs build`
+     - On macOS: `export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib & uv run mkdocs build`
+     - Fix WARNING and ERROR issues and re-run build until clean
 
 - For commits fixing bugs or adding features based on user reports add:
 
