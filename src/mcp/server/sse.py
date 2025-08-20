@@ -23,7 +23,7 @@ Example usage:
                 streams[0], streams[1], app.create_initialization_options()
             )
         # Return empty response to avoid NoneType error
-        return SilentResponse()
+        return Response()
 
     # Create and run Starlette app
     starlette_app = Starlette(routes=routes)

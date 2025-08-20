@@ -10,10 +10,10 @@ import pytest
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
+from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 from mcp.server import Server
-from mcp.server.fastmcp.server import SilentResponse
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import Tool
@@ -55,7 +55,7 @@ def run_server_with_settings(port: int, security_settings: TransportSecuritySett
         except ValueError as e:
             # Validation error was already handled inside connect_sse
             logger.debug(f"SSE connection failed validation: {e}")
-        return SilentResponse()
+        return Response()
 
     routes = [
         Route("/sse", endpoint=handle_sse),

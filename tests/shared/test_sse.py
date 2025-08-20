@@ -20,7 +20,6 @@ import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.server import Server
-from mcp.server.fastmcp.server import SilentResponse
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import McpError
@@ -93,7 +92,7 @@ def make_server_app() -> Starlette:
     async def handle_sse(request: Request) -> Response:
         async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
             await server.run(streams[0], streams[1], server.create_initialization_options())
-        return SilentResponse()
+        return Response()
 
     app = Starlette(
         routes=[
@@ -356,7 +355,7 @@ def run_context_server(server_port: int) -> None:
     async def handle_sse(request: Request) -> Response:
         async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
             await context_server.run(streams[0], streams[1], context_server.create_initialization_options())
-        return SilentResponse()
+        return Response()
 
     app = Starlette(
         routes=[
