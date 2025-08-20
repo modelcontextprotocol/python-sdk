@@ -737,7 +737,6 @@ class FastMCP(Generic[LifespanResultT]):
 
         async def handle_sse(request: Request) -> Response:
             """Handle SSE connection using Starlette's EventSourceResponse."""
-            # Create a custom Response class that wraps the SSE connection
             class SSEConnectionResponse(Response):
                 def __init__(self, sse_transport: SseServerTransport, server: MCPServer) -> None:
                     super().__init__()
@@ -791,7 +790,7 @@ class FastMCP(Generic[LifespanResultT]):
                     )
                 )
 
-        # Create auth wrapper if needed
+        # When auth is configured, require authentication
         if self._token_verifier:
             # Determine resource metadata URL
             resource_metadata_url = None
@@ -802,7 +801,7 @@ class FastMCP(Generic[LifespanResultT]):
                     str(self.settings.auth.resource_server_url).rstrip("/") + "/.well-known/oauth-protected-resource"
                 )
 
-            # # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
+            # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
             async def handle_sse_auth(scope: Scope, receive: Receive, send: Send) -> None:
                 request = Request(scope, receive)
                 response = await handle_sse(request)
