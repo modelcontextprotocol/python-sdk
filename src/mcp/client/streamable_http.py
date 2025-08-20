@@ -281,15 +281,16 @@ class StreamableHTTPTransport:
 
             content_type = response.headers.get(CONTENT_TYPE, "").lower()
 
-            if content_type.startswith(JSON):
-                await self._handle_json_response(response, ctx.read_stream_writer, is_initialization)
-            elif content_type.startswith(SSE):
-                await self._handle_sse_response(response, ctx, is_initialization)
-            else:
-                await self._handle_unexpected_content_type(
-                    content_type,
-                    ctx.read_stream_writer,
-                )
+            if isinstance(message.root, JSONRPCRequest):
+                if content_type.startswith(JSON):
+                    await self._handle_json_response(response, ctx.read_stream_writer, is_initialization)
+                elif content_type.startswith(SSE):
+                    await self._handle_sse_response(response, ctx, is_initialization)
+                else:
+                    await self._handle_unexpected_content_type(
+                        content_type,
+                        ctx.read_stream_writer,
+                    )
 
     async def _handle_json_response(
         self,
