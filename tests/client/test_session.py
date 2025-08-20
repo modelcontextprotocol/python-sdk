@@ -561,6 +561,7 @@ async def test_client_session_request_call_tool():
         tg.start_soon(mock_server)
 
         request_id = await session.request_call_tool("hello", {"name": "world"})
+        assert request_id is not None
         with anyio.fail_after(1):
             result = await session.join_call_tool(request_id)
 
@@ -633,7 +634,7 @@ async def test_client_session_request_call_tool_join_timeout():
         tg.start_soon(mock_server)
 
         request_id = await session.request_call_tool("hello", {"name": "world"})
-
+        assert request_id is not None
         with anyio.fail_after(3):
             result = await session.join_call_tool(
                 request_id, request_read_timeout_seconds=timedelta(seconds=0.5), done_on_timeout=False
@@ -763,6 +764,7 @@ async def test_client_session_request_call_tool_with_progress():
                 raise RuntimeError("Unexpected progress value")
 
         request_id = await session.request_call_tool("hello", {"name": "world"}, progress_callback1)
+        assert request_id is not None
 
         with anyio.fail_after(3):
             await progress_1.wait()
@@ -910,6 +912,8 @@ async def test_client_session_request_call_tool_with_rejoin():
                 raise RuntimeError("Unexpected progress value")
 
         request_id = await session1.request_call_tool("hello", {"name": "world"}, progress_callback1)
+        assert request_id is not None
+
         with anyio.fail_after(1):
             await progress_1_1.wait()
 
@@ -986,6 +990,8 @@ async def test_client_session_cancel_call_tool():
             pass
 
         request_id = await session.request_call_tool("hello", {"name": "world"}, progress_callback)
+        assert request_id is not None
+
         assert await session.cancel_call_tool(request_id)
         with anyio.fail_after(1):
             await cancelled.wait()

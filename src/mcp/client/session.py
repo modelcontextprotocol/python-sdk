@@ -291,7 +291,9 @@ class ClientSession(
         name: str,
         arguments: dict[str, Any] | None = None,
         progress_callback: ProgressFnT | None = None,
-    ) -> types.RequestId:
+        timeout: float | None = None,
+        cancel_if_not_resumable: bool = False,
+    ) -> types.RequestId | None:
         if self._resumable:
             captured_token = None
             captured = anyio.Event()
@@ -317,12 +319,20 @@ class ClientSession(
                 metadata=metadata,
             )
 
-            while captured_token is None:
-                await captured.wait()
+            try:
+                with anyio.fail_after(timeout):
+                    while captured_token is None:
+                        await captured.wait()
 
-            await self._request_state_manager.update_resume_token(request_id, captured_token)
+                await self._request_state_manager.update_resume_token(request_id, captured_token)
 
-            return request_id
+                return request_id
+            except TimeoutError:
+                if cancel_if_not_resumable:
+                    with anyio.CancelScope(shield=True):
+                        with anyio.move_on_after(timeout):
+                            await self.cancel_call_tool(request_id=request_id)
+                return None
         else:
             return await self.start_request(
                 types.ClientRequest(
