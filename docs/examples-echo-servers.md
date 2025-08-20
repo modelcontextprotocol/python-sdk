@@ -1,6 +1,15 @@
 # Echo server examples
 
-Echo servers are simple examples that demonstrate basic MCP functionality by echoing input back to clients. These are useful for testing and understanding MCP fundamentals.
+Echo servers provide a foundation for understanding MCP patterns before building more complex functionality.
+
+Echo servers are useful for:
+
+- **Testing client connections**: Verify that your client can connect and call tools
+- **Understanding MCP basics**: Learn the fundamental request/response patterns
+- **Development and debugging**: Simple, predictable behavior for testing
+- **Protocol verification**: Ensure transport layers work correctly
+
+The following servers are minimal examples that demonstrate basic MCP functionality by echoing input back to clients.
 
 ## Simple echo server
 
@@ -30,14 +39,7 @@ This enhanced version demonstrates:
 - Different parameter types and patterns
 - Tool naming and description best practices
 
-Echo servers are useful for:
-
-- **Testing client connections**: Verify that your client can connect and call tools
-- **Understanding MCP basics**: Learn the fundamental request/response patterns
-- **Development and debugging**: Simple, predictable behavior for testing
-- **Protocol verification**: Ensure transport layers work correctly
-
-## Usage patterns
+## Usage
 
 These echo servers can be used to test different aspects of MCP:
 
@@ -66,10 +68,9 @@ Example tool calls you can make to echo servers:
 ```
 
 Expected response:
+
 ```json
 {
   "result": "Echo: Hello, MCP!"
 }
 ```
-
-Echo servers provide a foundation for understanding MCP patterns before building more complex functionality.

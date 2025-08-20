@@ -133,6 +133,45 @@ This document contains critical information about working with this codebase. Fo
   - Top-level handlers that must not crash
   - Cleanup blocks (log at debug level)
 
-- Always use sentence case for all headings and heading-like text in any Markdown-formatted content, including docstrings.
-- Example snippets in docsstrings MUST only appear within the Examples section of the docstring. You MAY include multiple examples in the Examples section.
-- Surround all lists, both ordered and unordered, with blank lines. Applies to Markdown in Markdown files as well as docstrings in Python files.
+## Docstring best practices for SDK documentation
+
+The following guidance ensures docstrings are genuinely helpful for new SDK users by providing navigation, context, and accurate examples.
+
+### Structure and formatting
+
+- Follow Google Python Style Guide for docstrings
+- Format docstrings in Markdown compatible with mkdocs-material and mkdocstrings
+- Always surround lists with blank lines (before and after) - also applies to Markdown (.md) files
+- Always surround headings with blank lines - also applies to Markdown (.md) files
+- Always surround fenced code blocks with blank lines - also applies to Markdown (.md) files
+- Use sentence case for all headings and heading-like text - also applies to Markdown (.md) files
+
+### Content requirements
+
+- Access patterns: Explicitly state how users typically access the method/class with phrases like "You typically access this
+method through..." or "You typically call this method by..."
+- Cross-references: Use extensive cross-references to related members to help SDK users navigate:
+  - Format: [`displayed_text`][module.path.to.Member]
+  - Include backticks around the displayed text
+  - Link to types, related methods, and alternative approaches
+- Parameter descriptions:
+  - Document all valid values for enums/literals
+  - Explain what each parameter does and when to use it
+  - Cross-reference parameter types where helpful
+- Real-world examples:
+  - Show actual usage patterns from the SDK, not theoretical code
+  - Include imports and proper module paths
+  - Verify examples against source code for accuracy
+  - Show multiple approaches (e.g., low-level SDK vs FastMCP)
+  - Add comments explaining what's happening
+  - Examples should be concise and only as complex as needed to clearly demonstrate real-world usage
+- Context and purpose:
+  - Explain not just what the method does, but why and when to use it
+  - Include notes about important considerations (e.g., client filtering, performance)
+  - Mention alternative approaches where applicable
+
+### Verification
+
+  - All code examples MUST be 100% accurate to the actual SDK implementation
+  - Verify imports, class names, method signatures against source code
+  - You MUST NOT rely on existing documentation as authoritative - you MUST check the source

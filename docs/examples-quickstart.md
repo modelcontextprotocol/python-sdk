@@ -2,9 +2,21 @@
 
 This section provides quick and simple examples to get you started with the MCP Python SDK.
 
+These examples can be run directly with:
+
+```bash
+python server.py
+```
+
+Or test with the MCP Inspector:
+
+```bash
+uv run mcp dev server.py
+```
+
 ## FastMCP quickstart
 
-The simplest way to create an MCP server is with FastMCP. This example demonstrates the core concepts: tools, resources, and prompts.
+The easiest way to create an MCP server is with [`FastMCP`][mcp.server.fastmcp.FastMCP]. This example demonstrates the core concepts: tools, resources, and prompts.
 
 ```python
 --8<-- "examples/snippets/servers/fastmcp_quickstart.py"
@@ -38,15 +50,3 @@ This example demonstrates:
 - Minimal server setup with just a greeting tool
 - Direct execution without additional configuration
 - Entry point setup for standalone running
-
-All these examples can be run directly with:
-
-```bash
-python server.py
-```
-
-Or tested with the MCP Inspector:
-
-```bash
-uv run mcp dev server.py
-```

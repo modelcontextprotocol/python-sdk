@@ -2,6 +2,8 @@
 
 Resources provide data to LLMs without side effects. They're similar to GET endpoints in REST APIs and should be used for exposing information rather than performing actions.
 
+Resources are essential for providing contextual information to LLMs, whether it's configuration data, file contents, or dynamic information that changes over time.
+
 ## Basic resources
 
 Simple resource patterns for exposing data:
@@ -17,6 +19,22 @@ This example demonstrates:
 - Simple string data return
 - JSON configuration data
 
+## Simple resource server
+
+A complete server focused on resource management:
+
+```python
+--8<-- "examples/servers/simple-resource/mcp_simple_resource/server.py"
+```
+
+This is an example of a low-level server that:
+
+- Uses the low-level server API for maximum control
+- Implements resource listing and reading
+- Handles URI templates and parameter extraction
+- Demonstrates production-ready resource patterns
+
+
 ## Memory and state management
 
 Resources that manage server memory and state:
@@ -31,20 +49,3 @@ This example shows how to:
 - Store and retrieve conversational context
 - Handle memory cleanup and management
 - Provide memory resources to LLMs
-
-## Simple resource server
-
-A complete server focused on resource management:
-
-```python
---8<-- "examples/servers/simple-resource/mcp_simple_resource/server.py"
-```
-
-This is a full example of a low-level server that:
-
-- Uses the low-level server API for maximum control
-- Implements resource listing and reading
-- Handles URI templates and parameter extraction
-- Demonstrates production-ready resource patterns
-
-Resources are essential for providing contextual information to LLMs, whether it's configuration data, file contents, or dynamic information that changes over time.

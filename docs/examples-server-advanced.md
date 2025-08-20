@@ -2,6 +2,8 @@
 
 This section covers advanced server patterns including lifecycle management, context handling, and interactive capabilities.
 
+These advanced patterns enable rich, interactive server implementations that go beyond simple request-response workflows.
+
 ## Lifespan management
 
 Managing server lifecycle with resource initialization and cleanup:
@@ -15,7 +17,7 @@ This example demonstrates:
 - Type-safe lifespan context management
 - Resource initialization on startup (database connections, etc.)
 - Automatic cleanup on shutdown
-- Accessing lifespan context from tools via `ctx.request_context.lifespan_context`
+- Accessing lifespan context from tools via [`ctx.request_context.lifespan_context`][mcp.server.fastmcp.Context.request_context]
 
 ## User interaction and elicitation
 
@@ -27,7 +29,7 @@ Tools that can request additional information from users:
 
 This example shows:
 
-- Using `ctx.elicit()` to request user input
+- Using [`ctx.elicit()`][mcp.server.fastmcp.Context.elicit] to request user input
 - Pydantic schemas for validating user responses
 - Handling user acceptance, decline, or cancellation
 - Interactive booking workflow patterns
@@ -42,8 +44,8 @@ Tools that interact with LLMs through sampling:
 
 This demonstrates:
 
-- Using `ctx.session.create_message()` for LLM interaction
-- Structured message creation with `SamplingMessage` and `TextContent`
+- Using [`ctx.session.create_message()`][mcp.server.session.ServerSession.create_message] for LLM interaction
+- Structured message creation with [`SamplingMessage`][mcp.types.SamplingMessage] and [`TextContent`][mcp.types.TextContent]
 - Processing LLM responses within tools
 - Chaining LLM interactions for complex workflows
 
@@ -58,7 +60,7 @@ Advanced logging and client notification patterns:
 This example covers:
 
 - Multiple log levels (debug, info, warning, error)
-- Resource change notifications via `ctx.session.send_resource_list_changed()`
+- Resource change notifications via [`ctx.session.send_resource_list_changed()`][mcp.server.session.ServerSession.send_resource_list_changed]
 - Contextual logging within tool execution
 - Client communication patterns
 
@@ -72,8 +74,8 @@ Working with images in MCP servers:
 
 This shows:
 
-- Using FastMCP's `Image` class for automatic image handling
-- PIL integration for image processing
+- Using FastMCP's [`Image`][mcp.server.fastmcp.Image] class for automatic image handling
+- PIL integration for image processing with [`PIL.Image.open()`][PIL.Image.open]
 - Returning images from tools
 - Image format conversion and optimization
 
@@ -91,5 +93,3 @@ This advanced pattern demonstrates:
 - Context-aware suggestions (repository suggestions based on owner)
 - Resource template parameter completion
 - Prompt argument completion
-
-These advanced patterns enable rich, interactive server implementations that go beyond simple request-response workflows.

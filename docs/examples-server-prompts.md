@@ -2,6 +2,15 @@
 
 Prompts are reusable templates that help structure LLM interactions. They provide a way to define consistent interaction patterns that users can invoke.
 
+Prompts are user-controlled primitives and are particularly useful for:
+
+- Code review templates
+- Debugging assistance workflows
+- Content generation patterns
+- Structured analysis requests
+
+Unlike tools (which are model-controlled) and resources (which are application-controlled), prompts are invoked directly by users to initiate specific types of interactions with the LLM.
+
 ## Basic prompts
 
 Simple prompt templates for common scenarios:
@@ -31,12 +40,3 @@ This low-level server example shows:
 - Argument handling and validation
 - Dynamic prompt generation based on parameters
 - Production-ready prompt patterns using the low-level API
-
-Prompts are user-controlled primitives that help create consistent, reusable interaction patterns. They're particularly useful for:
-
-- Code review templates
-- Debugging assistance workflows
-- Content generation patterns
-- Structured analysis requests
-
-Unlike tools (which are model-controlled) and resources (which are application-controlled), prompts are invoked directly by users to initiate specific types of interactions with the LLM.

@@ -2,6 +2,8 @@
 
 MCP clients connect to servers to access tools, resources, and prompts. This section demonstrates various client patterns and connection types.
 
+These examples provide comprehensive patterns for building MCP clients that can handle various server types, authentication methods, and interaction patterns.
+
 ## Basic stdio client
 
 Connecting to MCP servers over stdio transport:
@@ -123,5 +125,3 @@ This example demonstrates:
 - Token management and refresh
 - Protected resource access
 - Integration with authenticated MCP servers
-
-These examples provide comprehensive patterns for building MCP clients that can handle various server types, authentication methods, and interaction patterns.

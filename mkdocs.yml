@@ -120,7 +120,7 @@ plugins:
           paths: [src/mcp]
           options:
             group_by_category: false
-            members_order: source
+            # members_order: source
             relative_crossrefs: true
             separate_signature: true
             show_signature_annotations: true
@@ -130,5 +130,6 @@ plugins:
             - url: https://docs.python.org/3/objects.inv
             - url: https://docs.pydantic.dev/latest/objects.inv
             - url: https://typing-extensions.readthedocs.io/en/latest/objects.inv
+            - url: https://pillow.readthedocs.io/en/stable/objects.inv
   - api-autonav:
       modules: ["src/mcp"]

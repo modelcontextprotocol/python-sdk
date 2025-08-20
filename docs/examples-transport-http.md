@@ -2,6 +2,18 @@
 
 HTTP transports enable web-based MCP server deployment with support for multiple clients and scalable architectures.
 
+Choose HTTP transports for production deployments that need to serve multiple clients or integrate with web infrastructure.
+
+## Transport comparison
+
+| Feature          | Streamable HTTP    | SSE               | stdio            |
+| ---------------- | ------------------ | ----------------- | ---------------- |
+| **Resumability** | ✅ With event store | ❌                 | ❌                |
+| **Scalability**  | ✅ Multi-client     | ✅ Multi-client    | ❌ Single process |
+| **State**        | Configurable       | Session-based     | Process-based    |
+| **Deployment**   | Web servers        | Web servers       | Local execution  |
+| **Best for**     | Production APIs    | Real-time updates | Development/CLI  |
+
 ## Streamable HTTP configuration
 
 Basic streamable HTTP server setup with different configurations:
@@ -77,15 +89,3 @@ This component enables:
 - Event replay for missed messages
 - Persistent streaming across connection interruptions
 - Production-ready resumability patterns
-
-## Transport comparison
-
-| Feature | Streamable HTTP | SSE | stdio |
-|---------|----------------|-----|-------|
-| **Resumability** | ✅ With event store | ❌ | ❌ |
-| **Scalability** | ✅ Multi-client | ✅ Multi-client | ❌ Single process |
-| **State** | Configurable | Session-based | Process-based |
-| **Deployment** | Web servers | Web servers | Local execution |
-| **Best for** | Production APIs | Real-time updates | Development/CLI |
-
-Choose HTTP transports for production deployments that need to serve multiple clients or integrate with web infrastructure.

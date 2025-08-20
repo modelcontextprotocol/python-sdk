@@ -1,6 +1,30 @@
 # Low-level server examples
 
-The low-level server API provides maximum control over MCP protocol implementation. Use these patterns when you need fine-grained control or when FastMCP doesn't meet your requirements.
+The [low-level server API](/python-sdk/reference/mcp/server/lowlevel/server/) provides maximum control over MCP protocol implementation. Use these patterns when you need fine-grained control or when [`FastMCP`][mcp.server.fastmcp.FastMCP] doesn't meet your requirements.
+
+The low-level API provides the foundation that FastMCP is built upon, giving you access to all MCP protocol features with complete control over implementation details.
+
+## When to use low-level API
+
+Choose the low-level API when you need:
+
+- Custom protocol message handling
+- Complex initialization sequences
+- Fine-grained control over capabilities
+- Integration with existing server infrastructure
+- Performance optimization at the protocol level
+- Custom authentication or authorization logic
+
+Key differences between the low-level server API and FastMCP are:
+
+|                 | Low-level API            | FastMCP                       |
+| --------------- | ------------------------ | ----------------------------- |
+| **Control**     | Maximum control          | Convention over configuration |
+| **Boilerplate** | More verbose             | Minimal setup                 |
+| **Decorators**  | Server method decorators | Simple function decorators    |
+| **Schema**      | Manual definition        | Automatic from type hints     |
+| **Lifecycle**   | Manual management        | Automatic handling            |
+| **Best for**    | Complex custom logic     | Rapid development             |
 
 ## Basic low-level server
 
@@ -12,7 +36,7 @@ Fundamental low-level server patterns:
 
 This example demonstrates:
 
-- Creating a `Server` instance directly
+- Creating a [`Server`][mcp.server.lowlevel.Server] instance directly
 - Manual handler registration with decorators
 - Prompt management with `@server.list_prompts()` and `@server.get_prompt()`
 - Manual capability declaration
@@ -69,27 +93,3 @@ This production-ready example includes:
 - Input validation and error handling
 - Proper MCP protocol compliance
 - Tool execution with structured responses
-
-## Key differences from FastMCP
-
-| Aspect | Low-level API | FastMCP |
-|--------|---------------|---------|
-| **Control** | Maximum control | Convention over configuration |
-| **Boilerplate** | More verbose | Minimal setup |
-| **Decorators** | Server method decorators | Simple function decorators |
-| **Schema** | Manual definition | Automatic from type hints |
-| **Lifecycle** | Manual management | Automatic handling |
-| **Best for** | Complex custom logic | Rapid development |
-
-## When to use low-level API
-
-Choose the low-level API when you need:
-
-- Custom protocol message handling
-- Complex initialization sequences
-- Fine-grained control over capabilities
-- Integration with existing server infrastructure
-- Performance optimization at the protocol level
-- Custom authentication or authorization logic
-
-The low-level API provides the foundation that FastMCP is built upon, giving you access to all MCP protocol features with complete control over implementation details.

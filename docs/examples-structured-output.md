@@ -2,6 +2,16 @@
 
 Structured output allows tools to return well-typed, validated data that clients can easily process. This section covers various approaches to structured data.
 
+Structured output provides several advantages:
+
+- **Type Safety**: Automatic validation ensures data integrity
+- **Documentation**: Schemas serve as API documentation
+- **Client Integration**: Easier processing by client applications
+- **Backward Compatibility**: Still provides unstructured text content
+- **IDE Support**: Better development experience with type hints
+
+Choose structured output when you need reliable, processable data from your tools.
+
 ## FastMCP structured output
 
 Using FastMCP's automatic structured output capabilities:
@@ -13,7 +23,7 @@ Using FastMCP's automatic structured output capabilities:
 This comprehensive example demonstrates:
 
 - **Pydantic models**: Rich validation and documentation (`WeatherData`)
-- **TypedDict**: Simpler structures (`LocationInfo`) 
+- **TypedDict**: Simpler structures (`LocationInfo`)
 - **Dictionary types**: Flexible schemas (`dict[str, float]`)
 - **Regular classes**: With type hints for structured output (`UserProfile`)
 - **Untyped classes**: Fall back to unstructured output (`UntypedConfig`)
@@ -55,15 +65,3 @@ These examples demonstrate:
 - Validation against defined schemas
 - Returning structured data directly from tools
 - Backward compatibility with unstructured content
-
-## Benefits of structured output
-
-Structured output provides several advantages:
-
-1. **Type Safety**: Automatic validation ensures data integrity
-2. **Documentation**: Schemas serve as API documentation  
-3. **Client Integration**: Easier processing by client applications
-4. **Backward Compatibility**: Still provides unstructured text content
-5. **IDE Support**: Better development experience with type hints
-
-Choose structured output when you need reliable, processable data from your tools.

@@ -102,7 +102,102 @@ class ServerSession(
         return self._client_params
 
     def check_client_capability(self, capability: types.ClientCapabilities) -> bool:
-        """Check if the client supports a specific capability."""
+        """Check if the client supports specific capabilities before using advanced MCP features.
+
+        This method allows MCP servers to verify that the connected client supports
+        required capabilities before calling methods that depend on them. It performs
+        an AND operation - the client must support ALL capabilities specified in the
+        request, not just some of them.
+
+        You typically access this method through the session available in your request
+        context via [`app.request_context.session`][mcp.shared.context.RequestContext] 
+        within handler functions. Always check capabilities before using features like
+        sampling, elicitation, or experimental functionality.
+
+        Args:
+            capability: A [`types.ClientCapabilities`][mcp.types.ClientCapabilities] object
+                specifying which capabilities to check. Can include:
+
+                - `roots`: Check if client supports root listing operations
+                - `sampling`: Check if client supports LLM sampling via [`create_message`][mcp.server.session.ServerSession.create_message] 
+                - `elicitation`: Check if client supports user interaction via [`elicit`][mcp.server.session.ServerSession.elicit]
+                - `experimental`: Check for non-standard experimental capabilities
+
+        Returns:
+            bool: `True` if the client supports ALL requested capabilities, `False` if
+                the client hasn't been initialized yet or lacks any of the requested
+                capabilities.
+
+        Examples:
+            Check sampling capability before creating LLM messages:
+
+            ```python
+            from typing import Any
+            from mcp.server.lowlevel import Server
+            import mcp.types as types
+
+            app = Server("example-server")
+
+            @app.call_tool()
+            async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+                ctx = app.request_context
+                
+                # Check if client supports LLM sampling
+                if ctx.session.check_client_capability(
+                    types.ClientCapabilities(sampling=types.SamplingCapability())
+                ):
+                    # Safe to use create_message
+                    response = await ctx.session.create_message(
+                        messages=[types.SamplingMessage(
+                            role="user", 
+                            content=types.TextContent(type="text", text="Help me analyze this data")
+                        )],
+                        max_tokens=100
+                    )
+                    return [types.TextContent(type="text", text=response.content.text)]
+                else:
+                    return [types.TextContent(type="text", text="Client doesn't support LLM sampling")]
+            ```
+
+            Check experimental capabilities:
+
+            ```python
+            @app.call_tool()
+            async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+                ctx = app.request_context
+                
+                # Check for experimental advanced tools capability
+                if ctx.session.check_client_capability(
+                    types.ClientCapabilities(experimental={"advanced_tools": {}})
+                ):
+                    # Use experimental features
+                    return await use_advanced_tool_features(arguments)
+                else:
+                    # Fall back to basic functionality
+                    return await use_basic_tool_features(arguments)
+            ```
+
+            Check multiple capabilities at once:
+
+            ```python
+            # Client must support BOTH sampling AND elicitation
+            if ctx.session.check_client_capability(
+                types.ClientCapabilities(
+                    sampling=types.SamplingCapability(),
+                    elicitation=types.ElicitationCapability()
+                )
+            ):
+                # Safe to use both features
+                user_input = await ctx.session.elicit("What would you like to analyze?", schema)
+                llm_response = await ctx.session.create_message(messages, max_tokens=100)
+            ```
+
+        Note:
+            This method returns `False` if the session hasn't been initialized yet
+            (before the client sends the initialization request). It also returns
+            `False` if the client lacks ANY of the requested capabilities - all
+            specified capabilities must be supported for this method to return `True`.
+        """
         if self._client_params is None:
             return False
 
@@ -181,7 +276,157 @@ class ServerSession(
         logger: str | None = None,
         related_request_id: types.RequestId | None = None,
     ) -> None:
-        """Send a log message notification."""
+        """Send a log message notification from the server to the client.
+
+        This method allows MCP servers to send log messages to the connected client for
+        debugging, monitoring, and error reporting purposes. The client can filter these
+        messages based on the logging level it has configured via the logging/setLevel
+        request. Check client capabilities using [`check_client_capability`][mcp.server.session.ServerSession.check_client_capability]
+        if you need to verify logging support.
+        
+        You typically access this method through the session available in your request
+        context. When using the low-level SDK, access it via 
+        [`app.request_context.session`][mcp.shared.context.RequestContext] within handler
+        functions. With FastMCP, use the convenience logging methods on the 
+        [`Context`][mcp.server.fastmcp.Context] object instead, like
+        [`ctx.info()`][mcp.server.fastmcp.Context.info] or 
+        [`ctx.error()`][mcp.server.fastmcp.Context.error].
+
+        Log messages are one-way notifications and do not expect a response from the client.
+        They are useful for providing visibility into server operations, debugging issues,
+        and tracking the flow of request processing.
+
+        Args:
+            level: The severity level of the log message as a `types.LoggingLevel`. Must be one of:
+
+                - `debug`: Detailed information for debugging
+                - `info`: General informational messages
+                - `notice`: Normal but significant conditions
+                - `warning`: Warning conditions that should be addressed
+                - `error`: Error conditions that don't prevent operation
+                - `critical`: Critical conditions requiring immediate attention
+                - `alert`: Action must be taken immediately
+                - `emergency`: System is unusable
+
+            data: The data to log. Can be any JSON-serializable value including:
+
+                - Simple strings for text messages
+                - Objects/dictionaries for structured logging
+                - Lists for multiple related items
+                - Numbers, booleans, or null values
+
+            logger: Optional name to identify the source of the log message.
+                Useful for categorizing logs from different components or modules
+                within your server (e.g., "database", "auth", "tool_handler").
+            related_request_id: Optional [`types.RequestId`][mcp.types.RequestId] linking this log to a specific client request.
+                Use this to associate log messages with the request they relate to,
+                making it easier to trace request processing and debug issues.
+
+        Returns:
+            None
+
+        Raises:
+            RuntimeError: If called before session initialization is complete.
+            Various exceptions: Depending on serialization or transport errors.
+
+        Examples:
+            In a tool handler using the low-level SDK:
+
+            ```python
+            from typing import Any
+            from mcp.server.lowlevel import Server
+            import mcp.types as types
+
+            app = Server("example-server")
+
+            @app.call_tool()
+            async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+                # Access the request context to get the session
+                ctx = app.request_context
+
+                # Log the start of processing
+                await ctx.session.send_log_message(
+                    level="info",
+                    data=f"Processing tool call: {name}",
+                    logger="tool_handler",
+                    related_request_id=ctx.request_id
+                )
+
+                # Process and log any issues
+                try:
+                    result = perform_operation(arguments)
+                except Exception as e:
+                    await ctx.session.send_log_message(
+                        level="error",
+                        data={"error": str(e), "tool": name, "args": arguments},
+                        logger="tool_handler",
+                        related_request_id=ctx.request_id
+                    )
+                    raise
+
+                return [types.TextContent(type="text", text=str(result))]
+            ```
+
+            Using FastMCP's [`Context`][mcp.server.fastmcp.Context] helper for cleaner logging:
+
+            ```python
+            from mcp.server.fastmcp import FastMCP, Context
+
+            mcp = FastMCP(name="example-server")
+
+            @mcp.tool()
+            async def fetch_data(url: str, ctx: Context) -> str:
+                # FastMCP's Context provides convenience methods that internally
+                # call send_log_message with the appropriate parameters
+                await ctx.info(f"Fetching data from {url}")
+                await ctx.debug("Starting request")
+
+                try:
+                    data = await fetch(url)
+                    await ctx.info("Data fetched successfully")
+                    return data
+                except Exception as e:
+                    await ctx.error(f"Failed to fetch: {e}")
+                    raise
+            ```
+
+            Streaming notifications with progress updates:
+
+            ```python
+            import anyio
+            from typing import Any
+            from mcp.server.lowlevel import Server
+            import mcp.types as types
+
+            app = Server("example-server")
+
+            @app.call_tool()
+            async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+                ctx = app.request_context
+                count = arguments.get("count", 5)
+
+                for i in range(count):
+                    # Send progress updates to the client
+                    await ctx.session.send_log_message(
+                        level="info",
+                        data=f"[{i + 1}/{count}] Processing item",
+                        logger="progress_stream",
+                        related_request_id=ctx.request_id
+                    )
+                    if i < count - 1:
+                        await anyio.sleep(1)
+
+                return [types.TextContent(type="text", text="Operation complete")]
+            ```
+
+        Note:
+            Log messages are only delivered to the client if the client's configured
+            logging level permits it. For example, if the client has set its level to
+            "warning", it will not receive "debug" or "info" messages. Consider this
+            when deciding what level to use for your log messages. This method internally
+            uses [`send_notification`][mcp.shared.session.BaseSession.send_notification] to
+            deliver the log message to the client.
+        """
         await self.send_notification(
             types.ServerNotification(
                 types.LoggingMessageNotification(
@@ -339,14 +584,36 @@ class ServerSession(
         requestedSchema: types.ElicitRequestedSchema,
         related_request_id: types.RequestId | None = None,
     ) -> types.ElicitResult:
-        """Send an elicitation/create request.
+        """Send an elicitation request to collect structured information from the client.
+
+        This is the low-level method for client elicitation. For most use cases, prefer
+        the higher-level [`Context.elicit`][mcp.server.fastmcp.Context.elicit] method
+        which provides automatic Pydantic validation and a more convenient interface.
+
+        You typically access this method through the session available in your request
+        context via [`app.request_context.session`][mcp.shared.context.RequestContext] 
+        within handler functions. Always check that the client supports elicitation using
+        [`check_client_capability`][mcp.server.session.ServerSession.check_client_capability] 
+        before calling this method.
 
         Args:
-            message: The message to present to the user
-            requestedSchema: Schema defining the expected response structure
+            message: The prompt or question to present to the user.
+            requestedSchema: A [`types.ElicitRequestedSchema`][mcp.types.ElicitRequestedSchema] 
+                defining the expected response structure according to JSON Schema.
+            related_request_id: Optional [`types.RequestId`][mcp.types.RequestId] linking 
+                this elicitation to a specific client request for tracing.
 
         Returns:
-            The client's response
+            [`types.ElicitResult`][mcp.types.ElicitResult] containing the client's response
+            and action taken (accept, decline, or cancel).
+
+        Raises:
+            RuntimeError: If called before session initialization is complete.
+            Various exceptions: Depending on client implementation and user interaction.
+
+        Note:
+            Most developers should use [`Context.elicit`][mcp.server.fastmcp.Context.elicit] 
+            instead, which provides Pydantic model validation and better error handling.
         """
         return await self.send_request(
             types.ServerRequest(

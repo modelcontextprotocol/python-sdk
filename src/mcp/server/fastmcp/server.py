@@ -360,21 +360,91 @@ class FastMCP(Generic[LifespanResultT]):
         ]
 
     def get_context(self) -> Context[ServerSession, LifespanResultT, Request]:
-        """Get the current request context for accessing MCP capabilities.
+        """Get the current request context when automatic injection isn't available.
 
-        The context provides access to logging, progress reporting, resource reading,
-        user interaction, and request metadata. It's only valid during request
-        processing - calling context methods outside of a request will raise errors.
+        This method provides access to the current [`Context`][mcp.server.fastmcp.Context]
+        object when you can't rely on FastMCP's automatic parameter injection. It's
+        primarily useful in helper functions, callbacks, or other scenarios where
+        the context isn't automatically provided via function parameters.
+
+        In most cases, you should prefer automatic context injection by declaring
+        a Context parameter in your tool/resource functions. Use this method only
+        when you need context access from code that isn't directly called by FastMCP.
+
+        ## When to use this method
+
+        **Helper functions**: When context is needed in utility functions:
+
+        ```python
+        mcp = FastMCP(name="example")
+
+        async def log_operation(operation: str):
+            # Get context when it's not injected
+            ctx = mcp.get_context()
+            await ctx.info(f"Performing operation: {operation}")
+
+        @mcp.tool()
+        async def main_tool(data: str) -> str:
+            await log_operation("data_processing")  # Helper needs context
+            return process_data(data)
+        ```
+
+        **Callbacks and event handlers**: When context is needed in async callbacks:
+
+        ```python
+        async def progress_callback(current: int, total: int):
+            ctx = mcp.get_context()  # Access context in callback
+            await ctx.report_progress(current, total)
+
+        @mcp.tool()
+        async def long_operation(data: str) -> str:
+            return await process_with_callback(data, progress_callback)
+        ```
+
+        **Class methods**: When context is needed in class-based code:
+
+        ```python
+        class DataProcessor:
+            def __init__(self, mcp_server: FastMCP):
+                self.mcp = mcp_server
+            
+            async def process_chunk(self, chunk: str) -> str:
+                ctx = self.mcp.get_context()  # Get context in method
+                await ctx.debug(f"Processing chunk of size {len(chunk)}")
+                return processed_chunk
+
+        processor = DataProcessor(mcp)
+
+        @mcp.tool()
+        async def process_data(data: str) -> str:
+            return await processor.process_chunk(data)
+        ```
 
         Returns:
-            Context object for the current request with access to MCP capabilities.
+            [`Context`][mcp.server.fastmcp.Context] object for the current request
+            with access to all MCP capabilities including logging, progress reporting,
+            user interaction, and session access.
 
         Raises:
-            LookupError: If called outside of a request context.
+            LookupError: If called outside of a request context (e.g., during server
+                initialization, shutdown, or from code not handling a client request).
 
         Note:
-            This method should typically only be called from within tool, resource,
-            or prompt handlers where a request context is active.
+            **Prefer automatic injection**: In most cases, declare a Context parameter
+            in your function signature instead of calling this method:
+
+            ```python
+            # Preferred approach
+            @mcp.tool()
+            async def my_tool(data: str, ctx: Context) -> str:
+                await ctx.info("Processing data")
+                return result
+
+            # Only use get_context() when injection isn't available
+            async def helper_function():
+                ctx = mcp.get_context()
+                await ctx.info("Helper called")
+            ```
         """
         try:
             request_context = self._mcp_server.request_context
@@ -1148,40 +1218,156 @@ class StreamableHTTPASGIApp:
 
 
 class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
-    """Context object providing access to MCP capabilities.
+    """High-level context object providing convenient access to MCP capabilities.
 
-    This provides a cleaner interface to MCP's RequestContext functionality.
-    It gets injected into tool and resource functions that request it via type hints.
-    The context provides access to logging, progress reporting, resource reading,
-    user interaction, and request metadata.
+    This is FastMCP's user-friendly wrapper around the underlying [`RequestContext`][mcp.shared.context.RequestContext]
+    that provides the same functionality with additional convenience methods and better
+    ergonomics. It gets automatically injected into FastMCP tool and resource functions
+    that declare it in their type hints, eliminating the need to manually access the
+    request context.
 
-    The context parameter name can be anything as long as it's annotated with Context.
-    The context is optional - tools that don't need it can omit the parameter.
+    The Context object provides access to all MCP capabilities including logging,
+    progress reporting, resource reading, user interaction, capability checking, and
+    access to the underlying session and request metadata. It's the recommended way
+    to interact with MCP functionality in FastMCP applications.
 
-    Examples:
-        Using context in a tool function:
+    ## Automatic injection
 
-        ```python
-        @server.tool()
-        def my_tool(x: int, ctx: Context) -> str:
-            # Log messages to the client
-            ctx.info(f"Processing {x}")
-            ctx.debug("Debug info")
-            ctx.warning("Warning message")
-            ctx.error("Error message")
+    Context is automatically injected into functions based on type hints. The parameter
+    name can be anything as long as it's annotated with `Context`. The context parameter
+    is optional - tools that don't need it can omit it entirely.
 
-            # Report progress
-            ctx.report_progress(50, 100)
+    ```python
+    from mcp.server.fastmcp import FastMCP, Context
 
-            # Access resources
-            data = ctx.read_resource("resource://data")
+    mcp = FastMCP(name="example")
 
-            # Get request info
-            request_id = ctx.request_id
-            client_id = ctx.client_id
+    @mcp.tool()
+    async def simple_tool(data: str) -> str:
+        # No context needed
+        return f"Processed: {data}"
 
-            return str(x)
-        ```
+    @mcp.tool() 
+    async def advanced_tool(data: str, ctx: Context) -> str:
+        # Context automatically injected
+        await ctx.info("Starting processing")
+        return f"Processed: {data}"
+    ```
+
+    ## Relationship to RequestContext
+
+    Context is a thin wrapper around [`RequestContext`][mcp.shared.context.RequestContext]
+    that provides the same underlying functionality with additional convenience methods:
+
+    - **Context convenience methods**: `ctx.info()`, `ctx.error()`, `ctx.elicit()`, etc.
+    - **Direct RequestContext access**: `ctx.request_context` for low-level operations
+    - **Session access**: `ctx.session` for advanced ServerSession functionality
+    - **Request metadata**: `ctx.request_id`, access to lifespan context, etc.
+
+    ## Capabilities provided
+
+    **Logging**: Send structured log messages to the client with automatic request linking:
+
+    ```python
+    await ctx.debug("Detailed debug information")
+    await ctx.info("General status updates")
+    await ctx.warning("Important warnings")  
+    await ctx.error("Error conditions")
+    ```
+
+    **Progress reporting**: Keep users informed during long operations:
+
+    ```python
+    for i in range(100):
+        await ctx.report_progress(i, 100, f"Processing item {i}")
+        # ... do work
+    ```
+
+    **User interaction**: Collect additional information during tool execution:
+
+    ```python
+    class UserPrefs(BaseModel):
+        format: str
+        detailed: bool
+    
+    result = await ctx.elicit("How should I format the output?", UserPrefs)
+    if result.action == "accept":
+        format_data(data, result.data.format)
+    ```
+
+    **Resource access**: Read MCP resources during tool execution:
+
+    ```python
+    content = await ctx.read_resource("file://data/config.json")
+    ```
+
+    **Capability checking**: Verify client support before using advanced features:
+
+    ```python
+    if ctx.session.check_client_capability(types.ClientCapabilities(sampling=...)):
+        # Use advanced features
+        pass
+    ```
+
+    ## Examples
+
+    Complete tool with context usage:
+
+    ```python
+    from pydantic import BaseModel
+    from mcp.server.fastmcp import FastMCP, Context
+
+    class ProcessingOptions(BaseModel):
+        format: str
+        include_metadata: bool
+
+    mcp = FastMCP(name="processor")
+
+    @mcp.tool()
+    async def process_data(
+        data: str, 
+        ctx: Context,
+        auto_format: bool = False
+    ) -> str:
+        await ctx.info(f"Starting to process {len(data)} characters")
+        
+        # Get user preferences if not auto-formatting
+        if not auto_format:
+            if ctx.session.check_client_capability(
+                types.ClientCapabilities(elicitation=types.ElicitationCapability())
+            ):
+                prefs_result = await ctx.elicit(
+                    "How would you like the data processed?",
+                    ProcessingOptions
+                )
+                if prefs_result.action == "accept":
+                    format_type = prefs_result.data.format
+                    include_meta = prefs_result.data.include_metadata
+                else:
+                    await ctx.warning("Using default format")
+                    format_type = "standard"
+                    include_meta = False
+            else:
+                format_type = "standard" 
+                include_meta = False
+        else:
+            format_type = "auto"
+            include_meta = True
+            
+        # Process with progress updates
+        for i in range(0, len(data), 100):
+            chunk = data[i:i+100]
+            await ctx.report_progress(i, len(data), f"Processing chunk {i//100 + 1}")
+            # ... process chunk
+            
+        await ctx.info(f"Processing complete with format: {format_type}")
+        return processed_data
+    ```
+
+    Note:
+        Context objects are request-scoped and automatically managed by FastMCP.
+        Don't store references to them beyond the request lifecycle. Each tool
+        invocation gets a fresh Context instance tied to that specific request.
     """
 
     _request_context: RequestContext[ServerSessionT, LifespanContextT, RequestT] | None
@@ -1209,7 +1395,36 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     def request_context(
         self,
     ) -> RequestContext[ServerSessionT, LifespanContextT, RequestT]:
-        """Access to the underlying request context."""
+        """Access to the underlying RequestContext for low-level operations.
+
+        This property provides direct access to the [`RequestContext`][mcp.shared.context.RequestContext]
+        that this Context wraps. Use this when you need low-level access to request
+        metadata, lifespan context, or other features not exposed by Context's
+        convenience methods.
+
+        Most users should prefer Context's convenience methods like `info()`, `elicit()`,
+        etc. rather than accessing the underlying RequestContext directly.
+
+        Returns:
+            The underlying [`RequestContext`][mcp.shared.context.RequestContext] containing
+            session, metadata, and lifespan context.
+
+        Raises:
+            ValueError: If called outside of a request context.
+
+        Example:
+            ```python
+            @mcp.tool()
+            async def advanced_tool(data: str, ctx: Context) -> str:
+                # Access lifespan context directly
+                db = ctx.request_context.lifespan_context["database"]
+                
+                # Access request metadata
+                progress_token = ctx.request_context.meta.progressToken if ctx.request_context.meta else None
+                
+                return processed_data
+            ```
+        """
         if self._request_context is None:
             raise ValueError("Context is not available outside of a request")
         return self._request_context
@@ -1251,26 +1466,132 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         message: str,
         schema: type[ElicitSchemaModelT],
     ) -> ElicitationResult[ElicitSchemaModelT]:
-        """Elicit information from the client/user.
+        """Elicit structured information from the client or user during tool execution.
 
-        This method can be used to interactively ask for additional information from the
-        client within a tool's execution. The client might display the message to the
-        user and collect a response according to the provided schema. Or in case a
-        client is an agent, it might decide how to handle the elicitation -- either by asking
-        the user or automatically generating a response.
+        This method enables interactive data collection from clients during tool processing.
+        The client may display the message to the user and collect a response according to
+        the provided Pydantic schema, or if the client is an agent, it may automatically 
+        generate an appropriate response. This is useful for gathering additional parameters,
+        user preferences, or confirmation before proceeding with operations.
+
+        You typically access this method through the [`Context`][mcp.server.fastmcp.Context] 
+        object injected into your FastMCP tool functions. Always check that the client
+        supports elicitation using [`check_client_capability`][mcp.server.session.ServerSession.check_client_capability]
+        before calling this method.
 
         Args:
-            schema: A Pydantic model class defining the expected response structure, according to the specification,
-                    only primive types are allowed.
-            message: Optional message to present to the user. If not provided, will use
-                    a default message based on the schema
+            message: The prompt or question to present to the user. Should clearly explain
+                what information is being requested and why it's needed.
+            schema: A Pydantic model class defining the expected response structure. 
+                According to the MCP specification, only primitive types (str, int, float, bool)
+                and simple containers (list, dict) are allowed - no complex nested objects.
 
         Returns:
-            An ElicitationResult containing the action taken and the data if accepted
+            [`ElicitationResult`][mcp.server.fastmcp.utilities.types.ElicitationResult] containing:
+
+            - `action`: One of "accept", "decline", or "cancel" indicating user response
+            - `data`: The structured response data (only populated if action is "accept")
+
+        Raises:
+            RuntimeError: If called before session initialization is complete.
+            ValidationError: If the client response doesn't match the provided schema.
+            Various exceptions: Depending on client implementation and user interaction.
+
+        Examples:
+            Collect user preferences before processing:
+
+            ```python
+            from pydantic import BaseModel
+            from mcp.server.fastmcp import FastMCP, Context
+
+            class ProcessingOptions(BaseModel):
+                format: str
+                include_metadata: bool
+                max_items: int
+
+            mcp = FastMCP(name="example-server")
+
+            @mcp.tool()
+            async def process_data(data: str, ctx: Context) -> str:
+                # Check if client supports elicitation
+                if not ctx.session.check_client_capability(
+                    types.ClientCapabilities(elicitation=types.ElicitationCapability())
+                ):
+                    # Fall back to default processing
+                    return process_with_defaults(data)
+                
+                # Ask user for processing preferences
+                result = await ctx.elicit(
+                    "How would you like me to process this data?",
+                    ProcessingOptions
+                )
+                
+                if result.action == "accept":
+                    options = result.data
+                    await ctx.info(f"Processing with format: {options.format}")
+                    return process_with_options(data, options)
+                elif result.action == "decline":
+                    return process_with_defaults(data)
+                else:  # cancel
+                    return "Processing cancelled by user"
+            ```
+
+            Confirm before destructive operations:
+
+            ```python
+            class ConfirmDelete(BaseModel):
+                confirm: bool
+                reason: str
+
+            @mcp.tool()
+            async def delete_files(pattern: str, ctx: Context) -> str:
+                files = find_matching_files(pattern)
+                
+                result = await ctx.elicit(
+                    f"About to delete {len(files)} files matching '{pattern}'. Continue?",
+                    ConfirmDelete
+                )
+                
+                if result.action == "accept" and result.data.confirm:
+                    await ctx.info(f"Deletion confirmed: {result.data.reason}")
+                    return delete_files(files)
+                else:
+                    return "Deletion cancelled"
+            ```
+
+            Handle different response types:
+
+            ```python
+            class UserChoice(BaseModel):
+                option: str  # "auto", "manual", "skip"
+                details: str
+
+            @mcp.tool()
+            async def configure_system(ctx: Context) -> str:
+                result = await ctx.elicit(
+                    "How should I configure the system?",
+                    UserChoice
+                )
+                
+                match result.action:
+                    case "accept":
+                        choice = result.data
+                        await ctx.info(f"User selected: {choice.option}")
+                        return configure_with_choice(choice)
+                    case "decline":
+                        await ctx.warning("User declined configuration")
+                        return "Configuration skipped by user"
+                    case "cancel":
+                        await ctx.info("Configuration cancelled")
+                        return "Operation cancelled"
+            ```
 
         Note:
-            Check the result.action to determine if the user accepted, declined, or cancelled.
-            The result.data will only be populated if action is "accept" and validation succeeded.
+            The client determines how to handle elicitation requests. Some clients may
+            show interactive forms to users, while others may automatically generate
+            responses based on context. Always handle all possible action values
+            ("accept", "decline", "cancel") in your code and provide appropriate
+            fallbacks for clients that don't support elicitation.
         """
 
         return await elicit_with_validation(
@@ -1305,12 +1626,79 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
 
     @property
     def request_id(self) -> str:
-        """Get the unique ID for this request."""
+        """Get the unique identifier for the current request.
+
+        This ID uniquely identifies the current client request and is useful for
+        logging, tracing, error reporting, and linking related operations. It's
+        automatically used by Context's convenience methods when sending notifications
+        or responses to ensure they're associated with the correct request.
+
+        Returns:
+            str: Unique request identifier that can be used for tracing and logging.
+
+        Example:
+            ```python
+            @mcp.tool()
+            async def traceable_tool(data: str, ctx: Context) -> str:
+                # Log with request ID for traceability
+                print(f"Processing request {ctx.request_id}")
+                
+                # Request ID is automatically included in Context methods
+                await ctx.info("Starting processing")  # Links to this request
+                
+                return processed_data
+            ```
+        """
         return str(self.request_context.request_id)
 
     @property
     def session(self):
-        """Access to the underlying session for advanced usage."""
+        """Access to the underlying ServerSession for advanced MCP operations.
+
+        This property provides direct access to the [`ServerSession`][mcp.server.session.ServerSession]
+        for advanced operations not covered by Context's convenience methods. Use this
+        when you need direct session control, capability checking, or low-level MCP
+        protocol operations.
+
+        Most users should prefer Context's convenience methods (`info()`, `elicit()`, etc.)
+        which internally use this session with appropriate request linking.
+
+        Returns:
+            [`ServerSession`][mcp.server.session.ServerSession]: The session for 
+            communicating with the client and accessing advanced MCP features.
+
+        Examples:
+            Capability checking before using advanced features:
+
+            ```python
+            @mcp.tool()
+            async def advanced_tool(data: str, ctx: Context) -> str:
+                # Check client capabilities
+                if ctx.session.check_client_capability(
+                    types.ClientCapabilities(sampling=types.SamplingCapability())
+                ):
+                    # Use LLM sampling
+                    response = await ctx.session.create_message(
+                        messages=[types.SamplingMessage(...)],
+                        max_tokens=100
+                    )
+                    return response.content.text
+                else:
+                    return "Client doesn't support LLM sampling"
+            ```
+
+            Direct resource notifications:
+
+            ```python
+            @mcp.tool()
+            async def update_resource(uri: str, ctx: Context) -> str:
+                # ... update the resource ...
+                
+                # Notify client of resource changes
+                await ctx.session.send_resource_updated(AnyUrl(uri))
+                return "Resource updated"
+            ```
+        """
         return self.request_context.session
 
     # Convenience methods for common log levels
