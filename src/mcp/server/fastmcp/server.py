@@ -52,16 +52,6 @@ from mcp.types import Tool as MCPTool
 logger = get_logger(__name__)
 
 
-class SilentResponse(Response):
-    """A response that does not send any HTTP response back to the client."""
-
-    def __init__(self) -> None:
-        super().__init__()
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        return
-
-
 class Settings(BaseSettings, Generic[LifespanResultT]):
     """FastMCP server settings.
 
@@ -745,20 +735,25 @@ class FastMCP(Generic[LifespanResultT]):
             security_settings=self.settings.transport_security,
         )
 
-        async def handle_sse(scope: Scope, receive: Receive, send: Send):
-            # Add client ID from auth context into request context if available
+        async def handle_sse(request: Request) -> Response:
+            """Handle SSE connection using Starlette's EventSourceResponse."""
+            # Create a custom Response class that wraps the SSE connection
+            class SSEConnectionResponse(Response):
+                def __init__(self, sse_transport: SseServerTransport, server: MCPServer) -> None:
+                    super().__init__()
+                    self.sse_transport = sse_transport
+                    self.server = server
 
-            async with sse.connect_sse(
-                scope,
-                receive,
-                send,
-            ) as streams:
-                await self._mcp_server.run(
-                    streams[0],
-                    streams[1],
-                    self._mcp_server.create_initialization_options(),
-                )
-            return SilentResponse()
+                async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+                    async with self.sse_transport.connect_sse(scope, receive, send) as streams:
+                        await self.server.run(
+                            streams[0],
+                            streams[1],
+                            self.server.create_initialization_options(),
+                        )
+
+            # Return the Response object for Starlette to handle
+            return SSEConnectionResponse(sse, self._mcp_server)
 
         # Create routes
         routes: list[Route | Mount] = []
@@ -796,7 +791,7 @@ class FastMCP(Generic[LifespanResultT]):
                     )
                 )
 
-        # When auth is configured, require authentication
+        # Create auth wrapper if needed
         if self._token_verifier:
             # Determine resource metadata URL
             resource_metadata_url = None
@@ -807,11 +802,16 @@ class FastMCP(Generic[LifespanResultT]):
                     str(self.settings.auth.resource_server_url).rstrip("/") + "/.well-known/oauth-protected-resource"
                 )
 
-            # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
+            # # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
+            async def handle_sse_auth(scope: Scope, receive: Receive, send: Send) -> None:
+                request = Request(scope, receive)
+                response = await handle_sse(request)
+                await response(scope, receive, send)
+
             routes.append(
                 Route(
                     self.settings.sse_path,
-                    endpoint=RequireAuthMiddleware(handle_sse, required_scopes, resource_metadata_url),
+                    endpoint=RequireAuthMiddleware(handle_sse_auth, required_scopes, resource_metadata_url),
                     methods=["GET"],
                 )
             )
@@ -824,14 +824,10 @@ class FastMCP(Generic[LifespanResultT]):
         else:
             # Auth is disabled, no need for RequireAuthMiddleware
             # Since handle_sse is an ASGI app, we need to create a compatible endpoint
-            async def sse_endpoint(request: Request) -> Response:
-                # Convert the Starlette request to ASGI parameters
-                return await handle_sse(request.scope, request.receive, request._send)  # type: ignore[reportPrivateUsage]
-
             routes.append(
                 Route(
                     self.settings.sse_path,
-                    endpoint=sse_endpoint,
+                    endpoint=handle_sse,
                     methods=["GET"],
                 )
             )
