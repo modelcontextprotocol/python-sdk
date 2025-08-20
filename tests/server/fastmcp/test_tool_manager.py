@@ -313,6 +313,55 @@ class TestCallTools:
         )
         assert result == ["rex", "gertrude"]
 
+    @pytest.mark.anyio
+    async def test_tool_run_httpx_json_error(self):
+        """Test Tool.run() handling HTTPStatusError with JSON response."""
+        import httpx
+        from unittest.mock import Mock
+
+        def tool_with_httpx_error(x: int) -> str:
+            mock_response = Mock()
+            mock_response.status_code = 404
+            mock_response.json.return_value = {"error": "Not found", "code": "RESOURCE_NOT_FOUND"}
+            raise httpx.HTTPStatusError("Not found", request=Mock(), response=mock_response)
+
+        manager = ToolManager()
+        tool = manager.add_tool(tool_with_httpx_error)
+
+        with pytest.raises(ToolError, match="Error executing tool tool_with_httpx_error: [404]"):
+            await tool.run({"x": 42})
+
+    @pytest.mark.anyio
+    async def test_tool_run_httpx_text_error(self):
+        """Test Tool.run() handling HTTPStatusError with text response."""
+        import httpx
+        from unittest.mock import Mock
+
+        def tool_with_httpx_text_error(x: int) -> str:
+            mock_response = Mock()
+            mock_response.status_code = 500
+            mock_response.json.side_effect = Exception("Not JSON")
+            mock_response.text = "Internal Server Error"
+            raise httpx.HTTPStatusError("Server error", request=Mock(), response=mock_response)
+
+        manager = ToolManager()
+        tool = manager.add_tool(tool_with_httpx_text_error)
+
+        with pytest.raises(ToolError, match="Error executing tool tool_with_httpx_text_error: [500] Internal Server Error"):
+            await tool.run({"x": 42})
+
+    @pytest.mark.anyio
+    async def test_tool_run_generic_exception(self):
+        """Test Tool.run() handling generic exceptions."""
+        def tool_with_error(x: int) -> str:
+            raise ValueError("Something went wrong")
+
+        manager = ToolManager()
+        tool = manager.add_tool(tool_with_error)
+
+        with pytest.raises(ToolError, match="Error executing tool tool_with_error: Something went wrong"):
+            await tool.run({"x": 42})
+
 
 class TestToolSchema:
     @pytest.mark.anyio
