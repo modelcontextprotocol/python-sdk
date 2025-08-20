@@ -242,6 +242,19 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return decorator
 
+    def list_prompts_paginated(self):
+        def decorator(func: Callable[[types.Cursor | None], Awaitable[types.ListPromptsResult]]):
+            logger.debug("Registering handler for PromptListRequest with pagination")
+
+            async def handler(req: types.ListPromptsRequest):
+                result = await func(req.params.cursor if req.params else None)
+                return types.ServerResult(result)
+
+            self.request_handlers[types.ListPromptsRequest] = handler
+            return func
+
+        return decorator
+
     def get_prompt(self):
         def decorator(
             func: Callable[[str, dict[str, str] | None], Awaitable[types.GetPromptResult]],
@@ -264,6 +277,19 @@ class Server(Generic[LifespanResultT, RequestT]):
             async def handler(_: Any):
                 resources = await func()
                 return types.ServerResult(types.ListResourcesResult(resources=resources))
+
+            self.request_handlers[types.ListResourcesRequest] = handler
+            return func
+
+        return decorator
+
+    def list_resources_paginated(self):
+        def decorator(func: Callable[[types.Cursor | None], Awaitable[types.ListResourcesResult]]):
+            logger.debug("Registering handler for ListResourcesRequest with pagination")
+
+            async def handler(req: types.ListResourcesRequest):
+                result = await func(req.params.cursor if req.params else None)
+                return types.ServerResult(result)
 
             self.request_handlers[types.ListResourcesRequest] = handler
             return func
@@ -391,6 +417,25 @@ class Server(Generic[LifespanResultT, RequestT]):
                 for tool in tools:
                     self._tool_cache[tool.name] = tool
                 return types.ServerResult(types.ListToolsResult(tools=tools))
+
+            self.request_handlers[types.ListToolsRequest] = handler
+            return func
+
+        return decorator
+
+    def list_tools_paginated(self):
+        def decorator(
+            func: Callable[[types.Cursor | None], Awaitable[types.ListToolsResult]]
+        ):
+            logger.debug("Registering paginated handler for ListToolsRequest")
+
+            async def handler(request: types.ListToolsRequest):
+                cursor = request.params.cursor if request.params else None
+                result = await func(cursor)
+                # Refresh the tool cache with returned tools
+                for tool in result.tools:
+                    self._tool_cache[tool.name] = tool
+                return types.ServerResult(result)
 
             self.request_handlers[types.ListToolsRequest] = handler
             return func
