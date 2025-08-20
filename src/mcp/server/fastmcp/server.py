@@ -737,6 +737,7 @@ class FastMCP(Generic[LifespanResultT]):
 
         async def handle_sse(request: Request) -> Response:
             """Handle SSE connection using Starlette's EventSourceResponse."""
+
             class SSEConnectionResponse(Response):
                 def __init__(self, sse_transport: SseServerTransport, server: MCPServer) -> None:
                     super().__init__()
