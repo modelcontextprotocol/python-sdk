@@ -424,9 +424,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         return decorator
 
     def list_tools_paginated(self):
-        def decorator(
-            func: Callable[[types.Cursor | None], Awaitable[types.ListToolsResult]]
-        ):
+        def decorator(func: Callable[[types.Cursor | None], Awaitable[types.ListToolsResult]]):
             logger.debug("Registering paginated handler for ListToolsRequest")
 
             async def handler(request: types.ListToolsRequest):
