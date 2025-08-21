@@ -13,7 +13,7 @@ This document contains critical information about working with this codebase. Fo
 
 2. Code Quality
    - Type hints required for all code
-   - Public APIs must have docstrings
+   - All public members MUST have Google Python Style Guide-compliant docstrings
    - Functions must be focused and small
    - Follow existing patterns exactly
    - Line length: 120 chars maximum

@@ -257,16 +257,16 @@ class Server(Generic[LifespanResultT, RequestT]):
         client request. The context is automatically managed by the server and is only
         available during request processing.
 
-        ## Common usage patterns
+        Examples:
 
         **Logging and communication**:
 
-        ```python  
+        ```python
         @app.call_tool()
         async def my_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
             ctx = app.request_context
             await ctx.session.send_log_message(
-                level="info", 
+                level="info",
                 data="Starting tool processing",
                 related_request_id=ctx.request_id
             )
@@ -275,7 +275,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         **Capability checking**:
 
         ```python
-        @app.call_tool() 
+        @app.call_tool()
         async def advanced_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
             ctx = app.request_context
             if ctx.session.check_client_capability(

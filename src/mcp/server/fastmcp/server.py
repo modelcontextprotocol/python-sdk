@@ -371,54 +371,54 @@ class FastMCP(Generic[LifespanResultT]):
         a Context parameter in your tool/resource functions. Use this method only
         when you need context access from code that isn't directly called by FastMCP.
 
-        ## When to use this method
+        You might call this method directly in:
 
-        **Helper functions**: When context is needed in utility functions:
+        - **Helper functions**
 
-        ```python
-        mcp = FastMCP(name="example")
+            ```python
+            mcp = FastMCP(name="example")
 
-        async def log_operation(operation: str):
-            # Get context when it's not injected
-            ctx = mcp.get_context()
-            await ctx.info(f"Performing operation: {operation}")
+            async def log_operation(operation: str):
+                # Get context when it's not injected
+                ctx = mcp.get_context()
+                await ctx.info(f"Performing operation: {operation}")
 
-        @mcp.tool()
-        async def main_tool(data: str) -> str:
-            await log_operation("data_processing")  # Helper needs context
-            return process_data(data)
-        ```
+            @mcp.tool()
+            async def main_tool(data: str) -> str:
+                await log_operation("data_processing")  # Helper needs context
+                return process_data(data)
+            ```
 
-        **Callbacks and event handlers**: When context is needed in async callbacks:
+        - **Callbacks** and **event handlers** when context is needed in async callbacks
 
-        ```python
-        async def progress_callback(current: int, total: int):
-            ctx = mcp.get_context()  # Access context in callback
-            await ctx.report_progress(current, total)
+            ```python
+            async def progress_callback(current: int, total: int):
+                ctx = mcp.get_context()  # Access context in callback
+                await ctx.report_progress(current, total)
 
-        @mcp.tool()
-        async def long_operation(data: str) -> str:
-            return await process_with_callback(data, progress_callback)
-        ```
+            @mcp.tool()
+            async def long_operation(data: str) -> str:
+                return await process_with_callback(data, progress_callback)
+            ```
 
-        **Class methods**: When context is needed in class-based code:
+        - **Class methods** when context is needed in class-based code
 
-        ```python
-        class DataProcessor:
-            def __init__(self, mcp_server: FastMCP):
-                self.mcp = mcp_server
-            
-            async def process_chunk(self, chunk: str) -> str:
-                ctx = self.mcp.get_context()  # Get context in method
-                await ctx.debug(f"Processing chunk of size {len(chunk)}")
-                return processed_chunk
+            ```python
+            class DataProcessor:
+                def __init__(self, mcp_server: FastMCP):
+                    self.mcp = mcp_server
 
-        processor = DataProcessor(mcp)
+                async def process_chunk(self, chunk: str) -> str:
+                    ctx = self.mcp.get_context()  # Get context in method
+                    await ctx.debug(f"Processing chunk of size {len(chunk)}")
+                    return processed_chunk
 
-        @mcp.tool()
-        async def process_data(data: str) -> str:
-            return await processor.process_chunk(data)
-        ```
+            processor = DataProcessor(mcp)
+
+            @mcp.tool()
+            async def process_data(data: str) -> str:
+                return await processor.process_chunk(data)
+            ```
 
         Returns:
             [`Context`][mcp.server.fastmcp.Context] object for the current request
@@ -1247,7 +1247,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         # No context needed
         return f"Processed: {data}"
 
-    @mcp.tool() 
+    @mcp.tool()
     async def advanced_tool(data: str, ctx: Context) -> str:
         # Context automatically injected
         await ctx.info("Starting processing")
@@ -1271,7 +1271,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     ```python
     await ctx.debug("Detailed debug information")
     await ctx.info("General status updates")
-    await ctx.warning("Important warnings")  
+    await ctx.warning("Important warnings")
     await ctx.error("Error conditions")
     ```
 
@@ -1289,7 +1289,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     class UserPrefs(BaseModel):
         format: str
         detailed: bool
-    
+
     result = await ctx.elicit("How should I format the output?", UserPrefs)
     if result.action == "accept":
         format_data(data, result.data.format)
@@ -1325,12 +1325,12 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
 
     @mcp.tool()
     async def process_data(
-        data: str, 
+        data: str,
         ctx: Context,
         auto_format: bool = False
     ) -> str:
         await ctx.info(f"Starting to process {len(data)} characters")
-        
+
         # Get user preferences if not auto-formatting
         if not auto_format:
             if ctx.session.check_client_capability(
@@ -1348,18 +1348,18 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
                     format_type = "standard"
                     include_meta = False
             else:
-                format_type = "standard" 
+                format_type = "standard"
                 include_meta = False
         else:
             format_type = "auto"
             include_meta = True
-            
+
         # Process with progress updates
         for i in range(0, len(data), 100):
             chunk = data[i:i+100]
             await ctx.report_progress(i, len(data), f"Processing chunk {i//100 + 1}")
             # ... process chunk
-            
+
         await ctx.info(f"Processing complete with format: {format_type}")
         return processed_data
     ```
@@ -1418,10 +1418,10 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             async def advanced_tool(data: str, ctx: Context) -> str:
                 # Access lifespan context directly
                 db = ctx.request_context.lifespan_context["database"]
-                
+
                 # Access request metadata
                 progress_token = ctx.request_context.meta.progressToken if ctx.request_context.meta else None
-                
+
                 return processed_data
             ```
         """
@@ -1470,11 +1470,11 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
 
         This method enables interactive data collection from clients during tool processing.
         The client may display the message to the user and collect a response according to
-        the provided Pydantic schema, or if the client is an agent, it may automatically 
+        the provided Pydantic schema, or if the client is an agent, it may automatically
         generate an appropriate response. This is useful for gathering additional parameters,
         user preferences, or confirmation before proceeding with operations.
 
-        You typically access this method through the [`Context`][mcp.server.fastmcp.Context] 
+        You typically access this method through the [`Context`][mcp.server.fastmcp.Context]
         object injected into your FastMCP tool functions. Always check that the client
         supports elicitation using [`check_client_capability`][mcp.server.session.ServerSession.check_client_capability]
         before calling this method.
@@ -1482,7 +1482,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         Args:
             message: The prompt or question to present to the user. Should clearly explain
                 what information is being requested and why it's needed.
-            schema: A Pydantic model class defining the expected response structure. 
+            schema: A Pydantic model class defining the expected response structure.
                 According to the MCP specification, only primitive types (str, int, float, bool)
                 and simple containers (list, dict) are allowed - no complex nested objects.
 
@@ -1519,13 +1519,13 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
                 ):
                     # Fall back to default processing
                     return process_with_defaults(data)
-                
+
                 # Ask user for processing preferences
                 result = await ctx.elicit(
                     "How would you like me to process this data?",
                     ProcessingOptions
                 )
-                
+
                 if result.action == "accept":
                     options = result.data
                     await ctx.info(f"Processing with format: {options.format}")
@@ -1546,12 +1546,12 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             @mcp.tool()
             async def delete_files(pattern: str, ctx: Context) -> str:
                 files = find_matching_files(pattern)
-                
+
                 result = await ctx.elicit(
                     f"About to delete {len(files)} files matching '{pattern}'. Continue?",
                     ConfirmDelete
                 )
-                
+
                 if result.action == "accept" and result.data.confirm:
                     await ctx.info(f"Deletion confirmed: {result.data.reason}")
                     return delete_files(files)
@@ -1572,7 +1572,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
                     "How should I configure the system?",
                     UserChoice
                 )
-                
+
                 match result.action:
                     case "accept":
                         choice = result.data
@@ -1642,10 +1642,10 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             async def traceable_tool(data: str, ctx: Context) -> str:
                 # Log with request ID for traceability
                 print(f"Processing request {ctx.request_id}")
-                
+
                 # Request ID is automatically included in Context methods
                 await ctx.info("Starting processing")  # Links to this request
-                
+
                 return processed_data
             ```
         """
@@ -1664,7 +1664,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         which internally use this session with appropriate request linking.
 
         Returns:
-            [`ServerSession`][mcp.server.session.ServerSession]: The session for 
+            [`ServerSession`][mcp.server.session.ServerSession]: The session for
             communicating with the client and accessing advanced MCP features.
 
         Examples:
@@ -1693,7 +1693,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             @mcp.tool()
             async def update_resource(uri: str, ctx: Context) -> str:
                 # ... update the resource ...
-                
+
                 # Notify client of resource changes
                 await ctx.session.send_resource_updated(AnyUrl(uri))
                 return "Resource updated"
