@@ -700,7 +700,9 @@ class TestAuthFlow:
         assert oauth_provider.context.token_expiry_time is not None
 
     @pytest.mark.anyio
-    async def test_auth_flow_no_unnecessary_retry_after_oauth(self, oauth_provider, mock_storage, valid_tokens):
+    async def test_auth_flow_no_unnecessary_retry_after_oauth(
+        self, oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, valid_tokens: OAuthToken
+    ):
         """Test that requests are not retried unnecessarily - the core bug that caused 2x performance degradation."""
         # Pre-store valid tokens so no OAuth flow is needed
         await mock_storage.set_tokens(valid_tokens)
