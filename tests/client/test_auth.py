@@ -721,11 +721,11 @@ class TestAuthFlow:
 
         # Send a successful 200 response
         response = httpx.Response(200, request=request)
-        
+
         # In the buggy version, this would yield the request AGAIN unconditionally
         # In the fixed version, this should end the generator
         try:
-            extra_request = await auth_flow.asend(response)
+            await auth_flow.asend(response)  # extra request
             request_yields += 1
             # If we reach here, the bug is present
             pytest.fail(

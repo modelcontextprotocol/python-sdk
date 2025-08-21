@@ -131,7 +131,7 @@ class OAuthContext:
             and self.current_tokens.access_token
             and (not self.token_expiry_time or time.time() <= self.token_expiry_time)
         )
-    
+
     def can_refresh_token(self) -> bool:
         """Check if token can be refreshed."""
         return bool(self.current_tokens and self.current_tokens.refresh_token and self.client_info)
