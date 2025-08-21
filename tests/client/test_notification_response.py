@@ -115,12 +115,10 @@ def non_sdk_server(non_sdk_server_port: int) -> Generator[None, None, None]:
 
 @pytest.mark.anyio
 async def test_notification_with_204_response(non_sdk_server: None, non_sdk_server_port: int) -> None:
-    """Test that client handles 204 responses to notifications correctly.
-
-    This test verifies the fix for the issue where non-SDK servers
-    might return 204 No Content for notifications instead of 202 Accepted.
-    The client should handle this gracefully without trying to parse
-    the response body.
+    """
+    This test verifies that the client does not parse responses to non-JsonRPCRequests, which matches the
+    behavior of the TypeScript SDK. The test uses a 204 No Content (commonly seen from servers), but in reality
+    any 2xx response should be handled the same way.
     """
     server_url = f"http://127.0.0.1:{non_sdk_server_port}/mcp"
     returned_exception = None
