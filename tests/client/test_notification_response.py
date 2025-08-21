@@ -141,10 +141,7 @@ async def test_notification_with_204_response(non_sdk_server: None, non_sdk_serv
             # Initialize should work normally
             await session.initialize()
 
-            # Send a notification - this should not raise an error
-            # even though the server returns 204 instead of 202
-            # Without the fix, this would fail with a JSON parsing error
-            # because the client would try to parse the empty 204 response body
+            # The test server returns a 204 instead of the expected 202
             await session.send_notification(
                 ClientNotification(RootsListChangedNotification(method="notifications/roots/list_changed", params={}))
             )
