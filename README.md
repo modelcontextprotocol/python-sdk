@@ -36,14 +36,20 @@
     - [Sampling](#sampling)
     - [Logging and Notifications](#logging-and-notifications)
     - [Authentication](#authentication)
+    - [FastMCP Properties](#fastmcp-properties)
+    - [Session Properties](#session-properties-and-methods)
+    - [Request Context Properties](#request-context-properties)
   - [Running Your Server](#running-your-server)
     - [Development Mode](#development-mode)
     - [Claude Desktop Integration](#claude-desktop-integration)
     - [Direct Execution](#direct-execution)
+    - [Streamable HTTP Transport](#streamable-http-transport)
     - [Mounting to an Existing ASGI Server](#mounting-to-an-existing-asgi-server)
   - [Advanced Usage](#advanced-usage)
     - [Low-Level Server](#low-level-server)
     - [Writing MCP Clients](#writing-mcp-clients)
+    - [Client Display Utilities](#client-display-utilities)
+    - [OAuth Authentication for Clients](#oauth-authentication-for-clients)
     - [Parsing Tool Results](#parsing-tool-results)
     - [MCP Primitives](#mcp-primitives)
     - [Server Capabilities](#server-capabilities)
@@ -191,6 +197,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 
 
 # Mock database class for example
@@ -236,7 +243,7 @@ mcp = FastMCP("My App", lifespan=app_lifespan)
 
 # Access type-safe lifespan context in tools
 @mcp.tool()
-def query_db(ctx: Context) -> str:
+def query_db(ctx: Context[ServerSession, AppContext]) -> str:
     """Tool that uses initialized resources."""
     db = ctx.request_context.lifespan_context.db
     return db.query()
@@ -301,6 +308,36 @@ def get_weather(city: str, unit: str = "celsius") -> str:
 ```
 
 _Full example: [examples/snippets/servers/basic_tool.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_tool.py)_
+<!-- /snippet-source -->
+
+Tools can optionally receive a Context object by including a parameter with the `Context` type annotation. This context is automatically injected by the FastMCP framework and provides access to MCP capabilities:
+
+<!-- snippet-source examples/snippets/servers/tool_progress.py -->
+```python
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
+
+mcp = FastMCP(name="Progress Example")
+
+
+@mcp.tool()
+async def long_running_task(task_name: str, ctx: Context[ServerSession, None], steps: int = 5) -> str:
+    """Execute a task with progress updates."""
+    await ctx.info(f"Starting: {task_name}")
+
+    for i in range(steps):
+        progress = (i + 1) / steps
+        await ctx.report_progress(
+            progress=progress,
+            total=1.0,
+            message=f"Step {i + 1}/{steps}",
+        )
+        await ctx.debug(f"Completed step {i + 1}")
+
+    return f"Task '{task_name}' completed"
+```
+
+_Full example: [examples/snippets/servers/tool_progress.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/tool_progress.py)_
 <!-- /snippet-source -->
 
 #### Structured Output
@@ -410,7 +447,7 @@ def get_user(user_id: str) -> UserProfile:
 
 # Classes WITHOUT type hints cannot be used for structured output
 class UntypedConfig:
-    def __init__(self, setting1, setting2):
+    def __init__(self, setting1, setting2):  # type: ignore[reportMissingParameterType]
         self.setting1 = setting1
         self.setting2 = setting2
 
@@ -496,17 +533,53 @@ _Full example: [examples/snippets/servers/images.py](https://github.com/modelcon
 
 ### Context
 
-The Context object gives your tools and resources access to MCP capabilities:
+The Context object is automatically injected into tool and resource functions that request it via type hints. It provides access to MCP capabilities like logging, progress reporting, resource reading, user interaction, and request metadata.
+
+#### Getting Context in Functions
+
+To use context in a tool or resource function, add a parameter with the `Context` type annotation:
+
+```python
+from mcp.server.fastmcp import Context, FastMCP
+
+mcp = FastMCP(name="Context Example")
+
+
+@mcp.tool()
+async def my_tool(x: int, ctx: Context) -> str:
+    """Tool that uses context capabilities."""
+    # The context parameter can have any name as long as it's type-annotated
+    return await process_with_context(x, ctx)
+```
+
+#### Context Properties and Methods
+
+The Context object provides the following capabilities:
+
+- `ctx.request_id` - Unique ID for the current request
+- `ctx.client_id` - Client ID if available
+- `ctx.fastmcp` - Access to the FastMCP server instance (see [FastMCP Properties](#fastmcp-properties))
+- `ctx.session` - Access to the underlying session for advanced communication (see [Session Properties and Methods](#session-properties-and-methods))
+- `ctx.request_context` - Access to request-specific data and lifespan resources (see [Request Context Properties](#request-context-properties))
+- `await ctx.debug(message)` - Send debug log message
+- `await ctx.info(message)` - Send info log message  
+- `await ctx.warning(message)` - Send warning log message
+- `await ctx.error(message)` - Send error log message
+- `await ctx.log(level, message, logger_name=None)` - Send log with custom level
+- `await ctx.report_progress(progress, total=None, message=None)` - Report operation progress
+- `await ctx.read_resource(uri)` - Read a resource by URI
+- `await ctx.elicit(message, schema)` - Request additional information from user with validation
 
 <!-- snippet-source examples/snippets/servers/tool_progress.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 
 mcp = FastMCP(name="Progress Example")
 
 
 @mcp.tool()
-async def long_running_task(task_name: str, ctx: Context, steps: int = 5) -> str:
+async def long_running_task(task_name: str, ctx: Context[ServerSession, None], steps: int = 5) -> str:
     """Execute a task with progress updates."""
     await ctx.info(f"Starting: {task_name}")
 
@@ -624,6 +697,7 @@ Request additional information from users. This example shows an Elicitation dur
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 
 mcp = FastMCP(name="Elicitation Example")
 
@@ -639,12 +713,7 @@ class BookingPreferences(BaseModel):
 
 
 @mcp.tool()
-async def book_table(
-    date: str,
-    time: str,
-    party_size: int,
-    ctx: Context,
-) -> str:
+async def book_table(date: str, time: str, party_size: int, ctx: Context[ServerSession, None]) -> str:
     """Book a table with date availability check."""
     # Check if date is available
     if date == "2024-12-25":
@@ -680,13 +749,14 @@ Tools can interact with LLMs through sampling (generating text):
 <!-- snippet-source examples/snippets/servers/sampling.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 from mcp.types import SamplingMessage, TextContent
 
 mcp = FastMCP(name="Sampling Example")
 
 
 @mcp.tool()
-async def generate_poem(topic: str, ctx: Context) -> str:
+async def generate_poem(topic: str, ctx: Context[ServerSession, None]) -> str:
     """Generate a poem using LLM sampling."""
     prompt = f"Write a short poem about {topic}"
 
@@ -715,12 +785,13 @@ Tools can send logs and notifications through the context:
 <!-- snippet-source examples/snippets/servers/notifications.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 
 mcp = FastMCP(name="Notifications Example")
 
 
 @mcp.tool()
-async def process_data(data: str, ctx: Context) -> str:
+async def process_data(data: str, ctx: Context[ServerSession, None]) -> str:
     """Process data with logging."""
     # Different log levels
     await ctx.debug(f"Debug: Processing '{data}'")
@@ -807,6 +878,99 @@ For a complete example with separate Authorization Server and Resource Server im
 - **Client**: Discovers AS through RFC 9728, obtains tokens, and uses them with the MCP server
 
 See [TokenVerifier](src/mcp/server/auth/provider.py) for more details on implementing token validation.
+
+### FastMCP Properties
+
+The FastMCP server instance accessible via `ctx.fastmcp` provides access to server configuration and metadata:
+
+- `ctx.fastmcp.name` - The server's name as defined during initialization
+- `ctx.fastmcp.instructions` - Server instructions/description provided to clients
+- `ctx.fastmcp.settings` - Complete server configuration object containing:
+  - `debug` - Debug mode flag
+  - `log_level` - Current logging level
+  - `host` and `port` - Server network configuration
+  - `mount_path`, `sse_path`, `streamable_http_path` - Transport paths
+  - `stateless_http` - Whether the server operates in stateless mode
+  - And other configuration options
+
+```python
+@mcp.tool()
+def server_info(ctx: Context) -> dict:
+    """Get information about the current server."""
+    return {
+        "name": ctx.fastmcp.name,
+        "instructions": ctx.fastmcp.instructions,
+        "debug_mode": ctx.fastmcp.settings.debug,
+        "log_level": ctx.fastmcp.settings.log_level,
+        "host": ctx.fastmcp.settings.host,
+        "port": ctx.fastmcp.settings.port,
+    }
+```
+
+### Session Properties and Methods
+
+The session object accessible via `ctx.session` provides advanced control over client communication:
+
+- `ctx.session.client_params` - Client initialization parameters and declared capabilities
+- `await ctx.session.send_log_message(level, data, logger)` - Send log messages with full control
+- `await ctx.session.create_message(messages, max_tokens)` - Request LLM sampling/completion
+- `await ctx.session.send_progress_notification(token, progress, total, message)` - Direct progress updates
+- `await ctx.session.send_resource_updated(uri)` - Notify clients that a specific resource changed
+- `await ctx.session.send_resource_list_changed()` - Notify clients that the resource list changed
+- `await ctx.session.send_tool_list_changed()` - Notify clients that the tool list changed
+- `await ctx.session.send_prompt_list_changed()` - Notify clients that the prompt list changed
+
+```python
+@mcp.tool()
+async def notify_data_update(resource_uri: str, ctx: Context) -> str:
+    """Update data and notify clients of the change."""
+    # Perform data update logic here
+    
+    # Notify clients that this specific resource changed
+    await ctx.session.send_resource_updated(AnyUrl(resource_uri))
+    
+    # If this affects the overall resource list, notify about that too
+    await ctx.session.send_resource_list_changed()
+    
+    return f"Updated {resource_uri} and notified clients"
+```
+
+### Request Context Properties
+
+The request context accessible via `ctx.request_context` contains request-specific information and resources:
+
+- `ctx.request_context.lifespan_context` - Access to resources initialized during server startup
+  - Database connections, configuration objects, shared services
+  - Type-safe access to resources defined in your server's lifespan function
+- `ctx.request_context.meta` - Request metadata from the client including:
+  - `progressToken` - Token for progress notifications
+  - Other client-provided metadata
+- `ctx.request_context.request` - The original MCP request object for advanced processing
+- `ctx.request_context.request_id` - Unique identifier for this request
+
+```python
+# Example with typed lifespan context
+@dataclass
+class AppContext:
+    db: Database
+    config: AppConfig
+
+@mcp.tool()
+def query_with_config(query: str, ctx: Context) -> str:
+    """Execute a query using shared database and configuration."""
+    # Access typed lifespan context
+    app_ctx: AppContext = ctx.request_context.lifespan_context
+    
+    # Use shared resources
+    connection = app_ctx.db
+    settings = app_ctx.config
+    
+    # Execute query with configuration
+    result = connection.execute(query, timeout=settings.query_timeout)
+    return str(result)
+```
+
+_Full lifespan example: [examples/snippets/servers/lifespan_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lifespan_example.py)_
 
 ## Running Your Server
 
@@ -979,6 +1143,11 @@ app = Starlette(
     ],
     lifespan=lifespan,
 )
+
+# Note: Clients connect to http://localhost:8000/echo/mcp and http://localhost:8000/math/mcp
+# To mount at the root of each path (e.g., /echo instead of /echo/mcp):
+# echo_mcp.settings.streamable_http_path = "/"
+# math_mcp.settings.streamable_http_path = "/"
 ```
 
 _Full example: [examples/snippets/servers/streamable_starlette_mount.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_starlette_mount.py)_
@@ -996,11 +1165,203 @@ The streamable HTTP transport supports:
 - JSON or SSE response formats
 - Better scalability for multi-node deployments
 
+#### CORS Configuration for Browser-Based Clients
+
+If you'd like your server to be accessible by browser-based MCP clients, you'll need to configure CORS headers. The `Mcp-Session-Id` header must be exposed for browser clients to access it:
+
+```python
+from starlette.applications import Starlette
+from starlette.middleware.cors import CORSMiddleware
+
+# Create your Starlette app first
+starlette_app = Starlette(routes=[...])
+
+# Then wrap it with CORS middleware
+starlette_app = CORSMiddleware(
+    starlette_app,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_methods=["GET", "POST", "DELETE"],  # MCP streamable HTTP methods
+    expose_headers=["Mcp-Session-Id"],
+)
+```
+
+This configuration is necessary because:
+
+- The MCP streamable HTTP transport uses the `Mcp-Session-Id` header for session management
+- Browsers restrict access to response headers unless explicitly exposed via CORS
+- Without this configuration, browser-based clients won't be able to read the session ID from initialization responses
+
 ### Mounting to an Existing ASGI Server
 
 By default, SSE servers are mounted at `/sse` and Streamable HTTP servers are mounted at `/mcp`. You can customize these paths using the methods described below.
 
 For more information on mounting applications in Starlette, see the [Starlette documentation](https://www.starlette.io/routing/#submounting-routes).
+
+#### StreamableHTTP servers
+
+You can mount the StreamableHTTP server to an existing ASGI server using the `streamable_http_app` method. This allows you to integrate the StreamableHTTP server with other ASGI applications.
+
+##### Basic mounting
+
+<!-- snippet-source examples/snippets/servers/streamable_http_basic_mounting.py -->
+```python
+"""
+Basic example showing how to mount StreamableHTTP server in Starlette.
+
+Run from the repository root:
+    uvicorn examples.snippets.servers.streamable_http_basic_mounting:app --reload
+"""
+
+from starlette.applications import Starlette
+from starlette.routing import Mount
+
+from mcp.server.fastmcp import FastMCP
+
+# Create MCP server
+mcp = FastMCP("My App")
+
+
+@mcp.tool()
+def hello() -> str:
+    """A simple hello tool"""
+    return "Hello from MCP!"
+
+
+# Mount the StreamableHTTP server to the existing ASGI server
+app = Starlette(
+    routes=[
+        Mount("/", app=mcp.streamable_http_app()),
+    ]
+)
+```
+
+_Full example: [examples/snippets/servers/streamable_http_basic_mounting.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_basic_mounting.py)_
+<!-- /snippet-source -->
+
+##### Host-based routing
+
+<!-- snippet-source examples/snippets/servers/streamable_http_host_mounting.py -->
+```python
+"""
+Example showing how to mount StreamableHTTP server using Host-based routing.
+
+Run from the repository root:
+    uvicorn examples.snippets.servers.streamable_http_host_mounting:app --reload
+"""
+
+from starlette.applications import Starlette
+from starlette.routing import Host
+
+from mcp.server.fastmcp import FastMCP
+
+# Create MCP server
+mcp = FastMCP("MCP Host App")
+
+
+@mcp.tool()
+def domain_info() -> str:
+    """Get domain-specific information"""
+    return "This is served from mcp.acme.corp"
+
+
+# Mount using Host-based routing
+app = Starlette(
+    routes=[
+        Host("mcp.acme.corp", app=mcp.streamable_http_app()),
+    ]
+)
+```
+
+_Full example: [examples/snippets/servers/streamable_http_host_mounting.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_host_mounting.py)_
+<!-- /snippet-source -->
+
+##### Multiple servers with path configuration
+
+<!-- snippet-source examples/snippets/servers/streamable_http_multiple_servers.py -->
+```python
+"""
+Example showing how to mount multiple StreamableHTTP servers with path configuration.
+
+Run from the repository root:
+    uvicorn examples.snippets.servers.streamable_http_multiple_servers:app --reload
+"""
+
+from starlette.applications import Starlette
+from starlette.routing import Mount
+
+from mcp.server.fastmcp import FastMCP
+
+# Create multiple MCP servers
+api_mcp = FastMCP("API Server")
+chat_mcp = FastMCP("Chat Server")
+
+
+@api_mcp.tool()
+def api_status() -> str:
+    """Get API status"""
+    return "API is running"
+
+
+@chat_mcp.tool()
+def send_message(message: str) -> str:
+    """Send a chat message"""
+    return f"Message sent: {message}"
+
+
+# Configure servers to mount at the root of each path
+# This means endpoints will be at /api and /chat instead of /api/mcp and /chat/mcp
+api_mcp.settings.streamable_http_path = "/"
+chat_mcp.settings.streamable_http_path = "/"
+
+# Mount the servers
+app = Starlette(
+    routes=[
+        Mount("/api", app=api_mcp.streamable_http_app()),
+        Mount("/chat", app=chat_mcp.streamable_http_app()),
+    ]
+)
+```
+
+_Full example: [examples/snippets/servers/streamable_http_multiple_servers.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_multiple_servers.py)_
+<!-- /snippet-source -->
+
+##### Path configuration at initialization
+
+<!-- snippet-source examples/snippets/servers/streamable_http_path_config.py -->
+```python
+"""
+Example showing path configuration during FastMCP initialization.
+
+Run from the repository root:
+    uvicorn examples.snippets.servers.streamable_http_path_config:app --reload
+"""
+
+from starlette.applications import Starlette
+from starlette.routing import Mount
+
+from mcp.server.fastmcp import FastMCP
+
+# Configure streamable_http_path during initialization
+# This server will mount at the root of wherever it's mounted
+mcp_at_root = FastMCP("My Server", streamable_http_path="/")
+
+
+@mcp_at_root.tool()
+def process_data(data: str) -> str:
+    """Process some data"""
+    return f"Processed: {data}"
+
+
+# Mount at /process - endpoints will be at /process instead of /process/mcp
+app = Starlette(
+    routes=[
+        Mount("/process", app=mcp_at_root.streamable_http_app()),
+    ]
+)
+```
+
+_Full example: [examples/snippets/servers/streamable_http_path_config.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_path_config.py)_
+<!-- /snippet-source -->
 
 #### SSE servers
 
@@ -1081,6 +1442,7 @@ Run from the repository root:
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import mcp.server.stdio
 import mcp.types as types
@@ -1109,7 +1471,7 @@ class Database:
 
 
 @asynccontextmanager
-async def server_lifespan(_server: Server) -> AsyncIterator[dict]:
+async def server_lifespan(_server: Server) -> AsyncIterator[dict[str, Any]]:
     """Manage server startup and shutdown lifecycle."""
     # Initialize resources on startup
     db = await Database.connect()
@@ -1141,7 +1503,7 @@ async def handle_list_tools() -> list[types.Tool]:
 
 
 @server.call_tool()
-async def query_db(name: str, arguments: dict) -> list[types.TextContent]:
+async def query_db(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
     """Handle database query tool call."""
     if name != "query_db":
         raise ValueError(f"Unknown tool: {name}")
@@ -1395,7 +1757,7 @@ server_params = StdioServerParameters(
 
 # Optional: create a sampling callback
 async def handle_sampling_message(
-    context: RequestContext, params: types.CreateMessageRequestParams
+    context: RequestContext[ClientSession, None], params: types.CreateMessageRequestParams
 ) -> types.CreateMessageResult:
     print(f"Sampling request: {params.messages}")
     return types.CreateMessageResult(

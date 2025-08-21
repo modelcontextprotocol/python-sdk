@@ -1,22 +1,22 @@
+from collections.abc import Callable, Generator
 from contextlib import asynccontextmanager
+from typing import Any
 from unittest.mock import patch
 
 import pytest
+from anyio.streams.memory import MemoryObjectSendStream
 
 import mcp.shared.memory
 from mcp.shared.message import SessionMessage
-from mcp.types import (
-    JSONRPCNotification,
-    JSONRPCRequest,
-)
+from mcp.types import JSONRPCNotification, JSONRPCRequest
 
 
 class SpyMemoryObjectSendStream:
-    def __init__(self, original_stream):
+    def __init__(self, original_stream: MemoryObjectSendStream[SessionMessage]):
         self.original_stream = original_stream
         self.sent_messages: list[SessionMessage] = []
 
-    async def send(self, message):
+    async def send(self, message: SessionMessage):
         self.sent_messages.append(message)
         await self.original_stream.send(message)
 
@@ -26,16 +26,12 @@ class SpyMemoryObjectSendStream:
     async def __aenter__(self):
         return self
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self, *args: Any):
         await self.aclose()
 
 
 class StreamSpyCollection:
-    def __init__(
-        self,
-        client_spy: SpyMemoryObjectSendStream,
-        server_spy: SpyMemoryObjectSendStream,
-    ):
+    def __init__(self, client_spy: SpyMemoryObjectSendStream, server_spy: SpyMemoryObjectSendStream):
         self.client = client_spy
         self.server = server_spy
 
@@ -80,7 +76,7 @@ class StreamSpyCollection:
 
 
 @pytest.fixture
-def stream_spy():
+def stream_spy() -> Generator[Callable[[], StreamSpyCollection], None, None]:
     """Fixture that provides spies for both client and server write streams.
 
     Example usage:
@@ -103,7 +99,7 @@ def stream_spy():
     server_spy = None
 
     # Store references to our spy objects
-    def capture_spies(c_spy, s_spy):
+    def capture_spies(c_spy: SpyMemoryObjectSendStream, s_spy: SpyMemoryObjectSendStream):
         nonlocal client_spy, server_spy
         client_spy = c_spy
         server_spy = s_spy

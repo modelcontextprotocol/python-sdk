@@ -149,7 +149,6 @@ class Server(Generic[LifespanResultT, RequestT]):
             types.PingRequest: _ping_handler,
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
-        self.notification_options = NotificationOptions()
         self._tool_cache: dict[str, types.Tool] = {}
         logger.debug("Initializing server %r", name)
 
