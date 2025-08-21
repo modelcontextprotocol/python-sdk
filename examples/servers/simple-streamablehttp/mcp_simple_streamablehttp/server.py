@@ -160,7 +160,7 @@ def main(
         ],
         lifespan=lifespan,
     )
-    
+
     # Wrap ASGI application with CORS middleware to expose Mcp-Session-Id header
     # for browser-based clients (ensures 500 errors get proper CORS headers)
     starlette_app = CORSMiddleware(

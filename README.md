@@ -734,6 +734,7 @@ starlette_app = CORSMiddleware(
 ```
 
 This configuration is necessary because:
+
 - The MCP streamable HTTP transport uses the `Mcp-Session-Id` header for session management
 - Browsers restrict access to response headers unless explicitly exposed via CORS
 - Without this configuration, browser-based clients won't be able to read the session ID from initialization responses
