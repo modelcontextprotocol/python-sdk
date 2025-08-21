@@ -132,7 +132,7 @@ async def test_notification_with_204_response(non_sdk_server: None, non_sdk_serv
         if isinstance(message, Exception):
             returned_exception = message
 
-    async with streamablehttp_client(server_url) as (read_stream, write_stream, get_session_id):
+    async with streamablehttp_client(server_url) as (read_stream, write_stream, _):
         async with ClientSession(
             read_stream,
             write_stream,
@@ -143,7 +143,7 @@ async def test_notification_with_204_response(non_sdk_server: None, non_sdk_serv
 
             # The test server returns a 204 instead of the expected 202
             await session.send_notification(
-                ClientNotification(RootsListChangedNotification(method="notifications/roots/list_changed", params={}))
+                ClientNotification(RootsListChangedNotification(method="notifications/roots/list_changed"))
             )
 
     if returned_exception:
