@@ -13,7 +13,6 @@ from collections.abc import Generator
 
 import pytest
 import uvicorn
-from mcp.shared.session import RequestResponder
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -21,7 +20,8 @@ from starlette.routing import Route
 
 from mcp import ClientSession, types
 from mcp.client.streamable_http import streamablehttp_client
-from mcp.types import ClientNotification, Implementation, RootsListChangedNotification
+from mcp.shared.session import RequestResponder
+from mcp.types import ClientNotification, RootsListChangedNotification
 
 
 def create_non_sdk_server_app() -> Starlette:
