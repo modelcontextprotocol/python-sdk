@@ -718,11 +718,15 @@ The streamable HTTP transport supports:
 If you'd like your server to be accessible by browser-based MCP clients, you'll need to configure CORS headers. The `Mcp-Session-Id` header must be exposed for browser clients to access it:
 
 ```python
+from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 
-# Add CORS middleware to your Starlette app
-app = CORSMiddleware(
-    app,
+# Create your Starlette app first
+starlette_app = Starlette(routes=[...])
+
+# Then wrap it with CORS middleware
+starlette_app = CORSMiddleware(
+    starlette_app,
     allow_origins=["*"],  # Configure appropriately for production
     allow_methods=["GET", "POST", "DELETE"],  # MCP streamable HTTP methods
     expose_headers=["Mcp-Session-Id"],

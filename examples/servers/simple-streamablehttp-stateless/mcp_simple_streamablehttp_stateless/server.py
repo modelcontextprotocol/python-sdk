@@ -133,9 +133,10 @@ def main(
         lifespan=lifespan,
     )
     
-    # Add CORS middleware to expose Mcp-Session-Id header for browser-based clients
-    starlette_app.add_middleware(
-        CORSMiddleware,
+    # Wrap ASGI application with CORS middleware to expose Mcp-Session-Id header
+    # for browser-based clients (ensures 500 errors get proper CORS headers)
+    starlette_app = CORSMiddleware(
+        starlette_app,
         allow_origins=["*"],  # Allow all origins - adjust as needed for production
         allow_methods=["GET", "POST", "DELETE"],  # MCP streamable HTTP methods
         expose_headers=["Mcp-Session-Id"],
