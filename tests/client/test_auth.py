@@ -361,7 +361,19 @@ class TestOAuthFallback:
             ),
             request=token_request,
         )
-        token_request = await auth_flow.asend(token_response)
+        
+        # After OAuth flow completes, the original request is retried with auth header
+        final_request = await auth_flow.asend(token_response)
+        assert final_request.headers["Authorization"] == "Bearer new_access_token"
+        assert final_request.method == "GET"
+        assert str(final_request.url) == "https://api.example.com/v1/mcp"
+        
+        # Send final success response to properly close the generator
+        final_response = httpx.Response(200, request=final_request)
+        try:
+            await auth_flow.asend(final_response)
+        except StopAsyncIteration:
+            pass  # Expected - generator should complete
 
     @pytest.mark.anyio
     async def test_handle_metadata_response_success(self, oauth_provider: OAuthClientProvider):
@@ -693,6 +705,13 @@ class TestAuthFlow:
         assert final_request.headers["Authorization"] == "Bearer new_access_token"
         assert final_request.method == "GET"
         assert str(final_request.url) == "https://api.example.com/mcp"
+
+        # Send final success response to properly close the generator
+        final_response = httpx.Response(200, request=final_request)
+        try:
+            await auth_flow.asend(final_response)
+        except StopAsyncIteration:
+            pass  # Expected - generator should complete
 
         # Verify tokens were stored
         assert oauth_provider.context.current_tokens is not None
