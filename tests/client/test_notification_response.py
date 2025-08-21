@@ -13,12 +13,13 @@ from collections.abc import Generator
 
 import pytest
 import uvicorn
+from mcp.shared.session import RequestResponder
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from mcp.client.session import ClientSession
+from mcp import ClientSession, types
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import ClientNotification, Implementation, RootsListChangedNotification
 
@@ -50,7 +51,10 @@ def create_non_sdk_server_app() -> Starlette:
             
             # For notifications, return 204 No Content (non-SDK behavior)
             if "id" not in data:
-                return Response(status_code=204)
+                return Response(
+                    status_code=204, 
+                    headers={"Content-Type": "application/json"}
+                )
             
             # Default response for other requests
             return JSONResponse({
@@ -140,30 +144,33 @@ async def test_notification_with_204_response(
     the response body.
     """
     server_url = f"http://127.0.0.1:{non_sdk_server_port}/mcp"
-    
+    returned_exception = None
+    async def message_handler(message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception):
+        nonlocal returned_exception
+        if isinstance(message, Exception):
+            returned_exception = message
+
     async with streamablehttp_client(server_url) as (read_stream, write_stream, get_session_id):
         async with ClientSession(
             read_stream, 
             write_stream,
-            client_info=Implementation(name="test-client", version="1.0.0")
+            message_handler=message_handler,
         ) as session:
             # Initialize should work normally
             await session.initialize()
             
             # Send a notification - this should not raise an error
             # even though the server returns 204 instead of 202
-            notification_sent = False
-            try:
-                await session.send_notification(
-                    ClientNotification(
-                        RootsListChangedNotification(
-                            method="notifications/roots/list_changed",
-                            params={}
-                        )
+            # Without the fix, this would fail with a JSON parsing error
+            # because the client would try to parse the empty 204 response body
+            await session.send_notification(
+                ClientNotification(
+                    RootsListChangedNotification(
+                        method="notifications/roots/list_changed",
+                        params={}
                     )
                 )
-                notification_sent = True
-            except Exception as e:
-                pytest.fail(f"Notification failed with 204 response: {e}")
-            
-            assert notification_sent, "Notification should have been sent successfully"
+            )
+
+    if returned_exception:
+        pytest.fail(f"Server encountered an exception: {returned_exception}")
