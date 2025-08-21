@@ -1,3 +1,4 @@
+from typing import Type
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -34,7 +35,7 @@ async def test_exception_handling_with_raise_exceptions_true():
         (Exception, "Basic error"),
     ],
 )
-async def test_exception_handling_with_raise_exceptions_false(exception_class, message):
+async def test_exception_handling_with_raise_exceptions_false(exception_class: type[Exception], message: str):
     """Test that exceptions are logged when raise_exceptions=False"""
     server = Server("test-server")
     session = Mock(spec=ServerSession)
