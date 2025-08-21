@@ -281,6 +281,8 @@ class StreamableHTTPTransport:
 
             content_type = response.headers.get(CONTENT_TYPE, "").lower()
 
+            # Per https://modelcontextprotocol.io/specification/2025-06-18/basic#notifications:
+            # The server MUST NOT send a response to notifications.
             if isinstance(message.root, JSONRPCRequest):
                 if content_type.startswith(JSON):
                     await self._handle_json_response(response, ctx.read_stream_writer, is_initialization)
