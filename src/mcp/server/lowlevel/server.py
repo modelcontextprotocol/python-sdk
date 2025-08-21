@@ -615,10 +615,9 @@ class Server(Generic[LifespanResultT, RequestT]):
                     await session.send_log_message(
                         level="error",
                         data={
-                            "message": str(message),
-                            "type": type(message).__name__,
-                            "module": type(message).__module__,
-                            "args": getattr(message, "args", None),
+                            "exception_type": type(message).__name__,
+                            "exception_value": str(message),
+                            "exception_traceback": None,
                         },
                         logger="mcp.server.exception_handler",
                     )
