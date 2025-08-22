@@ -21,7 +21,7 @@ async def run_tool_test(
     tools: list[Tool],
     call_tool_handler: Callable[[str, dict[str, Any]], Awaitable[Any]],
     test_callback: Callable[[ClientSession], Awaitable[CallToolResult]],
-) -> CallToolResult:
+) -> CallToolResult | None:
     """Helper to run a tool test with minimal boilerplate.
 
     Args:
@@ -33,6 +33,8 @@ async def run_tool_test(
         The result of the tool call
     """
     server = Server("test")
+
+    result = None
 
     @server.list_tools()
     async def list_tools():
