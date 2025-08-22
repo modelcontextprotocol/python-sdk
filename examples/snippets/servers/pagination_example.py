@@ -14,7 +14,7 @@ server = Server("paginated-server")
 ITEMS = [f"Item {i}" for i in range(1, 101)]  # 100 items
 
 
-@server.list_resources_paginated()
+@server.list_resources()
 async def list_resources_paginated(cursor: types.Cursor | None) -> types.ListResourcesResult:
     """List resources with pagination support."""
     page_size = 10

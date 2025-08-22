@@ -22,7 +22,7 @@ async def test_list_prompts_pagination() -> None:
     # Track what cursor was received
     received_cursor: Cursor | None = None
 
-    @server.list_prompts_paginated()
+    @server.list_prompts()
     async def handle_list_prompts(cursor: Cursor | None) -> ListPromptsResult:
         nonlocal received_cursor
         received_cursor = cursor
@@ -51,7 +51,7 @@ async def test_list_resources_pagination() -> None:
     # Track what cursor was received
     received_cursor: Cursor | None = None
 
-    @server.list_resources_paginated()
+    @server.list_resources()
     async def handle_list_resources(cursor: Cursor | None) -> ListResourcesResult:
         nonlocal received_cursor
         received_cursor = cursor
@@ -82,7 +82,7 @@ async def test_list_tools_pagination() -> None:
     # Track what cursor was received
     received_cursor: Cursor | None = None
 
-    @server.list_tools_paginated()
+    @server.list_tools()
     async def handle_list_tools(cursor: Cursor | None) -> ListToolsResult:
         nonlocal received_cursor
         received_cursor = cursor

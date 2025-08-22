@@ -1762,7 +1762,7 @@ server = Server("paginated-server")
 ITEMS = [f"Item {i}" for i in range(1, 101)]  # 100 items
 
 
-@server.list_resources_paginated()
+@server.list_resources()
 async def list_resources_paginated(cursor: types.Cursor | None) -> types.ListResourcesResult:
     """List resources with pagination support."""
     page_size = 10
@@ -1785,12 +1785,6 @@ async def list_resources_paginated(cursor: types.Cursor | None) -> types.ListRes
 
 _Full example: [examples/snippets/servers/pagination_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/pagination_example.py)_
 <!-- /snippet-source -->
-
-Similar decorators are available for all list operations:
-
-- `@server.list_tools_paginated()` - for paginating tools
-- `@server.list_resources_paginated()` - for paginating resources  
-- `@server.list_prompts_paginated()` - for paginating prompts
 
 #### Client-side Consumption
 
@@ -1848,8 +1842,6 @@ _Full example: [examples/snippets/clients/pagination_client.py](https://github.c
 - **Return `nextCursor=None`** when there are no more pages
 - **Backward compatible** - clients that don't support pagination will still work (they'll just get the first page)
 - **Flexible page sizes** - Each endpoint can define its own page size based on data characteristics
-
-> **NOTE**: The paginated decorators (`list_tools_paginated()`, `list_resources_paginated()`, `list_prompts_paginated()`) are mutually exclusive with their non-paginated counterparts and cannot be used together on the same server instance.
 
 See the [simple-pagination example](examples/servers/simple-pagination) for a complete implementation.
 

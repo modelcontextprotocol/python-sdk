@@ -58,7 +58,7 @@ def main(port: int, transport: str) -> int:
     app = Server("mcp-simple-pagination")
 
     # Paginated list_tools - returns 5 tools per page
-    @app.list_tools_paginated()
+    @app.list_tools()
     async def list_tools_paginated(cursor: types.Cursor | None) -> types.ListToolsResult:
         page_size = 5
 
@@ -84,7 +84,7 @@ def main(port: int, transport: str) -> int:
         return types.ListToolsResult(tools=page_tools, nextCursor=next_cursor)
 
     # Paginated list_resources - returns 10 resources per page
-    @app.list_resources_paginated()
+    @app.list_resources()
     async def list_resources_paginated(
         cursor: types.Cursor | None,
     ) -> types.ListResourcesResult:
@@ -112,7 +112,7 @@ def main(port: int, transport: str) -> int:
         return types.ListResourcesResult(resources=page_resources, nextCursor=next_cursor)
 
     # Paginated list_prompts - returns 7 prompts per page
-    @app.list_prompts_paginated()
+    @app.list_prompts()
     async def list_prompts_paginated(
         cursor: types.Cursor | None,
     ) -> types.ListPromptsResult:
