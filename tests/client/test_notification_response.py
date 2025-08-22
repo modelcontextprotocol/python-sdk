@@ -116,11 +116,11 @@ def non_sdk_server(non_sdk_server_port: int) -> Generator[None, None, None]:
 @pytest.mark.anyio
 async def test_non_compliant_notification_response(non_sdk_server: None, non_sdk_server_port: int) -> None:
     """
-   This test verifies that the client ignores unexpected responses to notifications: the spec states they should
-   either be 202 + no response body, or 4xx + optional error body
-   (https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#sending-messages-to-the-server),
-   but some servers wrongly return other 2xx codes (e.g. 204). For now we simply ignore unexpected responses
-   (aligning behaviour w/ the TS SDK).
+    This test verifies that the client ignores unexpected responses to notifications: the spec states they should
+    either be 202 + no response body, or 4xx + optional error body
+    (https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#sending-messages-to-the-server),
+    but some servers wrongly return other 2xx codes (e.g. 204). For now we simply ignore unexpected responses
+    (aligning behaviour w/ the TS SDK).
     """
     server_url = f"http://127.0.0.1:{non_sdk_server_port}/mcp"
     returned_exception = None
