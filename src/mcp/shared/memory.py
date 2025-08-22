@@ -61,6 +61,7 @@ async def create_connected_server_and_client_session(
     client_info: types.Implementation | None = None,
     raise_exceptions: bool = False,
     elicitation_callback: ElicitationFnT | None = None,
+    validation_options: Any | None = None,
 ) -> AsyncGenerator[ClientSession, None]:
     """Creates a ClientSession that is connected to a running MCP server."""
     async with create_client_server_memory_streams() as (
@@ -92,6 +93,7 @@ async def create_connected_server_and_client_session(
                     message_handler=message_handler,
                     client_info=client_info,
                     elicitation_callback=elicitation_callback,
+                    validation_options=validation_options,
                 ) as client_session:
                     await client_session.initialize()
                     yield client_session

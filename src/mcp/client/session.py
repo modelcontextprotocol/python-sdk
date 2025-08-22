@@ -5,7 +5,7 @@ from typing import Any, Protocol
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from jsonschema import SchemaError, ValidationError, validate
-from pydantic import AnyUrl, TypeAdapter
+from pydantic import AnyUrl, BaseModel, Field, TypeAdapter
 
 import mcp.types as types
 from mcp.shared.context import RequestContext
@@ -16,6 +16,17 @@ from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
 logger = logging.getLogger("client")
+
+
+class ValidationOptions(BaseModel):
+    """Options for controlling validation behavior in MCP client sessions."""
+
+    strict_output_validation: bool = Field(
+        default=True,
+        description="Whether to raise exceptions when tools don't return structured "
+        "content as specified by their output schema. When False, validation "
+        "errors are logged as warnings and execution continues.",
+    )
 
 
 class SamplingFnT(Protocol):
@@ -118,6 +129,7 @@ class ClientSession(
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
+        validation_options: ValidationOptions | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -133,6 +145,7 @@ class ClientSession(
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
+        self._validation_options = validation_options or ValidationOptions()
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
@@ -324,13 +337,27 @@ class ClientSession(
 
         if output_schema is not None:
             if result.structuredContent is None:
-                raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
-            try:
-                validate(result.structuredContent, output_schema)
-            except ValidationError as e:
-                raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}")
-            except SchemaError as e:
-                raise RuntimeError(f"Invalid schema for tool {name}: {e}")
+                if self._validation_options.strict_output_validation:
+                    raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
+                else:
+                    logger.warning(
+                        f"Tool {name} has an output schema but did not return structured content. "
+                        f"Continuing without structured content validation due to lenient validation mode."
+                    )
+            else:
+                try:
+                    validate(result.structuredContent, output_schema)
+                except ValidationError as e:
+                    if self._validation_options.strict_output_validation:
+                        raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}")
+                    else:
+                        logger.warning(
+                            f"Invalid structured content returned by tool {name}: {e}. "
+                            f"Continuing due to lenient validation mode."
+                        )
+                except SchemaError as e:
+                    # Schema errors are always raised - they indicate a problem with the schema itself
+                    raise RuntimeError(f"Invalid schema for tool {name}: {e}")
 
     async def list_prompts(self, cursor: str | None = None) -> types.ListPromptsResult:
         """Send a prompts/list request."""
