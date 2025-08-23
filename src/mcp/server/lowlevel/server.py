@@ -150,6 +150,8 @@ class Server(Generic[LifespanResultT, RequestT]):
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self._tool_cache: dict[str, types.Tool] = {}
+        # Store direct reference to list_tools function to avoid nested handler calls
+        self._list_tools_func: Callable[[], Awaitable[list[types.Tool]]] | None = None
         logger.debug("Initializing server %r", name)
 
     def create_initialization_options(
@@ -383,6 +385,11 @@ class Server(Generic[LifespanResultT, RequestT]):
     def list_tools(self):
         def decorator(func: Callable[[], Awaitable[list[types.Tool]]]):
             logger.debug("Registering handler for ListToolsRequest")
+            
+            # Store direct reference to the function for cache refresh.
+            # This avoids nested handler invocation which can disrupt
+            # async execution flow in streaming contexts.
+            self._list_tools_func = func
 
             async def handler(_: Any):
                 tools = await func()
@@ -412,9 +419,15 @@ class Server(Generic[LifespanResultT, RequestT]):
         Returns the Tool object if found, None otherwise.
         """
         if tool_name not in self._tool_cache:
-            if types.ListToolsRequest in self.request_handlers:
+            # Use direct function reference to avoid nested handler invocation
+            # which can disrupt async flow in streaming contexts
+            if self._list_tools_func is not None:
                 logger.debug("Tool cache miss for %s, refreshing cache", tool_name)
-                await self.request_handlers[types.ListToolsRequest](None)
+                tools = await self._list_tools_func()
+                # Refresh the tool cache
+                self._tool_cache.clear()
+                for tool in tools:
+                    self._tool_cache[tool.name] = tool
 
         tool = self._tool_cache.get(tool_name)
         if tool is None:
@@ -458,7 +471,6 @@ class Server(Generic[LifespanResultT, RequestT]):
                         except jsonschema.ValidationError as e:
                             return self._make_error_result(f"Input validation error: {e.message}")
 
-                    # tool call
                     results = await func(tool_name, arguments)
 
                     # output normalization
