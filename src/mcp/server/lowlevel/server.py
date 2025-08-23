@@ -385,7 +385,7 @@ class Server(Generic[LifespanResultT, RequestT]):
     def list_tools(self):
         def decorator(func: Callable[[], Awaitable[list[types.Tool]]]):
             logger.debug("Registering handler for ListToolsRequest")
-            
+
             # Store direct reference to the function for cache refresh.
             # This avoids nested handler invocation which can disrupt
             # async execution flow in streaming contexts.
