@@ -361,7 +361,19 @@ class TestOAuthFallback:
             ),
             request=token_request,
         )
-        token_request = await auth_flow.asend(token_response)
+
+        # After OAuth flow completes, the original request is retried with auth header
+        final_request = await auth_flow.asend(token_response)
+        assert final_request.headers["Authorization"] == "Bearer new_access_token"
+        assert final_request.method == "GET"
+        assert str(final_request.url) == "https://api.example.com/v1/mcp"
+
+        # Send final success response to properly close the generator
+        final_response = httpx.Response(200, request=final_request)
+        try:
+            await auth_flow.asend(final_response)
+        except StopAsyncIteration:
+            pass  # Expected - generator should complete
 
     @pytest.mark.anyio
     async def test_handle_metadata_response_success(self, oauth_provider: OAuthClientProvider):
@@ -694,10 +706,60 @@ class TestAuthFlow:
         assert final_request.method == "GET"
         assert str(final_request.url) == "https://api.example.com/mcp"
 
+        # Send final success response to properly close the generator
+        final_response = httpx.Response(200, request=final_request)
+        try:
+            await auth_flow.asend(final_response)
+        except StopAsyncIteration:
+            pass  # Expected - generator should complete
+
         # Verify tokens were stored
         assert oauth_provider.context.current_tokens is not None
         assert oauth_provider.context.current_tokens.access_token == "new_access_token"
         assert oauth_provider.context.token_expiry_time is not None
+
+    @pytest.mark.anyio
+    async def test_auth_flow_no_unnecessary_retry_after_oauth(
+        self, oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, valid_tokens: OAuthToken
+    ):
+        """Test that requests are not retried unnecessarily - the core bug that caused 2x performance degradation."""
+        # Pre-store valid tokens so no OAuth flow is needed
+        await mock_storage.set_tokens(valid_tokens)
+        oauth_provider.context.current_tokens = valid_tokens
+        oauth_provider.context.token_expiry_time = time.time() + 1800
+        oauth_provider._initialized = True
+
+        test_request = httpx.Request("GET", "https://api.example.com/mcp")
+        auth_flow = oauth_provider.async_auth_flow(test_request)
+
+        # Count how many times the request is yielded
+        request_yields = 0
+
+        # First request - should have auth header already
+        request = await auth_flow.__anext__()
+        request_yields += 1
+        assert request.headers["Authorization"] == "Bearer test_access_token"
+
+        # Send a successful 200 response
+        response = httpx.Response(200, request=request)
+
+        # In the buggy version, this would yield the request AGAIN unconditionally
+        # In the fixed version, this should end the generator
+        try:
+            await auth_flow.asend(response)  # extra request
+            request_yields += 1
+            # If we reach here, the bug is present
+            pytest.fail(
+                f"Unnecessary retry detected! Request was yielded {request_yields} times. "
+                f"This indicates the retry logic bug that caused 2x performance degradation. "
+                f"The request should only be yielded once for successful responses."
+            )
+        except StopAsyncIteration:
+            # This is the expected behavior - no unnecessary retry
+            pass
+
+        # Verify exactly one request was yielded (no double-sending)
+        assert request_yields == 1, f"Expected 1 request yield, got {request_yields}"
 
 
 @pytest.mark.parametrize(
