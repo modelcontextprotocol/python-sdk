@@ -12,11 +12,12 @@ from pydantic import BaseModel
 from typing_extensions import Self
 
 from mcp.shared.exceptions import McpError
-from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.message import ClientMessageMetadata, MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
     CancelledNotification,
+    CancelledNotificationParams,
     ClientNotification,
     ClientRequest,
     ClientResult,
@@ -26,6 +27,7 @@ from mcp.types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    PingRequest,
     ProgressNotification,
     RequestParams,
     ServerNotification,
@@ -156,6 +158,188 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         return self._cancel_scope.cancel_called
 
 
+class RequestStateManager(
+    Generic[
+        SendRequestT,
+        SendResultT,
+    ],
+):
+    def new_request(self, request: SendRequestT) -> RequestId: ...
+
+    def resume(self, request_id: RequestId) -> bool: ...
+
+    async def update_resume_token(self, request_id: RequestId, token: str) -> None: ...
+
+    async def get_resume_token(self, request_id: RequestId) -> str | None: ...
+
+    def add_progress_callback(self, request_id: RequestId, progress_callback: ProgressFnT): ...
+
+    async def send_progress(
+        self,
+        request_id: RequestId,
+        progress: float,
+        total: float | None,
+        message: str | None,
+    ): ...
+
+    async def receive_response(
+        self,
+        request_id: RequestId,
+        timeout: float | None = None,
+    ) -> JSONRPCResponse | JSONRPCError | None: ...
+
+    async def handle_response(self, message: JSONRPCResponse | JSONRPCError) -> bool: ...
+
+    async def close_request(self, request_id: RequestId) -> bool: ...
+
+    async def close(self) -> None: ...
+
+
+class InMemoryRequestStateManager(
+    RequestStateManager[
+        SendRequestT,
+        SendResultT,
+    ],
+):
+    _request_id: int
+    _requests: dict[
+        RequestId,
+        SendRequestT,
+    ]
+    _response_streams: dict[
+        RequestId,
+        tuple[
+            MemoryObjectSendStream[JSONRPCResponse | JSONRPCError],
+            MemoryObjectReceiveStream[JSONRPCResponse | JSONRPCError],
+        ],
+    ]
+    _progress_callbacks: dict[RequestId, list[ProgressFnT]]
+    _resume_tokens: dict[RequestId, str]
+
+    def __init__(self):
+        self._request_id = 0
+        self._requests = {}
+        self._response_streams = {}
+        self._progress_callbacks = {}
+        self._resume_tokens = {}
+
+    def new_request(self, request: SendRequestT) -> RequestId:
+        request_id = self._request_id
+        self._request_id = request_id + 1
+
+        send_stream, receive_stream = anyio.create_memory_object_stream[JSONRPCResponse | JSONRPCError](1)
+        self._response_streams[request_id] = send_stream, receive_stream
+        self._requests[request_id] = request
+
+        return request_id
+
+    def resume(self, request_id: RequestId) -> bool:
+        if self._requests.get(request_id) is None:
+            raise RuntimeError(f"Unknown request {request_id}")
+
+        if request_id in self._response_streams:
+            return False
+        else:
+            send_stream, receive_stream = anyio.create_memory_object_stream[JSONRPCResponse | JSONRPCError](1)
+            self._response_streams[request_id] = send_stream, receive_stream
+            return True
+
+    async def update_resume_token(self, request_id: RequestId, token: str) -> None:
+        self._resume_tokens[request_id] = token
+
+    async def get_resume_token(self, request_id: RequestId) -> str | None:
+        return self._resume_tokens.get(request_id)
+
+    def add_progress_callback(self, request_id: RequestId, progress_callback: ProgressFnT):
+        progress_list = self._progress_callbacks.get(request_id)
+        if progress_list is None:
+            progress_list = []
+            self._progress_callbacks[request_id] = progress_list
+
+        progress_list.append(progress_callback)
+
+    async def send_progress(
+        self,
+        request_id: RequestId,
+        progress: float,
+        total: float | None,
+        message: str | None,
+    ):
+        if request_id in self._progress_callbacks:
+            callbacks = self._progress_callbacks[request_id]
+            for callback in callbacks:
+                await callback(
+                    progress,
+                    total,
+                    message,
+                )
+
+    async def receive_response(
+        self,
+        request_id: RequestId,
+        timeout: float | None = None,
+    ) -> JSONRPCResponse | JSONRPCError | None:
+        _, receive_stream = self._response_streams.get(request_id, [None, None])
+        if receive_stream is None:
+            raise McpError(
+                ErrorData(
+                    code=INVALID_PARAMS,
+                    message=(f"Unknown request {request_id}"),
+                )
+            )
+
+        request = self._requests.get(request_id, None)
+        assert request is not None
+
+        try:
+            with anyio.move_on_after(timeout):
+                return await receive_stream.receive()
+        except anyio.EndOfStream:
+            raise McpError(
+                ErrorData(
+                    code=CONNECTION_CLOSED,
+                    message=("Connection closed"),
+                )
+            )
+
+    async def handle_response(self, message: JSONRPCResponse | JSONRPCError) -> bool:
+        send_stream, _ = self._response_streams.get(message.id, [None, None])
+        if send_stream:
+            await send_stream.send(message)
+            return True
+        else:
+            return False
+
+    async def close_request(self, request_id: RequestId) -> bool:
+        send_stream, receive_stream = self._response_streams.pop(request_id, [None, None])
+        if send_stream is not None:
+            await send_stream.aclose()
+        if receive_stream is not None:
+            await receive_stream.aclose()
+
+        self._requests.pop(request_id, None)
+        self._resume_tokens.pop(request_id, None)
+        self._progress_callbacks.pop(request_id, None)
+
+        return send_stream is not None
+
+    async def close(self):
+        for id, [send_stream, receive_stream] in self._response_streams.copy().items():
+            await receive_stream.aclose()
+            try:
+                error = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
+                await send_stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))
+            except anyio.BrokenResourceError:
+                # Stream already be closed
+                pass
+            except anyio.ClosedResourceError:
+                # Stream already be closed
+                pass
+            finally:
+                await send_stream.aclose()
+                self._response_streams.pop(id)
+
+
 class BaseSession(
     Generic[
         SendRequestT,
@@ -173,10 +357,7 @@ class BaseSession(
     messages when entered.
     """
 
-    _response_streams: dict[RequestId, MemoryObjectSendStream[JSONRPCResponse | JSONRPCError]]
-    _request_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
-    _progress_callbacks: dict[RequestId, ProgressFnT]
 
     def __init__(
         self,
@@ -186,17 +367,16 @@ class BaseSession(
         receive_notification_type: type[ReceiveNotificationT],
         # If none, reading will never time out
         read_timeout_seconds: timedelta | None = None,
+        request_state_manager: RequestStateManager[SendRequestT, SendResultT] | None = None,
     ) -> None:
         self._read_stream = read_stream
         self._write_stream = write_stream
-        self._response_streams = {}
-        self._request_id = 0
         self._receive_request_type = receive_request_type
         self._receive_notification_type = receive_notification_type
         self._session_read_timeout_seconds = read_timeout_seconds
-        self._in_flight = {}
-        self._progress_callbacks = {}
         self._exit_stack = AsyncExitStack()
+        self._in_flight = {}
+        self._request_state_manager = request_state_manager or InMemoryRequestStateManager()
 
     async def __aenter__(self) -> Self:
         self._task_group = anyio.create_task_group()
@@ -217,6 +397,120 @@ class BaseSession(
         self._task_group.cancel_scope.cancel()
         return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
 
+    async def start_request(
+        self,
+        request: SendRequestT,
+        metadata: MessageMetadata = None,
+        progress_callback: ProgressFnT | None = None,
+    ) -> RequestId:
+        """
+        Starts a request.
+
+        Do not use this method to emit notifications! Use send_notification()
+        instead.
+        """
+        request_id = self._request_state_manager.new_request(request)
+        # Set up progress token if progress callback is provided
+        request_data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        if progress_callback is not None:
+            # Use request_id as progress token
+            if "params" not in request_data:
+                request_data["params"] = {}
+            if "_meta" not in request_data["params"]:
+                request_data["params"]["_meta"] = {}
+            request_data["params"]["_meta"]["progressToken"] = request_id
+            # Store the callback for this request
+            self._request_state_manager.add_progress_callback(request_id, progress_callback)
+
+        jsonrpc_request = JSONRPCRequest(
+            jsonrpc="2.0",
+            id=request_id,
+            **request_data,
+        )
+
+        try:
+            await self._write_stream.send(SessionMessage(message=JSONRPCMessage(jsonrpc_request), metadata=metadata))
+            return request_id
+        except Exception as e:
+            await self._request_state_manager.close_request(request_id)
+            raise e
+
+    async def join_request(
+        self,
+        request_id: RequestId,
+        result_type: type[ReceiveResultT],
+        request_read_timeout_seconds: timedelta | None = None,
+        progress_callback: ProgressFnT | None = None,
+        done_on_timeout: bool = True,
+    ) -> ReceiveResultT | None:
+        """
+        Joins a request previously started via start_request.
+
+        Returns the result or None if timeout is reached.
+        """
+        resume = self._request_state_manager.resume(request_id)
+
+        if progress_callback is not None:
+            self._request_state_manager.add_progress_callback(request_id, progress_callback)
+
+        # request read timeout takes precedence over session read timeout
+        timeout = None
+        if request_read_timeout_seconds is not None:
+            timeout = request_read_timeout_seconds.total_seconds()
+        elif self._session_read_timeout_seconds is not None:
+            timeout = self._session_read_timeout_seconds.total_seconds()
+
+        if resume:
+            resume_token = await self._request_state_manager.get_resume_token(request_id)
+            if resume_token is not None:
+                metadata = ClientMessageMetadata(resumption_token=resume_token)
+
+                request_data = PingRequest(method="ping").model_dump(by_alias=True, mode="json", exclude_none=True)
+
+                jsonrpc_request = JSONRPCRequest(
+                    jsonrpc="2.0",
+                    id=request_id,
+                    **request_data,
+                )
+
+                await self._write_stream.send(
+                    SessionMessage(message=JSONRPCMessage(jsonrpc_request), metadata=metadata)
+                )
+
+        response_or_error = await self._request_state_manager.receive_response(request_id, timeout)
+
+        if response_or_error is None:
+            if done_on_timeout:
+                await self._request_state_manager.close_request(request_id)
+            return None
+        elif isinstance(response_or_error, JSONRPCError):
+            if response_or_error.error.code == httpx.codes.REQUEST_TIMEOUT.value:
+                if done_on_timeout:
+                    await self._request_state_manager.close_request(request_id)
+                return None
+            else:
+                await self._request_state_manager.close_request(request_id)
+                raise McpError(response_or_error.error)
+        else:
+            await self._request_state_manager.close_request(request_id)
+            return result_type.model_validate(response_or_error.result)
+
+    async def cancel_request(self, request_id: RequestId) -> bool:
+        """
+        Cancels a request previously started via start_request
+        """
+        closed = await self._request_state_manager.close_request(request_id)
+
+        if closed:
+            notification = CancelledNotification(
+                method="notifications/cancelled",
+                params=CancelledNotificationParams(requestId=request_id, reason="cancelled"),
+            )
+            await self.send_notification(notification, request_id)  # type: ignore
+            return True
+        else:
+            return False
+
     async def send_request(
         self,
         request: SendRequestT,
@@ -233,65 +527,24 @@ class BaseSession(
         Do not use this method to emit notifications! Use send_notification()
         instead.
         """
-        request_id = self._request_id
-        self._request_id = request_id + 1
-
-        response_stream, response_stream_reader = anyio.create_memory_object_stream[JSONRPCResponse | JSONRPCError](1)
-        self._response_streams[request_id] = response_stream
-
-        # Set up progress token if progress callback is provided
-        request_data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
-        if progress_callback is not None:
-            # Use request_id as progress token
-            if "params" not in request_data:
-                request_data["params"] = {}
-            if "_meta" not in request_data["params"]:
-                request_data["params"]["_meta"] = {}
-            request_data["params"]["_meta"]["progressToken"] = request_id
-            # Store the callback for this request
-            self._progress_callbacks[request_id] = progress_callback
-
+        request_id = await self.start_request(request, metadata, progress_callback)
         try:
-            jsonrpc_request = JSONRPCRequest(
-                jsonrpc="2.0",
-                id=request_id,
-                **request_data,
-            )
-
-            await self._write_stream.send(SessionMessage(message=JSONRPCMessage(jsonrpc_request), metadata=metadata))
-
-            # request read timeout takes precedence over session read timeout
-            timeout = None
-            if request_read_timeout_seconds is not None:
-                timeout = request_read_timeout_seconds.total_seconds()
-            elif self._session_read_timeout_seconds is not None:
-                timeout = self._session_read_timeout_seconds.total_seconds()
-
-            try:
-                with anyio.fail_after(timeout):
-                    response_or_error = await response_stream_reader.receive()
-            except TimeoutError:
+            result = await self.join_request(request_id, result_type, request_read_timeout_seconds)
+            if result is None:
                 raise McpError(
                     ErrorData(
                         code=httpx.codes.REQUEST_TIMEOUT,
                         message=(
                             f"Timed out while waiting for response to "
                             f"{request.__class__.__name__}. Waited "
-                            f"{timeout} seconds."
+                            f"{request_read_timeout_seconds} seconds."
                         ),
                     )
                 )
-
-            if isinstance(response_or_error, JSONRPCError):
-                raise McpError(response_or_error.error)
             else:
-                return result_type.model_validate(response_or_error.result)
-
+                return result
         finally:
-            self._response_streams.pop(request_id, None)
-            self._progress_callbacks.pop(request_id, None)
-            await response_stream.aclose()
-            await response_stream_reader.aclose()
+            await self._request_state_manager.close_request(request_id)
 
     async def send_notification(
         self,
@@ -390,13 +643,12 @@ class BaseSession(
                                     progress_token = notification.root.params.progressToken
                                     # If there is a progress callback for this token,
                                     # call it with the progress information
-                                    if progress_token in self._progress_callbacks:
-                                        callback = self._progress_callbacks[progress_token]
-                                        await callback(
-                                            notification.root.params.progress,
-                                            notification.root.params.total,
-                                            notification.root.params.message,
-                                        )
+                                    await self._request_state_manager.send_progress(
+                                        progress_token,
+                                        notification.root.params.progress,
+                                        notification.root.params.total,
+                                        notification.root.params.message,
+                                    )
                                 await self._received_notification(notification)
                                 await self._handle_incoming(notification)
                         except Exception as e:
@@ -405,10 +657,8 @@ class BaseSession(
                                 f"Failed to validate notification: {e}. Message was: {message.message.root}"
                             )
                     else:  # Response or error
-                        stream = self._response_streams.pop(message.message.root.id, None)
-                        if stream:
-                            await stream.send(message.message.root)
-                        else:
+                        handled = await self._request_state_manager.handle_response(message.message.root)
+                        if not handled:
                             await self._handle_incoming(
                                 RuntimeError(f"Received response with an unknown request ID: {message}")
                             )
@@ -425,15 +675,7 @@ class BaseSession(
             finally:
                 # after the read stream is closed, we need to send errors
                 # to any pending requests
-                for id, stream in self._response_streams.items():
-                    error = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
-                    try:
-                        await stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))
-                        await stream.aclose()
-                    except Exception:
-                        # Stream might already be closed
-                        pass
-                self._response_streams.clear()
+                await self._request_state_manager.close()
 
     async def _received_request(self, responder: RequestResponder[ReceiveRequestT, SendResultT]) -> None:
         """

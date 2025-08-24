@@ -9,8 +9,8 @@ from pydantic import AnyUrl, TypeAdapter
 
 import mcp.types as types
 from mcp.shared.context import RequestContext
-from mcp.shared.message import SessionMessage
-from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
+from mcp.shared.message import ClientMessageMetadata, SessionMessage
+from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder, RequestStateManager
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
@@ -118,6 +118,7 @@ class ClientSession(
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
+        request_state_manager: RequestStateManager[types.ClientRequest, types.ClientResult] | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -125,6 +126,7 @@ class ClientSession(
             types.ServerRequest,
             types.ServerNotification,
             read_timeout_seconds=read_timeout_seconds,
+            request_state_manager=request_state_manager,
         )
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
@@ -133,6 +135,7 @@ class ClientSession(
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
+        self._resumable = False
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
@@ -169,6 +172,8 @@ class ClientSession(
 
         if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
             raise RuntimeError(f"Unsupported protocol version from the server: {result.protocolVersion}")
+
+        self._resumable = result.capabilities.resume and result.capabilities.resume.resumable
 
         await self.send_notification(
             types.ClientNotification(types.InitializedNotification(method="notifications/initialized"))
@@ -280,6 +285,88 @@ class ClientSession(
             ),
             types.EmptyResult,
         )
+
+    async def request_call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        progress_callback: ProgressFnT | None = None,
+        timeout: float | None = None,
+        cancel_if_not_resumable: bool = False,
+    ) -> types.RequestId | None:
+        if self._resumable:
+            captured_token = None
+            captured = anyio.Event()
+
+            async def capture_token(token: str):
+                nonlocal captured_token
+                captured_token = token
+                captured.set()
+
+            metadata = ClientMessageMetadata(on_resumption_token_update=capture_token)
+
+            request_id = await self.start_request(
+                types.ClientRequest(
+                    types.CallToolRequest(
+                        method="tools/call",
+                        params=types.CallToolRequestParams(
+                            name=name,
+                            arguments=arguments,
+                        ),
+                    )
+                ),
+                progress_callback=progress_callback,
+                metadata=metadata,
+            )
+
+            try:
+                with anyio.fail_after(timeout):
+                    while captured_token is None:
+                        await captured.wait()
+
+                await self._request_state_manager.update_resume_token(request_id, captured_token)
+
+                return request_id
+            except TimeoutError:
+                if cancel_if_not_resumable:
+                    with anyio.CancelScope(shield=True):
+                        with anyio.move_on_after(timeout):
+                            await self.cancel_call_tool(request_id=request_id)
+                return None
+        else:
+            return await self.start_request(
+                types.ClientRequest(
+                    types.CallToolRequest(
+                        method="tools/call",
+                        params=types.CallToolRequestParams(
+                            name=name,
+                            arguments=arguments,
+                        ),
+                    )
+                ),
+                progress_callback=progress_callback,
+            )
+
+    async def join_call_tool(
+        self,
+        request_id: types.RequestId,
+        progress_callback: ProgressFnT | None = None,
+        request_read_timeout_seconds: timedelta | None = None,
+        done_on_timeout: bool = True,
+    ) -> types.CallToolResult | None:
+        return await self.join_request(
+            request_id,
+            types.CallToolResult,
+            request_read_timeout_seconds=request_read_timeout_seconds,
+            progress_callback=progress_callback,
+            done_on_timeout=done_on_timeout,
+        )
+
+    async def cancel_call_tool(
+        self,
+        request_id: types.RequestId,
+    ) -> bool:
+        return await self.cancel_request(request_id)
 
     async def call_tool(
         self,
