@@ -1,6 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import anyio
@@ -28,7 +28,7 @@ async def sse_client(
     sse_read_timeout: float = 60 * 5,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
-    proxy: Optional[str] = None
+    proxy: str | None = None,
 ):
     """
     Client transport for SSE.
