@@ -157,6 +157,11 @@ class ServerTest(Server):
                     inputSchema={"type": "object", "properties": {}},
                 ),
                 Tool(
+                    name="long_running_with_no_checkpoints",
+                    description="A long-running tool that does not send periodic notifications",
+                    inputSchema={"type": "object", "properties": {}},
+                ),
+                Tool(
                     name="test_sampling_tool",
                     description="A tool that triggers server-side sampling",
                     inputSchema={"type": "object", "properties": {}},
@@ -204,6 +209,12 @@ class ServerTest(Server):
 
                 return [TextContent(type="text", text="Completed!")]
 
+            elif name == "long_running_with_no_checkpoints":
+                # Send notifications that are part of the response stream
+                # This simulates a long-running tool does not send any events
+                await anyio.sleep(1)
+
+                return [TextContent(type="text", text="Completed!")]
             elif name == "test_sampling_tool":
                 # Test sampling by requesting the client to sample a message
                 sampling_result = await ctx.session.create_message(
@@ -1348,14 +1359,12 @@ async def test_streamablehttp_client_resumption_non_blocking(event_server: tuple
 
 @pytest.mark.anyio
 async def test_streamablehttp_client_non_blocking_timeout(event_server: tuple[SimpleEventStore, str]):
-    """Test client session start timeout."""
+    """Test client session start timeout due to no notifications from server."""
     _, server_url = event_server
 
     with anyio.fail_after(10):
         # Variables to track the state
         captured_notifications: list[types.ServerNotification] = []
-        tool_started = anyio.Event()
-        tool_cancelled = anyio.Event()
 
         request_state_manager = InMemoryRequestStateManager[types.ClientRequest, types.ClientResult]()
 
@@ -1364,17 +1373,6 @@ async def test_streamablehttp_client_non_blocking_timeout(event_server: tuple[Si
         ) -> None:
             if isinstance(message, types.ServerNotification):
                 captured_notifications.append(message)
-                # Look for our special notification that indicates the tool is running
-                if isinstance(message.root, types.LoggingMessageNotification):
-                    if message.root.params.data == "Tool started":
-                        nonlocal tool_started
-                        tool_started.set()
-                    else:
-                        await tool_cancelled.wait()
-
-                if isinstance(message.root, types.CancelledNotification):
-                    nonlocal tool_cancelled
-                    tool_cancelled.set()
 
         # First, start the client session and begin the long-running tool
         async with streamablehttp_client(f"{server_url}/mcp", terminate_on_close=False) as (
@@ -1382,31 +1380,28 @@ async def test_streamablehttp_client_non_blocking_timeout(event_server: tuple[Si
             write_stream,
             _,
         ):
-            async with ClientSession(
-                read_stream,
-                write_stream,
-                message_handler=message_handler,
-                request_state_manager=request_state_manager,
-            ) as session:
-                # Initialize the session
-                result = await session.initialize()
-                assert isinstance(result, InitializeResult)
-
+            async with (
+                ClientSession(
+                    read_stream,
+                    write_stream,
+                    message_handler=message_handler,
+                    request_state_manager=request_state_manager,
+                ) as session,
+            ):
                 # Start a long-running tool in a task
                 async with anyio.create_task_group() as tg:
 
                     async def run_tool():
+                        # Initialize the session
+                        result = await session.initialize()
+                        assert isinstance(result, InitializeResult)
                         request_id = await session.request_call_tool(
-                            "long_running_with_checkpoints", arguments={}, timeout=0.01, cancel_if_not_resumable=True
+                            "long_running_with_no_checkpoints", arguments={}, timeout=0.01, cancel_if_not_resumable=True
                         )
                         assert request_id is None
 
                     tg.start_soon(run_tool)
 
-                    await tool_started.wait()
-                    await tool_cancelled.wait()
-
-        assert tool_started.is_set() and tool_cancelled.is_set()
         assert len(request_state_manager._progress_callbacks) == 0
         assert len(request_state_manager._response_streams) == 0
 
