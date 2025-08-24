@@ -1356,7 +1356,7 @@ async def test_streamablehttp_client_non_blocking_timeout(event_server: tuple[Si
         captured_notifications: list[types.ServerNotification] = []
         tool_started = anyio.Event()
         tool_cancelled = anyio.Event()
-        
+
         request_state_manager = InMemoryRequestStateManager[types.ClientRequest, types.ClientResult]()
 
         async def message_handler(
@@ -1371,11 +1371,10 @@ async def test_streamablehttp_client_non_blocking_timeout(event_server: tuple[Si
                         tool_started.set()
                     else:
                         await tool_cancelled.wait()
-                    
+
                 if isinstance(message.root, types.CancelledNotification):
                     nonlocal tool_cancelled
                     tool_cancelled.set()
-
 
         # First, start the client session and begin the long-running tool
         async with streamablehttp_client(f"{server_url}/mcp", terminate_on_close=False) as (
@@ -1395,11 +1394,10 @@ async def test_streamablehttp_client_non_blocking_timeout(event_server: tuple[Si
 
                 # Start a long-running tool in a task
                 async with anyio.create_task_group() as tg:
+
                     async def run_tool():
                         request_id = await session.request_call_tool(
-                            "long_running_with_checkpoints", arguments={},
-                            timeout=0.01,
-                            cancel_if_not_resumable=True
+                            "long_running_with_checkpoints", arguments={}, timeout=0.01, cancel_if_not_resumable=True
                         )
                         assert request_id is None
 
