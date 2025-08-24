@@ -18,6 +18,9 @@ class PromptManager:
     def get_prompt(self, name: str) -> Prompt | None:
         """Get prompt by name."""
         return self._prompts.get(name)
+    
+    def get_all_prompts(self) -> dict[str, Prompt]:
+        return self._prompts
 
     def list_prompts(self) -> list[Prompt]:
         """List all registered prompts."""
