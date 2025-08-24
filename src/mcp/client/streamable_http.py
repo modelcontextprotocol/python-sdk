@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Optional
 
 import anyio
 import httpx
@@ -448,6 +449,7 @@ async def streamablehttp_client(
     terminate_on_close: bool = True,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
+    proxy: Optional[str] = None
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -481,6 +483,7 @@ async def streamablehttp_client(
                 headers=transport.request_headers,
                 timeout=httpx.Timeout(transport.timeout, read=transport.sse_read_timeout),
                 auth=transport.auth,
+                proxy=proxy
             ) as client:
                 # Define callbacks that need access to tg
                 def start_get_stream() -> None:
