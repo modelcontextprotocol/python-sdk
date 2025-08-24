@@ -24,6 +24,8 @@ from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
+
 # Environment variables to inherit by default
 DEFAULT_INHERITED_ENV_VARS = (
     [
@@ -154,6 +156,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                         try:
                             message = types.JSONRPCMessage.model_validate_json(line)
                         except Exception as exc:
+                            logger.exception("Failed to parse JSONRPC message from server")
                             await read_stream_writer.send(exc)
                             continue
 
