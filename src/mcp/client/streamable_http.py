@@ -448,7 +448,6 @@ async def streamablehttp_client(
     terminate_on_close: bool = True,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
-    verify: bool | None = None,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -482,7 +481,6 @@ async def streamablehttp_client(
                 headers=transport.request_headers,
                 timeout=httpx.Timeout(transport.timeout, read=transport.sse_read_timeout),
                 auth=transport.auth,
-                verify=verify,
             ) as client:
                 # Define callbacks that need access to tg
                 def start_get_stream() -> None:

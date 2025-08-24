@@ -28,7 +28,6 @@ async def sse_client(
     sse_read_timeout: float = 60 * 5,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
-    verify: bool | None = None,
 ):
     """
     Client transport for SSE.
@@ -59,7 +58,6 @@ async def sse_client(
                 headers=headers,
                 timeout=httpx.Timeout(timeout, read=sse_read_timeout),
                 auth=auth,
-                verify=verify,
             ) as client:
                 async with aconnect_sse(
                     client,

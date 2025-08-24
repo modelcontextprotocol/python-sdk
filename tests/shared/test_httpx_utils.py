@@ -18,7 +18,7 @@ def test_custom_parameters():
     headers = {"Authorization": "Bearer token"}
     timeout = httpx.Timeout(60.0)
 
-    client = create_mcp_http_client(headers, timeout)
+    client = create_mcp_http_client(headers=headers, timeout=timeout)
 
     assert client.headers["Authorization"] == "Bearer token"
     assert client.timeout.connect == 60.0
