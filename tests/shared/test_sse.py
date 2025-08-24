@@ -1,9 +1,11 @@
 import json
 import multiprocessing
 import socket
+import threading
 import time
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
+from urllib.parse import urlparse
 
 import anyio
 import httpx
@@ -44,8 +46,20 @@ def server_port() -> int:
 
 
 @pytest.fixture
+def proxy_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest.fixture
 def server_url(server_port: int) -> str:
     return f"http://127.0.0.1:{server_port}"
+
+
+@pytest.fixture
+def proxy_url(proxy_port: int) -> str:
+    return f"http://127.0.0.1:{proxy_port}"
 
 
 # Test server implementation
@@ -178,6 +192,132 @@ async def test_raw_sse_connection(http_client: httpx.AsyncClient) -> None:
         # Add timeout to prevent test from hanging if it fails
         with anyio.fail_after(3):
             await connection_test()
+
+
+@pytest.fixture
+def proxy_server(server_url: str, proxy_port: int) -> Generator[str, None, None]:
+    BUFFER_SIZE: int = 4096
+    parsed = urlparse(server_url)
+    server_host: str = parsed.hostname or "127.0.0.1"
+    server_port: int = parsed.port or 80
+
+    def run_proxy(stop_event: threading.Event) -> None:
+        def handle_client(client_socket: socket.socket) -> None:
+            server_socket: socket.socket | None = None
+            try:
+                request: bytes = client_socket.recv(BUFFER_SIZE)
+                if not request:
+                    return
+
+                first_line: bytes
+                rest: bytes
+                first_line, rest = request.split(b"\r\n", 1)
+                parts: list[str] = first_line.decode().split(" ")
+                if len(parts) != 3:
+                    return  # malformed
+                method: str
+                url: str
+                version: str
+                method, url, version = parts
+
+                parsed_url = urlparse(url)
+                if parsed_url.scheme and parsed_url.netloc:
+                    # absolute-form (proxy request)
+                    path: str = parsed_url.path or "/"
+                    if parsed_url.query:
+                        path += "?" + parsed_url.query
+                else:
+                    path = url
+
+                fixed_first_line: bytes = f"{method} {path} {version}".encode()
+                new_request: bytes = b"\r\n".join([fixed_first_line, rest])
+
+                server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                server_socket.connect((server_host, server_port))
+                server_socket.sendall(new_request)
+                print(f"[PROXY] Forwarding {method} {path} -> {server_host}:{server_port}")
+
+                def forward(src: socket.socket, dst: socket.socket, direction: str) -> None:
+                    while not stop_event.is_set():
+                        try:
+                            data: bytes = src.recv(BUFFER_SIZE)
+                            if not data:
+                                break
+                            dst.sendall(data)
+                        except (ConnectionResetError, OSError):
+                            break
+
+                t1 = threading.Thread(
+                    target=forward,
+                    args=(client_socket, server_socket, "client->server"),
+                    daemon=True,
+                )
+                t2 = threading.Thread(
+                    target=forward,
+                    args=(server_socket, client_socket, "server->client"),
+                    daemon=True,
+                )
+                t1.start()
+                t2.start()
+                t1.join()
+                t2.join()
+            finally:
+                try:
+                    client_socket.close()
+                except Exception:
+                    pass
+                if server_socket:
+                    try:
+                        server_socket.close()
+                    except Exception:
+                        pass
+                print("[PROXY] Closed sockets")
+
+        proxy_socket: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        proxy_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        proxy_socket.bind(("127.0.0.1", proxy_port))
+        proxy_socket.listen(5)
+
+        print(f"[PROXY] Listening on 127.0.0.1:{proxy_port}, forwarding to {server_host}:{server_port}")
+
+        while not stop_event.is_set():
+            proxy_socket.settimeout(1.0)
+            try:
+                client_socket, addr = proxy_socket.accept()
+                print(f"[PROXY] Accepted connection from {addr}")
+                threading.Thread(
+                    target=handle_client,
+                    args=(client_socket,),
+                    daemon=True,
+                ).start()
+            except TimeoutError:
+                continue
+            except OSError:
+                break
+
+        proxy_socket.close()
+        print("[PROXY] Proxy stopped")
+
+    stop_event: threading.Event = threading.Event()
+    thread = threading.Thread(target=run_proxy, args=(stop_event,), daemon=True)
+    thread.start()
+
+    proxy_url: str = f"http://127.0.0.1:{proxy_port}"
+
+    yield proxy_url
+
+    stop_event.set()
+    thread.join(timeout=2)
+    print("[PROXY] Fixture teardown complete")
+
+
+@pytest.mark.anyio
+async def test_sse_client_proxy_config(server: None, proxy_server: str, proxy_url: str, server_url: str) -> None:
+    async with sse_client(server_url + "/sse", proxy=proxy_url) as streams:
+        async with ClientSession(*streams) as session:
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == SERVER_NAME
 
 
 @pytest.mark.anyio
