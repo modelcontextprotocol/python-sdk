@@ -11,7 +11,7 @@ import pytest
 
 from mcp.client.session import ClientSession
 from mcp.server.lowlevel import Server
-from mcp.types import ListToolsRequest, TextContent, Tool
+from mcp.types import CallToolResult, ListToolsRequest, TextContent, Tool
 
 
 @pytest.mark.anyio
@@ -28,7 +28,7 @@ async def test_no_nested_handler_invocation_on_cache_refresh():
     server = Server("test-server")
 
     # Track handler invocations
-    handler_invocations = []
+    handler_invocations: list[str] = []
 
     @server.list_tools()
     async def list_tools():
@@ -178,6 +178,8 @@ async def test_concurrent_cache_refresh_safety():
             # Verify all calls succeeded
             for i, result in enumerate(results):
                 assert not isinstance(result, Exception), f"Tool {i} failed: {result}"
+                # Type narrowing: result is CallToolResult at this point, not Exception
+                assert isinstance(result, CallToolResult)
                 assert not result.isError
                 content = result.content[0]
                 assert isinstance(content, TextContent)
