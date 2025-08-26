@@ -792,11 +792,15 @@ class FastMCP(Generic[LifespanResultT]):
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
                 from pydantic import AnyHttpUrl
-
+                from urllib.parse import urlparse
+                
+                # Extract base URL from resource_server_url
+                parsed = urlparse(str(self.settings.auth.resource_server_url))
+                base_url = f"{parsed.scheme}://{parsed.netloc}"
+                
                 resource_metadata_url = AnyHttpUrl(
-                    str(self.settings.auth.resource_server_url).rstrip("/") + "/.well-known/oauth-protected-resource"
+                    base_url + "/.well-known/oauth-protected-resource"
                 )
-
             # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
             routes.append(
                 Route(
