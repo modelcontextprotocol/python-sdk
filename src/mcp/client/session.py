@@ -18,7 +18,6 @@ DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 logger = logging.getLogger("client")
 
 
-
 class SamplingFnT(Protocol):
     async def __call__(
         self,
@@ -342,8 +341,7 @@ class ClientSession(
                         raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}") from e
                     else:
                         logger.warning(
-                            f"Invalid structured content returned by tool {name}: {e}. "
-                            f"Continuing without validation."
+                            f"Invalid structured content returned by tool {name}: {e}. Continuing without validation."
                         )
                 except SchemaError as e:
                     # Schema errors are always raised - they indicate a problem with the schema itself

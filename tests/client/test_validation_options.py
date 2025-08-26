@@ -93,7 +93,6 @@ class TestValidationOptions:
 
         # Create client with lenient validation
 
-
         read_stream = MagicMock()
         write_stream = MagicMock()
 
@@ -161,7 +160,6 @@ class TestValidationOptions:
     async def test_schema_errors_always_raised(self):
         """Test that schema errors are always raised regardless of validation mode."""
         # Create client with lenient validation
-
 
         read_stream = MagicMock()
         write_stream = MagicMock()
