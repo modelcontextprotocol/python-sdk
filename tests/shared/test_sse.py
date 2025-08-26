@@ -478,11 +478,11 @@ def test_sse_message_id_coercion():
     """
     json_message = '{"jsonrpc": "2.0", "id": "123", "method": "ping", "params": null}'
     msg = types.JSONRPCMessage.model_validate_json(json_message)
-    assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", jsonrpc="2.0", id="123")))
+    assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", id="123")))
 
     json_message = '{"jsonrpc": "2.0", "id": 123, "method": "ping", "params": null}'
     msg = types.JSONRPCMessage.model_validate_json(json_message)
-    assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", jsonrpc="2.0", id=123)))
+    assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", id=123)))
 
 
 @pytest.mark.parametrize(
