@@ -1,6 +1,7 @@
 import pytest
 
 from mcp.types import (
+    JSON_RPC_VERSION,
     LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
     ClientRequest,
@@ -15,7 +16,6 @@ from mcp.types import (
 @pytest.mark.anyio
 async def test_jsonrpc_request():
     json_data = {
-        "jsonrpc": "2.0",
         "id": 1,
         "method": "initialize",
         "params": {
@@ -29,7 +29,7 @@ async def test_jsonrpc_request():
     assert isinstance(request.root, JSONRPCRequest)
     ClientRequest.model_validate(request.model_dump(by_alias=True, exclude_none=True))
 
-    assert request.root.jsonrpc == "2.0"
+    assert request.root.jsonrpc == JSON_RPC_VERSION, f"jsonrpc should be set to '{JSON_RPC_VERSION}'"
     assert request.root.id == 1
     assert request.root.method == "initialize"
     assert request.root.params is not None

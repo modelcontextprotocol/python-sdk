@@ -63,7 +63,6 @@ async def test_request_id_match() -> None:
                 capabilities=ClientCapabilities(),
                 clientInfo=Implementation(name="test-client", version="1.0.0"),
             ).model_dump(by_alias=True, exclude_none=True),
-            jsonrpc="2.0",
         )
 
         await client_writer.send(SessionMessage(JSONRPCMessage(root=init_req)))
@@ -73,12 +72,11 @@ async def test_request_id_match() -> None:
         initialized_notification = JSONRPCNotification(
             method="notifications/initialized",
             params=NotificationParams().model_dump(by_alias=True, exclude_none=True),
-            jsonrpc="2.0",
         )
         await client_writer.send(SessionMessage(JSONRPCMessage(root=initialized_notification)))
 
         # Send ping request with custom ID
-        ping_request = JSONRPCRequest(id=custom_request_id, method="ping", params={}, jsonrpc="2.0")
+        ping_request = JSONRPCRequest(id=custom_request_id, method="ping", params={})
 
         await client_writer.send(SessionMessage(JSONRPCMessage(root=ping_request)))
 
