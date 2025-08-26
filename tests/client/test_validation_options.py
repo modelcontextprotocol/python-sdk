@@ -13,7 +13,7 @@ class TestValidationOptions:
     """Test validation options for MCP client sessions."""
 
     @pytest.mark.anyio
-    async def test_strict_validation_default(self):
+    async def test_strict_validation_default(self) -> None:
         """Test that strict validation is enabled by default."""
         # Create a mock client session
         read_stream = MagicMock()
@@ -45,7 +45,7 @@ class TestValidationOptions:
         assert "has an output schema but did not return structured content" in str(exc_info.value)
 
     @pytest.mark.anyio
-    async def test_lenient_validation_missing_content(self, caplog):
+    async def test_lenient_validation_missing_content(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test lenient validation when structured content is missing."""
         # Set logging level to capture warnings
         caplog.set_level(logging.WARNING)
@@ -86,7 +86,7 @@ class TestValidationOptions:
         assert result.structuredContent is None
 
     @pytest.mark.anyio
-    async def test_lenient_validation_invalid_content(self, caplog):
+    async def test_lenient_validation_invalid_content(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test lenient validation when structured content is invalid."""
         # Set logging level to capture warnings
         caplog.set_level(logging.WARNING)
@@ -128,7 +128,7 @@ class TestValidationOptions:
         assert result.structuredContent == {"result": "not_an_integer"}
 
     @pytest.mark.anyio
-    async def test_strict_validation_with_valid_content(self):
+    async def test_strict_validation_with_valid_content(self) -> None:
         """Test that valid structured content passes validation."""
         read_stream = MagicMock()
         write_stream = MagicMock()
@@ -157,7 +157,7 @@ class TestValidationOptions:
         assert result.structuredContent == {"result": 42}
 
     @pytest.mark.anyio
-    async def test_schema_errors_always_raised(self):
+    async def test_schema_errors_always_raised(self) -> None:
         """Test that schema errors are always raised regardless of validation mode."""
         # Create client with lenient validation
 
@@ -184,7 +184,7 @@ class TestValidationOptions:
         assert "Invalid schema for tool test_tool" in str(exc_info.value)
 
     @pytest.mark.anyio
-    async def test_error_results_not_validated(self):
+    async def test_error_results_not_validated(self) -> None:
         """Test that error results are not validated."""
         read_stream = MagicMock()
         write_stream = MagicMock()
@@ -215,7 +215,7 @@ class TestValidationOptions:
         # No exception should be raised
 
     @pytest.mark.anyio
-    async def test_tool_without_output_schema(self):
+    async def test_tool_without_output_schema(self) -> None:
         """Test that tools without output schema don't trigger validation."""
         read_stream = MagicMock()
         write_stream = MagicMock()
