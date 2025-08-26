@@ -273,6 +273,7 @@ class ClientSession(
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
         progress_callback: ProgressFnT | None = None,
+        validate_output: bool = True,
     ) -> types.CallToolResult:
         """Send a tools/call request with optional progress callback support."""
 
@@ -290,7 +291,7 @@ class ClientSession(
             progress_callback=progress_callback,
         )
 
-        if not result.isError:
+        if not result.isError and validate_output:
             await self._validate_tool_result(name, result)
 
         return result
