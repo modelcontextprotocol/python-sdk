@@ -18,7 +18,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
 ]
-dependencies = ["anyio>=4.5", "click>=8.1.0", "httpx>=0.27", "mcp"]
+dependencies = ["anyio>=4.5", "click>=8.2.0", "httpx>=0.27", "mcp"]
 
 [project.scripts]
 mcp-simple-resource = "mcp_simple_resource.server:main"
@@ -40,7 +40,7 @@ select = ["E", "F", "I"]
 ignore = []
 
 [tool.ruff]
-line-length = 88
+line-length = 120
 target-version = "py310"
 
 [tool.uv]

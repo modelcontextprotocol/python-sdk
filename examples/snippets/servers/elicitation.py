@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 
 mcp = FastMCP(name="Elicitation Example")
 
@@ -16,12 +17,7 @@ class BookingPreferences(BaseModel):
 
 
 @mcp.tool()
-async def book_table(
-    date: str,
-    time: str,
-    party_size: int,
-    ctx: Context,
-) -> str:
+async def book_table(date: str, time: str, party_size: int, ctx: Context[ServerSession, None]) -> str:
     """Book a table with date availability check."""
     # Check if date is available
     if date == "2024-12-25":

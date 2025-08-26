@@ -26,7 +26,7 @@ async def test_stdio_server():
         read_stream,
         write_stream,
     ):
-        received_messages = []
+        received_messages: list[JSONRPCMessage] = []
         async with read_stream:
             async for message in read_stream:
                 if isinstance(message, Exception):
