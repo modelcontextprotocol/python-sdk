@@ -7,7 +7,6 @@ from collections.abc import Sequence
 from typing import Generic, Literal, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel
-from pydantic.fields import FieldInfo
 
 from mcp.server.session import ServerSession
 from mcp.types import RequestId
@@ -44,7 +43,15 @@ _ELICITATION_PRIMITIVE_TYPES = (str, int, float, bool)
 def _validate_elicitation_schema(schema: type[BaseModel]) -> None:
     """Validate that a Pydantic model only contains primitive field types."""
     for field_name, field_info in schema.model_fields.items():
-        if not _is_primitive_field(field_info):
+        annotation = field_info.annotation
+
+        if annotation is None or annotation is types.NoneType:
+            continue
+        elif _is_primitive_field(annotation):
+            continue
+        elif _is_string_sequence(annotation):
+            continue
+        else:
             raise TypeError(
                 f"Elicitation schema field '{field_name}' must be a primitive type "
                 f"{_ELICITATION_PRIMITIVE_TYPES}, a sequence of strings (list[str], etc.), "
@@ -63,33 +70,18 @@ def _is_string_sequence(annotation: type) -> bool:
     return False
 
 
-def _is_primitive_field(field_info: FieldInfo) -> bool:
+def _is_primitive_field(annotation: type) -> bool:
     """Check if a field is a primitive type allowed in elicitation schemas."""
-    annotation = field_info.annotation
-
-    # Handle None type
-    if annotation is types.NoneType:  # pragma: no cover
-        return True
-
     # Handle basic primitive types
     if annotation in _ELICITATION_PRIMITIVE_TYPES:
-        return True
-
-    # Handle string sequences for multi-select enums
-    if annotation is not None and _is_string_sequence(annotation):
         return True
 
     # Handle Union types
     origin = get_origin(annotation)
     if origin is Union or origin is types.UnionType:
         args = get_args(annotation)
-        # All args must be primitive types, None, or string sequences
-        return all(
-            arg is types.NoneType
-            or arg in _ELICITATION_PRIMITIVE_TYPES
-            or (arg is not None and _is_string_sequence(arg))
-            for arg in args
-        )
+        # All args must be primitive types or None
+        return all(arg is types.NoneType or arg in _ELICITATION_PRIMITIVE_TYPES for arg in args)
 
     return False
 
