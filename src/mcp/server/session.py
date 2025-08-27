@@ -161,6 +161,9 @@ class ServerSession(
                             )
                         )
                     )
+            case types.PingRequest():
+                # Ping requests are allowed at any time
+                pass
             case _:
                 if self._initialization_state != InitializationState.Initialized:
                     raise RuntimeError("Received request before initialization was complete")
