@@ -82,6 +82,7 @@ from pydantic import AnyUrl
 from typing_extensions import TypeVar
 
 import mcp.types as types
+from mcp.server.lowlevel.func_inspection import accepts_cursor
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
@@ -230,12 +231,29 @@ class Server(Generic[LifespanResultT, RequestT]):
         return request_ctx.get()
 
     def list_prompts(self):
-        def decorator(func: Callable[[], Awaitable[list[types.Prompt]]]):
+        def decorator(
+            func: Callable[[], Awaitable[list[types.Prompt]]]
+            | Callable[[types.Cursor | None], Awaitable[types.ListPromptsResult]],
+        ):
             logger.debug("Registering handler for PromptListRequest")
+            pass_cursor = accepts_cursor(func)
 
-            async def handler(_: Any):
-                prompts = await func()
-                return types.ServerResult(types.ListPromptsResult(prompts=prompts))
+            if pass_cursor:
+                cursor_func = cast(Callable[[types.Cursor | None], Awaitable[types.ListPromptsResult]], func)
+
+                async def cursor_handler(req: types.ListPromptsRequest):
+                    result = await cursor_func(req.params.cursor if req.params is not None else None)
+                    return types.ServerResult(result)
+
+                handler = cursor_handler
+            else:
+                list_func = cast(Callable[[], Awaitable[list[types.Prompt]]], func)
+
+                async def list_handler(_: types.ListPromptsRequest):
+                    result = await list_func()
+                    return types.ServerResult(types.ListPromptsResult(prompts=result))
+
+                handler = list_handler
 
             self.request_handlers[types.ListPromptsRequest] = handler
             return func
@@ -258,12 +276,29 @@ class Server(Generic[LifespanResultT, RequestT]):
         return decorator
 
     def list_resources(self):
-        def decorator(func: Callable[[], Awaitable[list[types.Resource]]]):
+        def decorator(
+            func: Callable[[], Awaitable[list[types.Resource]]]
+            | Callable[[types.Cursor | None], Awaitable[types.ListResourcesResult]],
+        ):
             logger.debug("Registering handler for ListResourcesRequest")
+            pass_cursor = accepts_cursor(func)
 
-            async def handler(_: Any):
-                resources = await func()
-                return types.ServerResult(types.ListResourcesResult(resources=resources))
+            if pass_cursor:
+                cursor_func = cast(Callable[[types.Cursor | None], Awaitable[types.ListResourcesResult]], func)
+
+                async def cursor_handler(req: types.ListResourcesRequest):
+                    result = await cursor_func(req.params.cursor if req.params is not None else None)
+                    return types.ServerResult(result)
+
+                handler = cursor_handler
+            else:
+                list_func = cast(Callable[[], Awaitable[list[types.Resource]]], func)
+
+                async def list_handler(_: types.ListResourcesRequest):
+                    result = await list_func()
+                    return types.ServerResult(types.ListResourcesResult(resources=result))
+
+                handler = list_handler
 
             self.request_handlers[types.ListResourcesRequest] = handler
             return func
@@ -381,16 +416,36 @@ class Server(Generic[LifespanResultT, RequestT]):
         return decorator
 
     def list_tools(self):
-        def decorator(func: Callable[[], Awaitable[list[types.Tool]]]):
+        def decorator(
+            func: Callable[[], Awaitable[list[types.Tool]]]
+            | Callable[[types.Cursor | None], Awaitable[types.ListToolsResult]],
+        ):
             logger.debug("Registering handler for ListToolsRequest")
+            pass_cursor = accepts_cursor(func)
 
-            async def handler(_: Any):
-                tools = await func()
-                # Refresh the tool cache
-                self._tool_cache.clear()
-                for tool in tools:
-                    self._tool_cache[tool.name] = tool
-                return types.ServerResult(types.ListToolsResult(tools=tools))
+            if pass_cursor:
+                cursor_func = cast(Callable[[types.Cursor | None], Awaitable[types.ListToolsResult]], func)
+
+                async def cursor_handler(req: types.ListToolsRequest):
+                    result = await cursor_func(req.params.cursor if req.params is not None else None)
+                    # Refresh the tool cache with returned tools
+                    for tool in result.tools:
+                        self._tool_cache[tool.name] = tool
+                    return types.ServerResult(result)
+
+                handler = cursor_handler
+            else:
+                list_func = cast(Callable[[], Awaitable[list[types.Tool]]], func)
+
+                async def list_handler(req: types.ListToolsRequest):
+                    result = await list_func()
+                    # Clear and refresh the entire tool cache
+                    self._tool_cache.clear()
+                    for tool in result:
+                        self._tool_cache[tool.name] = tool
+                    return types.ServerResult(types.ListToolsResult(tools=result))
+
+                handler = list_handler
 
             self.request_handlers[types.ListToolsRequest] = handler
             return func
