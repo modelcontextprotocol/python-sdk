@@ -7,7 +7,6 @@ from collections.abc import Sequence
 from typing import Generic, Literal, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel
-from pydantic.fields import FieldInfo
 
 from mcp.server.session import ServerSession
 from mcp.types import RequestId
@@ -46,8 +45,8 @@ def _validate_elicitation_schema(schema: type[BaseModel]) -> None:
     for field_name, field_info in schema.model_fields.items():
         annotation = field_info.annotation
 
-        if annotation is types.NoneType:
-            return True
+        if annotation is None or annotation is types.NoneType:
+            continue
         elif _is_primitive_field(annotation):
             continue
         elif _is_string_sequence(annotation):
