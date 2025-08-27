@@ -100,7 +100,8 @@ This enhancement improves compliance with OAuth 2.0 specifications by supporting
 
 Clients can now use either method:
 
-**Method 1: Form Data (existing)**
+## Method 1: Form Data (existing)
+
 ```http
 POST /token
 Content-Type: application/x-www-form-urlencoded
@@ -108,7 +109,8 @@ Content-Type: application/x-www-form-urlencoded
 grant_type=authorization_code&code=abc123&client_id=myapp&client_secret=secret
 ```
 
-**Method 2: Authorization Header (new)**
+## Method 2: Authorization Header (new)
+
 ```http
 POST /token
 Authorization: Basic bXlhcHA6c2VjcmV0
