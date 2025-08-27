@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import time
+import urllib.parse
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
@@ -92,8 +93,20 @@ class TokenHandler:
 
     async def handle(self, request: Request):
         try:
-            form_data = await request.form()
-            token_request = TokenRequest.model_validate(dict(form_data)).root
+            form_data = dict(await request.form())
+
+            # Try to get client credentials from header if missing in body
+            if "client_id" not in form_data:
+                auth_header = request.headers.get("Authorization")
+                if auth_header and auth_header.startswith("Basic "):
+                    encoded = auth_header.split(" ")[1]
+                    decoded = base64.b64decode(encoded).decode("utf-8")
+                    client_id, _, client_secret = decoded.partition(":")
+                    client_secret = urllib.parse.unquote(client_secret)
+                    form_data.setdefault("client_id", client_id)
+                    form_data.setdefault("client_secret", client_secret)
+
+            token_request = TokenRequest.model_validate(form_data).root
         except ValidationError as validation_error:
             return self.response(
                 TokenErrorResponse(
