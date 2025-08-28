@@ -51,8 +51,9 @@ class OAuthClientMetadata(BaseModel):
         "authorization_code",
         "refresh_token",
     ]
-    # this implementation only supports code; ie: it does not support implicit grants
-    response_types: list[Literal["code"]] = ["code"]
+    # The MCP spec requires the "code" response type, but OAuth
+    # servers may also return additional types they support
+    response_types: list[str] = ["code"]
     scope: str | None = None
 
     # these fields are currently unused, but we support & store them for potential
