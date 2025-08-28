@@ -832,10 +832,10 @@ def test_build_metadata(
             "registration_endpoint": Is(registration_endpoint),
             "scopes_supported": ["read", "write", "admin"],
             "grant_types_supported": ["authorization_code", "refresh_token"],
-            "token_endpoint_auth_methods_supported": ["client_secret_post"],
+            "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
             "service_documentation": Is(service_documentation_url),
             "revocation_endpoint": Is(revocation_endpoint),
-            "revocation_endpoint_auth_methods_supported": ["client_secret_post"],
+            "revocation_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
             "code_challenge_methods_supported": ["S256"],
         }
     )
