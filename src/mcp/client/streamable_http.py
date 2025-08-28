@@ -337,7 +337,13 @@ class StreamableHTTPTransport:
                     break
         except Exception as e:
             logger.exception("Error reading SSE stream:")
-            await ctx.read_stream_writer.send(e)
+            # Forward the transport exception to the session read stream so it can
+            # fail any in-flight requests, then close the stream to signal that
+            # no further messages will arrive.
+            try:
+                await ctx.read_stream_writer.send(e)
+            finally:
+                await ctx.read_stream_writer.aclose()
 
     async def _handle_unexpected_content_type(
         self,
