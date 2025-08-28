@@ -336,7 +336,23 @@ class BaseSession(
             try:
                 async for message in self._read_stream:
                     if isinstance(message, Exception):
+                        # Transport-level exception. Forward it to the incoming
+                        # handler for logging/observation, then fail all
+                        # in-flight requests so callers don't hang forever.
                         await self._handle_incoming(message)
+                        error = ErrorData(code=CONNECTION_CLOSED, message=str(message))
+                        # Send error to any pending request response streams immediately
+                        for id, stream in list(self._response_streams.items()):
+                            try:
+                                await stream.send(
+                                    JSONRPCError(jsonrpc="2.0", id=id, error=error)
+                                )
+                                await stream.aclose()
+                            except Exception:
+                                pass
+                        self._response_streams.clear()
+                        # Break out of the receive loop; connection is no longer usable.
+                        break
                     elif isinstance(message.message.root, JSONRPCRequest):
                         try:
                             validated_request = self._receive_request_type.model_validate(
