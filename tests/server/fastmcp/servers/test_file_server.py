@@ -7,7 +7,7 @@ from mcp.server.fastmcp import FastMCP
 
 
 @pytest.fixture()
-def test_dir(tmp_path_factory) -> Path:
+def test_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Create a temporary directory with test files."""
     tmp = tmp_path_factory.mktemp("test_files")
 
