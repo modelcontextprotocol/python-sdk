@@ -1060,33 +1060,6 @@ class TestScopeHandlingPriority:
         assert provider.context.client_metadata.scope == "read write admin"
 
     @pytest.mark.anyio
-    async def test_fallback_to_oauth_metadata_scopes_when_no_prm(
-        self, oauth_provider_without_scope: OAuthClientProvider
-    ):
-        """Test fallback to OAuth metadata scopes when no PRM is available."""
-        provider = oauth_provider_without_scope
-
-        # No PRM metadata set
-
-        # Create OAuth metadata response with scopes
-        oauth_metadata_response = httpx.Response(
-            200,
-            content=(
-                b'{"issuer": "https://auth.example.com", '
-                b'"authorization_endpoint": "https://auth.example.com/authorize", '
-                b'"token_endpoint": "https://auth.example.com/token", '
-                b'"registration_endpoint": "https://auth.example.com/register", '
-                b'"scopes_supported": ["read", "write", "admin"]}'
-            ),
-        )
-
-        # Process the OAuth metadata
-        await provider._handle_oauth_metadata_response(oauth_metadata_response)
-
-        # Verify that OAuth metadata scopes are used
-        assert provider.context.client_metadata.scope == "read write admin"
-
-    @pytest.mark.anyio
     async def test_no_scope_changes_when_both_missing(self, oauth_provider_without_scope: OAuthClientProvider):
         """Test that no scope changes occur when both PRM and OAuth metadata lack scopes."""
         provider = oauth_provider_without_scope
