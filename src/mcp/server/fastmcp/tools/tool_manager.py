@@ -68,6 +68,13 @@ class ToolManager:
         self._tools[tool.name] = tool
         return tool
 
+    def remove_tool(self, name: str) -> None:
+        """Remove a tool by name."""
+        if name not in self._tools:
+            logger.warning(f"Tried to remove unknown tool: {name}")
+            return
+        del self._tools[name]
+
     async def call_tool(
         self,
         name: str,
