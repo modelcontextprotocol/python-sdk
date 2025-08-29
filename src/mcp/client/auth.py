@@ -478,9 +478,16 @@ class OAuthClientProvider(httpx.Auth):
         content = await response.aread()
         metadata = OAuthMetadata.model_validate_json(content)
         self.context.oauth_metadata = metadata
-        # Apply default scope if needed
-        if self.context.client_metadata.scope is None and metadata.scopes_supported is not None:
-            self.context.client_metadata.scope = " ".join(metadata.scopes_supported)
+        
+        # Only set scope if client_metadata.scope is None
+        if self.context.client_metadata.scope is None:
+            # Priority 1: Use PRM's scopes_supported if available
+            if (self.context.protected_resource_metadata is not None and 
+                self.context.protected_resource_metadata.scopes_supported is not None):
+                self.context.client_metadata.scope = " ".join(self.context.protected_resource_metadata.scopes_supported)
+            # Priority 2: Fall back to OAuth metadata scopes if available
+            elif metadata.scopes_supported is not None:
+                self.context.client_metadata.scope = " ".join(metadata.scopes_supported)
 
     async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
         """HTTPX auth flow integration."""
