@@ -361,7 +361,7 @@ async def test_elicitation_with_enum_titles():
             return f"User: {result.data.user_name}, Color: {result.data.color}"
         return f"User {result.action}"
 
-    async def enum_callback(context, params):
+    async def enum_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
         if "colors" in params.message and "deprecated" not in params.message:
             return ElicitResult(action="accept", content={"user_name": "Bob", "favorite_colors": ["red", "green"]})
         elif "color" in params.message:
