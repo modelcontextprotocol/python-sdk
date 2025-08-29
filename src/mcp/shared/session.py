@@ -344,9 +344,7 @@ class BaseSession(
                         # Send error to any pending request response streams immediately
                         for id, stream in list(self._response_streams.items()):
                             try:
-                                await stream.send(
-                                    JSONRPCError(jsonrpc="2.0", id=id, error=error)
-                                )
+                                await stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))
                                 await stream.aclose()
                             except Exception:
                                 pass

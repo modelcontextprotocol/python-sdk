@@ -625,7 +625,8 @@ async def test_streamable_http_mid_call_disconnect(basic_server_port: int):
         except OSError:
             time.sleep(0.1)
     else:  # pragma: no cover
-        proc.kill(); proc.join(timeout=2)
+        proc.kill()
+        proc.join(timeout=2)
         pytest.fail("Server failed to start in time")
 
     server_url = f"http://127.0.0.1:{basic_server_port}/mcp"
@@ -649,7 +650,8 @@ async def test_streamable_http_mid_call_disconnect(basic_server_port: int):
                     tg.start_soon(invoke)
                     # Give the request a moment to reach the server & tool to start (it sends a log notification)
                     await anyio.sleep(0.6)
-                    proc.kill(); proc.join(timeout=2)
+                    proc.kill()
+                    proc.join(timeout=2)
                     # Wait for propagated disconnect
                     with anyio.fail_after(10):
                         while "err" not in result:
@@ -660,7 +662,8 @@ async def test_streamable_http_mid_call_disconnect(basic_server_port: int):
                 assert err.error.code == types.CONNECTION_CLOSED
     finally:
         if proc.is_alive():  # Safety cleanup
-            proc.kill(); proc.join(timeout=2)
+            proc.kill()
+            proc.join(timeout=2)
 
 
 def test_session_termination(basic_server: None, basic_server_url: str):
