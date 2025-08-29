@@ -72,6 +72,7 @@ class ToolManager:
         """Remove a tool by name."""
         if name not in self._tools:
             logger.warning(f"Tried to remove unknown tool: {name}")
+            return
         del self._tools[name]
 
     async def call_tool(
