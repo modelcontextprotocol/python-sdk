@@ -7,11 +7,12 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, Field
 
-from mcp.client.session import ClientSession, ElicitationFnT, RequestContext
+from mcp.client.session import ClientSession, ElicitationFnT
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.shared.memory import create_connected_server_and_client_session
-from mcp.types import ElicitRequestParams, ElicitResult, ErrorData, TextContent
+from mcp.types import ElicitRequestParams, ElicitResult, TextContent
 
 
 # Shared schema for basic tests
@@ -225,9 +226,7 @@ async def test_elicitation_with_optional_fields():
             return f"Name: {result.data.name}, Tags: {', '.join(result.data.tags)}"
         return f"User {result.action}"
 
-    async def multiselect_callback(
-        context: RequestContext[ClientSession, Any], params: ElicitRequestParams
-    ) -> ElicitResult | ErrorData:
+    async def multiselect_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
         if "Please provide tags" in params.message:
             return ElicitResult(action="accept", content={"name": "Test", "tags": ["tag1", "tag2"]})
         return ElicitResult(action="decline")
@@ -301,9 +300,7 @@ async def test_elicitation_with_enum_titles():
             return f"User: {result.data.user_name}, Color: {result.data.color}"
         return f"User {result.action}"
 
-    async def enum_callback(
-        context: RequestContext[ClientSession, Any], params: ElicitRequestParams
-    ) -> ElicitResult | ErrorData:
+    async def enum_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
         if "colors" in params.message and "deprecated" not in params.message:
             return ElicitResult(action="accept", content={"user_name": "Bob", "favorite_colors": ["red", "green"]})
         elif "color" in params.message:
