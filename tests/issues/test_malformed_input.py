@@ -1,6 +1,8 @@
 # Claude Debug
 """Test for HackerOne vulnerability report #3156202 - malformed input DOS."""
 
+from typing import Any
+
 import anyio
 import pytest
 
@@ -118,7 +120,7 @@ async def test_multiple_concurrent_malformed_requests():
             ),
         ):
             # Send multiple malformed requests concurrently
-            malformed_requests = []
+            malformed_requests: list[SessionMessage] = []
             for i in range(10):
                 malformed_request = JSONRPCRequest(
                     jsonrpc="2.0",
@@ -137,7 +139,7 @@ async def test_multiple_concurrent_malformed_requests():
             await anyio.sleep(0.2)
 
             # Verify we get error responses for all requests
-            error_responses = []
+            error_responses: list[Any] = []
             try:
                 while True:
                     response_message = write_receive_stream.receive_nowait()

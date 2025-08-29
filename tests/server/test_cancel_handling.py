@@ -1,5 +1,7 @@
 """Test that cancelled requests don't cause double responses."""
 
+from typing import Any
+
 import anyio
 import pytest
 
@@ -41,7 +43,7 @@ async def test_server_remains_functional_after_cancel():
         ]
 
     @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict | None) -> list:
+    async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
         nonlocal call_count, first_request_id
         if name == "test_tool":
             call_count += 1
@@ -59,7 +61,6 @@ async def test_server_remains_functional_after_cancel():
                 await client.send_request(
                     ClientRequest(
                         CallToolRequest(
-                            method="tools/call",
                             params=CallToolRequestParams(name="test_tool", arguments={}),
                         )
                     ),
@@ -81,7 +82,6 @@ async def test_server_remains_functional_after_cancel():
             await client.send_notification(
                 ClientNotification(
                     CancelledNotification(
-                        method="notifications/cancelled",
                         params=CancelledNotificationParams(
                             requestId=first_request_id,
                             reason="Testing server recovery",
@@ -94,7 +94,6 @@ async def test_server_remains_functional_after_cancel():
         result = await client.send_request(
             ClientRequest(
                 CallToolRequest(
-                    method="tools/call",
                     params=CallToolRequestParams(name="test_tool", arguments={}),
                 )
             ),

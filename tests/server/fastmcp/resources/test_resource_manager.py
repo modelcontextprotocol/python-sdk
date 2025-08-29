@@ -4,12 +4,7 @@ from tempfile import NamedTemporaryFile
 import pytest
 from pydantic import AnyUrl, FileUrl
 
-from mcp.server.fastmcp.resources import (
-    FileResource,
-    FunctionResource,
-    ResourceManager,
-    ResourceTemplate,
-)
+from mcp.server.fastmcp.resources import FileResource, FunctionResource, ResourceManager, ResourceTemplate
 
 
 @pytest.fixture
@@ -57,7 +52,7 @@ class TestResourceManager:
         assert first == second
         assert manager.list_resources() == [resource]
 
-    def test_warn_on_duplicate_resources(self, temp_file: Path, caplog):
+    def test_warn_on_duplicate_resources(self, temp_file: Path, caplog: pytest.LogCaptureFixture):
         """Test warning on duplicate resources."""
         manager = ResourceManager()
         resource = FileResource(
@@ -69,7 +64,7 @@ class TestResourceManager:
         manager.add_resource(resource)
         assert "Resource already exists" in caplog.text
 
-    def test_disable_warn_on_duplicate_resources(self, temp_file: Path, caplog):
+    def test_disable_warn_on_duplicate_resources(self, temp_file: Path, caplog: pytest.LogCaptureFixture):
         """Test disabling warning on duplicate resources."""
         manager = ResourceManager(warn_on_duplicate_resources=False)
         resource = FileResource(

@@ -1,13 +1,16 @@
 """Tests for example servers"""
+# TODO(Marcelo): The `examples` directory needs to be importable as a package.
+# pyright: reportMissingImports=false
+# pyright: reportUnknownVariableType=false
+# pyright: reportUnknownArgumentType=false
+# pyright: reportUnknownMemberType=false
 
 import sys
 
 import pytest
 from pytest_examples import CodeExample, EvalExample, find_examples
 
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as client_session,
-)
+from mcp.shared.memory import create_connected_server_and_client_session as client_session
 from mcp.types import TextContent, TextResourceContents
 
 
@@ -42,7 +45,7 @@ async def test_complex_inputs():
 
 
 @pytest.mark.anyio
-async def test_desktop(monkeypatch):
+async def test_desktop(monkeypatch: pytest.MonkeyPatch):
     """Test the desktop server"""
     from pathlib import Path
 
@@ -52,7 +55,7 @@ async def test_desktop(monkeypatch):
 
     # Mock desktop directory listing
     mock_files = [Path("/fake/path/file1.txt"), Path("/fake/path/file2.txt")]
-    monkeypatch.setattr(Path, "iterdir", lambda self: mock_files)
+    monkeypatch.setattr(Path, "iterdir", lambda self: mock_files)  # type: ignore[reportUnknownArgumentType]
     monkeypatch.setattr(Path, "home", lambda: Path("/fake/home"))
 
     async with client_session(mcp._mcp_server) as client:

@@ -60,7 +60,7 @@ class TestFunctionResource:
     async def test_json_conversion(self):
         """Test automatic JSON conversion of non-string results."""
 
-        def get_data() -> dict:
+        def get_data() -> dict[str, str]:
             return {"key": "value"}
 
         resource = FunctionResource(

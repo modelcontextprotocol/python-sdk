@@ -2,12 +2,16 @@
 Test the elicitation feature using stdio transport.
 """
 
+from typing import Any
+
 import pytest
 from pydantic import BaseModel, Field
 
+from mcp.client.session import ClientSession, ElicitationFnT, RequestContext
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 from mcp.shared.memory import create_connected_server_and_client_session
-from mcp.types import ElicitResult, TextContent
+from mcp.types import ElicitRequestParams, ElicitResult, ErrorData, TextContent
 
 
 # Shared schema for basic tests
@@ -19,11 +23,8 @@ def create_ask_user_tool(mcp: FastMCP):
     """Create a standard ask_user tool that handles all elicitation responses."""
 
     @mcp.tool(description="A tool that uses elicitation")
-    async def ask_user(prompt: str, ctx: Context) -> str:
-        result = await ctx.elicit(
-            message=f"Tool wants to ask: {prompt}",
-            schema=AnswerSchema,
-        )
+    async def ask_user(prompt: str, ctx: Context[ServerSession, None]) -> str:
+        result = await ctx.elicit(message=f"Tool wants to ask: {prompt}", schema=AnswerSchema)
 
         if result.action == "accept" and result.data:
             return f"User answered: {result.data.answer}"
@@ -37,9 +38,9 @@ def create_ask_user_tool(mcp: FastMCP):
 
 async def call_tool_and_assert(
     mcp: FastMCP,
-    elicitation_callback,
+    elicitation_callback: ElicitationFnT,
     tool_name: str,
-    args: dict,
+    args: dict[str, Any],
     expected_text: str | None = None,
     text_contains: list[str] | None = None,
 ):
@@ -69,7 +70,7 @@ async def test_stdio_elicitation():
     create_ask_user_tool(mcp)
 
     # Create a custom handler for elicitation requests
-    async def elicitation_callback(context, params):
+    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         if params.message == "Tool wants to ask: What is your name?":
             return ElicitResult(action="accept", content={"answer": "Test User"})
         else:
@@ -86,7 +87,7 @@ async def test_stdio_elicitation_decline():
     mcp = FastMCP(name="StdioElicitationDeclineServer")
     create_ask_user_tool(mcp)
 
-    async def elicitation_callback(context, params):
+    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         return ElicitResult(action="decline")
 
     await call_tool_and_assert(
@@ -101,7 +102,7 @@ async def test_elicitation_schema_validation():
 
     def create_validation_tool(name: str, schema_class: type[BaseModel]):
         @mcp.tool(name=name, description=f"Tool testing {name}")
-        async def tool(ctx: Context) -> str:
+        async def tool(ctx: Context[ServerSession, None]) -> str:
             try:
                 await ctx.elicit(message="This should fail validation", schema=schema_class)
                 return "Should not reach here"
@@ -124,7 +125,7 @@ async def test_elicitation_schema_validation():
     create_validation_tool("nested_model", InvalidNestedSchema)
 
     # Dummy callback (won't be called due to validation failure)
-    async def elicitation_callback(context, params):
+    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         return ElicitResult(action="accept", content={})
 
     async with create_connected_server_and_client_session(
@@ -153,7 +154,7 @@ async def test_elicitation_with_optional_fields():
         subscribe: bool | None = Field(default=False, description="Subscribe to newsletter?")
 
     @mcp.tool(description="Tool with optional fields")
-    async def optional_tool(ctx: Context) -> str:
+    async def optional_tool(ctx: Context[ServerSession, None]) -> str:
         result = await ctx.elicit(message="Please provide your information", schema=OptionalSchema)
 
         if result.action == "accept" and result.data:
@@ -168,7 +169,7 @@ async def test_elicitation_with_optional_fields():
             return f"User {result.action}"
 
     # Test cases with different field combinations
-    test_cases = [
+    test_cases: list[tuple[dict[str, Any], str]] = [
         (
             # All fields provided
             {"required_name": "John Doe", "optional_age": 30, "optional_email": "john@example.com", "subscribe": True},
@@ -183,7 +184,7 @@ async def test_elicitation_with_optional_fields():
 
     for content, expected in test_cases:
 
-        async def callback(context, params):
+        async def callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
             return ElicitResult(action="accept", content=content)
 
         await call_tool_and_assert(mcp, callback, "optional_tool", {}, expected)
@@ -194,16 +195,19 @@ async def test_elicitation_with_optional_fields():
         optional_list: list[int] | None = Field(default=None, description="Invalid optional list")
 
     @mcp.tool(description="Tool with invalid optional field")
-    async def invalid_optional_tool(ctx: Context) -> str:
+    async def invalid_optional_tool(ctx: Context[ServerSession, None]) -> str:
         try:
             await ctx.elicit(message="This should fail", schema=InvalidOptionalSchema)
             return "Should not reach here"
         except TypeError as e:
             return f"Validation failed: {str(e)}"
 
+    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+        return ElicitResult(action="accept", content={})
+
     await call_tool_and_assert(
         mcp,
-        lambda c, p: ElicitResult(action="accept", content={}),
+        elicitation_callback,
         "invalid_optional_tool",
         {},
         text_contains=["Validation failed:", "optional_list"],
@@ -215,13 +219,15 @@ async def test_elicitation_with_optional_fields():
         tags: list[str] = Field(description="Tags")
 
     @mcp.tool(description="Tool with valid list[str] field")
-    async def valid_multiselect_tool(ctx: Context) -> str:
+    async def valid_multiselect_tool(ctx: Context[ServerSession, None]) -> str:
         result = await ctx.elicit(message="Please provide tags", schema=ValidMultiSelectSchema)
         if result.action == "accept" and result.data:
             return f"Name: {result.data.name}, Tags: {', '.join(result.data.tags)}"
         return f"User {result.action}"
 
-    async def multiselect_callback(context, params):
+    async def multiselect_callback(
+        context: RequestContext[ClientSession, Any], params: ElicitRequestParams
+    ) -> ElicitResult | ErrorData:
         if "Please provide tags" in params.message:
             return ElicitResult(action="accept", content={"name": "Test", "tags": ["tag1", "tag2"]})
         return ElicitResult(action="decline")
@@ -250,7 +256,7 @@ async def test_elicitation_with_enum_titles():
         )
 
     @mcp.tool(description="Single color selection")
-    async def select_favorite_color(ctx: Context) -> str:
+    async def select_favorite_color(ctx: Context[ServerSession, None]) -> str:
         result = await ctx.elicit(message="Select your favorite color", schema=FavoriteColorSchema)
         if result.action == "accept" and result.data:
             return f"User: {result.data.user_name}, Favorite: {result.data.favorite_color}"
@@ -274,7 +280,7 @@ async def test_elicitation_with_enum_titles():
         )
 
     @mcp.tool(description="Multiple color selection")
-    async def select_favorite_colors(ctx: Context) -> str:
+    async def select_favorite_colors(ctx: Context[ServerSession, None]) -> str:
         result = await ctx.elicit(message="Select your favorite colors", schema=FavoriteColorsSchema)
         if result.action == "accept" and result.data:
             return f"User: {result.data.user_name}, Colors: {', '.join(result.data.favorite_colors)}"
@@ -289,13 +295,15 @@ async def test_elicitation_with_enum_titles():
         )
 
     @mcp.tool(description="Deprecated enum format")
-    async def select_color_deprecated(ctx: Context) -> str:
+    async def select_color_deprecated(ctx: Context[ServerSession, None]) -> str:
         result = await ctx.elicit(message="Select a color (deprecated format)", schema=DeprecatedColorSchema)
         if result.action == "accept" and result.data:
             return f"User: {result.data.user_name}, Color: {result.data.color}"
         return f"User {result.action}"
 
-    async def enum_callback(context, params):
+    async def enum_callback(
+        context: RequestContext[ClientSession, Any], params: ElicitRequestParams
+    ) -> ElicitResult | ErrorData:
         if "colors" in params.message and "deprecated" not in params.message:
             return ElicitResult(action="accept", content={"user_name": "Bob", "favorite_colors": ["red", "green"]})
         elif "color" in params.message:

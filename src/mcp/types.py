@@ -326,7 +326,7 @@ class InitializeRequest(Request[InitializeRequestParams, Literal["initialize"]])
     to begin initialization.
     """
 
-    method: Literal["initialize"]
+    method: Literal["initialize"] = "initialize"
     params: InitializeRequestParams
 
 
@@ -347,7 +347,7 @@ class InitializedNotification(Notification[NotificationParams | None, Literal["n
     finished.
     """
 
-    method: Literal["notifications/initialized"]
+    method: Literal["notifications/initialized"] = "notifications/initialized"
     params: NotificationParams | None = None
 
 
@@ -357,7 +357,7 @@ class PingRequest(Request[RequestParams | None, Literal["ping"]]):
     still alive.
     """
 
-    method: Literal["ping"]
+    method: Literal["ping"] = "ping"
     params: RequestParams | None = None
 
 
@@ -390,14 +390,14 @@ class ProgressNotification(Notification[ProgressNotificationParams, Literal["not
     long-running request.
     """
 
-    method: Literal["notifications/progress"]
+    method: Literal["notifications/progress"] = "notifications/progress"
     params: ProgressNotificationParams
 
 
 class ListResourcesRequest(PaginatedRequest[Literal["resources/list"]]):
     """Sent from the client to request a list of resources the server has."""
 
-    method: Literal["resources/list"]
+    method: Literal["resources/list"] = "resources/list"
 
 
 class Annotations(BaseModel):
@@ -464,7 +464,7 @@ class ListResourcesResult(PaginatedResult):
 class ListResourceTemplatesRequest(PaginatedRequest[Literal["resources/templates/list"]]):
     """Sent from the client to request a list of resource templates the server has."""
 
-    method: Literal["resources/templates/list"]
+    method: Literal["resources/templates/list"] = "resources/templates/list"
 
 
 class ListResourceTemplatesResult(PaginatedResult):
@@ -487,7 +487,7 @@ class ReadResourceRequestParams(RequestParams):
 class ReadResourceRequest(Request[ReadResourceRequestParams, Literal["resources/read"]]):
     """Sent from the client to the server, to read a specific resource URI."""
 
-    method: Literal["resources/read"]
+    method: Literal["resources/read"] = "resources/read"
     params: ReadResourceRequestParams
 
 
@@ -537,7 +537,7 @@ class ResourceListChangedNotification(
     of resources it can read from has changed.
     """
 
-    method: Literal["notifications/resources/list_changed"]
+    method: Literal["notifications/resources/list_changed"] = "notifications/resources/list_changed"
     params: NotificationParams | None = None
 
 
@@ -558,7 +558,7 @@ class SubscribeRequest(Request[SubscribeRequestParams, Literal["resources/subscr
     whenever a particular resource changes.
     """
 
-    method: Literal["resources/subscribe"]
+    method: Literal["resources/subscribe"] = "resources/subscribe"
     params: SubscribeRequestParams
 
 
@@ -576,7 +576,7 @@ class UnsubscribeRequest(Request[UnsubscribeRequestParams, Literal["resources/un
     the server.
     """
 
-    method: Literal["resources/unsubscribe"]
+    method: Literal["resources/unsubscribe"] = "resources/unsubscribe"
     params: UnsubscribeRequestParams
 
 
@@ -599,14 +599,14 @@ class ResourceUpdatedNotification(
     changed and may need to be read again.
     """
 
-    method: Literal["notifications/resources/updated"]
+    method: Literal["notifications/resources/updated"] = "notifications/resources/updated"
     params: ResourceUpdatedNotificationParams
 
 
 class ListPromptsRequest(PaginatedRequest[Literal["prompts/list"]]):
     """Sent from the client to request a list of prompts and prompt templates."""
 
-    method: Literal["prompts/list"]
+    method: Literal["prompts/list"] = "prompts/list"
 
 
 class PromptArgument(BaseModel):
@@ -655,7 +655,7 @@ class GetPromptRequestParams(RequestParams):
 class GetPromptRequest(Request[GetPromptRequestParams, Literal["prompts/get"]]):
     """Used by the client to get a prompt provided by the server."""
 
-    method: Literal["prompts/get"]
+    method: Literal["prompts/get"] = "prompts/get"
     params: GetPromptRequestParams
 
 
@@ -782,14 +782,14 @@ class PromptListChangedNotification(
     of prompts it offers has changed.
     """
 
-    method: Literal["notifications/prompts/list_changed"]
+    method: Literal["notifications/prompts/list_changed"] = "notifications/prompts/list_changed"
     params: NotificationParams | None = None
 
 
 class ListToolsRequest(PaginatedRequest[Literal["tools/list"]]):
     """Sent from the client to request a list of tools the server has."""
 
-    method: Literal["tools/list"]
+    method: Literal["tools/list"] = "tools/list"
 
 
 class ToolAnnotations(BaseModel):
@@ -879,7 +879,7 @@ class CallToolRequestParams(RequestParams):
 class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
     """Used by the client to invoke a tool provided by the server."""
 
-    method: Literal["tools/call"]
+    method: Literal["tools/call"] = "tools/call"
     params: CallToolRequestParams
 
 
@@ -898,7 +898,7 @@ class ToolListChangedNotification(Notification[NotificationParams | None, Litera
     of tools it offers has changed.
     """
 
-    method: Literal["notifications/tools/list_changed"]
+    method: Literal["notifications/tools/list_changed"] = "notifications/tools/list_changed"
     params: NotificationParams | None = None
 
 
@@ -916,7 +916,7 @@ class SetLevelRequestParams(RequestParams):
 class SetLevelRequest(Request[SetLevelRequestParams, Literal["logging/setLevel"]]):
     """A request from the client to the server, to enable or adjust logging."""
 
-    method: Literal["logging/setLevel"]
+    method: Literal["logging/setLevel"] = "logging/setLevel"
     params: SetLevelRequestParams
 
 
@@ -938,7 +938,7 @@ class LoggingMessageNotificationParams(NotificationParams):
 class LoggingMessageNotification(Notification[LoggingMessageNotificationParams, Literal["notifications/message"]]):
     """Notification of a log message passed from server to client."""
 
-    method: Literal["notifications/message"]
+    method: Literal["notifications/message"] = "notifications/message"
     params: LoggingMessageNotificationParams
 
 
@@ -1033,7 +1033,7 @@ class CreateMessageRequestParams(RequestParams):
 class CreateMessageRequest(Request[CreateMessageRequestParams, Literal["sampling/createMessage"]]):
     """A request from the server to sample an LLM via the client."""
 
-    method: Literal["sampling/createMessage"]
+    method: Literal["sampling/createMessage"] = "sampling/createMessage"
     params: CreateMessageRequestParams
 
 
@@ -1105,7 +1105,7 @@ class CompleteRequestParams(RequestParams):
 class CompleteRequest(Request[CompleteRequestParams, Literal["completion/complete"]]):
     """A request from the client to the server, to ask for completion options."""
 
-    method: Literal["completion/complete"]
+    method: Literal["completion/complete"] = "completion/complete"
     params: CompleteRequestParams
 
 
@@ -1144,7 +1144,7 @@ class ListRootsRequest(Request[RequestParams | None, Literal["roots/list"]]):
     structure or access specific locations that the client has permission to read from.
     """
 
-    method: Literal["roots/list"]
+    method: Literal["roots/list"] = "roots/list"
     params: RequestParams | None = None
 
 
@@ -1193,7 +1193,7 @@ class RootsListChangedNotification(
     using the ListRootsRequest.
     """
 
-    method: Literal["notifications/roots/list_changed"]
+    method: Literal["notifications/roots/list_changed"] = "notifications/roots/list_changed"
     params: NotificationParams | None = None
 
 
@@ -1213,7 +1213,7 @@ class CancelledNotification(Notification[CancelledNotificationParams, Literal["n
     previously-issued request.
     """
 
-    method: Literal["notifications/cancelled"]
+    method: Literal["notifications/cancelled"] = "notifications/cancelled"
     params: CancelledNotificationParams
 
 
@@ -1259,7 +1259,7 @@ class ElicitRequestParams(RequestParams):
 class ElicitRequest(Request[ElicitRequestParams, Literal["elicitation/create"]]):
     """A request from the server to elicit information from the client."""
 
-    method: Literal["elicitation/create"]
+    method: Literal["elicitation/create"] = "elicitation/create"
     params: ElicitRequestParams
 
 

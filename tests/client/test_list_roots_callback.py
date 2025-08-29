@@ -3,6 +3,7 @@ from pydantic import FileUrl
 
 from mcp.client.session import ClientSession
 from mcp.server.fastmcp.server import Context
+from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
 from mcp.shared.memory import (
     create_connected_server_and_client_session as create_session,
@@ -35,7 +36,7 @@ async def test_list_roots_callback():
         return callback_return
 
     @server.tool("test_list_roots")
-    async def test_list_roots(context: Context, message: str):  # type: ignore[reportUnknownMemberType]
+    async def test_list_roots(context: Context[ServerSession, None], message: str):
         roots = await context.session.list_roots()
         assert roots == callback_return
         return True

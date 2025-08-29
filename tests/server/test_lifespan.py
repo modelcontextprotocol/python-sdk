@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import anyio
 import pytest
@@ -10,6 +11,7 @@ from pydantic import TypeAdapter
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.lowlevel.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
+from mcp.server.session import ServerSession
 from mcp.shared.message import SessionMessage
 from mcp.types import (
     ClientCapabilities,
@@ -18,6 +20,8 @@ from mcp.types import (
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
+    JSONRPCResponse,
+    TextContent,
 )
 
 
@@ -35,29 +39,23 @@ async def test_lowlevel_server_lifespan():
         finally:
             context["shutdown"] = True
 
-    server = Server("test", lifespan=test_lifespan)
+    server = Server[dict[str, bool]]("test", lifespan=test_lifespan)
 
     # Create memory streams for testing
-    send_stream1, receive_stream1 = anyio.create_memory_object_stream(100)
-    send_stream2, receive_stream2 = anyio.create_memory_object_stream(100)
+    send_stream1, receive_stream1 = anyio.create_memory_object_stream[SessionMessage](100)
+    send_stream2, receive_stream2 = anyio.create_memory_object_stream[SessionMessage](100)
 
     # Create a tool that accesses lifespan context
     @server.call_tool()
-    async def check_lifespan(name: str, arguments: dict) -> list:
+    async def check_lifespan(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         ctx = server.request_context
         assert isinstance(ctx.lifespan_context, dict)
         assert ctx.lifespan_context["started"]
         assert not ctx.lifespan_context["shutdown"]
-        return [{"type": "text", "text": "true"}]
+        return [TextContent(type="text", text="true")]
 
     # Run server in background task
-    async with (
-        anyio.create_task_group() as tg,
-        send_stream1,
-        receive_stream1,
-        send_stream2,
-        receive_stream2,
-    ):
+    async with anyio.create_task_group() as tg, send_stream1, receive_stream1, send_stream2, receive_stream2:
 
         async def run_server():
             await server.run(
@@ -126,6 +124,8 @@ async def test_lowlevel_server_lifespan():
         # Get response and verify
         response = await receive_stream2.receive()
         response = response.message
+        assert isinstance(response, JSONRPCMessage)
+        assert isinstance(response.root, JSONRPCResponse)
         assert response.root.result["content"][0]["text"] == "true"
 
         # Cancel server task
@@ -137,7 +137,7 @@ async def test_fastmcp_server_lifespan():
     """Test that lifespan works in FastMCP server."""
 
     @asynccontextmanager
-    async def test_lifespan(server: FastMCP) -> AsyncIterator[dict]:
+    async def test_lifespan(server: FastMCP) -> AsyncIterator[dict[str, bool]]:
         """Test lifespan context that tracks startup/shutdown."""
         context = {"started": False, "shutdown": False}
         try:
@@ -149,12 +149,12 @@ async def test_fastmcp_server_lifespan():
     server = FastMCP("test", lifespan=test_lifespan)
 
     # Create memory streams for testing
-    send_stream1, receive_stream1 = anyio.create_memory_object_stream(100)
-    send_stream2, receive_stream2 = anyio.create_memory_object_stream(100)
+    send_stream1, receive_stream1 = anyio.create_memory_object_stream[SessionMessage](100)
+    send_stream2, receive_stream2 = anyio.create_memory_object_stream[SessionMessage](100)
 
     # Add a tool that checks lifespan context
     @server.tool()
-    def check_lifespan(ctx: Context) -> bool:
+    def check_lifespan(ctx: Context[ServerSession, None]) -> bool:
         """Tool that checks lifespan context."""
         assert isinstance(ctx.request_context.lifespan_context, dict)
         assert ctx.request_context.lifespan_context["started"]
@@ -230,6 +230,8 @@ async def test_fastmcp_server_lifespan():
         # Get response and verify
         response = await receive_stream2.receive()
         response = response.message
+        assert isinstance(response, JSONRPCMessage)
+        assert isinstance(response.root, JSONRPCResponse)
         assert response.root.result["content"][0]["text"] == "true"
 
         # Cancel server task

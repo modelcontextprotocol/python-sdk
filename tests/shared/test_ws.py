@@ -2,6 +2,7 @@ import multiprocessing
 import socket
 import time
 from collections.abc import AsyncGenerator, Generator
+from typing import Any
 
 import anyio
 import pytest
@@ -9,6 +10,7 @@ import uvicorn
 from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute
+from starlette.websockets import WebSocket
 
 from mcp.client.session import ClientSession
 from mcp.client.websocket import websocket_client
@@ -67,7 +69,7 @@ class ServerTest(Server):
             ]
 
         @self.call_tool()
-        async def handle_call_tool(name: str, args: dict) -> list[TextContent]:
+        async def handle_call_tool(name: str, args: dict[str, Any]) -> list[TextContent]:
             return [TextContent(type="text", text=f"Called {name}")]
 
 
@@ -76,7 +78,7 @@ def make_server_app() -> Starlette:
     """Create test Starlette app with WebSocket transport"""
     server = ServerTest()
 
-    async def handle_ws(websocket):
+    async def handle_ws(websocket: WebSocket):
         async with websocket_server(websocket.scope, websocket.receive, websocket.send) as streams:
             await server.run(streams[0], streams[1], server.create_initialization_options())
 
@@ -133,7 +135,7 @@ def server(server_port: int) -> Generator[None, None, None]:
 
 
 @pytest.fixture()
-async def initialized_ws_client_session(server, server_url: str) -> AsyncGenerator[ClientSession, None]:
+async def initialized_ws_client_session(server: None, server_url: str) -> AsyncGenerator[ClientSession, None]:
     """Create and initialize a WebSocket client session"""
     async with websocket_client(server_url + "/ws") as streams:
         async with ClientSession(*streams) as session:

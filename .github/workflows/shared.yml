@@ -6,6 +6,9 @@ on:
 permissions:
   contents: read
 
+env:
+  COLUMNS: 150
+
 jobs:
   pre-commit:
     runs-on: ubuntu-latest
@@ -33,6 +36,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
+        dep-resolution: ["lowest-direct", "highest"]
         os: [ubuntu-latest, windows-latest]
 
     steps:
@@ -45,18 +49,11 @@ jobs:
           version: 0.7.2
 
       - name: Install the project
-        run: uv sync --frozen --all-extras --python ${{ matrix.python-version }}
+        run: uv sync --frozen --all-extras --python ${{ matrix.python-version }} --resolution ${{ matrix.dep-resolution }}
 
       - name: Run pytest
         run: uv run --frozen --no-sync pytest
 
-      # This must run last as it modifies the environment!
-      - name: Run pytest with lowest versions
-        run: |
-          uv sync --all-extras --upgrade
-          uv run --no-sync pytest
-        env:
-          UV_RESOLUTION: lowest-direct
   readme-snippets:
     runs-on: ubuntu-latest
     steps:

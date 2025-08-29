@@ -17,7 +17,7 @@ class TestPromptManager:
         assert added == prompt
         assert manager.get_prompt("fn") == prompt
 
-    def test_add_duplicate_prompt(self, caplog):
+    def test_add_duplicate_prompt(self, caplog: pytest.LogCaptureFixture):
         """Test adding the same prompt twice."""
 
         def fn() -> str:
@@ -30,7 +30,7 @@ class TestPromptManager:
         assert first == second
         assert "Prompt already exists" in caplog.text
 
-    def test_disable_warn_on_duplicate_prompts(self, caplog):
+    def test_disable_warn_on_duplicate_prompts(self, caplog: pytest.LogCaptureFixture):
         """Test disabling warning on duplicate prompts."""
 
         def fn() -> str:

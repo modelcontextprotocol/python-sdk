@@ -35,7 +35,6 @@ async def test_read_resource_text(temp_file: Path):
 
     # Create a request
     request = types.ReadResourceRequest(
-        method="resources/read",
         params=types.ReadResourceRequestParams(uri=FileUrl(temp_file.as_uri())),
     )
 
@@ -63,7 +62,6 @@ async def test_read_resource_binary(temp_file: Path):
 
     # Create a request
     request = types.ReadResourceRequest(
-        method="resources/read",
         params=types.ReadResourceRequestParams(uri=FileUrl(temp_file.as_uri())),
     )
 
@@ -95,7 +93,6 @@ async def test_read_resource_default_mime(temp_file: Path):
 
     # Create a request
     request = types.ReadResourceRequest(
-        method="resources/read",
         params=types.ReadResourceRequestParams(uri=FileUrl(temp_file.as_uri())),
     )
 

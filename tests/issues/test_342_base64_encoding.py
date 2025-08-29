@@ -54,7 +54,6 @@ async def test_server_base64_encoding_issue():
 
     # Create a request
     request = ReadResourceRequest(
-        method="resources/read",
         params=ReadResourceRequestParams(uri=AnyUrl("test://resource")),
     )
 

@@ -546,6 +546,6 @@ class OAuthClientProvider(httpx.Auth):
                     logger.exception("OAuth flow error")
                     raise
 
-        # Retry with new tokens
-        self._add_auth_header(request)
-        yield request
+                # Retry with new tokens
+                self._add_auth_header(request)
+                yield request

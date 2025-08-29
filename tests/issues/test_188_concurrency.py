@@ -11,7 +11,7 @@ async def test_messages_are_executed_concurrently_tools():
     server = FastMCP("test")
     event = anyio.Event()
     tool_started = anyio.Event()
-    call_order = []
+    call_order: list[str] = []
 
     @server.tool("sleep")
     async def sleep_tool():
@@ -52,7 +52,7 @@ async def test_messages_are_executed_concurrently_tools_and_resources():
     server = FastMCP("test")
     event = anyio.Event()
     tool_started = anyio.Event()
-    call_order = []
+    call_order: list[str] = []
 
     @server.tool("sleep")
     async def sleep_tool():

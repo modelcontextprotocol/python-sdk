@@ -1,6 +1,7 @@
 """Example token verifier implementation using OAuth 2.0 Token Introspection (RFC 7662)."""
 
 import logging
+from typing import Any
 
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.shared.auth_utils import check_resource_allowed, resource_url_from_server_url
@@ -79,13 +80,13 @@ class IntrospectionTokenVerifier(TokenVerifier):
                 logger.warning(f"Token introspection failed: {e}")
                 return None
 
-    def _validate_resource(self, token_data: dict) -> bool:
+    def _validate_resource(self, token_data: dict[str, Any]) -> bool:
         """Validate token was issued for this resource server."""
         if not self.server_url or not self.resource_url:
             return False  # Fail if strict validation requested but URLs missing
 
         # Check 'aud' claim first (standard JWT audience)
-        aud = token_data.get("aud")
+        aud: list[str] | str | None = token_data.get("aud")
         if isinstance(aud, list):
             for audience in aud:
                 if self._is_valid_resource(audience):

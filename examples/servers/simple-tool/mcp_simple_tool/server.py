@@ -1,16 +1,17 @@
+from typing import Any
+
 import anyio
 import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
 from mcp.shared._httpx_utils import create_mcp_http_client
+from starlette.requests import Request
 
 
 async def fetch_website(
     url: str,
 ) -> list[types.ContentBlock]:
-    headers = {
-        "User-Agent": "MCP Test Server (github.com/modelcontextprotocol/python-sdk)"
-    }
+    headers = {"User-Agent": "MCP Test Server (github.com/modelcontextprotocol/python-sdk)"}
     async with create_mcp_http_client(headers=headers) as client:
         response = await client.get(url)
         response.raise_for_status()
@@ -29,7 +30,7 @@ def main(port: int, transport: str) -> int:
     app = Server("mcp-website-fetcher")
 
     @app.call_tool()
-    async def fetch_tool(name: str, arguments: dict) -> list[types.ContentBlock]:
+    async def fetch_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
         if name != "fetch":
             raise ValueError(f"Unknown tool: {name}")
         if "url" not in arguments:
@@ -64,13 +65,9 @@ def main(port: int, transport: str) -> int:
 
         sse = SseServerTransport("/messages/")
 
-        async def handle_sse(request):
-            async with sse.connect_sse(
-                request.scope, request.receive, request._send
-            ) as streams:
-                await app.run(
-                    streams[0], streams[1], app.create_initialization_options()
-                )
+        async def handle_sse(request: Request):
+            async with sse.connect_sse(request.scope, request.receive, request._send) as streams:  # type: ignore[reportPrivateUsage]
+                await app.run(streams[0], streams[1], app.create_initialization_options())
             return Response()
 
         starlette_app = Starlette(
@@ -89,9 +86,7 @@ def main(port: int, transport: str) -> int:
 
         async def arun():
             async with stdio_server() as streams:
-                await app.run(
-                    streams[0], streams[1], app.create_initialization_options()
-                )
+                await app.run(streams[0], streams[1], app.create_initialization_options())
 
         anyio.run(arun)
 

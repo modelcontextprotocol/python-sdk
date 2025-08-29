@@ -9,28 +9,25 @@ import anyio
 import pytest
 
 from mcp.client.session import ClientSession
-from mcp.client.stdio import (
-    StdioServerParameters,
-    _create_platform_compatible_process,
-    stdio_client,
-)
+from mcp.client.stdio import StdioServerParameters, _create_platform_compatible_process, stdio_client
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
 from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
-from tests.shared.test_win32_utils import escape_path_for_python
+
+from ..shared.test_win32_utils import escape_path_for_python
 
 # Timeout for cleanup of processes that ignore SIGTERM
 # This timeout ensures the test fails quickly if the cleanup logic doesn't have
 # proper fallback mechanisms (SIGINT/SIGKILL) for processes that ignore SIGTERM
 SIGTERM_IGNORING_PROCESS_TIMEOUT = 5.0
 
-tee: str = shutil.which("tee")  # type: ignore
-python: str = shutil.which("python")  # type: ignore
+tee = shutil.which("tee")
 
 
 @pytest.mark.anyio
 @pytest.mark.skipif(tee is None, reason="could not find tee command")
 async def test_stdio_context_manager_exiting():
+    assert tee is not None
     async with stdio_client(StdioServerParameters(command=tee)) as (_, _):
         pass
 
@@ -38,6 +35,7 @@ async def test_stdio_context_manager_exiting():
 @pytest.mark.anyio
 @pytest.mark.skipif(tee is None, reason="could not find tee command")
 async def test_stdio_client():
+    assert tee is not None
     server_parameters = StdioServerParameters(command=tee)
 
     async with stdio_client(server_parameters) as (read_stream, write_stream):
@@ -52,7 +50,7 @@ async def test_stdio_client():
                 session_message = SessionMessage(message)
                 await write_stream.send(session_message)
 
-        read_messages = []
+        read_messages: list[JSONRPCMessage] = []
         async with read_stream:
             async for message in read_stream:
                 if isinstance(message, Exception):
@@ -118,7 +116,7 @@ async def test_stdio_client_universal_cleanup():
         """
         import time
         import sys
-        
+
         # Simulate a long-running process
         for i in range(100):
             time.sleep(0.1)
@@ -136,7 +134,7 @@ async def test_stdio_client_universal_cleanup():
     start_time = time.time()
 
     with anyio.move_on_after(8.0) as cancel_scope:
-        async with stdio_client(server_params) as (read_stream, write_stream):
+        async with stdio_client(server_params) as (_, _):
             # Immediately exit - this triggers cleanup while process is still running
             pass
 
@@ -195,7 +193,7 @@ async def test_stdio_client_sigint_only_process():
     try:
         # Use anyio timeout to prevent test from hanging forever
         with anyio.move_on_after(5.0) as cancel_scope:
-            async with stdio_client(server_params) as (read_stream, write_stream):
+            async with stdio_client(server_params) as (_, _):
                 # Let the process start and begin ignoring SIGTERM
                 await anyio.sleep(0.5)
                 # Exit context triggers cleanup - this should not hang
@@ -532,7 +530,7 @@ async def test_stdio_client_graceful_stdin_exit():
     script_content = textwrap.dedent(
         """
         import sys
-        
+
         # Read from stdin until it's closed
         try:
             while True:
@@ -541,7 +539,7 @@ async def test_stdio_client_graceful_stdin_exit():
                     break
         except:
             pass
-        
+
         # Exit gracefully
         sys.exit(0)
         """
@@ -556,7 +554,7 @@ async def test_stdio_client_graceful_stdin_exit():
 
     # Use anyio timeout to prevent test from hanging forever
     with anyio.move_on_after(5.0) as cancel_scope:
-        async with stdio_client(server_params) as (read_stream, write_stream):
+        async with stdio_client(server_params) as (_, _):
             # Let the process start and begin reading stdin
             await anyio.sleep(0.2)
             # Exit context triggers cleanup - process should exit from stdin closure
@@ -590,16 +588,16 @@ async def test_stdio_client_stdin_close_ignored():
         import signal
         import sys
         import time
-        
+
         # Set up SIGTERM handler to exit cleanly
         def sigterm_handler(signum, frame):
             sys.exit(0)
-        
+
         signal.signal(signal.SIGTERM, sigterm_handler)
-        
+
         # Close stdin immediately to simulate ignoring it
         sys.stdin.close()
-        
+
         # Keep running until SIGTERM
         while True:
             time.sleep(0.1)
@@ -615,7 +613,7 @@ async def test_stdio_client_stdin_close_ignored():
 
     # Use anyio timeout to prevent test from hanging forever
     with anyio.move_on_after(7.0) as cancel_scope:
-        async with stdio_client(server_params) as (read_stream, write_stream):
+        async with stdio_client(server_params) as (_, _):
             # Let the process start
             await anyio.sleep(0.2)
             # Exit context triggers cleanup

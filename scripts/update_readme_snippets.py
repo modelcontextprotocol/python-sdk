@@ -29,7 +29,7 @@ def get_github_url(file_path: str) -> str:
     return f"{base_url}/{file_path}"
 
 
-def process_snippet_block(match: re.Match, check_mode: bool = False) -> str:
+def process_snippet_block(match: re.Match[str], check_mode: bool = False) -> str:
     """Process a single snippet-source block.
 
     Args:

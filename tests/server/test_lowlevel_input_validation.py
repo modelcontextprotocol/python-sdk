@@ -21,7 +21,7 @@ async def run_tool_test(
     tools: list[Tool],
     call_tool_handler: Callable[[str, dict[str, Any]], Awaitable[list[TextContent]]],
     test_callback: Callable[[ClientSession], Awaitable[CallToolResult]],
-) -> CallToolResult:
+) -> CallToolResult | None:
     """Helper to run a tool test with minimal boilerplate.
 
     Args:
@@ -33,6 +33,7 @@ async def run_tool_test(
         The result of the tool call
     """
     server = Server("test")
+    result = None
 
     @server.list_tools()
     async def list_tools():
@@ -263,7 +264,7 @@ async def test_enum_constraint_validation():
 
 
 @pytest.mark.anyio
-async def test_tool_not_in_list_logs_warning(caplog):
+async def test_tool_not_in_list_logs_warning(caplog: pytest.LogCaptureFixture):
     """Test that calling a tool not in list_tools logs a warning and skips validation."""
     tools = [
         Tool(
