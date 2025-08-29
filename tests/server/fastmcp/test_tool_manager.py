@@ -640,6 +640,7 @@ class TestRemoveTools:
 
     def test_remove_existing_tool(self, caplog: pytest.LogCaptureFixture):
         """Test removing an existing tool."""
+
         def add(a: int, b: int) -> int:
             """Add two numbers."""
             return a + b
@@ -671,6 +672,7 @@ class TestRemoveTools:
 
     def test_remove_tool_from_multiple_tools(self):
         """Test removing one tool when multiple tools exist."""
+
         def add(a: int, b: int) -> int:
             """Add two numbers."""
             return a + b
@@ -706,6 +708,7 @@ class TestRemoveTools:
     @pytest.mark.anyio
     async def test_call_removed_tool_raises_error(self):
         """Test that calling a removed tool raises ToolError."""
+
         def greet(name: str) -> str:
             """Greet someone."""
             return f"Hello, {name}!"
@@ -726,6 +729,7 @@ class TestRemoveTools:
 
     def test_remove_tool_case_sensitive(self, caplog: pytest.LogCaptureFixture):
         """Test that tool removal is case-sensitive."""
+
         def test_func() -> str:
             """Test function."""
             return "test"
