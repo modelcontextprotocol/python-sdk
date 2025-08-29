@@ -962,7 +962,7 @@ class TestProtectedResourceWWWAuthenticate:
 
 
 @pytest.fixture
-def client_metadata_no_scope():
+def client_metadata_no_scope() -> OAuthClientMetadata:
     """Client metadata without a predefined scope."""
     return OAuthClientMetadata(
         client_name="Test Client",
@@ -974,8 +974,11 @@ def client_metadata_no_scope():
 
 
 @pytest.fixture
-def oauth_provider_without_scope(client_metadata_no_scope, mock_storage):
+def oauth_provider_without_scope(
+    client_metadata_no_scope: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> OAuthClientProvider:
     """Create OAuth provider without predefined scope."""
+
     async def redirect_handler(url: str) -> None:
         pass
 
@@ -995,7 +998,7 @@ class TestScopeHandlingPriority:
     """Test OAuth scope handling priority between PRM and auth metadata."""
 
     @pytest.mark.anyio
-    async def test_prioritize_prm_scopes_over_oauth_metadata(self, oauth_provider_without_scope):
+    async def test_prioritize_prm_scopes_over_oauth_metadata(self, oauth_provider_without_scope: OAuthClientProvider):
         """Test that PRM scopes are prioritized over auth server metadata scopes."""
         provider = oauth_provider_without_scope
 
@@ -1023,9 +1026,11 @@ class TestScopeHandlingPriority:
 
         # Verify that PRM scopes are used (not OAuth metadata scopes)
         assert provider.context.client_metadata.scope == "resource:read resource:write"
-        
+
     @pytest.mark.anyio
-    async def test_fallback_to_oauth_metadata_scopes_when_no_prm_scopes(self, oauth_provider_without_scope):
+    async def test_fallback_to_oauth_metadata_scopes_when_no_prm_scopes(
+        self, oauth_provider_without_scope: OAuthClientProvider
+    ):
         """Test fallback to OAuth metadata scopes when PRM has no scopes."""
         provider = oauth_provider_without_scope
 
@@ -1055,7 +1060,9 @@ class TestScopeHandlingPriority:
         assert provider.context.client_metadata.scope == "read write admin"
 
     @pytest.mark.anyio
-    async def test_fallback_to_oauth_metadata_scopes_when_no_prm(self, oauth_provider_without_scope):
+    async def test_fallback_to_oauth_metadata_scopes_when_no_prm(
+        self, oauth_provider_without_scope: OAuthClientProvider
+    ):
         """Test fallback to OAuth metadata scopes when no PRM is available."""
         provider = oauth_provider_without_scope
 
@@ -1080,7 +1087,7 @@ class TestScopeHandlingPriority:
         assert provider.context.client_metadata.scope == "read write admin"
 
     @pytest.mark.anyio
-    async def test_no_scope_changes_when_both_missing(self, oauth_provider_without_scope):
+    async def test_no_scope_changes_when_both_missing(self, oauth_provider_without_scope: OAuthClientProvider):
         """Test that no scope changes occur when both PRM and OAuth metadata lack scopes."""
         provider = oauth_provider_without_scope
 
@@ -1110,12 +1117,14 @@ class TestScopeHandlingPriority:
         assert provider.context.client_metadata.scope is None
 
     @pytest.mark.anyio
-    async def test_preserve_existing_client_scope(self, client_metadata_no_scope, mock_storage):
+    async def test_preserve_existing_client_scope(
+        self, client_metadata_no_scope: OAuthClientMetadata, mock_storage: MockTokenStorage
+    ):
         """Test that existing client scope is preserved regardless of metadata."""
         # Create client with predefined scope
         client_metadata = client_metadata_no_scope
         client_metadata.scope = "predefined:scope"
-        
+
         # Create provider
         async def redirect_handler(url: str) -> None:
             pass

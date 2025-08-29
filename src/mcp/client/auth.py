@@ -478,12 +478,14 @@ class OAuthClientProvider(httpx.Auth):
         content = await response.aread()
         metadata = OAuthMetadata.model_validate_json(content)
         self.context.oauth_metadata = metadata
-        
+
         # Only set scope if client_metadata.scope is None
         if self.context.client_metadata.scope is None:
             # Priority 1: Use PRM's scopes_supported if available
-            if (self.context.protected_resource_metadata is not None and 
-                self.context.protected_resource_metadata.scopes_supported is not None):
+            if (
+                self.context.protected_resource_metadata is not None
+                and self.context.protected_resource_metadata.scopes_supported is not None
+            ):
                 self.context.client_metadata.scope = " ".join(self.context.protected_resource_metadata.scopes_supported)
             # Priority 2: Fall back to OAuth metadata scopes if available
             elif metadata.scopes_supported is not None:
