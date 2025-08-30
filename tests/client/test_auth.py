@@ -84,6 +84,41 @@ def oauth_provider_without_scope(oauth_provider: OAuthClientProvider) -> OAuthCl
     oauth_provider.context.client_metadata.scope = None
     return oauth_provider
 
+
+@pytest.fixture
+def oauth_metadata_response():
+    """Common OAuth metadata response with scopes."""
+    return httpx.Response(
+        200,
+        content=(
+            b'{"issuer": "https://auth.example.com", '
+            b'"authorization_endpoint": "https://auth.example.com/authorize", '
+            b'"token_endpoint": "https://auth.example.com/token", '
+            b'"registration_endpoint": "https://auth.example.com/register", '
+            b'"scopes_supported": ["read", "write", "admin"]}'
+        ),
+    )
+
+
+@pytest.fixture
+def prm_metadata():
+    """PRM metadata with scopes."""
+    return ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+        scopes_supported=["resource:read", "resource:write"],
+    )
+
+
+@pytest.fixture
+def prm_metadata_without_scopes():
+    """PRM metadata without scopes."""
+    return ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+        scopes_supported=None,
+    )
+
 class TestPKCEParameters:
     """Test PKCE parameter generation."""
 
@@ -397,28 +432,15 @@ class TestOAuthFallback:
         assert str(oauth_provider.context.oauth_metadata.issuer) == "https://auth.example.com/"
 
     @pytest.mark.anyio
-    async def test_prioritize_prm_scopes_over_oauth_metadata(self, oauth_provider_without_scope: OAuthClientProvider):
+    async def test_prioritize_prm_scopes_over_oauth_metadata(
+        self, oauth_provider_without_scope: OAuthClientProvider,
+        oauth_metadata_response: httpx.Response, prm_metadata: ProtectedResourceMetadata
+    ):
         """Test that PRM scopes are prioritized over auth server metadata scopes."""
         provider = oauth_provider_without_scope
 
         # Set up PRM metadata with specific scopes
-        provider.context.protected_resource_metadata = ProtectedResourceMetadata(
-            resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
-            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
-            scopes_supported=["resource:read", "resource:write"],
-        )
-
-        # Create OAuth metadata response with different scopes
-        oauth_metadata_response = httpx.Response(
-            200,
-            content=(
-                b'{"issuer": "https://auth.example.com", '
-                b'"authorization_endpoint": "https://auth.example.com/authorize", '
-                b'"token_endpoint": "https://auth.example.com/token", '
-                b'"registration_endpoint": "https://auth.example.com/register", '
-                b'"scopes_supported": ["read", "write", "admin"]}'
-            ),
-        )
+        provider.context.protected_resource_metadata = prm_metadata
 
         # Process the OAuth metadata
         await provider._handle_oauth_metadata_response(oauth_metadata_response)
@@ -428,29 +450,14 @@ class TestOAuthFallback:
 
     @pytest.mark.anyio
     async def test_fallback_to_oauth_metadata_scopes_when_no_prm_scopes(
-        self, oauth_provider_without_scope: OAuthClientProvider
+        self, oauth_provider_without_scope: OAuthClientProvider,
+        oauth_metadata_response: httpx.Response, prm_metadata_without_scopes: ProtectedResourceMetadata
     ):
         """Test fallback to OAuth metadata scopes when PRM has no scopes."""
         provider = oauth_provider_without_scope
 
         # Set up PRM metadata without scopes
-        provider.context.protected_resource_metadata = ProtectedResourceMetadata(
-            resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
-            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
-            scopes_supported=None,  # No scopes in PRM
-        )
-
-        # Create OAuth metadata response with scopes
-        oauth_metadata_response = httpx.Response(
-            200,
-            content=(
-                b'{"issuer": "https://auth.example.com", '
-                b'"authorization_endpoint": "https://auth.example.com/authorize", '
-                b'"token_endpoint": "https://auth.example.com/token", '
-                b'"registration_endpoint": "https://auth.example.com/register", '
-                b'"scopes_supported": ["read", "write", "admin"]}'
-            ),
-        )
+        provider.context.protected_resource_metadata = prm_metadata_without_scopes
 
         # Process the OAuth metadata
         await provider._handle_oauth_metadata_response(oauth_metadata_response)
@@ -459,19 +466,18 @@ class TestOAuthFallback:
         assert provider.context.client_metadata.scope == "read write admin"
 
     @pytest.mark.anyio
-    async def test_no_scope_changes_when_both_missing(self, oauth_provider_without_scope: OAuthClientProvider):
+    async def test_no_scope_changes_when_both_missing(
+        self, oauth_provider_without_scope: OAuthClientProvider,
+        prm_metadata_without_scopes: ProtectedResourceMetadata
+    ):
         """Test that no scope changes occur when both PRM and OAuth metadata lack scopes."""
         provider = oauth_provider_without_scope
 
         # Set up PRM metadata without scopes
-        provider.context.protected_resource_metadata = ProtectedResourceMetadata(
-            resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
-            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
-            scopes_supported=None,  # No scopes in PRM
-        )
+        provider.context.protected_resource_metadata = prm_metadata_without_scopes
 
         # Create OAuth metadata response without scopes
-        oauth_metadata_response = httpx.Response(
+        custom_oauth_metadata_response = httpx.Response(
             200,
             content=(
                 b'{"issuer": "https://auth.example.com", '
@@ -483,36 +489,21 @@ class TestOAuthFallback:
         )
 
         # Process the OAuth metadata
-        await provider._handle_oauth_metadata_response(oauth_metadata_response)
+        await provider._handle_oauth_metadata_response(custom_oauth_metadata_response)
 
         # Verify that scope remains None
         assert provider.context.client_metadata.scope is None
 
     @pytest.mark.anyio
     async def test_preserve_existing_client_scope(
-        self, oauth_provider: OAuthClientProvider
+        self, oauth_provider: OAuthClientProvider,
+        oauth_metadata_response: httpx.Response, prm_metadata: ProtectedResourceMetadata
     ):
         """Test that existing client scope is preserved regardless of metadata."""
         provider = oauth_provider
 
         # Set up PRM metadata with scopes
-        provider.context.protected_resource_metadata = ProtectedResourceMetadata(
-            resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
-            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
-            scopes_supported=["resource:read", "resource:write"],
-        )
-
-        # Create OAuth metadata response with scopes
-        oauth_metadata_response = httpx.Response(
-            200,
-            content=(
-                b'{"issuer": "https://auth.example.com", '
-                b'"authorization_endpoint": "https://auth.example.com/authorize", '
-                b'"token_endpoint": "https://auth.example.com/token", '
-                b'"registration_endpoint": "https://auth.example.com/register", '
-                b'"scopes_supported": ["read", "write", "admin"]}'
-            ),
-        )
+        provider.context.protected_resource_metadata = prm_metadata
 
         # Process the OAuth metadata
         await provider._handle_oauth_metadata_response(oauth_metadata_response)
