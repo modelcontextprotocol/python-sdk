@@ -1152,7 +1152,6 @@ async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventS
                     await session.send_request(
                         types.ClientRequest(
                             types.CallToolRequest(
-                                method="tools/call",
                                 params=types.CallToolRequestParams(
                                     name="wait_for_lock_with_notification", arguments={}
                                 ),
@@ -1194,7 +1193,6 @@ async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventS
             result = await session.send_request(
                 types.ClientRequest(
                     types.CallToolRequest(
-                        method="tools/call",
                         params=types.CallToolRequestParams(name="release_lock", arguments={}),
                     )
                 ),
@@ -1207,7 +1205,6 @@ async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventS
             result = await session.send_request(
                 types.ClientRequest(
                     types.CallToolRequest(
-                        method="tools/call",
                         params=types.CallToolRequestParams(name="wait_for_lock_with_notification", arguments={}),
                     )
                 ),
