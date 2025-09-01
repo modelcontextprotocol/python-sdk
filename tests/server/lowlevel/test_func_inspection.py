@@ -13,8 +13,18 @@ class MyClass:
         """Instance method without cursor parameter"""
         pass
 
+    # noinspection PyMethodParameters
+    async def no_cursor_method_bad_self_name(bad):  # pyright: ignore[reportSelfClsParameterName]
+        """Instance method with cursor parameter, but with bad self name"""
+        pass
+
     async def cursor_method(self, cursor: types.Cursor | None):
         """Instance method with cursor parameter"""
+        pass
+
+    # noinspection PyMethodParameters
+    async def cursor_method_bad_self_name(bad, cursor: types.Cursor | None):  # pyright: ignore[reportSelfClsParameterName]
+        """Instance method with cursor parameter, but with bad self name"""
         pass
 
     @classmethod
@@ -22,9 +32,21 @@ class MyClass:
         """Class method without cursor parameter"""
         pass
 
+    # noinspection PyMethodParameters
+    @classmethod
+    async def no_cursor_class_method_bad_cls_name(bad):  # pyright: ignore[reportSelfClsParameterName]
+        """Class method without cursor parameter, but with bad cls name"""
+        pass
+
     @classmethod
     async def cursor_class_method(cls, cursor: types.Cursor | None):
         """Class method with cursor parameter"""
+        pass
+
+    # noinspection PyMethodParameters
+    @classmethod
+    async def cursor_class_method_bad_cls_name(bad, cursor: types.Cursor | None):  # pyright: ignore[reportSelfClsParameterName]
+        """Class method with cursor parameter, but with bad cls name"""
         pass
 
     @staticmethod
@@ -35,6 +57,11 @@ class MyClass:
     @staticmethod
     async def cursor_static_method(cursor: types.Cursor | None):
         """Static method with cursor parameter"""
+        pass
+
+    @staticmethod
+    async def cursor_static_method_bad_arg_name(self: types.Cursor | None):  # pyright: ignore[reportSelfClsParameterName]
+        """Static method with cursor parameter, but the cursor argument is named self"""
         pass
 
 
@@ -108,13 +135,18 @@ async def mixed_positional_and_keyword(cursor: types.Cursor | None, *, extra: st
         (cursor_func_with_self, True, "function with param named 'self'"),
         # Instance methods
         (MyClass().no_cursor_method, False, "instance method without cursor"),
+        (MyClass().no_cursor_method_bad_self_name, False, "instance method without cursor (bad self name)"),
         (MyClass().cursor_method, True, "instance method with cursor"),
+        (MyClass().cursor_method_bad_self_name, True, "instance method with cursor (bad self name)"),
         # Class methods
         (MyClass.no_cursor_class_method, False, "class method without cursor"),
+        (MyClass.no_cursor_class_method_bad_cls_name, False, "class method without cursor (bad cls name)"),
         (MyClass.cursor_class_method, True, "class method with cursor"),
+        (MyClass.cursor_class_method_bad_cls_name, True, "class method with cursor (bad cls name)"),
         # Static methods
         (MyClass.no_cursor_static_method, False, "static method without cursor"),
         (MyClass.cursor_static_method, True, "static method with cursor"),
+        (MyClass.cursor_static_method_bad_arg_name, True, "static method with cursor (bad arg name)"),
         # Variadic parameters
         (var_positional_func, True, "function with *args"),
         (positional_with_var_positional_func, True, "function with cursor and *args"),

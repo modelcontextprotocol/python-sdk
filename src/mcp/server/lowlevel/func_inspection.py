@@ -19,12 +19,6 @@ def accepts_cursor(func: Callable[..., Any]) -> bool:
 
     params = dict(sig.parameters.items())
 
-    method = inspect.ismethod(func)
-
-    if method:
-        params.pop("self", None)
-        params.pop("cls", None)
-
     if len(params) == 0:
         # No parameters at all - can't accept cursor
         return False
