@@ -3,7 +3,7 @@ from collections.abc import Callable
 from typing import Any
 
 
-def accepts_cursor(func: Callable[..., Any]) -> bool:
+def accepts_request(func: Callable[..., Any]) -> bool:
     """
     True if the function accepts a cursor parameter call, otherwise false.
 

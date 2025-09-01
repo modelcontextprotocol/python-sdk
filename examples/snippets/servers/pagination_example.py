@@ -15,9 +15,12 @@ ITEMS = [f"Item {i}" for i in range(1, 101)]  # 100 items
 
 
 @server.list_resources()
-async def list_resources_paginated(cursor: types.Cursor | None) -> types.ListResourcesResult:
+async def list_resources_paginated(request: types.ListResourcesRequest) -> types.ListResourcesResult:
     """List resources with pagination support."""
     page_size = 10
+
+    # Extract cursor from request params
+    cursor = request.params.cursor if request.params is not None else None
 
     # Parse cursor to get offset
     start = 0 if cursor is None else int(cursor)

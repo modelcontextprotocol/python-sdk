@@ -59,9 +59,10 @@ def main(port: int, transport: str) -> int:
 
     # Paginated list_tools - returns 5 tools per page
     @app.list_tools()
-    async def list_tools_paginated(cursor: types.Cursor | None) -> types.ListToolsResult:
+    async def list_tools_paginated(request: types.ListToolsRequest) -> types.ListToolsResult:
         page_size = 5
 
+        cursor = request.params.cursor if request.params is not None else None
         if cursor is None:
             # First page
             start_idx = 0
@@ -86,10 +87,11 @@ def main(port: int, transport: str) -> int:
     # Paginated list_resources - returns 10 resources per page
     @app.list_resources()
     async def list_resources_paginated(
-        cursor: types.Cursor | None,
+        request: types.ListResourcesRequest,
     ) -> types.ListResourcesResult:
         page_size = 10
 
+        cursor = request.params.cursor if request.params is not None else None
         if cursor is None:
             # First page
             start_idx = 0
@@ -114,10 +116,11 @@ def main(port: int, transport: str) -> int:
     # Paginated list_prompts - returns 7 prompts per page
     @app.list_prompts()
     async def list_prompts_paginated(
-        cursor: types.Cursor | None,
+        request: types.ListPromptsRequest,
     ) -> types.ListPromptsResult:
         page_size = 7
 
+        cursor = request.params.cursor if request.params is not None else None
         if cursor is None:
             # First page
             start_idx = 0
