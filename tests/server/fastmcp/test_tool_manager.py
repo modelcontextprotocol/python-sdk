@@ -638,7 +638,7 @@ class TestStructuredOutput:
 class TestRemoveTools:
     """Test tool removal functionality in the tool manager."""
 
-    def test_remove_existing_tool(self, caplog: pytest.LogCaptureFixture):
+    def test_remove_existing_tool(self):
         """Test removing an existing tool."""
 
         def add(a: int, b: int) -> int:
@@ -652,23 +652,19 @@ class TestRemoveTools:
         assert manager.get_tool("add") is not None
         assert len(manager.list_tools()) == 1
 
-        # Remove the tool
-        with caplog.at_level(logging.WARNING):
-            manager.remove_tool("add")
-            # Should not log a warning for removing existing tool
-            assert "Tried to remove unknown tool: add" not in caplog.text
+        # Remove the tool - should not raise any exception
+        manager.remove_tool("add")
 
         # Verify tool is removed
         assert manager.get_tool("add") is None
         assert len(manager.list_tools()) == 0
 
-    def test_remove_nonexistent_tool(self, caplog: pytest.LogCaptureFixture):
-        """Test removing a non-existent tool logs a warning."""
+    def test_remove_nonexistent_tool(self):
+        """Test removing a non-existent tool raises ToolError."""
         manager = ToolManager()
 
-        with caplog.at_level(logging.WARNING):
+        with pytest.raises(ToolError, match="Unknown tool: nonexistent"):
             manager.remove_tool("nonexistent")
-            assert "Tried to remove unknown tool: nonexistent" in caplog.text
 
     def test_remove_tool_from_multiple_tools(self):
         """Test removing one tool when multiple tools exist."""
@@ -727,7 +723,7 @@ class TestRemoveTools:
         with pytest.raises(ToolError, match="Unknown tool: greet"):
             await manager.call_tool("greet", {"name": "World"})
 
-    def test_remove_tool_case_sensitive(self, caplog: pytest.LogCaptureFixture):
+    def test_remove_tool_case_sensitive(self):
         """Test that tool removal is case-sensitive."""
 
         def test_func() -> str:
@@ -740,10 +736,9 @@ class TestRemoveTools:
         # Verify tool exists
         assert manager.get_tool("test_func") is not None
 
-        # Try to remove with different case
-        with caplog.at_level(logging.WARNING):
+        # Try to remove with different case - should raise ToolError
+        with pytest.raises(ToolError, match="Unknown tool: Test_Func"):
             manager.remove_tool("Test_Func")
-            assert "Tried to remove unknown tool: Test_Func" in caplog.text
 
         # Verify original tool still exists
         assert manager.get_tool("test_func") is not None
