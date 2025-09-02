@@ -326,7 +326,8 @@ class FastMCP(Generic[LifespanResultT]):
     async def read_resource(self, uri: AnyUrl | str) -> Iterable[ReadResourceContents]:
         """Read a resource by URI."""
 
-        resource = await self._resource_manager.get_resource(uri)
+        context = self.get_context()
+        resource = await self._resource_manager.get_resource(uri, context=context)
         if not resource:
             raise ResourceError(f"Unknown resource: {uri}")
 
@@ -514,9 +515,27 @@ class FastMCP(Generic[LifespanResultT]):
             has_func_params = bool(inspect.signature(fn).parameters)
 
             if has_uri_params or has_func_params:
-                # Validate that URI params match function params
+                # Check for Context parameter to exclude from validation
+                from typing import get_origin
+
+                sig = inspect.signature(fn)
+                context_param = None
+                for param_name, param in sig.parameters.items():
+                    if param.annotation is not inspect.Parameter.empty:
+                        # Check if it's a Context type
+                        if get_origin(param.annotation) is None:
+                            # Try to check if it's a Context without importing
+                            # (to avoid circular imports)
+                            annotation_str = str(param.annotation)
+                            if "Context" in annotation_str:
+                                context_param = param_name
+                                break
+
+                # Validate that URI params match function params (excluding context)
                 uri_params = set(re.findall(r"{(\w+)}", uri))
-                func_params = set(inspect.signature(fn).parameters.keys())
+                func_params = set(sig.parameters.keys())
+                if context_param:
+                    func_params.discard(context_param)
 
                 if uri_params != func_params:
                     raise ValueError(
@@ -982,7 +1001,8 @@ class FastMCP(Generic[LifespanResultT]):
             if not prompt:
                 raise ValueError(f"Unknown prompt: {name}")
 
-            messages = await prompt.render(arguments)
+            context = self.get_context()
+            messages = await prompt.render(arguments, context=context)
 
             return GetPromptResult(
                 description=prompt.description,

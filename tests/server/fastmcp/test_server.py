@@ -963,7 +963,7 @@ class TestContextInjection:
             try:
                 request_id = ctx.request_id
                 return f"Resource {name} - request_id: {request_id}"
-            except:
+            except (AttributeError, ValueError):
                 # Context was injected but request context not available
                 return f"Resource {name} - context injected"
 
@@ -976,7 +976,7 @@ class TestContextInjection:
 
         # Test via client
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource("resource://context/test")
+            result = await client.read_resource(AnyUrl("resource://context/test"))
             assert len(result.contents) == 1
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1003,7 +1003,7 @@ class TestContextInjection:
 
         # Test via client
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource("resource://nocontext/test")
+            result = await client.read_resource(AnyUrl("resource://nocontext/test"))
             assert len(result.contents) == 1
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1029,7 +1029,7 @@ class TestContextInjection:
 
         # Test via client
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource("resource://custom/123")
+            result = await client.read_resource(AnyUrl("resource://custom/123"))
             assert len(result.contents) == 1
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1043,9 +1043,12 @@ class TestContextInjection:
         @mcp.prompt("prompt_with_ctx")
         def prompt_with_context(text: str, ctx: Context[ServerSession, None]) -> str:
             """Prompt that expects context."""
-            if ctx and hasattr(ctx, "request_id"):
-                return f"Prompt '{text}' with context: {ctx.request_id}"
-            return f"Prompt '{text}' - no context"
+            assert ctx is not None
+            try:
+                request_id = ctx.request_id
+                return f"Prompt '{text}' with context: {request_id}"
+            except (AttributeError, ValueError):
+                return f"Prompt '{text}' - context injected"
 
         # Check if prompt has context parameter detection
         prompts = mcp._prompt_manager.list_prompts()
@@ -1065,7 +1068,7 @@ class TestContextInjection:
                 message = result.messages[0]
                 content = message.content
                 assert isinstance(content, TextContent)
-                if "with context:" in content.text:
+                if "context injected" in content.text or "with context:" in content.text:
                     # Context injection is working for prompts
                     assert has_context_kwarg, "Prompt should have context_kwarg attribute"
                 else:
