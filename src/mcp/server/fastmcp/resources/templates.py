@@ -5,11 +5,12 @@ from __future__ import annotations
 import inspect
 import re
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, get_origin
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, validate_call
 
 from mcp.server.fastmcp.resources.types import FunctionResource, Resource
+from mcp.server.fastmcp.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.fastmcp.utilities.func_metadata import func_metadata
 
 if TYPE_CHECKING:
@@ -48,20 +49,7 @@ class ResourceTemplate(BaseModel):
 
         # Find context parameter if it exists
         if context_kwarg is None:
-            from mcp.server.fastmcp.server import Context
-
-            sig = inspect.signature(fn)
-            for param_name, param in sig.parameters.items():
-                if get_origin(param.annotation) is not None:
-                    continue
-                if param.annotation is not inspect.Parameter.empty:
-                    try:
-                        if issubclass(param.annotation, Context):
-                            context_kwarg = param_name
-                            break
-                    except TypeError:
-                        # issubclass raises TypeError for non-class types
-                        pass
+            context_kwarg = find_context_parameter(fn)
 
         # Get schema from func_metadata, excluding context parameter
         func_arg_metadata = func_metadata(
@@ -102,8 +90,7 @@ class ResourceTemplate(BaseModel):
         """Create a resource from the template with the given parameters."""
         try:
             # Add context to params if needed
-            if self.context_kwarg is not None and context is not None:
-                params = {**params, self.context_kwarg: context}
+            params = inject_context(self.fn, params, context, self.context_kwarg)
 
             # Call function and check if result is a coroutine
             result = self.fn(**params)

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Awaitable, Callable, Sequence
-from typing import TYPE_CHECKING, Any, Literal, get_origin
+from typing import TYPE_CHECKING, Any, Literal
 
 import pydantic_core
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
+from mcp.server.fastmcp.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.fastmcp.utilities.func_metadata import func_metadata
 from mcp.types import ContentBlock, TextContent
 
@@ -96,20 +97,7 @@ class Prompt(BaseModel):
 
         # Find context parameter if it exists
         if context_kwarg is None:
-            from mcp.server.fastmcp.server import Context
-
-            sig = inspect.signature(fn)
-            for param_name, param in sig.parameters.items():
-                if get_origin(param.annotation) is not None:
-                    continue
-                if param.annotation is not inspect.Parameter.empty:
-                    try:
-                        if issubclass(param.annotation, Context):
-                            context_kwarg = param_name
-                            break
-                    except TypeError:
-                        # issubclass raises TypeError for non-class types
-                        pass
+            context_kwarg = find_context_parameter(fn)
 
         # Get schema from func_metadata, excluding context parameter
         func_arg_metadata = func_metadata(
@@ -159,9 +147,7 @@ class Prompt(BaseModel):
 
         try:
             # Add context to arguments if needed
-            call_args = arguments or {}
-            if self.context_kwarg is not None and context is not None:
-                call_args = {**call_args, self.context_kwarg: context}
+            call_args = inject_context(self.fn, arguments or {}, context, self.context_kwarg)
 
             # Call function and check if result is a coroutine
             result = self.fn(**call_args)
