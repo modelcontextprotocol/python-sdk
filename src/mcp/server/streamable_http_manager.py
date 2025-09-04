@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import time
 from collections.abc import AsyncIterator
 from http import HTTPStatus
 from typing import Any
@@ -51,6 +52,14 @@ class StreamableHTTPSessionManager:
         json_response: Whether to use JSON responses instead of SSE streams
         stateless: If True, creates a completely fresh transport for each request
                    with no session tracking or state persistence between requests.
+        security_settings: Optional security settings for DNS rebinding protection
+        session_idle_timeout: Maximum idle time in seconds before a session is eligible
+                             for cleanup. Default is 1800 seconds (30 minutes).
+        cleanup_check_interval: Interval in seconds between cleanup checks.
+                               Default is 300 seconds (5 minutes).
+        max_sessions_before_cleanup: Threshold number of sessions before idle cleanup
+                                    is activated. Default is 10000. Cleanup only runs
+                                    when the session count exceeds this threshold.
     """
 
     def __init__(
@@ -60,16 +69,23 @@ class StreamableHTTPSessionManager:
         json_response: bool = False,
         stateless: bool = False,
         security_settings: TransportSecuritySettings | None = None,
+        session_idle_timeout: float = 1800,  # 30 minutes default
+        cleanup_check_interval: float = 300,  # 5 minutes default
+        max_sessions_before_cleanup: int = 10000,  # Threshold to activate cleanup
     ):
         self.app = app
         self.event_store = event_store
         self.json_response = json_response
         self.stateless = stateless
         self.security_settings = security_settings
+        self.session_idle_timeout = session_idle_timeout
+        self.cleanup_check_interval = cleanup_check_interval
+        self.max_sessions_before_cleanup = max_sessions_before_cleanup
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
         self._server_instances: dict[str, StreamableHTTPServerTransport] = {}
+        self._session_last_activity: dict[str, float] = {}
 
         # The task group will be set during lifespan
         self._task_group = None
@@ -108,15 +124,21 @@ class StreamableHTTPSessionManager:
             # Store the task group for later use
             self._task_group = tg
             logger.info("StreamableHTTP session manager started")
+
+            # Start the cleanup task if not in stateless mode
+            if not self.stateless:
+                tg.start_soon(self._run_session_cleanup)
+
             try:
                 yield  # Let the application run
             finally:
                 logger.info("StreamableHTTP session manager shutting down")
-                # Cancel task group to stop all spawned tasks
+                # Cancel task group to stop all spawned tasks (this will also stop cleanup task)
                 tg.cancel_scope.cancel()
                 self._task_group = None
-                # Clear any remaining server instances
+                # Clear any remaining server instances and tracking
                 self._server_instances.clear()
+                self._session_last_activity.clear()
 
     async def handle_request(
         self,
@@ -213,6 +235,9 @@ class StreamableHTTPSessionManager:
         if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:
             transport = self._server_instances[request_mcp_session_id]
             logger.debug("Session already exists, handling request directly")
+            # Update last activity time for this session
+            if request_mcp_session_id:
+                self._session_last_activity[request_mcp_session_id] = time.time()
             await transport.handle_request(scope, receive, send)
             return
 
@@ -230,6 +255,8 @@ class StreamableHTTPSessionManager:
 
                 assert http_transport.mcp_session_id is not None
                 self._server_instances[http_transport.mcp_session_id] = http_transport
+                # Track initial activity time for new session
+                self._session_last_activity[http_transport.mcp_session_id] = time.time()
                 logger.info(f"Created new transport with session ID: {new_session_id}")
 
                 # Define the server runner
@@ -262,6 +289,8 @@ class StreamableHTTPSessionManager:
                                     "active instances."
                                 )
                                 del self._server_instances[http_transport.mcp_session_id]
+                                # Also remove from activity tracking
+                                self._session_last_activity.pop(http_transport.mcp_session_id, None)
 
                 # Assert task group is not None for type checking
                 assert self._task_group is not None
@@ -277,3 +306,63 @@ class StreamableHTTPSessionManager:
                 status_code=HTTPStatus.BAD_REQUEST,
             )
             await response(scope, receive, send)
+
+    async def _run_session_cleanup(self) -> None:
+        """
+        Background task that periodically cleans up idle sessions.
+        Only performs cleanup when the number of sessions exceeds the threshold.
+        """
+        logger.info(
+            f"Session cleanup task started (threshold: {self.max_sessions_before_cleanup} sessions, "
+            f"idle timeout: {self.session_idle_timeout}s)"
+        )
+        try:
+            while True:
+                await anyio.sleep(self.cleanup_check_interval)
+
+                # Only perform cleanup if we're above the threshold
+                session_count = len(self._server_instances)
+                if session_count <= self.max_sessions_before_cleanup:
+                    logger.debug(
+                        f"Session count ({session_count}) below threshold "
+                        f"({self.max_sessions_before_cleanup}), skipping cleanup"
+                    )
+                    continue
+
+                logger.info(f"Session count ({session_count}) exceeds threshold, performing idle session cleanup")
+
+                current_time = time.time()
+                sessions_to_cleanup: list[tuple[str, float]] = []
+
+                # Identify sessions that have been idle too long
+                for session_id, last_activity in list(self._session_last_activity.items()):
+                    idle_time = current_time - last_activity
+                    if idle_time > self.session_idle_timeout:
+                        sessions_to_cleanup.append((session_id, idle_time))
+
+                # Clean up identified sessions
+                for session_id, idle_time in sessions_to_cleanup:
+                    try:
+                        if session_id in self._server_instances:                           
+                            transport = self._server_instances[session_id]
+                            logger.info(f"Cleaning up idle session {session_id}")
+                            # Terminate the transport to properly close resources
+                            await transport.terminate()
+                            # Remove from tracking dictionaries
+                            del self._server_instances[session_id]
+                            self._session_last_activity.pop(session_id, None)
+                    except Exception:
+                        logger.exception(f"Error cleaning up session {session_id}")
+
+                if sessions_to_cleanup:
+                    logger.info(
+                        f"Cleaned up {len(sessions_to_cleanup)} idle sessions, "
+                        f"{len(self._server_instances)} sessions remaining"
+                    )
+
+        except anyio.get_cancelled_exc_class():
+            logger.info("Session cleanup task cancelled")
+            raise
+        except Exception:
+            logger.exception("Unexpected error in session cleanup task - cleanup task terminated")
+            # Don't re-raise - let the task end gracefully without crashing the server

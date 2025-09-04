@@ -1,7 +1,8 @@
 """Tests for StreamableHTTPSessionManager."""
 
+import time
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
 import pytest
@@ -262,3 +263,125 @@ async def test_stateless_requests_memory_cleanup():
 
             # Verify internal state is cleaned up
             assert len(transport._request_streams) == 0, "Transport should have no active request streams"
+
+
+@pytest.mark.anyio
+async def test_idle_session_cleanup():
+    """Test that idle sessions are cleaned up when threshold is exceeded."""
+    app = Server("test-idle-cleanup")
+
+    # Use very short timeouts for testing
+    manager = StreamableHTTPSessionManager(
+        app=app,
+        session_idle_timeout=0.5,  # 500ms idle timeout
+        cleanup_check_interval=0.2,  # Check every 200ms
+        max_sessions_before_cleanup=2,  # Low threshold for testing
+    )
+
+    async with manager.run():
+        # Mock the app.run to prevent it from doing anything
+        app.run = AsyncMock(side_effect=lambda *args, **kwargs: anyio.sleep(float("inf")))
+
+        # Create mock transports directly to simulate sessions
+        # We'll bypass the HTTP layer for simplicity
+        session_ids = ["session1", "session2", "session3"]
+
+        for session_id in session_ids:
+            # Create a mock transport
+            transport = MagicMock(spec=StreamableHTTPServerTransport)
+            transport.mcp_session_id = session_id
+            transport.is_terminated = False
+            transport.terminate = AsyncMock()
+
+            # Add to manager's tracking
+            manager._server_instances[session_id] = transport
+            manager._session_last_activity[session_id] = time.time()
+
+        # Verify all sessions are tracked
+        assert len(manager._server_instances) == 3
+        assert len(manager._session_last_activity) == 3
+
+        # Wait for cleanup to trigger (sessions should be idle long enough)
+        await anyio.sleep(1.0)  # Wait longer than idle timeout + cleanup interval
+
+        # All sessions should be cleaned up since they exceeded idle timeout
+        assert len(manager._server_instances) == 0, "All idle sessions should be cleaned up"
+        assert len(manager._session_last_activity) == 0, "Activity tracking should be cleared"
+
+
+@pytest.mark.anyio
+async def test_cleanup_only_above_threshold():
+    """Test that cleanup only runs when session count exceeds threshold."""
+    app = Server("test-threshold")
+
+    # Set high threshold so cleanup won't run
+    manager = StreamableHTTPSessionManager(
+        app=app,
+        session_idle_timeout=0.1,  # Very short idle timeout
+        cleanup_check_interval=0.1,  # Check frequently
+        max_sessions_before_cleanup=100,  # High threshold
+    )
+
+    async with manager.run():
+        app.run = AsyncMock(side_effect=lambda *args, **kwargs: anyio.sleep(float("inf")))
+
+        # Create just one session (below threshold)
+        transport = MagicMock(spec=StreamableHTTPServerTransport)
+        transport.mcp_session_id = "session1"
+        transport.is_terminated = False
+        transport.terminate = AsyncMock()
+
+        manager._server_instances["session1"] = transport
+        manager._session_last_activity["session1"] = time.time()
+
+        # Wait longer than idle timeout
+        await anyio.sleep(0.5)
+
+        # Session should NOT be cleaned up because we're below threshold
+        assert len(manager._server_instances) == 1, "Session should not be cleaned when below threshold"
+        assert "session1" in manager._server_instances
+        transport.terminate.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_session_activity_update():
+    """Test that session activity is properly updated on requests."""
+    app = Server("test-activity-update")
+    manager = StreamableHTTPSessionManager(app=app)
+
+    async with manager.run():
+        # Create a session with known activity time
+        old_time = time.time() - 100  # 100 seconds ago
+
+        transport = MagicMock(spec=StreamableHTTPServerTransport)
+        transport.mcp_session_id = "test-session"
+        transport.handle_request = AsyncMock()
+
+        manager._server_instances["test-session"] = transport
+        manager._session_last_activity["test-session"] = old_time
+
+        # Simulate a request to existing session
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/mcp",
+            "headers": [
+                (b"mcp-session-id", b"test-session"),
+                (b"content-type", b"application/json"),
+                (b"accept", b"application/json, text/event-stream"),
+            ],
+        }
+
+        async def mock_receive():
+            return {"type": "http.request", "body": b'{"jsonrpc":"2.0","method":"test","id":1}', "more_body": False}
+
+        async def mock_send(message: Message):
+            pass
+
+        # Handle the request
+        await manager.handle_request(scope, mock_receive, mock_send)
+
+        # Activity time should be updated
+        new_time = manager._session_last_activity["test-session"]
+        assert new_time > old_time, "Activity time should be updated"
+        assert new_time >= time.time() - 1, "Activity time should be recent"
