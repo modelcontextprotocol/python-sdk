@@ -343,7 +343,7 @@ class StreamableHTTPSessionManager:
                 # Clean up identified sessions
                 for session_id, idle_time in sessions_to_cleanup:
                     try:
-                        if session_id in self._server_instances:                           
+                        if session_id in self._server_instances:
                             transport = self._server_instances[session_id]
                             logger.info(f"Cleaning up idle session {session_id}")
                             # Terminate the transport to properly close resources
