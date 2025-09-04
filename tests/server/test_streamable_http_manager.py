@@ -280,7 +280,11 @@ async def test_idle_session_cleanup():
 
     async with manager.run():
         # Mock the app.run to prevent it from doing anything
-        app.run = AsyncMock(side_effect=lambda *args, **kwargs: anyio.sleep(float("inf")))
+
+        async def mock_infinite_sleep(*args: Any, **kwargs: Any) -> None:
+            await anyio.sleep(float("inf"))
+
+        app.run = AsyncMock(side_effect=mock_infinite_sleep)
 
         # Create mock transports directly to simulate sessions
         # We'll bypass the HTTP layer for simplicity
@@ -323,7 +327,11 @@ async def test_cleanup_only_above_threshold():
     )
 
     async with manager.run():
-        app.run = AsyncMock(side_effect=lambda *args, **kwargs: anyio.sleep(float("inf")))
+
+        async def mock_infinite_sleep(*args: Any, **kwargs: Any) -> None:
+            await anyio.sleep(float("inf"))
+
+        app.run = AsyncMock(side_effect=mock_infinite_sleep)
 
         # Create just one session (below threshold)
         transport = MagicMock(spec=StreamableHTTPServerTransport)
