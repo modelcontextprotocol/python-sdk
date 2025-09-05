@@ -132,7 +132,6 @@ class CallbackServer:
             self.thread.join(timeout=1)
         print("🛑 Stopped callback server.")
 
-
     def wait_for_callback(self, timeout=300):
         """Wait for OAuth callback with timeout."""
         start_time = time.time()
