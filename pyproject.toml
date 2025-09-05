@@ -20,6 +20,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
     "anyio>=4.5",
@@ -45,7 +46,7 @@ mcp = "mcp.cli:app [cli]"
 
 [tool.uv]
 default-groups = ["dev", "docs"]
-required-version = ">=0.7.2"
+required-version = ">=0.9.2"
 
 [dependency-groups]
 dev = [
