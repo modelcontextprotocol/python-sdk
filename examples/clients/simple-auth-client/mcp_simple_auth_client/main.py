@@ -130,6 +130,8 @@ class CallbackServer:
             self.server.server_close()
         if self.thread:
             self.thread.join(timeout=1)
+        print("🛑 Stopped callback server.")
+
 
     def wait_for_callback(self, timeout=300):
         """Wait for OAuth callback with timeout."""
@@ -158,19 +160,15 @@ class SimpleAuthClient:
     async def connect(self):
         """Connect to the MCP server."""
         print(f"🔗 Attempting to connect to {self.server_url}...")
-
+        callback_server = CallbackServer(port=3030)
         try:
-            callback_server = CallbackServer(port=3030)
             callback_server.start()
 
             async def callback_handler() -> tuple[str, str | None]:
                 """Wait for OAuth callback and return auth code and state."""
                 print("⏳ Waiting for authorization callback...")
-                try:
-                    auth_code = callback_server.wait_for_callback(timeout=300)
-                    return auth_code, callback_server.get_state()
-                finally:
-                    callback_server.stop()
+                auth_code = callback_server.wait_for_callback(timeout=300)
+                return auth_code, callback_server.get_state()
 
             client_metadata_dict = {
                 "client_name": "Simple Auth Client",
@@ -217,6 +215,8 @@ class SimpleAuthClient:
             import traceback
 
             traceback.print_exc()
+        finally:
+            callback_server.stop()
 
     async def _run_session(self, read_stream, write_stream, get_session_id):
         """Run the MCP session with the given streams."""
