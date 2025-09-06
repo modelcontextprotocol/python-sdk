@@ -182,9 +182,8 @@ class FastMCP(Generic[LifespanResultT]):
                 raise ValueError("Cannot specify both auth_server_provider and token_verifier")
             if not auth_server_provider and not token_verifier:
                 raise ValueError("Must specify either auth_server_provider or token_verifier when auth is enabled")
-        else:
-            if auth_server_provider or token_verifier:
-                raise ValueError("Cannot specify auth_server_provider or token_verifier without auth settings")
+        elif auth_server_provider or token_verifier:
+            raise ValueError("Cannot specify auth_server_provider or token_verifier without auth settings")
 
         self._auth_server_provider = auth_server_provider
         self._token_verifier = token_verifier
