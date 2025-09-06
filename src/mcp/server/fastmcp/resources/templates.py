@@ -77,15 +77,14 @@ class ResourceTemplate(BaseModel):
         # Validate path parameters match required function parameters
         if path_params != required_params:
             raise ValueError(
-                f"Mismatch between URI path parameters {path_params} "
-                f"and required function parameters {required_params}"
+                f"Mismatch between URI path parameters {path_params} and required function parameters {required_params}"
             )
 
         # Validate query parameters are a subset of optional function parameters
         if not query_params.issubset(optional_params):
             invalid_params: set[str] = query_params - optional_params
             raise ValueError(
-                f"Query parameters {invalid_params} do not match optional " f"function parameters {optional_params}"
+                f"Query parameters {invalid_params} do not match optional function parameters {optional_params}"
             )
 
         return cls(

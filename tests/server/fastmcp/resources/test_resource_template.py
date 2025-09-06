@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
@@ -12,7 +13,7 @@ class TestResourceTemplate:
     def test_template_creation(self):
         """Test creating a template from a function."""
 
-        def my_func(key: str, value: int) -> dict:
+        def my_func(key: str, value: int) -> dict[str, Any]:
             return {"key": key, "value": value}
 
         template = ResourceTemplate.from_function(
@@ -23,13 +24,12 @@ class TestResourceTemplate:
         assert template.uri_template == "test://{key}/{value}"
         assert template.name == "test"
         assert template.mime_type == "text/plain"  # default
-        test_input = {"key": "test", "value": 42}
-        assert template.fn(**test_input) == my_func(**test_input)
+        assert template.fn(key="test", value=42) == my_func(key="test", value=42)
 
     def test_template_matches(self):
         """Test matching URIs against a template."""
 
-        def my_func(key: str, value: int) -> dict:
+        def my_func(key: str, value: int) -> dict[str, Any]:
             return {"key": key, "value": value}
 
         template = ResourceTemplate.from_function(
@@ -49,7 +49,7 @@ class TestResourceTemplate:
     def test_template_with_optional_parameters(self):
         """Test templates with optional parameters via query string."""
 
-        def my_func(key: str, sort: str = "asc", limit: int = 10) -> dict:
+        def my_func(key: str, sort: str = "asc", limit: int = 10) -> dict[str, str | int]:
             return {"key": key, "sort": sort, "limit": limit}
 
         template = ResourceTemplate.from_function(
@@ -99,7 +99,7 @@ class TestResourceTemplate:
 
         with pytest.raises(
             ValueError,
-            match="Mismatch between URI path parameters .* and " "required function parameters .*",
+            match="Mismatch between URI path parameters .* and required function parameters .*",
         ):
             ResourceTemplate.from_function(
                 fn=invalid_func,
@@ -111,7 +111,7 @@ class TestResourceTemplate:
     async def test_create_resource(self):
         """Test creating a resource from a template."""
 
-        def my_func(key: str, value: int) -> dict:
+        def my_func(key: str, value: int) -> dict[str, Any]:
             return {"key": key, "value": value}
 
         template = ResourceTemplate.from_function(
@@ -252,7 +252,7 @@ class TestResourceTemplate:
     async def test_create_resource_with_optional_params(self):
         """Test creating resources with optional parameters."""
 
-        def my_func(key: str, sort: str = "asc", limit: int = 10) -> dict:
+        def my_func(key: str, sort: str = "asc", limit: int = 10) -> dict[str, str | int]:
             return {"key": key, "sort": sort, "limit": limit}
 
         template = ResourceTemplate.from_function(
@@ -284,7 +284,7 @@ class TestResourceTemplate:
             filter: str = "all",
             sort: str = "name",
             limit: int = 10,
-        ) -> dict:
+        ) -> dict[str, str | int]:
             return {
                 "category": category,
                 "id": id,
@@ -351,7 +351,7 @@ class TestResourceTemplate:
 
         with pytest.raises(
             ValueError,
-            match="Mismatch between URI path parameters .* and " "required function parameters .*",
+            match="Mismatch between URI path parameters .* and required function parameters .*",
         ):
             ResourceTemplate.from_function(
                 fn=invalid_func,
@@ -369,7 +369,7 @@ class TestResourceTemplate:
             filter: str = "all",
             sort: str = "name",
             limit: int = 10,
-        ) -> dict:
+        ) -> dict[str, str | int]:
             return {
                 "category": category,
                 "id": id,
@@ -425,7 +425,9 @@ class TestResourceTemplate:
         use_defaults_on_optional_validation_error decorator.
         """
 
-        def func_with_optional_typed_params(key: str, opt_int: int = 42, opt_bool: bool = True) -> dict:
+        def func_with_optional_typed_params(
+            key: str, opt_int: int = 42, opt_bool: bool = True
+        ) -> dict[str, str | int | bool]:
             return {"key": key, "opt_int": opt_int, "opt_bool": opt_bool}
 
         template = ResourceTemplate.from_function(
@@ -493,7 +495,7 @@ class TestResourceTemplate:
         assert result5["opt_bool"] is True  # Default used
 
         # Case 6: Optional string param with empty value, should use default value
-        def func_opt_str(key: str, opt_s: str = "default_val") -> dict:
+        def func_opt_str(key: str, opt_s: str = "default_val") -> dict[str, str]:
             return {"key": key, "opt_s": opt_s}
 
         template_str = ResourceTemplate.from_function(
@@ -513,7 +515,7 @@ class TestResourceTemplate:
         and not suppressed by the new decorator.
         """
 
-        def func_with_required_typed_param(req_int: int, key: str) -> dict:
+        def func_with_required_typed_param(req_int: int, key: str) -> dict[str, int | str]:
             return {"req_int": req_int, "key": key}
 
         template = ResourceTemplate.from_function(

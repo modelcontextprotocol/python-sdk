@@ -32,7 +32,7 @@ async def test_resource_template_edge_cases():
     # Test case 3: Template with mismatched parameters
     with pytest.raises(
         ValueError,
-        match="Mismatch between URI path parameters .* and " "required function parameters .*",
+        match="Mismatch between URI path parameters .* and required function parameters .*",
     ):
 
         @mcp.resource("resource://users/{user_id}/profile")
@@ -42,7 +42,7 @@ async def test_resource_template_edge_cases():
     # Test case 4: Template with extra required function parameters
     with pytest.raises(
         ValueError,
-        match="Mismatch between URI path parameters .* and " "required function parameters .*",
+        match="Mismatch between URI path parameters .* and required function parameters .*",
     ):
 
         @mcp.resource("resource://users/{user_id}/profile")
@@ -52,7 +52,7 @@ async def test_resource_template_edge_cases():
     # Test case 5: Template with missing function parameters
     with pytest.raises(
         ValueError,
-        match="Mismatch between URI path parameters .* and " "required function parameters .*",
+        match="Mismatch between URI path parameters .* and required function parameters .*",
     ):
 
         @mcp.resource("resource://users/{user_id}/profile/{section}")
@@ -62,7 +62,7 @@ async def test_resource_template_edge_cases():
     # Test case 6: Invalid query parameter in template (not optional in function)
     with pytest.raises(
         ValueError,
-        match="Mismatch between URI path parameters .* and " "required function parameters .*",
+        match="Mismatch between URI path parameters .* and required function parameters .*",
     ):
 
         @mcp.resource("resource://users/{user_id}/profile{?required_param}")
@@ -159,7 +159,7 @@ async def test_resource_template_optional_param_default_fallback_e2e():
         theme: str = "dark",
         timeout: int = 30,
         is_feature_enabled: bool = False,
-    ) -> dict:
+    ) -> dict[str, str | int | bool]:
         return {
             "section": section,
             "theme": theme,
@@ -248,7 +248,7 @@ async def test_resource_template_optional_param_default_fallback_e2e():
         # 7. Invalid required path param type
         # This scenario is more about the FastMCP.read_resource and its error handling
         @mcp.resource("resource://item/{item_code}/check")  # item_code is string here
-        def check_item(item_code: int) -> dict:  # but int in function
+        def check_item(item_code: int) -> dict[str, str | bool]:  # but int in function
             return {"item_code_type": str(type(item_code)), "valid_code": item_code > 0}
 
         uri7 = "resource://item/notaninteger/check"

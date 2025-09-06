@@ -1,7 +1,15 @@
-from typing import Annotated
+# NOTE: Those were added because we actually want to test wrong type annotations.
+# pyright: reportUnknownParameterType=false
+# pyright: reportMissingParameterType=false
+# pyright: reportUnknownArgumentType=false
+# pyright: reportUnknownLambdaType=false
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Annotated, Any, TypedDict
 
 import annotated_types
 import pytest
+from dirty_equals import IsPartialDict
 from pydantic import BaseModel, Field, ValidationError, validate_call
 
 from mcp.server.fastmcp.utilities.func_metadata import (
@@ -59,7 +67,7 @@ def complex_arguments_fn(
     an_int_with_equals_field: int = Field(1, ge=0),
     int_annotated_with_default: Annotated[int, Field(description="hey")] = 5,
 ) -> str:
-    _ = (
+    _: Any = (
         an_int,
         must_be_none,
         must_be_none_dumb_annotation,
@@ -196,10 +204,52 @@ def test_skip_names():
     assert model.also_keep == 2.5  # type: ignore
 
 
+def test_structured_output_dict_str_types():
+    """Test that dict[str, T] types are handled without wrapping."""
+
+    # Test dict[str, Any]
+    def func_dict_any() -> dict[str, Any]:
+        return {"a": 1, "b": "hello", "c": [1, 2, 3]}
+
+    meta = func_metadata(func_dict_any)
+
+    assert meta.output_schema == IsPartialDict(type="object", title="func_dict_anyDictOutput")
+
+    # Test dict[str, str]
+    def func_dict_str() -> dict[str, str]:
+        return {"name": "John", "city": "NYC"}
+
+    meta = func_metadata(func_dict_str)
+    assert meta.output_schema == {
+        "type": "object",
+        "additionalProperties": {"type": "string"},
+        "title": "func_dict_strDictOutput",
+    }
+
+    # Test dict[str, list[int]]
+    def func_dict_list() -> dict[str, list[int]]:
+        return {"nums": [1, 2, 3], "more": [4, 5, 6]}
+
+    meta = func_metadata(func_dict_list)
+    assert meta.output_schema == {
+        "type": "object",
+        "additionalProperties": {"type": "array", "items": {"type": "integer"}},
+        "title": "func_dict_listDictOutput",
+    }
+
+    # Test dict[int, str] - should be wrapped since key is not str
+    def func_dict_int_key() -> dict[int, str]:
+        return {1: "a", 2: "b"}
+
+    meta = func_metadata(func_dict_int_key)
+    assert meta.output_schema is not None
+    assert "result" in meta.output_schema["properties"]
+
+
 @pytest.mark.anyio
 async def test_lambda_function():
     """Test lambda function schema and validation"""
-    fn = lambda x, y=5: x  # noqa: E731
+    fn: Callable[[str, int], str] = lambda x, y=5: x  # noqa: E731
     meta = func_metadata(lambda x, y=5: x)
 
     # Test schema
@@ -413,55 +463,693 @@ def test_str_vs_int():
     assert result["b"] == 123
 
 
+def test_str_annotation_preserves_json_string():
+    """
+    Regression test for PR #1113: Ensure that when a parameter is annotated as str,
+    valid JSON strings are NOT parsed into Python objects.
+
+    This test would fail before the fix (JSON string would be parsed to dict)
+    and passes after the fix (JSON string remains as string).
+    """
+
+    def process_json_config(config: str, enabled: bool = True) -> str:
+        """Function that expects a JSON string as a string parameter."""
+        # In real use, this function might validate or transform the JSON string
+        # before parsing it, or pass it to another service as-is
+        return f"Processing config: {config}"
+
+    meta = func_metadata(process_json_config)
+
+    # Test case 1: JSON object as string
+    json_obj_str = '{"database": "postgres", "port": 5432}'
+    result = meta.pre_parse_json({"config": json_obj_str, "enabled": True})
+
+    # The config parameter should remain as a string, NOT be parsed to a dict
+    assert isinstance(result["config"], str)
+    assert result["config"] == json_obj_str
+
+    # Test case 2: JSON array as string
+    json_array_str = '["item1", "item2", "item3"]'
+    result = meta.pre_parse_json({"config": json_array_str})
+
+    # Should remain as string
+    assert isinstance(result["config"], str)
+    assert result["config"] == json_array_str
+
+    # Test case 3: JSON string value (double-encoded)
+    json_string_str = '"This is a JSON string"'
+    result = meta.pre_parse_json({"config": json_string_str})
+
+    # Should remain as the original string with quotes
+    assert isinstance(result["config"], str)
+    assert result["config"] == json_string_str
+
+    # Test case 4: Complex nested JSON as string
+    complex_json_str = '{"users": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}], "count": 2}'
+    result = meta.pre_parse_json({"config": complex_json_str})
+
+    # Should remain as string
+    assert isinstance(result["config"], str)
+    assert result["config"] == complex_json_str
+
+
+@pytest.mark.anyio
+async def test_str_annotation_runtime_validation():
+    """
+    Regression test for PR #1113: Test runtime validation with string parameters
+    containing valid JSON to ensure they are passed as strings, not parsed objects.
+    """
+
+    def handle_json_payload(payload: str, strict_mode: bool = False) -> str:
+        """Function that processes a JSON payload as a string."""
+        # This function expects to receive the raw JSON string
+        # It might parse it later after validation or logging
+        assert isinstance(payload, str), f"Expected str, got {type(payload)}"
+        return f"Handled payload of length {len(payload)}"
+
+    meta = func_metadata(handle_json_payload)
+
+    # Test with a JSON object string
+    json_payload = '{"action": "create", "resource": "user", "data": {"name": "Test User"}}'
+
+    result = await meta.call_fn_with_arg_validation(
+        handle_json_payload,
+        fn_is_async=False,
+        arguments_to_validate={"payload": json_payload, "strict_mode": True},
+        arguments_to_pass_directly=None,
+    )
+
+    # The function should have received the string and returned successfully
+    assert result == f"Handled payload of length {len(json_payload)}"
+
+    # Test with JSON array string
+    json_array_payload = '["task1", "task2", "task3"]'
+
+    result = await meta.call_fn_with_arg_validation(
+        handle_json_payload,
+        fn_is_async=False,
+        arguments_to_validate={"payload": json_array_payload},
+        arguments_to_pass_directly=None,
+    )
+
+    assert result == f"Handled payload of length {len(json_array_payload)}"
+
+
+# Tests for structured output functionality
+
+
+def test_structured_output_requires_return_annotation():
+    """Test that structured_output=True requires a return annotation"""
+    from mcp.server.fastmcp.exceptions import InvalidSignature
+
+    def func_no_annotation():
+        return "hello"
+
+    def func_none_annotation() -> None:
+        return None
+
+    with pytest.raises(InvalidSignature) as exc_info:
+        func_metadata(func_no_annotation, structured_output=True)
+    assert "return annotation required" in str(exc_info.value)
+
+    # None annotation should work
+    meta = func_metadata(func_none_annotation)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "type": "null"}},
+        "required": ["result"],
+        "title": "func_none_annotationOutput",
+    }
+
+
+def test_structured_output_basemodel():
+    """Test structured output with BaseModel return types"""
+
+    class PersonModel(BaseModel):
+        name: str
+        age: int
+        email: str | None = None
+
+    def func_returning_person() -> PersonModel:
+        return PersonModel(name="Alice", age=30)
+
+    meta = func_metadata(func_returning_person)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "name": {"title": "Name", "type": "string"},
+            "age": {"title": "Age", "type": "integer"},
+            "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None, "title": "Email"},
+        },
+        "required": ["name", "age"],
+        "title": "PersonModel",
+    }
+
+
+def test_structured_output_primitives():
+    """Test structured output with primitive return types"""
+
+    def func_str() -> str:
+        return "hello"
+
+    def func_int() -> int:
+        return 42
+
+    def func_float() -> float:
+        return 3.14
+
+    def func_bool() -> bool:
+        return True
+
+    def func_bytes() -> bytes:
+        return b"data"
+
+    # Test string
+    meta = func_metadata(func_str)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "type": "string"}},
+        "required": ["result"],
+        "title": "func_strOutput",
+    }
+
+    # Test int
+    meta = func_metadata(func_int)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "type": "integer"}},
+        "required": ["result"],
+        "title": "func_intOutput",
+    }
+
+    # Test float
+    meta = func_metadata(func_float)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "type": "number"}},
+        "required": ["result"],
+        "title": "func_floatOutput",
+    }
+
+    # Test bool
+    meta = func_metadata(func_bool)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "type": "boolean"}},
+        "required": ["result"],
+        "title": "func_boolOutput",
+    }
+
+    # Test bytes
+    meta = func_metadata(func_bytes)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "type": "string", "format": "binary"}},
+        "required": ["result"],
+        "title": "func_bytesOutput",
+    }
+
+
+def test_structured_output_generic_types():
+    """Test structured output with generic types (list, dict, Union, etc.)"""
+
+    def func_list_str() -> list[str]:
+        return ["a", "b", "c"]
+
+    def func_dict_str_int() -> dict[str, int]:
+        return {"a": 1, "b": 2}
+
+    def func_union() -> str | int:
+        return "hello"
+
+    def func_optional() -> str | None:
+        return None
+
+    # Test list
+    meta = func_metadata(func_list_str)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "type": "array", "items": {"type": "string"}}},
+        "required": ["result"],
+        "title": "func_list_strOutput",
+    }
+
+    # Test dict[str, int] - should NOT be wrapped
+    meta = func_metadata(func_dict_str_int)
+    assert meta.output_schema == {
+        "type": "object",
+        "additionalProperties": {"type": "integer"},
+        "title": "func_dict_str_intDictOutput",
+    }
+
+    # Test Union
+    meta = func_metadata(func_union)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "anyOf": [{"type": "string"}, {"type": "integer"}]}},
+        "required": ["result"],
+        "title": "func_unionOutput",
+    }
+
+    # Test Optional
+    meta = func_metadata(func_optional)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {"result": {"title": "Result", "anyOf": [{"type": "string"}, {"type": "null"}]}},
+        "required": ["result"],
+        "title": "func_optionalOutput",
+    }
+
+
+def test_structured_output_dataclass():
+    """Test structured output with dataclass return types"""
+
+    @dataclass
+    class PersonDataClass:
+        name: str
+        age: int
+        email: str | None = None
+        tags: list[str] | None = None
+
+    def func_returning_dataclass() -> PersonDataClass:
+        return PersonDataClass(name="Bob", age=25)
+
+    meta = func_metadata(func_returning_dataclass)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "name": {"title": "Name", "type": "string"},
+            "age": {"title": "Age", "type": "integer"},
+            "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None, "title": "Email"},
+            "tags": {
+                "anyOf": [{"items": {"type": "string"}, "type": "array"}, {"type": "null"}],
+                "default": None,
+                "title": "Tags",
+            },
+        },
+        "required": ["name", "age"],
+        "title": "PersonDataClass",
+    }
+
+
+def test_structured_output_typeddict():
+    """Test structured output with TypedDict return types"""
+
+    class PersonTypedDictOptional(TypedDict, total=False):
+        name: str
+        age: int
+
+    def func_returning_typeddict_optional() -> PersonTypedDictOptional:
+        return {"name": "Dave"}  # Only returning one field to test partial dict
+
+    meta = func_metadata(func_returning_typeddict_optional)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "name": {"title": "Name", "type": "string", "default": None},
+            "age": {"title": "Age", "type": "integer", "default": None},
+        },
+        "title": "PersonTypedDictOptional",
+    }
+
+    # Test with total=True (all required)
+    class PersonTypedDictRequired(TypedDict):
+        name: str
+        age: int
+        email: str | None
+
+    def func_returning_typeddict_required() -> PersonTypedDictRequired:
+        return {"name": "Eve", "age": 40, "email": None}  # Testing None value
+
+    meta = func_metadata(func_returning_typeddict_required)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "name": {"title": "Name", "type": "string"},
+            "age": {"title": "Age", "type": "integer"},
+            "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Email"},
+        },
+        "required": ["name", "age", "email"],
+        "title": "PersonTypedDictRequired",
+    }
+
+
+def test_structured_output_ordinary_class():
+    """Test structured output with ordinary annotated classes"""
+
+    class PersonClass:
+        name: str
+        age: int
+        email: str | None
+
+        def __init__(self, name: str, age: int, email: str | None = None):
+            self.name = name
+            self.age = age
+            self.email = email
+
+    def func_returning_class() -> PersonClass:
+        return PersonClass("Helen", 55)
+
+    meta = func_metadata(func_returning_class)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "name": {"title": "Name", "type": "string"},
+            "age": {"title": "Age", "type": "integer"},
+            "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Email"},
+        },
+        "required": ["name", "age", "email"],
+        "title": "PersonClass",
+    }
+
+
+def test_unstructured_output_unannotated_class():
+    # Test with class that has no annotations
+    class UnannotatedClass:
+        def __init__(self, x, y):
+            self.x = x
+            self.y = y
+
+    def func_returning_unannotated() -> UnannotatedClass:
+        return UnannotatedClass(1, 2)
+
+    meta = func_metadata(func_returning_unannotated)
+    assert meta.output_schema is None
+
+
+def test_structured_output_with_field_descriptions():
+    """Test that Field descriptions are preserved in structured output"""
+
+    class ModelWithDescriptions(BaseModel):
+        name: Annotated[str, Field(description="The person's full name")]
+        age: Annotated[int, Field(description="Age in years", ge=0, le=150)]
+
+    def func_with_descriptions() -> ModelWithDescriptions:
+        return ModelWithDescriptions(name="Ian", age=60)
+
+    meta = func_metadata(func_with_descriptions)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "name": {"title": "Name", "type": "string", "description": "The person's full name"},
+            "age": {"title": "Age", "type": "integer", "description": "Age in years", "minimum": 0, "maximum": 150},
+        },
+        "required": ["name", "age"],
+        "title": "ModelWithDescriptions",
+    }
+
+
+def test_structured_output_nested_models():
+    """Test structured output with nested models"""
+
+    class Address(BaseModel):
+        street: str
+        city: str
+        zipcode: str
+
+    class PersonWithAddress(BaseModel):
+        name: str
+        address: Address
+
+    def func_nested() -> PersonWithAddress:
+        return PersonWithAddress(name="Jack", address=Address(street="123 Main St", city="Anytown", zipcode="12345"))
+
+    meta = func_metadata(func_nested)
+    assert meta.output_schema == {
+        "type": "object",
+        "$defs": {
+            "Address": {
+                "type": "object",
+                "properties": {
+                    "street": {"title": "Street", "type": "string"},
+                    "city": {"title": "City", "type": "string"},
+                    "zipcode": {"title": "Zipcode", "type": "string"},
+                },
+                "required": ["street", "city", "zipcode"],
+                "title": "Address",
+            }
+        },
+        "properties": {
+            "name": {"title": "Name", "type": "string"},
+            "address": {"$ref": "#/$defs/Address"},
+        },
+        "required": ["name", "address"],
+        "title": "PersonWithAddress",
+    }
+
+
+def test_structured_output_unserializable_type_error():
+    """Test error when structured_output=True is used with unserializable types"""
+    from typing import NamedTuple
+
+    from mcp.server.fastmcp.exceptions import InvalidSignature
+
+    # Test with a class that has non-serializable default values
+    class ConfigWithCallable:
+        name: str
+        # Callable defaults are not JSON serializable and will trigger Pydantic warnings
+        callback: Callable[[Any], Any] = lambda x: x * 2
+
+    def func_returning_config_with_callable() -> ConfigWithCallable:
+        return ConfigWithCallable()
+
+    # Should work without structured_output=True (returns None for output_schema)
+    meta = func_metadata(func_returning_config_with_callable)
+    assert meta.output_schema is None
+
+    # Should raise error with structured_output=True
+    with pytest.raises(InvalidSignature) as exc_info:
+        func_metadata(func_returning_config_with_callable, structured_output=True)
+    assert "is not serializable for structured output" in str(exc_info.value)
+    assert "ConfigWithCallable" in str(exc_info.value)
+
+    # Also test with NamedTuple for good measure
+    class Point(NamedTuple):
+        x: int
+        y: int
+
+    def func_returning_namedtuple() -> Point:
+        return Point(1, 2)
+
+    # Should work without structured_output=True (returns None for output_schema)
+    meta = func_metadata(func_returning_namedtuple)
+    assert meta.output_schema is None
+
+    # Should raise error with structured_output=True
+    with pytest.raises(InvalidSignature) as exc_info:
+        func_metadata(func_returning_namedtuple, structured_output=True)
+    assert "is not serializable for structured output" in str(exc_info.value)
+    assert "Point" in str(exc_info.value)
+
+
+def test_structured_output_aliases():
+    """Test that field aliases are consistent between schema and output"""
+
+    class ModelWithAliases(BaseModel):
+        field_first: str | None = Field(default=None, alias="first", description="The first field.")
+        field_second: str | None = Field(default=None, alias="second", description="The second field.")
+
+    def func_with_aliases() -> ModelWithAliases:
+        # When aliases are defined, we must use the aliased names to set values
+        return ModelWithAliases(**{"first": "hello", "second": "world"})
+
+    meta = func_metadata(func_with_aliases)
+
+    # Check that schema uses aliases
+    assert meta.output_schema is not None
+    assert "first" in meta.output_schema["properties"]
+    assert "second" in meta.output_schema["properties"]
+    assert "field_first" not in meta.output_schema["properties"]
+    assert "field_second" not in meta.output_schema["properties"]
+
+    # Check that the actual output uses aliases too
+    result = ModelWithAliases(**{"first": "hello", "second": "world"})
+    _, structured_content = meta.convert_result(result)
+
+    # The structured content should use aliases to match the schema
+    assert "first" in structured_content
+    assert "second" in structured_content
+    assert "field_first" not in structured_content
+    assert "field_second" not in structured_content
+    assert structured_content["first"] == "hello"
+    assert structured_content["second"] == "world"
+
+    # Also test the case where we have a model with defaults to ensure aliases work in all cases
+    result_with_defaults = ModelWithAliases()  # Uses default None values
+    _, structured_content_defaults = meta.convert_result(result_with_defaults)
+
+    # Even with defaults, should use aliases in output
+    assert "first" in structured_content_defaults
+    assert "second" in structured_content_defaults
+    assert "field_first" not in structured_content_defaults
+    assert "field_second" not in structured_content_defaults
+    assert structured_content_defaults["first"] is None
+    assert structured_content_defaults["second"] is None
+
+
+def test_basemodel_reserved_names():
+    """Test that functions with parameters named after BaseModel methods work correctly"""
+
+    def func_with_reserved_names(
+        model_dump: str,
+        model_validate: int,
+        dict: list[str],
+        json: dict[str, Any],
+        validate: bool,
+        copy: float,
+        normal_param: str,
+    ) -> str:
+        return f"{model_dump}, {model_validate}, {dict}, {json}, {validate}, {copy}, {normal_param}"
+
+    meta = func_metadata(func_with_reserved_names)
+
+    # Check that the schema has all the original parameter names (using aliases)
+    schema = meta.arg_model.model_json_schema(by_alias=True)
+    assert "model_dump" in schema["properties"]
+    assert "model_validate" in schema["properties"]
+    assert "dict" in schema["properties"]
+    assert "json" in schema["properties"]
+    assert "validate" in schema["properties"]
+    assert "copy" in schema["properties"]
+    assert "normal_param" in schema["properties"]
+
+
+@pytest.mark.anyio
+async def test_basemodel_reserved_names_validation():
+    """Test that validation and calling works with reserved parameter names"""
+
+    def func_with_reserved_names(
+        model_dump: str,
+        model_validate: int,
+        dict: list[str],
+        json: dict[str, Any],
+        validate: bool,
+        normal_param: str,
+    ) -> str:
+        return f"{model_dump}|{model_validate}|{len(dict)}|{json}|{validate}|{normal_param}"
+
+    meta = func_metadata(func_with_reserved_names)
+
+    # Test validation with reserved names
+    result = await meta.call_fn_with_arg_validation(
+        func_with_reserved_names,
+        fn_is_async=False,
+        arguments_to_validate={
+            "model_dump": "test_dump",
+            "model_validate": 42,
+            "dict": ["a", "b", "c"],
+            "json": {"key": "value"},
+            "validate": True,
+            "normal_param": "normal",
+        },
+        arguments_to_pass_directly=None,
+    )
+
+    assert result == "test_dump|42|3|{'key': 'value'}|True|normal"
+
+    # Test that the model can still call its own methods
+    model_instance = meta.arg_model.model_validate(
+        {
+            "model_dump": "dump_value",
+            "model_validate": 123,
+            "dict": ["x", "y"],
+            "json": {"foo": "bar"},
+            "validate": False,
+            "normal_param": "test",
+        }
+    )
+
+    # The model should still have its methods accessible
+    assert hasattr(model_instance, "model_dump")
+    assert callable(model_instance.model_dump)
+
+    # model_dump_one_level should return the original parameter names
+    dumped = model_instance.model_dump_one_level()
+    assert dumped["model_dump"] == "dump_value"
+    assert dumped["model_validate"] == 123
+    assert dumped["dict"] == ["x", "y"]
+    assert dumped["json"] == {"foo": "bar"}
+    assert dumped["validate"] is False
+    assert dumped["normal_param"] == "test"
+
+
+def test_basemodel_reserved_names_with_json_preparsing():
+    """Test that pre_parse_json works correctly with reserved parameter names"""
+
+    def func_with_reserved_json(
+        json: dict[str, Any],
+        model_dump: list[int],
+        normal: str,
+    ) -> str:
+        return "ok"
+
+    meta = func_metadata(func_with_reserved_json)
+
+    # Test pre-parsing with reserved names
+    result = meta.pre_parse_json(
+        {
+            "json": '{"nested": "data"}',  # JSON string that should be parsed
+            "model_dump": "[1, 2, 3]",  # JSON string that should be parsed
+            "normal": "plain string",  # Should remain as string
+        }
+    )
+
+    assert result["json"] == {"nested": "data"}
+    assert result["model_dump"] == [1, 2, 3]
+    assert result["normal"] == "plain string"
+
+
 # Test functions for use_defaults_on_optional_validation_error decorator
 
 
-def sync_func_for_decorator(req_param: str, opt_int: int = 10, opt_bool: bool = False) -> dict:
+def sync_func_for_decorator(req_param: str, opt_int: int = 10, opt_bool: bool = False) -> dict[str, str | int | bool]:
     return {"req_param": req_param, "opt_int": opt_int, "opt_bool": opt_bool}
 
 
-async def async_func_for_decorator(req_param: str, opt_int: int = 20, opt_str: str = "default") -> dict:
+async def async_func_for_decorator(req_param: str, opt_int: int = 20, opt_str: str = "default") -> dict[str, str | int]:
     return {"req_param": req_param, "opt_int": opt_int, "opt_str": opt_str}
 
 
 class TestUseDefaultsOnOptionalValidationErrorDecorator:
     @pytest.fixture
-    def decorated_sync_func(self):
+    def decorated_sync_func(self) -> Callable[..., dict[str, str | int | bool]]:
         # Apply validate_call first, then our decorator
         return use_defaults_on_optional_validation_error(validate_call(sync_func_for_decorator))
 
     @pytest.fixture
-    def decorated_async_func(self):
+    def decorated_async_func(self) -> Callable[..., Awaitable[dict[str, str | int]]]:
         # Apply validate_call first, then our decorator
         return use_defaults_on_optional_validation_error(validate_call(async_func_for_decorator))
 
-    def test_sync_all_valid(self, decorated_sync_func):
+    def test_sync_all_valid(self, decorated_sync_func: Callable[..., dict[str, str | int | bool]]):
         result = decorated_sync_func(req_param="test", opt_int=100, opt_bool=True)
         assert result == {"req_param": "test", "opt_int": 100, "opt_bool": True}
 
-    def test_sync_omit_optionals(self, decorated_sync_func):
+    def test_sync_omit_optionals(self, decorated_sync_func: Callable[..., dict[str, str | int | bool]]):
         result = decorated_sync_func(req_param="test")
         assert result == {"req_param": "test", "opt_int": 10, "opt_bool": False}
 
-    def test_sync_invalid_opt_int(self, decorated_sync_func):
+    def test_sync_invalid_opt_int(self, decorated_sync_func: Callable[..., dict[str, str | int | bool]]):
         # opt_int="bad" should cause ValidationError, decorator catches, uses default 10
         result = decorated_sync_func(req_param="test", opt_int="bad")
         assert result == {"req_param": "test", "opt_int": 10, "opt_bool": False}
 
-    def test_sync_invalid_opt_bool(self, decorated_sync_func):
+    def test_sync_invalid_opt_bool(self, decorated_sync_func: Callable[..., dict[str, str | int | bool]]):
         # opt_bool="bad" should cause ValidationError, decorator catches, uses default False
         result = decorated_sync_func(req_param="test", opt_bool="bad")
         assert result == {"req_param": "test", "opt_int": 10, "opt_bool": False}
 
-    def test_sync_invalid_opt_int_and_valid_opt_bool(self, decorated_sync_func):
+    def test_sync_invalid_opt_int_and_valid_opt_bool(
+        self, decorated_sync_func: Callable[..., dict[str, str | int | bool]]
+    ):
         result = decorated_sync_func(req_param="test", opt_int="bad", opt_bool=True)
         assert result == {"req_param": "test", "opt_int": 10, "opt_bool": True}
 
-    def test_sync_all_optionals_invalid(self, decorated_sync_func):
+    def test_sync_all_optionals_invalid(self, decorated_sync_func: Callable[..., dict[str, str | int | bool]]):
         result = decorated_sync_func(req_param="test", opt_int="bad", opt_bool="bad")
         assert result == {"req_param": "test", "opt_int": 10, "opt_bool": False}
 
-    def test_sync_required_param_missing(self, decorated_sync_func):
+    def test_sync_required_param_missing(self, decorated_sync_func: Callable[..., dict[str, str | int | bool]]):
         with pytest.raises(ValidationError):
             decorated_sync_func(opt_int=100)  # Missing req_param
 
@@ -469,7 +1157,7 @@ class TestUseDefaultsOnOptionalValidationErrorDecorator:
         # If req_param itself was typed, e.g., req_param: int, and we passed "bad"
         # For this test, sync_func_for_decorator has req_param: str, which is flexible.
         # Let's define a quick one for this specific case.
-        def temp_sync_func(req_int_param: int, opt_str: str = "s") -> dict:
+        def temp_sync_func(req_int_param: int, opt_str: str = "s") -> dict[str, int | str]:
             return {"req_int_param": req_int_param, "opt_str": opt_str}
 
         decorated_temp_func = use_defaults_on_optional_validation_error(validate_call(temp_sync_func))
@@ -477,7 +1165,7 @@ class TestUseDefaultsOnOptionalValidationErrorDecorator:
             decorated_temp_func(req_int_param="notanint")
 
     @pytest.mark.anyio
-    async def test_async_all_valid(self, decorated_async_func):
+    async def test_async_all_valid(self, decorated_async_func: Callable[..., Awaitable[dict[str, str | int]]]):
         result = await decorated_async_func(req_param="async_test", opt_int=200, opt_str="custom")
         assert result == {
             "req_param": "async_test",
@@ -486,7 +1174,7 @@ class TestUseDefaultsOnOptionalValidationErrorDecorator:
         }
 
     @pytest.mark.anyio
-    async def test_async_omit_optionals(self, decorated_async_func):
+    async def test_async_omit_optionals(self, decorated_async_func: Callable[..., Awaitable[dict[str, str | int]]]):
         result = await decorated_async_func(req_param="async_test")
         assert result == {
             "req_param": "async_test",
@@ -495,7 +1183,7 @@ class TestUseDefaultsOnOptionalValidationErrorDecorator:
         }
 
     @pytest.mark.anyio
-    async def test_async_invalid_opt_int(self, decorated_async_func):
+    async def test_async_invalid_opt_int(self, decorated_async_func: Callable[..., Awaitable[dict[str, str | int]]]):
         result = await decorated_async_func(req_param="async_test", opt_int="bad")
         assert result == {
             "req_param": "async_test",
@@ -504,7 +1192,9 @@ class TestUseDefaultsOnOptionalValidationErrorDecorator:
         }
 
     @pytest.mark.anyio
-    async def test_async_invalid_opt_str_but_is_int(self, decorated_async_func):
+    async def test_async_invalid_opt_str_but_is_int(
+        self, decorated_async_func: Callable[..., Awaitable[dict[str, str | int]]]
+    ):
         # opt_str=123 (int) for str type should cause ValidationError, decorator uses default "default"
         # Note: pydantic's validate_call might auto-convert int to str if not in strict mode.
         # Let's assume default strictness where int is not directly valid for str.
@@ -517,6 +1207,8 @@ class TestUseDefaultsOnOptionalValidationErrorDecorator:
         }
 
     @pytest.mark.anyio
-    async def test_async_required_param_missing(self, decorated_async_func):
+    async def test_async_required_param_missing(
+        self, decorated_async_func: Callable[..., Awaitable[dict[str, str | int]]]
+    ):
         with pytest.raises(ValidationError):
             await decorated_async_func(opt_int=100)

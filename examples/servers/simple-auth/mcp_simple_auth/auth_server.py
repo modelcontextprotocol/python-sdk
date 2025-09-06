@@ -7,8 +7,6 @@ Can be replaced with enterprise authorization servers like Auth0, Entra ID, etc.
 NOTE: this is a simplified example for demonstration purposes.
 This is not a production-ready implementation.
 
-Usage:
-    python -m mcp_simple_auth.auth_server --port=9000
 """
 
 import asyncio
@@ -20,14 +18,14 @@ from pydantic import AnyHttpUrl, BaseModel
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
-from starlette.responses import JSONResponse, RedirectResponse, Response
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 from uvicorn import Config, Server
 
 from mcp.server.auth.routes import cors_middleware, create_auth_routes
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
 
-from .github_oauth_provider import GitHubOAuthProvider, GitHubOAuthSettings
+from .simple_auth_provider import SimpleAuthSettings, SimpleOAuthProvider
 
 logger = logging.getLogger(__name__)
 
@@ -39,60 +37,64 @@ class AuthServerSettings(BaseModel):
     host: str = "localhost"
     port: int = 9000
     server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:9000")
-    github_callback_path: str = "http://localhost:9000/github/callback"
+    auth_callback_path: str = "http://localhost:9000/login/callback"
 
 
-class GitHubProxyAuthProvider(GitHubOAuthProvider):
+class SimpleAuthProvider(SimpleOAuthProvider):
     """
-    Authorization Server provider that proxies GitHub OAuth.
+    Authorization Server provider with simple demo authentication.
 
     This provider:
-    1. Issues MCP tokens after GitHub authentication
+    1. Issues MCP tokens after simple credential authentication
     2. Stores token state for introspection by Resource Servers
-    3. Maps MCP tokens to GitHub tokens for API access
     """
 
-    def __init__(self, github_settings: GitHubOAuthSettings, github_callback_path: str):
-        super().__init__(github_settings, github_callback_path)
+    def __init__(self, auth_settings: SimpleAuthSettings, auth_callback_path: str, server_url: str):
+        super().__init__(auth_settings, auth_callback_path, server_url)
 
 
-def create_authorization_server(server_settings: AuthServerSettings, github_settings: GitHubOAuthSettings) -> Starlette:
+def create_authorization_server(server_settings: AuthServerSettings, auth_settings: SimpleAuthSettings) -> Starlette:
     """Create the Authorization Server application."""
-    oauth_provider = GitHubProxyAuthProvider(github_settings, server_settings.github_callback_path)
+    oauth_provider = SimpleAuthProvider(
+        auth_settings, server_settings.auth_callback_path, str(server_settings.server_url)
+    )
 
-    auth_settings = AuthSettings(
+    mcp_auth_settings = AuthSettings(
         issuer_url=server_settings.server_url,
         client_registration_options=ClientRegistrationOptions(
             enabled=True,
-            valid_scopes=[github_settings.mcp_scope],
-            default_scopes=[github_settings.mcp_scope],
+            valid_scopes=[auth_settings.mcp_scope],
+            default_scopes=[auth_settings.mcp_scope],
         ),
-        required_scopes=[github_settings.mcp_scope],
+        required_scopes=[auth_settings.mcp_scope],
         resource_server_url=None,
     )
 
     # Create OAuth routes
     routes = create_auth_routes(
         provider=oauth_provider,
-        issuer_url=auth_settings.issuer_url,
-        service_documentation_url=auth_settings.service_documentation_url,
-        client_registration_options=auth_settings.client_registration_options,
-        revocation_options=auth_settings.revocation_options,
+        issuer_url=mcp_auth_settings.issuer_url,
+        service_documentation_url=mcp_auth_settings.service_documentation_url,
+        client_registration_options=mcp_auth_settings.client_registration_options,
+        revocation_options=mcp_auth_settings.revocation_options,
     )
 
-    # Add GitHub callback route
-    async def github_callback_handler(request: Request) -> Response:
-        """Handle GitHub OAuth callback."""
-        code = request.query_params.get("code")
+    # Add login page route (GET)
+    async def login_page_handler(request: Request) -> Response:
+        """Show login form."""
         state = request.query_params.get("state")
+        if not state:
+            raise HTTPException(400, "Missing state parameter")
+        return await oauth_provider.get_login_page(state)
 
-        if not code or not state:
-            raise HTTPException(400, "Missing code or state parameter")
+    routes.append(Route("/login", endpoint=login_page_handler, methods=["GET"]))
 
-        redirect_uri = await oauth_provider.handle_github_callback(code, state)
-        return RedirectResponse(url=redirect_uri, status_code=302)
+    # Add login callback route (POST)
+    async def login_callback_handler(request: Request) -> Response:
+        """Handle simple authentication callback."""
+        return await oauth_provider.handle_login_callback(request)
 
-    routes.append(Route("/github/callback", endpoint=github_callback_handler, methods=["GET"]))
+    routes.append(Route("/login/callback", endpoint=login_callback_handler, methods=["POST"]))
 
     # Add token introspection endpoint (RFC 7662) for Resource Servers
     async def introspect_handler(request: Request) -> Response:
@@ -112,7 +114,6 @@ def create_authorization_server(server_settings: AuthServerSettings, github_sett
         if not access_token:
             return JSONResponse({"active": False})
 
-        # Return token info for Resource Server
         return JSONResponse(
             {
                 "active": True,
@@ -133,39 +134,12 @@ def create_authorization_server(server_settings: AuthServerSettings, github_sett
         )
     )
 
-    # Add GitHub user info endpoint (for Resource Server to fetch user data)
-    async def github_user_handler(request: Request) -> Response:
-        """
-        Proxy endpoint to get GitHub user info using stored GitHub tokens.
-
-        Resource Servers call this with MCP tokens to get GitHub user data
-        without exposing GitHub tokens to clients.
-        """
-        # Extract Bearer token
-        auth_header = request.headers.get("authorization", "")
-        if not auth_header.startswith("Bearer "):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
-
-        mcp_token = auth_header[7:]
-
-        # Get GitHub user info using the provider method
-        user_info = await oauth_provider.get_github_user_info(mcp_token)
-        return JSONResponse(user_info)
-
-    routes.append(
-        Route(
-            "/github/user",
-            endpoint=cors_middleware(github_user_handler, ["GET", "OPTIONS"]),
-            methods=["GET", "OPTIONS"],
-        )
-    )
-
     return Starlette(routes=routes)
 
 
-async def run_server(server_settings: AuthServerSettings, github_settings: GitHubOAuthSettings):
+async def run_server(server_settings: AuthServerSettings, auth_settings: SimpleAuthSettings):
     """Run the Authorization Server."""
-    auth_server = create_authorization_server(server_settings, github_settings)
+    auth_server = create_authorization_server(server_settings, auth_settings)
 
     config = Config(
         auth_server,
@@ -175,22 +149,7 @@ async def run_server(server_settings: AuthServerSettings, github_settings: GitHu
     )
     server = Server(config)
 
-    logger.info("=" * 80)
-    logger.info("MCP AUTHORIZATION SERVER")
-    logger.info("=" * 80)
-    logger.info(f"Server URL: {server_settings.server_url}")
-    logger.info("Endpoints:")
-    logger.info(f"  - OAuth Metadata: {server_settings.server_url}/.well-known/oauth-authorization-server")
-    logger.info(f"  - Client Registration: {server_settings.server_url}/register")
-    logger.info(f"  - Authorization: {server_settings.server_url}/authorize")
-    logger.info(f"  - Token Exchange: {server_settings.server_url}/token")
-    logger.info(f"  - Token Introspection: {server_settings.server_url}/introspect")
-    logger.info(f"  - GitHub Callback: {server_settings.server_url}/github/callback")
-    logger.info(f"  - GitHub User Proxy: {server_settings.server_url}/github/user")
-    logger.info("")
-    logger.info("Resource Servers should use /introspect to validate tokens")
-    logger.info("Configure GitHub App callback URL: " + server_settings.github_callback_path)
-    logger.info("=" * 80)
+    logger.info(f"🚀 MCP Authorization Server running on {server_settings.server_url}")
 
     await server.serve()
 
@@ -203,18 +162,12 @@ def main(port: int) -> int:
 
     This server handles OAuth flows and can be used by multiple Resource Servers.
 
-    Environment variables needed:
-    - MCP_GITHUB_CLIENT_ID: GitHub OAuth Client ID
-    - MCP_GITHUB_CLIENT_SECRET: GitHub OAuth Client Secret
+    Uses simple hardcoded credentials for demo purposes.
     """
     logging.basicConfig(level=logging.INFO)
 
-    # Load GitHub settings from environment variables
-    github_settings = GitHubOAuthSettings()
-
-    # Validate required fields
-    if not github_settings.github_client_id or not github_settings.github_client_secret:
-        raise ValueError("GitHub credentials not provided")
+    # Load simple auth settings
+    auth_settings = SimpleAuthSettings()
 
     # Create server settings
     host = "localhost"
@@ -223,10 +176,10 @@ def main(port: int) -> int:
         host=host,
         port=port,
         server_url=AnyHttpUrl(server_url),
-        github_callback_path=f"{server_url}/github/callback",
+        auth_callback_path=f"{server_url}/login",
     )
 
-    asyncio.run(run_server(server_settings, github_settings))
+    asyncio.run(run_server(server_settings, auth_settings))
     return 0
 
 
