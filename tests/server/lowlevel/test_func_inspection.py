@@ -60,7 +60,7 @@ class MyClass:
         pass
 
     @staticmethod
-    async def request_static_method_bad_arg_name(self: types.ListPromptsRequest):  # pyright: ignore[reportSelfClsParameterName]
+    async def request_static_method_bad_arg_name(self: types.ListPromptsRequest):  # pyright: ignore[reportSelfClsParameterName] # noqa: PLW0211
         """Static method with request parameter, but the request argument is named self"""
         pass
 
