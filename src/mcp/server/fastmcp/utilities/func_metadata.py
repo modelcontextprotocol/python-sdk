@@ -139,14 +139,14 @@ class FuncMetadata(BaseModel):
             if field_info.alias:
                 key_to_field_info[field_info.alias] = field_info
 
-        for data_key in data.keys():
+        for data_key, data_value in data.items():
             if data_key not in key_to_field_info:
                 continue
 
             field_info = key_to_field_info[data_key]
-            if isinstance(data[data_key], str) and field_info.annotation is not str:
+            if isinstance(data_value, str) and field_info.annotation is not str:
                 try:
-                    pre_parsed = json.loads(data[data_key])
+                    pre_parsed = json.loads(data_value)
                 except json.JSONDecodeError:
                     continue  # Not JSON - skip
                 if isinstance(pre_parsed, str | int | float):
