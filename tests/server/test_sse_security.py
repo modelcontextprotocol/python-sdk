@@ -127,7 +127,7 @@ async def test_sse_security_invalid_origin_header(server_port: int):
 
         async with httpx.AsyncClient() as client:
             response = await client.get(f"http://127.0.0.1:{server_port}/sse", headers=headers)
-            assert response.status_code == 400
+            assert response.status_code == 403
             assert response.text == "Invalid Origin header"
 
     finally:

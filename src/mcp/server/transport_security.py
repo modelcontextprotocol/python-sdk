@@ -122,6 +122,6 @@ class TransportSecurityMiddleware:
         # Validate Origin header
         origin = request.headers.get("origin")
         if not self._validate_origin(origin):
-            return Response("Invalid Origin header", status_code=400)
+            return Response("Invalid Origin header", status_code=403)
 
         return None
