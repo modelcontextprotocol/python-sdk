@@ -613,11 +613,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                         raise message
                     await session.send_log_message(
                         level="error",
-                        data={
-                            "exception_type": type(message).__name__,
-                            "exception_value": str(message),
-                            "exception_traceback": None,
-                        },
+                        data="Internal Server Error",
                         logger="mcp.server.exception_handler",
                     )
 

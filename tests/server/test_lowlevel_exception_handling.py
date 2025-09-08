@@ -49,9 +49,7 @@ async def test_exception_handling_with_raise_exceptions_false(exception_class: t
     call_args = session.send_log_message.call_args
 
     assert call_args.kwargs["level"] == "error"
-    assert call_args.kwargs["data"]["exception_type"] == exception_class.__name__
-    assert call_args.kwargs["data"]["exception_value"] == str(test_exception)
-    assert call_args.kwargs["data"]["exception_traceback"] is None
+    assert call_args.kwargs["data"] == "Internal Server Error"
     assert call_args.kwargs["logger"] == "mcp.server.exception_handler"
 
 
