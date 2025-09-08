@@ -2,6 +2,7 @@ import anyio
 import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
+from mcp.server.lowlevel.helper_types import ReadResourceContents
 from pydantic import AnyUrl, FileUrl
 from starlette.requests import Request
 
@@ -46,7 +47,7 @@ def main(port: int, transport: str) -> int:
         ]
 
     @app.read_resource()
-    async def read_resource(uri: AnyUrl) -> str | bytes:
+    async def read_resource(uri: AnyUrl):
         if uri.path is None:
             raise ValueError(f"Invalid resource path: {uri}")
         name = uri.path.replace(".txt", "").lstrip("/")
@@ -54,7 +55,7 @@ def main(port: int, transport: str) -> int:
         if name not in SAMPLE_RESOURCES:
             raise ValueError(f"Unknown resource: {uri}")
 
-        return SAMPLE_RESOURCES[name]["content"]
+        return [ReadResourceContents(content=SAMPLE_RESOURCES[name]["content"], mime_type="text/plain")]
 
     if transport == "sse":
         from mcp.server.sse import SseServerTransport

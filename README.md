@@ -31,22 +31,32 @@
     - [Prompts](#prompts)
     - [Images](#images)
     - [Context](#context)
+      - [Getting Context in Functions](#getting-context-in-functions)
+      - [Context Properties and Methods](#context-properties-and-methods)
     - [Completions](#completions)
     - [Elicitation](#elicitation)
     - [Sampling](#sampling)
     - [Logging and Notifications](#logging-and-notifications)
     - [Authentication](#authentication)
     - [FastMCP Properties](#fastmcp-properties)
-    - [Session Properties](#session-properties-and-methods)
+    - [Session Properties and Methods](#session-properties-and-methods)
     - [Request Context Properties](#request-context-properties)
   - [Running Your Server](#running-your-server)
     - [Development Mode](#development-mode)
     - [Claude Desktop Integration](#claude-desktop-integration)
     - [Direct Execution](#direct-execution)
     - [Streamable HTTP Transport](#streamable-http-transport)
+      - [CORS Configuration for Browser-Based Clients](#cors-configuration-for-browser-based-clients)
     - [Mounting to an Existing ASGI Server](#mounting-to-an-existing-asgi-server)
+      - [StreamableHTTP servers](#streamablehttp-servers)
+        - [Basic mounting](#basic-mounting)
+        - [Host-based routing](#host-based-routing)
+        - [Multiple servers with path configuration](#multiple-servers-with-path-configuration)
+        - [Path configuration at initialization](#path-configuration-at-initialization)
+      - [SSE servers](#sse-servers)
   - [Advanced Usage](#advanced-usage)
     - [Low-Level Server](#low-level-server)
+      - [Structured Output Support](#structured-output-support)
     - [Writing MCP Clients](#writing-mcp-clients)
     - [Client Display Utilities](#client-display-utilities)
     - [OAuth Authentication for Clients](#oauth-authentication-for-clients)
@@ -400,7 +410,7 @@ def get_weather(city: str) -> WeatherData:
     """Get weather for a city - returns structured data."""
     # Simulated weather data
     return WeatherData(
-        temperature=72.5,
+        temperature=22.5,
         humidity=45.0,
         condition="sunny",
         wind_speed=5.2,
@@ -2137,6 +2147,7 @@ MCP servers declare capabilities during initialization:
 
 ## Documentation
 
+- [API Reference](https://modelcontextprotocol.github.io/python-sdk/api/)
 - [Model Context Protocol documentation](https://modelcontextprotocol.io)
 - [Model Context Protocol specification](https://spec.modelcontextprotocol.io)
 - [Officially supported servers](https://github.com/modelcontextprotocol/servers)
