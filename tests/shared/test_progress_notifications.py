@@ -329,9 +329,9 @@ async def test_progress_callback_exception_logging():
     """Test that exceptions in progress callbacks are logged and \
         don't crash the session."""
     # Track logged warnings
-    logged_errors = []
+    logged_errors: list[str] = []
 
-    def mock_log_error(msg, *args):
+    def mock_log_error(msg: str, *args: Any) -> None:
         logged_errors.append(msg % args if args else msg)
 
     # Create a progress callback that raises an exception
@@ -342,7 +342,7 @@ async def test_progress_callback_exception_logging():
     server = Server(name="TestProgressServer")
 
     @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict | None) -> list[types.TextContent]:
+    async def handle_call_tool(name: str, arguments: Any) -> list[types.TextContent]:
         if name == "progress_tool":
             # Send a progress notification
             await server.request_context.session.send_progress_notification(
