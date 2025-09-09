@@ -1,22 +1,26 @@
 import base64
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
-from pydantic import AnyUrl
+from pydantic import AnyUrl, BaseModel
 from starlette.routing import Mount, Route
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.fastmcp.prompts.base import EmbeddedResource, Message, UserMessage
+from mcp.server.fastmcp.prompts.base import Message, UserMessage
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
-from mcp.server.fastmcp.utilities.types import Image
+from mcp.server.fastmcp.utilities.types import Audio, Image
+from mcp.server.session import ServerSession
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import (
     create_connected_server_and_client_session as client_session,
 )
 from mcp.types import (
+    AudioContent,
     BlobResourceContents,
+    ContentBlock,
+    EmbeddedResource,
     ImageContent,
     TextContent,
     TextResourceContents,
@@ -58,9 +62,7 @@ class TestServer:
         """Test SSE app creation with different mount paths."""
         # Test with default mount path
         mcp = FastMCP()
-        with patch.object(
-            mcp, "_normalize_path", return_value="/messages/"
-        ) as mock_normalize:
+        with patch.object(mcp, "_normalize_path", return_value="/messages/") as mock_normalize:
             mcp.sse_app()
             # Verify _normalize_path was called with correct args
             mock_normalize.assert_called_once_with("/", "/messages/")
@@ -68,18 +70,14 @@ class TestServer:
         # Test with custom mount path in settings
         mcp = FastMCP()
         mcp.settings.mount_path = "/custom"
-        with patch.object(
-            mcp, "_normalize_path", return_value="/custom/messages/"
-        ) as mock_normalize:
+        with patch.object(mcp, "_normalize_path", return_value="/custom/messages/") as mock_normalize:
             mcp.sse_app()
             # Verify _normalize_path was called with correct args
             mock_normalize.assert_called_once_with("/custom", "/messages/")
 
         # Test with mount_path parameter
         mcp = FastMCP()
-        with patch.object(
-            mcp, "_normalize_path", return_value="/param/messages/"
-        ) as mock_normalize:
+        with patch.object(mcp, "_normalize_path", return_value="/param/messages/") as mock_normalize:
             mcp.sse_app(mount_path="/param")
             # Verify _normalize_path was called with correct args
             mock_normalize.assert_called_once_with("/param", "/messages/")
@@ -102,9 +100,7 @@ class TestServer:
 
         # Verify path values
         assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
-        assert (
-            mount_routes[0].path == "/messages"
-        ), "Mount route path should be /messages"
+        assert mount_routes[0].path == "/messages", "Mount route path should be /messages"
 
         # Test with mount path as parameter
         mcp = FastMCP()
@@ -120,20 +116,14 @@ class TestServer:
 
         # Verify path values
         assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
-        assert (
-            mount_routes[0].path == "/messages"
-        ), "Mount route path should be /messages"
+        assert mount_routes[0].path == "/messages", "Mount route path should be /messages"
 
     @pytest.mark.anyio
     async def test_non_ascii_description(self):
         """Test that FastMCP handles non-ASCII characters in descriptions correctly"""
         mcp = FastMCP()
 
-        @mcp.tool(
-            description=(
-                "🌟 This tool uses emojis and UTF-8 characters: á é í ó ú ñ 漢字 🎉"
-            )
-        )
+        @mcp.tool(description=("🌟 This tool uses emojis and UTF-8 characters: á é í ó ú ñ 漢字 🎉"))
         def hello_world(name: str = "世界") -> str:
             return f"¡Hola, {name}! 👋"
 
@@ -157,7 +147,7 @@ class TestServer:
         mcp = FastMCP()
 
         @mcp.tool()
-        def add(x: int, y: int) -> int:
+        def sum(x: int, y: int) -> int:
             return x + y
 
         assert len(mcp._tool_manager.list_tools()) == 1
@@ -169,7 +159,7 @@ class TestServer:
         with pytest.raises(TypeError, match="The @tool decorator was used incorrectly"):
 
             @mcp.tool  # Missing parentheses #type: ignore
-            def add(x: int, y: int) -> int:
+            def sum(x: int, y: int) -> int:
                 return x + y
 
     @pytest.mark.anyio
@@ -186,9 +176,7 @@ class TestServer:
     async def test_add_resource_decorator_incorrect_usage(self):
         mcp = FastMCP()
 
-        with pytest.raises(
-            TypeError, match="The @resource decorator was used incorrectly"
-        ):
+        with pytest.raises(TypeError, match="The @resource decorator was used incorrectly"):
 
             @mcp.resource  # Missing parentheses #type: ignore
             def get_data(x: str) -> str:
@@ -207,10 +195,15 @@ def image_tool_fn(path: str) -> Image:
     return Image(path)
 
 
-def mixed_content_tool_fn() -> list[TextContent | ImageContent]:
+def audio_tool_fn(path: str) -> Audio:
+    return Audio(path)
+
+
+def mixed_content_tool_fn() -> list[ContentBlock]:
     return [
         TextContent(type="text", text="Hello"),
         ImageContent(type="image", data="abc", mimeType="image/png"),
+        AudioContent(type="audio", data="def", mimeType="audio/wav"),
     ]
 
 
@@ -286,6 +279,9 @@ class TestServerTools:
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert content.text == "3"
+            # Check structured content - int return type should have structured output
+            assert result.structuredContent is not None
+            assert result.structuredContent == {"result": 3}
 
     @pytest.mark.anyio
     async def test_tool_image_helper(self, tmp_path: Path):
@@ -305,6 +301,62 @@ class TestServerTools:
             # Verify base64 encoding
             decoded = base64.b64decode(content.data)
             assert decoded == b"fake png data"
+            # Check structured content - Image return type should NOT have structured output
+            assert result.structuredContent is None
+
+    @pytest.mark.anyio
+    async def test_tool_audio_helper(self, tmp_path: Path):
+        # Create a test audio
+        audio_path = tmp_path / "test.wav"
+        audio_path.write_bytes(b"fake wav data")
+
+        mcp = FastMCP()
+        mcp.add_tool(audio_tool_fn)
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("audio_tool_fn", {"path": str(audio_path)})
+            assert len(result.content) == 1
+            content = result.content[0]
+            assert isinstance(content, AudioContent)
+            assert content.type == "audio"
+            assert content.mimeType == "audio/wav"
+            # Verify base64 encoding
+            decoded = base64.b64decode(content.data)
+            assert decoded == b"fake wav data"
+            # Check structured content - Image return type should NOT have structured output
+            assert result.structuredContent is None
+
+    @pytest.mark.parametrize(
+        "filename,expected_mime_type",
+        [
+            ("test.wav", "audio/wav"),
+            ("test.mp3", "audio/mpeg"),
+            ("test.ogg", "audio/ogg"),
+            ("test.flac", "audio/flac"),
+            ("test.aac", "audio/aac"),
+            ("test.m4a", "audio/mp4"),
+            ("test.unknown", "application/octet-stream"),  # Unknown extension fallback
+        ],
+    )
+    @pytest.mark.anyio
+    async def test_tool_audio_suffix_detection(self, tmp_path: Path, filename: str, expected_mime_type: str):
+        """Test that Audio helper correctly detects MIME types from file suffixes"""
+        mcp = FastMCP()
+        mcp.add_tool(audio_tool_fn)
+
+        # Create a test audio file with the specific extension
+        audio_path = tmp_path / filename
+        audio_path.write_bytes(b"fake audio data")
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("audio_tool_fn", {"path": str(audio_path)})
+            assert len(result.content) == 1
+            content = result.content[0]
+            assert isinstance(content, AudioContent)
+            assert content.type == "audio"
+            assert content.mimeType == expected_mime_type
+            # Verify base64 encoding
+            decoded = base64.b64decode(content.data)
+            assert decoded == b"fake audio data"
 
     @pytest.mark.anyio
     async def test_tool_mixed_content(self):
@@ -312,36 +364,59 @@ class TestServerTools:
         mcp.add_tool(mixed_content_tool_fn)
         async with client_session(mcp._mcp_server) as client:
             result = await client.call_tool("mixed_content_tool_fn", {})
-            assert len(result.content) == 2
-            content1 = result.content[0]
-            content2 = result.content[1]
+            assert len(result.content) == 3
+            content1, content2, content3 = result.content
             assert isinstance(content1, TextContent)
             assert content1.text == "Hello"
             assert isinstance(content2, ImageContent)
             assert content2.mimeType == "image/png"
             assert content2.data == "abc"
+            assert isinstance(content3, AudioContent)
+            assert content3.mimeType == "audio/wav"
+            assert content3.data == "def"
+            assert result.structuredContent is not None
+            assert "result" in result.structuredContent
+            structured_result = result.structuredContent["result"]
+            assert len(structured_result) == 3
+
+            expected_content = [
+                {"type": "text", "text": "Hello"},
+                {"type": "image", "data": "abc", "mimeType": "image/png"},
+                {"type": "audio", "data": "def", "mimeType": "audio/wav"},
+            ]
+
+            for i, expected in enumerate(expected_content):
+                for key, value in expected.items():
+                    assert structured_result[i][key] == value
 
     @pytest.mark.anyio
-    async def test_tool_mixed_list_with_image(self, tmp_path: Path):
+    async def test_tool_mixed_list_with_audio_and_image(self, tmp_path: Path):
         """Test that lists containing Image objects and other types are handled
         correctly"""
         # Create a test image
         image_path = tmp_path / "test.png"
         image_path.write_bytes(b"test image data")
 
-        def mixed_list_fn() -> list:
-            return [
+        # Create a test audio
+        audio_path = tmp_path / "test.wav"
+        audio_path.write_bytes(b"test audio data")
+
+        # TODO(Marcelo): It seems if we add the proper type hint, it generates an invalid JSON schema.
+        # We need to fix this.
+        def mixed_list_fn() -> list:  # type: ignore
+            return [  # type: ignore
                 "text message",
                 Image(image_path),
+                Audio(audio_path),
                 {"key": "value"},
                 TextContent(type="text", text="direct content"),
             ]
 
         mcp = FastMCP()
-        mcp.add_tool(mixed_list_fn)
+        mcp.add_tool(mixed_list_fn)  # type: ignore
         async with client_session(mcp._mcp_server) as client:
             result = await client.call_tool("mixed_list_fn", {})
-            assert len(result.content) == 4
+            assert len(result.content) == 5
             # Check text conversion
             content1 = result.content[0]
             assert isinstance(content1, TextContent)
@@ -351,14 +426,182 @@ class TestServerTools:
             assert isinstance(content2, ImageContent)
             assert content2.mimeType == "image/png"
             assert base64.b64decode(content2.data) == b"test image data"
-            # Check dict conversion
+            # Check audio conversion
             content3 = result.content[2]
-            assert isinstance(content3, TextContent)
-            assert '"key": "value"' in content3.text
-            # Check direct TextContent
+            assert isinstance(content3, AudioContent)
+            assert content3.mimeType == "audio/wav"
+            assert base64.b64decode(content3.data) == b"test audio data"
+            # Check dict conversion
             content4 = result.content[3]
             assert isinstance(content4, TextContent)
-            assert content4.text == "direct content"
+            assert '"key": "value"' in content4.text
+            # Check direct TextContent
+            content5 = result.content[4]
+            assert isinstance(content5, TextContent)
+            assert content5.text == "direct content"
+            # Check structured content - untyped list with Image objects should NOT have structured output
+            assert result.structuredContent is None
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_basemodel(self):
+        """Test tool with structured output returning BaseModel"""
+
+        class UserOutput(BaseModel):
+            name: str
+            age: int
+            active: bool = True
+
+        def get_user(user_id: int) -> UserOutput:
+            """Get user by ID"""
+            return UserOutput(name="John Doe", age=30)
+
+        mcp = FastMCP()
+        mcp.add_tool(get_user)
+
+        async with client_session(mcp._mcp_server) as client:
+            # Check that the tool has outputSchema
+            tools = await client.list_tools()
+            tool = next(t for t in tools.tools if t.name == "get_user")
+            assert tool.outputSchema is not None
+            assert tool.outputSchema["type"] == "object"
+            assert "name" in tool.outputSchema["properties"]
+            assert "age" in tool.outputSchema["properties"]
+
+            # Call the tool and check structured output
+            result = await client.call_tool("get_user", {"user_id": 123})
+            assert result.isError is False
+            assert result.structuredContent is not None
+            assert result.structuredContent == {"name": "John Doe", "age": 30, "active": True}
+            # Content should be JSON serialized version
+            assert len(result.content) == 1
+            assert isinstance(result.content[0], TextContent)
+            assert '"name": "John Doe"' in result.content[0].text
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_primitive(self):
+        """Test tool with structured output returning primitive type"""
+
+        def calculate_sum(a: int, b: int) -> int:
+            """Add two numbers"""
+            return a + b
+
+        mcp = FastMCP()
+        mcp.add_tool(calculate_sum)
+
+        async with client_session(mcp._mcp_server) as client:
+            # Check that the tool has outputSchema
+            tools = await client.list_tools()
+            tool = next(t for t in tools.tools if t.name == "calculate_sum")
+            assert tool.outputSchema is not None
+            # Primitive types are wrapped
+            assert tool.outputSchema["type"] == "object"
+            assert "result" in tool.outputSchema["properties"]
+            assert tool.outputSchema["properties"]["result"]["type"] == "integer"
+
+            # Call the tool
+            result = await client.call_tool("calculate_sum", {"a": 5, "b": 7})
+            assert result.isError is False
+            assert result.structuredContent is not None
+            assert result.structuredContent == {"result": 12}
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_list(self):
+        """Test tool with structured output returning list"""
+
+        def get_numbers() -> list[int]:
+            """Get a list of numbers"""
+            return [1, 2, 3, 4, 5]
+
+        mcp = FastMCP()
+        mcp.add_tool(get_numbers)
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("get_numbers", {})
+            assert result.isError is False
+            assert result.structuredContent is not None
+            assert result.structuredContent == {"result": [1, 2, 3, 4, 5]}
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_server_side_validation_error(self):
+        """Test that server-side validation errors are handled properly"""
+
+        def get_numbers() -> list[int]:
+            return [1, 2, 3, 4, [5]]  # type: ignore
+
+        mcp = FastMCP()
+        mcp.add_tool(get_numbers)
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("get_numbers", {})
+            assert result.isError is True
+            assert result.structuredContent is None
+            assert len(result.content) == 1
+            assert isinstance(result.content[0], TextContent)
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_dict_str_any(self):
+        """Test tool with dict[str, Any] structured output"""
+
+        def get_metadata() -> dict[str, Any]:
+            """Get metadata dictionary"""
+            return {
+                "version": "1.0.0",
+                "enabled": True,
+                "count": 42,
+                "tags": ["production", "stable"],
+                "config": {"nested": {"value": 123}},
+            }
+
+        mcp = FastMCP()
+        mcp.add_tool(get_metadata)
+
+        async with client_session(mcp._mcp_server) as client:
+            # Check schema
+            tools = await client.list_tools()
+            tool = next(t for t in tools.tools if t.name == "get_metadata")
+            assert tool.outputSchema is not None
+            assert tool.outputSchema["type"] == "object"
+            # dict[str, Any] should have minimal schema
+            assert (
+                "additionalProperties" not in tool.outputSchema or tool.outputSchema.get("additionalProperties") is True
+            )
+
+            # Call tool
+            result = await client.call_tool("get_metadata", {})
+            assert result.isError is False
+            assert result.structuredContent is not None
+            expected = {
+                "version": "1.0.0",
+                "enabled": True,
+                "count": 42,
+                "tags": ["production", "stable"],
+                "config": {"nested": {"value": 123}},
+            }
+            assert result.structuredContent == expected
+
+    @pytest.mark.anyio
+    async def test_tool_structured_output_dict_str_typed(self):
+        """Test tool with dict[str, T] structured output for specific T"""
+
+        def get_settings() -> dict[str, str]:
+            """Get settings as string dictionary"""
+            return {"theme": "dark", "language": "en", "timezone": "UTC"}
+
+        mcp = FastMCP()
+        mcp.add_tool(get_settings)
+
+        async with client_session(mcp._mcp_server) as client:
+            # Check schema
+            tools = await client.list_tools()
+            tool = next(t for t in tools.tools if t.name == "get_settings")
+            assert tool.outputSchema is not None
+            assert tool.outputSchema["type"] == "object"
+            assert tool.outputSchema["additionalProperties"]["type"] == "string"
+
+            # Call tool
+            result = await client.call_tool("get_settings", {})
+            assert result.isError is False
+            assert result.structuredContent == {"theme": "dark", "language": "en", "timezone": "UTC"}
 
 
 class TestServerResources:
@@ -369,9 +612,7 @@ class TestServerResources:
         def get_text():
             return "Hello, world!"
 
-        resource = FunctionResource(
-            uri=AnyUrl("resource://test"), name="test", fn=get_text
-        )
+        resource = FunctionResource(uri=AnyUrl("resource://test"), name="test", fn=get_text)
         mcp.add_resource(resource)
 
         async with client_session(mcp._mcp_server) as client:
@@ -407,9 +648,7 @@ class TestServerResources:
         text_file = tmp_path / "test.txt"
         text_file.write_text("Hello from file!")
 
-        resource = FileResource(
-            uri=AnyUrl("file://test.txt"), name="test.txt", path=text_file
-        )
+        resource = FileResource(uri=AnyUrl("file://test.txt"), name="test.txt", path=text_file)
         mcp.add_resource(resource)
 
         async with client_session(mcp._mcp_server) as client:
@@ -436,10 +675,7 @@ class TestServerResources:
         async with client_session(mcp._mcp_server) as client:
             result = await client.read_resource(AnyUrl("file://test.bin"))
             assert isinstance(result.contents[0], BlobResourceContents)
-            assert (
-                result.contents[0].blob
-                == base64.b64encode(b"Binary file data").decode()
-            )
+            assert result.contents[0].blob == base64.b64encode(b"Binary file data").decode()
 
     @pytest.mark.anyio
     async def test_function_resource(self):
@@ -490,7 +726,7 @@ class TestServerResourceTemplates:
         mcp = FastMCP()
 
         @mcp.resource("resource://{param}")
-        def get_data(param) -> str:
+        def get_data(param) -> str:  # type: ignore
             return "Data"
 
     @pytest.mark.anyio
@@ -528,9 +764,7 @@ class TestServerResourceTemplates:
             return f"Data for {org}/{repo}"
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(
-                AnyUrl("resource://cursor/fastmcp/data")
-            )
+            result = await client.read_resource(AnyUrl("resource://cursor/fastmcp/data"))
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Data for cursor/fastmcp"
 
@@ -585,7 +819,7 @@ class TestContextInjection:
         """Test that context parameters are properly detected."""
         mcp = FastMCP()
 
-        def tool_with_context(x: int, ctx: Context) -> str:
+        def tool_with_context(x: int, ctx: Context[ServerSession, None]) -> str:
             return f"Request {ctx.request_id}: {x}"
 
         tool = mcp._tool_manager.add_tool(tool_with_context)
@@ -596,7 +830,7 @@ class TestContextInjection:
         """Test that context is properly injected into tool calls."""
         mcp = FastMCP()
 
-        def tool_with_context(x: int, ctx: Context) -> str:
+        def tool_with_context(x: int, ctx: Context[ServerSession, None]) -> str:
             assert ctx.request_id is not None
             return f"Request {ctx.request_id}: {x}"
 
@@ -614,7 +848,7 @@ class TestContextInjection:
         """Test that context works in async functions."""
         mcp = FastMCP()
 
-        async def async_tool(x: int, ctx: Context) -> str:
+        async def async_tool(x: int, ctx: Context[ServerSession, None]) -> str:
             assert ctx.request_id is not None
             return f"Async request {ctx.request_id}: {x}"
 
@@ -629,12 +863,10 @@ class TestContextInjection:
 
     @pytest.mark.anyio
     async def test_context_logging(self):
-        import mcp.server.session
-
         """Test that context logging methods work."""
         mcp = FastMCP()
 
-        async def logging_tool(msg: str, ctx: Context) -> str:
+        async def logging_tool(msg: str, ctx: Context[ServerSession, None]) -> str:
             await ctx.debug("Debug message")
             await ctx.info("Info message")
             await ctx.warning("Warning message")
@@ -703,7 +935,7 @@ class TestContextInjection:
             return "resource data"
 
         @mcp.tool()
-        async def tool_with_resource(ctx: Context) -> str:
+        async def tool_with_resource(ctx: Context[ServerSession, None]) -> str:
             r_iter = await ctx.read_resource("test://data")
             r_list = list(r_iter)
             assert len(r_list) == 1
@@ -820,6 +1052,46 @@ class TestServerPrompts:
             assert content.text == "Hello, World!"
 
     @pytest.mark.anyio
+    async def test_get_prompt_with_description(self):
+        """Test getting a prompt through MCP protocol."""
+        mcp = FastMCP()
+
+        @mcp.prompt(description="Test prompt description")
+        def fn(name: str) -> str:
+            return f"Hello, {name}!"
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.get_prompt("fn", {"name": "World"})
+            assert result.description == "Test prompt description"
+
+    @pytest.mark.anyio
+    async def test_get_prompt_without_description(self):
+        """Test getting a prompt without description returns empty string."""
+        mcp = FastMCP()
+
+        @mcp.prompt()
+        def fn(name: str) -> str:
+            return f"Hello, {name}!"
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.get_prompt("fn", {"name": "World"})
+            assert result.description == ""
+
+    @pytest.mark.anyio
+    async def test_get_prompt_with_docstring_description(self):
+        """Test prompt uses docstring as description when not explicitly provided."""
+        mcp = FastMCP()
+
+        @mcp.prompt()
+        def fn(name: str) -> str:
+            """This is the function docstring."""
+            return f"Hello, {name}!"
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.get_prompt("fn", {"name": "World"})
+            assert result.description == "This is the function docstring."
+
+    @pytest.mark.anyio
     async def test_get_prompt_with_resource(self):
         """Test getting a prompt that returns resource content."""
         mcp = FastMCP()
@@ -869,3 +1141,22 @@ class TestServerPrompts:
         async with client_session(mcp._mcp_server) as client:
             with pytest.raises(McpError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
+
+
+def test_streamable_http_no_redirect() -> None:
+    """Test that streamable HTTP routes are correctly configured."""
+    mcp = FastMCP()
+    app = mcp.streamable_http_app()
+
+    # Find routes by type - streamable_http_app creates Route objects, not Mount objects
+    streamable_routes = [
+        r
+        for r in app.routes
+        if isinstance(r, Route) and hasattr(r, "path") and r.path == mcp.settings.streamable_http_path
+    ]
+
+    # Verify routes exist
+    assert len(streamable_routes) == 1, "Should have one streamable route"
+
+    # Verify path values
+    assert streamable_routes[0].path == "/mcp", "Streamable route path should be /mcp"

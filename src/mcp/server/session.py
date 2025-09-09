@@ -64,9 +64,7 @@ class InitializationState(Enum):
 ServerSessionT = TypeVar("ServerSessionT", bound="ServerSession")
 
 ServerRequestResponder = (
-    RequestResponder[types.ClientRequest, types.ServerResult]
-    | types.ClientNotification
-    | Exception
+    RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception
 )
 
 
@@ -89,22 +87,16 @@ class ServerSession(
         init_options: InitializationOptions,
         stateless: bool = False,
     ) -> None:
-        super().__init__(
-            read_stream, write_stream, types.ClientRequest, types.ClientNotification
-        )
+        super().__init__(read_stream, write_stream, types.ClientRequest, types.ClientNotification)
         self._initialization_state = (
-            InitializationState.Initialized
-            if stateless
-            else InitializationState.NotInitialized
+            InitializationState.Initialized if stateless else InitializationState.NotInitialized
         )
 
         self._init_options = init_options
-        self._incoming_message_stream_writer, self._incoming_message_stream_reader = (
-            anyio.create_memory_object_stream[ServerRequestResponder](0)
-        )
-        self._exit_stack.push_async_callback(
-            lambda: self._incoming_message_stream_reader.aclose()
-        )
+        self._incoming_message_stream_writer, self._incoming_message_stream_reader = anyio.create_memory_object_stream[
+            ServerRequestResponder
+        ](0)
+        self._exit_stack.push_async_callback(lambda: self._incoming_message_stream_reader.aclose())
 
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
@@ -129,15 +121,16 @@ class ServerSession(
             if client_caps.sampling is None:
                 return False
 
+        if capability.elicitation is not None:
+            if client_caps.elicitation is None:
+                return False
+
         if capability.experimental is not None:
             if client_caps.experimental is None:
                 return False
             # Check each experimental capability
             for exp_key, exp_value in capability.experimental.items():
-                if (
-                    exp_key not in client_caps.experimental
-                    or client_caps.experimental[exp_key] != exp_value
-                ):
+                if exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value:
                     return False
 
         return True
@@ -146,9 +139,7 @@ class ServerSession(
         async with self._incoming_message_stream_writer:
             await super()._receive_loop()
 
-    async def _received_request(
-        self, responder: RequestResponder[types.ClientRequest, types.ServerResult]
-    ):
+    async def _received_request(self, responder: RequestResponder[types.ClientRequest, types.ServerResult]):
         match responder.request.root:
             case types.InitializeRequest(params=params):
                 requested_version = params.protocolVersion
@@ -170,15 +161,14 @@ class ServerSession(
                             )
                         )
                     )
+            case types.PingRequest():
+                # Ping requests are allowed at any time
+                pass
             case _:
                 if self._initialization_state != InitializationState.Initialized:
-                    raise RuntimeError(
-                        "Received request before initialization was complete"
-                    )
+                    raise RuntimeError("Received request before initialization was complete")
 
-    async def _received_notification(
-        self, notification: types.ClientNotification
-    ) -> None:
+    async def _received_notification(self, notification: types.ClientNotification) -> None:
         # Need this to avoid ASYNC910
         await anyio.lowlevel.checkpoint()
         match notification.root:
@@ -186,9 +176,7 @@ class ServerSession(
                 self._initialization_state = InitializationState.Initialized
             case _:
                 if self._initialization_state != InitializationState.Initialized:
-                    raise RuntimeError(
-                        "Received notification before initialization was complete"
-                    )
+                    raise RuntimeError("Received notification before initialization was complete")
 
     async def send_log_message(
         self,
@@ -201,7 +189,6 @@ class ServerSession(
         await self.send_notification(
             types.ServerNotification(
                 types.LoggingMessageNotification(
-                    method="notifications/message",
                     params=types.LoggingMessageNotificationParams(
                         level=level,
                         data=data,
@@ -217,7 +204,6 @@ class ServerSession(
         await self.send_notification(
             types.ServerNotification(
                 types.ResourceUpdatedNotification(
-                    method="notifications/resources/updated",
                     params=types.ResourceUpdatedNotificationParams(uri=uri),
                 )
             )
@@ -240,7 +226,6 @@ class ServerSession(
         return await self.send_request(
             request=types.ServerRequest(
                 types.CreateMessageRequest(
-                    method="sampling/createMessage",
                     params=types.CreateMessageRequestParams(
                         messages=messages,
                         systemPrompt=system_prompt,
@@ -262,22 +247,42 @@ class ServerSession(
     async def list_roots(self) -> types.ListRootsResult:
         """Send a roots/list request."""
         return await self.send_request(
+            types.ServerRequest(types.ListRootsRequest()),
+            types.ListRootsResult,
+        )
+
+    async def elicit(
+        self,
+        message: str,
+        requestedSchema: types.ElicitRequestedSchema,
+        related_request_id: types.RequestId | None = None,
+    ) -> types.ElicitResult:
+        """Send an elicitation/create request.
+
+        Args:
+            message: The message to present to the user
+            requestedSchema: Schema defining the expected response structure
+
+        Returns:
+            The client's response
+        """
+        return await self.send_request(
             types.ServerRequest(
-                types.ListRootsRequest(
-                    method="roots/list",
+                types.ElicitRequest(
+                    params=types.ElicitRequestParams(
+                        message=message,
+                        requestedSchema=requestedSchema,
+                    ),
                 )
             ),
-            types.ListRootsResult,
+            types.ElicitResult,
+            metadata=ServerMessageMetadata(related_request_id=related_request_id),
         )
 
     async def send_ping(self) -> types.EmptyResult:
         """Send a ping request."""
         return await self.send_request(
-            types.ServerRequest(
-                types.PingRequest(
-                    method="ping",
-                )
-            ),
+            types.ServerRequest(types.PingRequest()),
             types.EmptyResult,
         )
 
@@ -293,7 +298,6 @@ class ServerSession(
         await self.send_notification(
             types.ServerNotification(
                 types.ProgressNotification(
-                    method="notifications/progress",
                     params=types.ProgressNotificationParams(
                         progressToken=progress_token,
                         progress=progress,
@@ -307,33 +311,15 @@ class ServerSession(
 
     async def send_resource_list_changed(self) -> None:
         """Send a resource list changed notification."""
-        await self.send_notification(
-            types.ServerNotification(
-                types.ResourceListChangedNotification(
-                    method="notifications/resources/list_changed",
-                )
-            )
-        )
+        await self.send_notification(types.ServerNotification(types.ResourceListChangedNotification()))
 
     async def send_tool_list_changed(self) -> None:
         """Send a tool list changed notification."""
-        await self.send_notification(
-            types.ServerNotification(
-                types.ToolListChangedNotification(
-                    method="notifications/tools/list_changed",
-                )
-            )
-        )
+        await self.send_notification(types.ServerNotification(types.ToolListChangedNotification()))
 
     async def send_prompt_list_changed(self) -> None:
         """Send a prompt list changed notification."""
-        await self.send_notification(
-            types.ServerNotification(
-                types.PromptListChangedNotification(
-                    method="notifications/prompts/list_changed",
-                )
-            )
-        )
+        await self.send_notification(types.ServerNotification(types.PromptListChangedNotification()))
 
     async def _handle_incoming(self, req: ServerRequestResponder) -> None:
         await self._incoming_message_stream_writer.send(req)

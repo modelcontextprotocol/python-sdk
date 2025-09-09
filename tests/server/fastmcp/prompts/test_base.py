@@ -1,13 +1,9 @@
+from typing import Any
+
 import pytest
 from pydantic import FileUrl
 
-from mcp.server.fastmcp.prompts.base import (
-    AssistantMessage,
-    Message,
-    Prompt,
-    TextContent,
-    UserMessage,
-)
+from mcp.server.fastmcp.prompts.base import AssistantMessage, Message, Prompt, TextContent, UserMessage
 from mcp.types import EmbeddedResource, TextResourceContents
 
 
@@ -18,9 +14,7 @@ class TestRenderPrompt:
             return "Hello, world!"
 
         prompt = Prompt.from_function(fn)
-        assert await prompt.render() == [
-            UserMessage(content=TextContent(type="text", text="Hello, world!"))
-        ]
+        assert await prompt.render() == [UserMessage(content=TextContent(type="text", text="Hello, world!"))]
 
     @pytest.mark.anyio
     async def test_async_fn(self):
@@ -28,9 +22,7 @@ class TestRenderPrompt:
             return "Hello, world!"
 
         prompt = Prompt.from_function(fn)
-        assert await prompt.render() == [
-            UserMessage(content=TextContent(type="text", text="Hello, world!"))
-        ]
+        assert await prompt.render() == [UserMessage(content=TextContent(type="text", text="Hello, world!"))]
 
     @pytest.mark.anyio
     async def test_fn_with_args(self):
@@ -39,11 +31,7 @@ class TestRenderPrompt:
 
         prompt = Prompt.from_function(fn)
         assert await prompt.render(arguments={"name": "World"}) == [
-            UserMessage(
-                content=TextContent(
-                    type="text", text="Hello, World! You're 30 years old."
-                )
-            )
+            UserMessage(content=TextContent(type="text", text="Hello, World! You're 30 years old."))
         ]
 
     @pytest.mark.anyio
@@ -61,25 +49,19 @@ class TestRenderPrompt:
             return UserMessage(content="Hello, world!")
 
         prompt = Prompt.from_function(fn)
-        assert await prompt.render() == [
-            UserMessage(content=TextContent(type="text", text="Hello, world!"))
-        ]
+        assert await prompt.render() == [UserMessage(content=TextContent(type="text", text="Hello, world!"))]
 
     @pytest.mark.anyio
     async def test_fn_returns_assistant_message(self):
         async def fn() -> AssistantMessage:
-            return AssistantMessage(
-                content=TextContent(type="text", text="Hello, world!")
-            )
+            return AssistantMessage(content=TextContent(type="text", text="Hello, world!"))
 
         prompt = Prompt.from_function(fn)
-        assert await prompt.render() == [
-            AssistantMessage(content=TextContent(type="text", text="Hello, world!"))
-        ]
+        assert await prompt.render() == [AssistantMessage(content=TextContent(type="text", text="Hello, world!"))]
 
     @pytest.mark.anyio
     async def test_fn_returns_multiple_messages(self):
-        expected = [
+        expected: list[Message] = [
             UserMessage("Hello, world!"),
             AssistantMessage("How can I help you today?"),
             UserMessage("I'm looking for a restaurant in the center of town."),
@@ -156,9 +138,7 @@ class TestRenderPrompt:
 
         prompt = Prompt.from_function(fn)
         assert await prompt.render() == [
-            UserMessage(
-                content=TextContent(type="text", text="Please analyze this file:")
-            ),
+            UserMessage(content=TextContent(type="text", text="Please analyze this file:")),
             UserMessage(
                 content=EmbeddedResource(
                     type="resource",
@@ -169,16 +149,14 @@ class TestRenderPrompt:
                     ),
                 )
             ),
-            AssistantMessage(
-                content=TextContent(type="text", text="I'll help analyze that file.")
-            ),
+            AssistantMessage(content=TextContent(type="text", text="I'll help analyze that file.")),
         ]
 
     @pytest.mark.anyio
     async def test_fn_returns_dict_with_resource(self):
         """Test returning a dict with resource content."""
 
-        async def fn() -> dict:
+        async def fn() -> dict[str, Any]:
             return {
                 "role": "user",
                 "content": {

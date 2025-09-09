@@ -13,26 +13,15 @@ from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.shared.progress import progress
-from mcp.shared.session import (
-    BaseSession,
-    RequestResponder,
-    SessionMessage,
-)
-from mcp.types import (
-    TextContent,
-)
+from mcp.shared.session import BaseSession, RequestResponder, SessionMessage
 
 
 @pytest.mark.anyio
 async def test_bidirectional_progress_notifications():
     """Test that both client and server can send progress notifications."""
     # Create memory streams for client/server
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](5)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](5)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](5)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](5)
 
     # Run a server session so we can send progress updates in tool
     async def run_server():
@@ -51,13 +40,13 @@ async def test_bidirectional_progress_notifications():
             serv_sesh = server_session
             async for message in server_session.incoming_messages:
                 try:
-                    await server._handle_message(message, server_session, ())
+                    await server._handle_message(message, server_session, {})
                 except Exception as e:
                     raise e
 
     # Track progress updates
-    server_progress_updates = []
-    client_progress_updates = []
+    server_progress_updates: list[dict[str, Any]] = []
+    client_progress_updates: list[dict[str, Any]] = []
 
     # Progress tokens
     server_progress_token = "server_token_123"
@@ -96,7 +85,7 @@ async def test_bidirectional_progress_notifications():
 
     # Register tool handler
     @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict | None) -> list:
+    async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
         # Make sure we received a progress token
         if name == "test_tool":
             if arguments and "_meta" in arguments:
@@ -133,15 +122,13 @@ async def test_bidirectional_progress_notifications():
             else:
                 raise ValueError("Progress token not sent.")
 
-            return ["Tool executed successfully"]
+            return [types.TextContent(type="text", text="Tool executed successfully")]
 
         raise ValueError(f"Unknown tool: {name}")
 
     # Client message handler to store progress notifications
     async def handle_client_message(
-        message: RequestResponder[types.ServerRequest, types.ClientResult]
-        | types.ServerNotification
-        | Exception,
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
             raise message
@@ -177,9 +164,7 @@ async def test_bidirectional_progress_notifications():
         await client_session.list_tools()
 
         # Call test_tool with progress token
-        await client_session.call_tool(
-            "test_tool", {"_meta": {"progressToken": client_progress_token}}
-        )
+        await client_session.call_tool("test_tool", {"_meta": {"progressToken": client_progress_token}})
 
         # Send progress notifications from client to server
         await client_session.send_progress_notification(
@@ -226,17 +211,15 @@ async def test_bidirectional_progress_notifications():
 async def test_progress_context_manager():
     """Test client using progress context manager for sending progress notifications."""
     # Create memory streams for client/server
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](5)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
-        SessionMessage
-    ](5)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](5)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](5)
 
     # Track progress updates
-    server_progress_updates = []
+    server_progress_updates: list[dict[str, Any]] = []
 
     server = Server(name="ProgressContextTestServer")
+
+    progress_token = None
 
     # Register progress handler
     @server.progress_notification()
@@ -247,12 +230,7 @@ async def test_progress_context_manager():
         message: str | None,
     ):
         server_progress_updates.append(
-            {
-                "token": progress_token,
-                "progress": progress,
-                "total": total,
-                "message": message,
-            }
+            {"token": progress_token, "progress": progress, "total": total, "message": message}
         )
 
     # Run server session to receive progress updates
@@ -269,15 +247,13 @@ async def test_progress_context_manager():
         ) as server_session:
             async for message in server_session.incoming_messages:
                 try:
-                    await server._handle_message(message, server_session, ())
+                    await server._handle_message(message, server_session, {})
                 except Exception as e:
                     raise e
 
     # Client message handler
     async def handle_client_message(
-        message: RequestResponder[types.ServerRequest, types.ClientResult]
-        | types.ServerNotification
-        | Exception,
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
             raise message
@@ -307,13 +283,7 @@ async def test_progress_context_manager():
         )
 
         # cast for type checker
-        typed_context = cast(
-            RequestContext[
-                BaseSession[Any, Any, Any, Any, Any],
-                Any,
-            ],
-            request_context,
-        )
+        typed_context = cast(RequestContext[BaseSession[Any, Any, Any, Any, Any], Any], request_context)
 
         # Utilize progress context manager
         with progress(typed_context, total=100) as p:

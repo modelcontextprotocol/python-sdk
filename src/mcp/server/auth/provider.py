@@ -2,20 +2,18 @@ from dataclasses import dataclass
 from typing import Generic, Literal, Protocol, TypeVar
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-from pydantic import AnyHttpUrl, BaseModel
+from pydantic import AnyUrl, BaseModel
 
-from mcp.shared.auth import (
-    OAuthClientInformationFull,
-    OAuthToken,
-)
+from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 
 class AuthorizationParams(BaseModel):
     state: str | None
     scopes: list[str] | None
     code_challenge: str
-    redirect_uri: AnyHttpUrl
+    redirect_uri: AnyUrl
     redirect_uri_provided_explicitly: bool
+    resource: str | None = None  # RFC 8707 resource indicator
 
 
 class AuthorizationCode(BaseModel):
@@ -24,8 +22,9 @@ class AuthorizationCode(BaseModel):
     expires_at: float
     client_id: str
     code_challenge: str
-    redirect_uri: AnyHttpUrl
+    redirect_uri: AnyUrl
     redirect_uri_provided_explicitly: bool
+    resource: str | None = None  # RFC 8707 resource indicator
 
 
 class RefreshToken(BaseModel):
@@ -40,6 +39,7 @@ class AccessToken(BaseModel):
     client_id: str
     scopes: list[str]
     expires_at: int | None = None
+    resource: str | None = None  # RFC 8707 resource indicator
 
 
 RegistrationErrorCode = Literal[
@@ -89,6 +89,13 @@ class TokenError(Exception):
     error_description: str | None = None
 
 
+class TokenVerifier(Protocol):
+    """Protocol for verifying bearer tokens."""
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        """Verify a bearer token and return access info if valid."""
+
+
 # NOTE: FastMCP doesn't render any of these types in the user response, so it's
 # OK to add fields to subclasses which should not be exposed externally.
 AuthorizationCodeT = TypeVar("AuthorizationCodeT", bound=AuthorizationCode)
@@ -96,9 +103,7 @@ RefreshTokenT = TypeVar("RefreshTokenT", bound=RefreshToken)
 AccessTokenT = TypeVar("AccessTokenT", bound=AccessToken)
 
 
-class OAuthAuthorizationServerProvider(
-    Protocol, Generic[AuthorizationCodeT, RefreshTokenT, AccessTokenT]
-):
+class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, RefreshTokenT, AccessTokenT]):
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         """
         Retrieves client information by client ID.
@@ -129,9 +134,7 @@ class OAuthAuthorizationServerProvider(
         """
         ...
 
-    async def authorize(
-        self, client: OAuthClientInformationFull, params: AuthorizationParams
-    ) -> str:
+    async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
         """
         Called as part of the /authorize endpoint, and returns a URL that the client
         will be redirected to.
@@ -207,9 +210,7 @@ class OAuthAuthorizationServerProvider(
         """
         ...
 
-    async def load_refresh_token(
-        self, client: OAuthClientInformationFull, refresh_token: str
-    ) -> RefreshTokenT | None:
+    async def load_refresh_token(self, client: OAuthClientInformationFull, refresh_token: str) -> RefreshTokenT | None:
         """
         Loads a RefreshToken by its token string.
 
@@ -280,10 +281,26 @@ class OAuthAuthorizationServerProvider(
 
 def construct_redirect_uri(redirect_uri_base: str, **params: str | None) -> str:
     parsed_uri = urlparse(redirect_uri_base)
-    query_params = [(k, v) for k, vs in parse_qs(parsed_uri.query) for v in vs]
+    query_params = [(k, v) for k, vs in parse_qs(parsed_uri.query).items() for v in vs]
     for k, v in params.items():
         if v is not None:
             query_params.append((k, v))
 
     redirect_uri = urlunparse(parsed_uri._replace(query=urlencode(query_params)))
     return redirect_uri
+
+
+class ProviderTokenVerifier(TokenVerifier):
+    """Token verifier that uses an OAuthAuthorizationServerProvider.
+
+    This is provided for backwards compatibility with existing auth_server_provider
+    configurations. For new implementations using AS/RS separation, consider using
+    the TokenVerifier protocol with a dedicated implementation like IntrospectionTokenVerifier.
+    """
+
+    def __init__(self, provider: "OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToken, AccessToken]"):
+        self.provider = provider
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        """Verify token using the provider's load_access_token method."""
+        return await self.provider.load_access_token(token)

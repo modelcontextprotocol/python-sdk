@@ -8,19 +8,11 @@ from typing import Any, cast
 import pytest
 from starlette.authentication import AuthCredentials
 from starlette.datastructures import Headers
-from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.types import Message, Receive, Scope, Send
 
-from mcp.server.auth.middleware.bearer_auth import (
-    AuthenticatedUser,
-    BearerAuthBackend,
-    RequireAuthMiddleware,
-)
-from mcp.server.auth.provider import (
-    AccessToken,
-    OAuthAuthorizationServerProvider,
-)
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, BearerAuthBackend, RequireAuthMiddleware
+from mcp.server.auth.provider import AccessToken, OAuthAuthorizationServerProvider, ProviderTokenVerifier
 
 
 class MockOAuthProvider:
@@ -31,7 +23,7 @@ class MockOAuthProvider:
     """
 
     def __init__(self):
-        self.tokens = {}  # token -> AccessToken
+        self.tokens: dict[str, AccessToken] = {}  # token -> AccessToken
 
     def add_token(self, token: str, access_token: AccessToken) -> None:
         """Add a token to the provider."""
@@ -116,20 +108,16 @@ def no_expiry_access_token() -> AccessToken:
 class TestBearerAuthBackend:
     """Tests for the BearerAuthBackend class."""
 
-    async def test_no_auth_header(
-        self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
-    ):
+    async def test_no_auth_header(self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]):
         """Test authentication with no Authorization header."""
-        backend = BearerAuthBackend(provider=mock_oauth_provider)
+        backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         request = Request({"type": "http", "headers": []})
         result = await backend.authenticate(request)
         assert result is None
 
-    async def test_non_bearer_auth_header(
-        self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
-    ):
+    async def test_non_bearer_auth_header(self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]):
         """Test authentication with non-Bearer Authorization header."""
-        backend = BearerAuthBackend(provider=mock_oauth_provider)
+        backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         request = Request(
             {
                 "type": "http",
@@ -139,11 +127,9 @@ class TestBearerAuthBackend:
         result = await backend.authenticate(request)
         assert result is None
 
-    async def test_invalid_token(
-        self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
-    ):
+    async def test_invalid_token(self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]):
         """Test authentication with invalid token."""
-        backend = BearerAuthBackend(provider=mock_oauth_provider)
+        backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         request = Request(
             {
                 "type": "http",
@@ -159,10 +145,8 @@ class TestBearerAuthBackend:
         expired_access_token: AccessToken,
     ):
         """Test authentication with expired token."""
-        backend = BearerAuthBackend(provider=mock_oauth_provider)
-        add_token_to_provider(
-            mock_oauth_provider, "expired_token", expired_access_token
-        )
+        backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
+        add_token_to_provider(mock_oauth_provider, "expired_token", expired_access_token)
         request = Request(
             {
                 "type": "http",
@@ -178,7 +162,7 @@ class TestBearerAuthBackend:
         valid_access_token: AccessToken,
     ):
         """Test authentication with valid token."""
-        backend = BearerAuthBackend(provider=mock_oauth_provider)
+        backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         add_token_to_provider(mock_oauth_provider, "valid_token", valid_access_token)
         request = Request(
             {
@@ -202,10 +186,8 @@ class TestBearerAuthBackend:
         no_expiry_access_token: AccessToken,
     ):
         """Test authentication with token that has no expiry."""
-        backend = BearerAuthBackend(provider=mock_oauth_provider)
-        add_token_to_provider(
-            mock_oauth_provider, "no_expiry_token", no_expiry_access_token
-        )
+        backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
+        add_token_to_provider(mock_oauth_provider, "no_expiry_token", no_expiry_access_token)
         request = Request(
             {
                 "type": "http",
@@ -228,7 +210,7 @@ class TestBearerAuthBackend:
         valid_access_token: AccessToken,
     ):
         """Test with lowercase 'bearer' prefix in Authorization header"""
-        backend = BearerAuthBackend(provider=mock_oauth_provider)
+        backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         add_token_to_provider(mock_oauth_provider, "valid_token", valid_access_token)
         headers = Headers({"Authorization": "bearer valid_token"})
         scope = {"type": "http", "headers": headers.raw}
@@ -248,7 +230,7 @@ class TestBearerAuthBackend:
         valid_access_token: AccessToken,
     ):
         """Test with mixed 'BeArEr' prefix in Authorization header"""
-        backend = BearerAuthBackend(provider=mock_oauth_provider)
+        backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         add_token_to_provider(mock_oauth_provider, "valid_token", valid_access_token)
         headers = Headers({"authorization": "BeArEr valid_token"})
         scope = {"type": "http", "headers": headers.raw}
@@ -268,7 +250,7 @@ class TestBearerAuthBackend:
         valid_access_token: AccessToken,
     ):
         """Test authentication with mixed 'Authorization' header."""
-        backend = BearerAuthBackend(provider=mock_oauth_provider)
+        backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         add_token_to_provider(mock_oauth_provider, "valid_token", valid_access_token)
         headers = Headers({"AuThOrIzAtIoN": "BeArEr valid_token"})
         scope = {"type": "http", "headers": headers.raw}
@@ -297,14 +279,18 @@ class TestRequireAuthMiddleware:
         async def receive() -> Message:
             return {"type": "http.request"}
 
+        sent_messages: list[Message] = []
+
         async def send(message: Message) -> None:
-            pass
+            sent_messages.append(message)
 
-        with pytest.raises(HTTPException) as excinfo:
-            await middleware(scope, receive, send)
+        await middleware(scope, receive, send)
 
-        assert excinfo.value.status_code == 401
-        assert excinfo.value.detail == "Unauthorized"
+        # Check that a 401 response was sent
+        assert len(sent_messages) == 2
+        assert sent_messages[0]["type"] == "http.response.start"
+        assert sent_messages[0]["status"] == 401
+        assert any(h[0] == b"www-authenticate" for h in sent_messages[0]["headers"])
         assert not app.called
 
     async def test_non_authenticated_user(self):
@@ -317,14 +303,18 @@ class TestRequireAuthMiddleware:
         async def receive() -> Message:
             return {"type": "http.request"}
 
+        sent_messages: list[Message] = []
+
         async def send(message: Message) -> None:
-            pass
+            sent_messages.append(message)
 
-        with pytest.raises(HTTPException) as excinfo:
-            await middleware(scope, receive, send)
+        await middleware(scope, receive, send)
 
-        assert excinfo.value.status_code == 401
-        assert excinfo.value.detail == "Unauthorized"
+        # Check that a 401 response was sent
+        assert len(sent_messages) == 2
+        assert sent_messages[0]["type"] == "http.response.start"
+        assert sent_messages[0]["status"] == 401
+        assert any(h[0] == b"www-authenticate" for h in sent_messages[0]["headers"])
         assert not app.called
 
     async def test_missing_required_scope(self, valid_access_token: AccessToken):
@@ -342,14 +332,18 @@ class TestRequireAuthMiddleware:
         async def receive() -> Message:
             return {"type": "http.request"}
 
+        sent_messages: list[Message] = []
+
         async def send(message: Message) -> None:
-            pass
+            sent_messages.append(message)
 
-        with pytest.raises(HTTPException) as excinfo:
-            await middleware(scope, receive, send)
+        await middleware(scope, receive, send)
 
-        assert excinfo.value.status_code == 403
-        assert excinfo.value.detail == "Insufficient scope"
+        # Check that a 403 response was sent
+        assert len(sent_messages) == 2
+        assert sent_messages[0]["type"] == "http.response.start"
+        assert sent_messages[0]["status"] == 403
+        assert any(h[0] == b"www-authenticate" for h in sent_messages[0]["headers"])
         assert not app.called
 
     async def test_no_auth_credentials(self, valid_access_token: AccessToken):
@@ -366,14 +360,18 @@ class TestRequireAuthMiddleware:
         async def receive() -> Message:
             return {"type": "http.request"}
 
+        sent_messages: list[Message] = []
+
         async def send(message: Message) -> None:
-            pass
+            sent_messages.append(message)
 
-        with pytest.raises(HTTPException) as excinfo:
-            await middleware(scope, receive, send)
+        await middleware(scope, receive, send)
 
-        assert excinfo.value.status_code == 403
-        assert excinfo.value.detail == "Insufficient scope"
+        # Check that a 403 response was sent
+        assert len(sent_messages) == 2
+        assert sent_messages[0]["type"] == "http.response.start"
+        assert sent_messages[0]["status"] == 403
+        assert any(h[0] == b"www-authenticate" for h in sent_messages[0]["headers"])
         assert not app.called
 
     async def test_has_required_scopes(self, valid_access_token: AccessToken):
