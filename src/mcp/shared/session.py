@@ -8,7 +8,7 @@ from typing import Any, Generic, Protocol, TypeVar
 import anyio
 import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from typing_extensions import Self
 
 from mcp.shared.exceptions import McpError
