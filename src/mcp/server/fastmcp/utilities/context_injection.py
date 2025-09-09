@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import inspect
+import typing
 from collections.abc import Callable
-from typing import Any, get_origin
+from typing import Any
 
 
 def find_context_parameter(fn: Callable[..., Any]) -> str | None:
@@ -21,21 +22,26 @@ def find_context_parameter(fn: Callable[..., Any]) -> str | None:
     """
     from mcp.server.fastmcp.server import Context
 
-    sig = inspect.signature(fn)
-    for param_name, param in sig.parameters.items():
-        # Skip generic types
-        if get_origin(param.annotation) is not None:
-            continue
+    # Get type hints to properly resolve string annotations
+    try:
+        hints = typing.get_type_hints(fn)
+    except Exception:
+        # If we can't resolve type hints, we can't find the context parameter
+        return None
 
-        # Check if parameter has annotation
-        if param.annotation is not inspect.Parameter.empty:
-            try:
-                # Check if it's a Context subclass
-                if issubclass(param.annotation, Context):
+    # Check each parameter's type hint
+    for param_name, annotation in hints.items():
+        # Handle direct Context type
+        if inspect.isclass(annotation) and issubclass(annotation, Context):
+            return param_name
+
+        # Handle generic types like Optional[Context]
+        origin = typing.get_origin(annotation)
+        if origin is not None:
+            args = typing.get_args(annotation)
+            for arg in args:
+                if inspect.isclass(arg) and issubclass(arg, Context):
                     return param_name
-            except TypeError:
-                # issubclass raises TypeError for non-class types
-                pass
 
     return None
 
