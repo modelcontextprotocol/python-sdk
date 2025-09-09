@@ -335,18 +335,14 @@ async def test_progress_callback_exception_logging():
         logged_errors.append(msg % args if args else msg)
 
     # Create a progress callback that raises an exception
-    async def failing_progress_callback(
-        progress: float, total: float | None, message: str | None
-    ) -> None:
+    async def failing_progress_callback(progress: float, total: float | None, message: str | None) -> None:
         raise ValueError("Progress callback failed!")
 
     # Create a server with a tool that sends progress notifications
     server = Server(name="TestProgressServer")
 
     @server.call_tool()
-    async def handle_call_tool(
-        name: str, arguments: dict | None
-    ) -> list[types.TextContent]:
+    async def handle_call_tool(name: str, arguments: dict | None) -> list[types.TextContent]:
         if name == "progress_tool":
             # Send a progress notification
             await server.request_context.session.send_progress_notification(
@@ -376,9 +372,7 @@ async def test_progress_callback_exception_logging():
                 types.ClientRequest(
                     types.CallToolRequest(
                         method="tools/call",
-                        params=types.CallToolRequestParams(
-                            name="progress_tool", arguments={}
-                        ),
+                        params=types.CallToolRequestParams(name="progress_tool", arguments={}),
                     )
                 ),
                 types.CallToolResult,
@@ -388,12 +382,9 @@ async def test_progress_callback_exception_logging():
             # Verify the request completed successfully despite the callback failure
             assert len(result.content) == 1
             content = result.content[0]
-            assert isinstance(content, TextContent)
+            assert isinstance(content, types.TextContent)
             assert content.text == "progress_result"
 
             # Check that a warning was logged for the progress callback exception
             assert len(logged_errors) > 0
-            assert any(
-                "Progress callback raised an exception" in warning
-                for warning in logged_errors
-            )
+            assert any("Progress callback raised an exception" in warning for warning in logged_errors)
