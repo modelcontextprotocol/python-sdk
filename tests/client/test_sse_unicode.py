@@ -137,3 +137,25 @@ async def test_compliant_aiter_sse_handles_multiple_events():
     # Default event type is "message"
     assert events[2].event == "message"
     assert events[2].data == "No event name"
+
+
+async def test_compliant_aiter_sse_handles_split_crlf():
+    """Test that \r at end of chunk followed by \n in next chunk is treated as one newline."""
+    
+    # Test case where \r is at the end of one chunk and \n starts the next
+    # This should be treated as a single CRLF line ending, not two separate newlines
+    test_data = [
+        b'event: test\r',  # \r at end of chunk
+        b'\ndata: line1\r',  # \n at start of next chunk, then another \r at end
+        b'\ndata: line2\n\n',  # \n at start, completing the CRLF
+    ]
+    
+    event_source = create_mock_event_source(test_data)
+    
+    events = [event async for event in compliant_aiter_sse(event_source)]
+    
+    # Should get exactly one event with both data lines
+    assert len(events) == 1
+    assert events[0].event == "test"
+    # The SSE decoder concatenates multiple data fields with \n
+    assert events[0].data == "line1\nline2"
