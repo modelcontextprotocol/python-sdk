@@ -145,6 +145,10 @@ async def test_json_parsing_with_problematic_unicode(problematic_server: str) ->
                     assert len(response.content) == 1
                     text_content = response.content[0]
                     assert hasattr(text_content, "text"), f"Response doesn't have text: {text_content}"
+                    
+                    # Type narrowing for pyright
+                    from mcp.types import TextContent
+                    assert isinstance(text_content, TextContent)
 
                     expected = "This text contains a line separator\u2028character that may break JSON parsing"
                     assert text_content.text == expected, f"Expected: {expected!r}, Got: {text_content.text!r}"
