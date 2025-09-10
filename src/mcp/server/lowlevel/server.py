@@ -135,6 +135,8 @@ class Server(Generic[LifespanResultT, RequestT]):
         name: str,
         version: str | None = None,
         instructions: str | None = None,
+        website_url: str | None = None,
+        icons: list[types.Icon] | None = None,
         lifespan: Callable[
             [Server[LifespanResultT, RequestT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -143,6 +145,8 @@ class Server(Generic[LifespanResultT, RequestT]):
         self.name = name
         self.version = version
         self.instructions = instructions
+        self.website_url = website_url
+        self.icons = icons
         self.lifespan = lifespan
         self.request_handlers: dict[type, Callable[..., Awaitable[types.ServerResult]]] = {
             types.PingRequest: _ping_handler,
@@ -176,6 +180,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                 experimental_capabilities or {},
             ),
             instructions=self.instructions,
+            website_url=self.website_url,
+            icons=self.icons,
         )
 
     def get_capabilities(

@@ -7,7 +7,7 @@ from typing import Any, Literal
 import pydantic_core
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
-from mcp.types import ContentBlock, TextContent
+from mcp.types import ContentBlock, Icon, TextContent
 
 
 class Message(BaseModel):
@@ -62,6 +62,7 @@ class Prompt(BaseModel):
     description: str | None = Field(None, description="Description of what the prompt does")
     arguments: list[PromptArgument] | None = Field(None, description="Arguments that can be passed to the prompt")
     fn: Callable[..., PromptResult | Awaitable[PromptResult]] = Field(exclude=True)
+    icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this prompt")
 
     @classmethod
     def from_function(
@@ -70,6 +71,7 @@ class Prompt(BaseModel):
         name: str | None = None,
         title: str | None = None,
         description: str | None = None,
+        icons: list[Icon] | None = None,
     ) -> "Prompt":
         """Create a Prompt from a function.
 
@@ -109,6 +111,7 @@ class Prompt(BaseModel):
             description=description or fn.__doc__ or "",
             arguments=arguments,
             fn=fn,
+            icons=icons,
         )
 
     async def render(self, arguments: dict[str, Any] | None = None) -> list[Message]:
