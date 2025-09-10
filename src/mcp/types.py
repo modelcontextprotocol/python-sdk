@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
+from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
 from pydantic.networks import AnyUrl, UrlConstraints
@@ -23,7 +23,7 @@ for reference.
   not separate types in the schema.
 """
 
-LATEST_PROTOCOL_VERSION = "2025-06-18"
+LATEST_PROTOCOL_VERSION: Final = "2025-06-18"
 
 """
 The default negotiated version of the Model Context Protocol when no version is specified.
@@ -31,7 +31,7 @@ We need this to satisfy the MCP specification, which requires the server to assu
 specific version if none is provided by the client. See section "Protocol Version Header" at
 https://modelcontextprotocol.io/specification
 """
-DEFAULT_NEGOTIATED_VERSION = "2025-03-26"
+DEFAULT_NEGOTIATED_VERSION: Final = "2025-03-26"
 
 ProgressToken = str | int
 Cursor = str
@@ -147,15 +147,14 @@ class JSONRPCResponse(BaseModel):
 
 
 # SDK error codes
-CONNECTION_CLOSED = -32000
+CONNECTION_CLOSED: Final = -32000
 # REQUEST_TIMEOUT = -32001  # the typescript sdk uses this
-
 # Standard JSON-RPC error codes
-PARSE_ERROR = -32700
-INVALID_REQUEST = -32600
-METHOD_NOT_FOUND = -32601
-INVALID_PARAMS = -32602
-INTERNAL_ERROR = -32603
+PARSE_ERROR: Final = -32700
+INVALID_REQUEST: Final = -32600
+METHOD_NOT_FOUND: Final = -32601
+INVALID_PARAMS: Final = -32602
+INTERNAL_ERROR: Final = -32603
 
 
 class ErrorData(BaseModel):
