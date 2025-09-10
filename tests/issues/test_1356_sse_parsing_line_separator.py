@@ -78,9 +78,7 @@ def make_problematic_server_app() -> Starlette:
 def run_problematic_server(server_port: int) -> None:
     """Run the problematic Unicode test server."""
     app = make_problematic_server_app()
-    server = uvicorn.Server(
-        config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error")
-    )
+    server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
     server.run()
 
 
@@ -123,7 +121,7 @@ def problematic_server(problematic_server_port: int) -> Generator[str, None, Non
 
 async def test_json_parsing_with_problematic_unicode(problematic_server: str) -> None:
     """Test that special Unicode characters like U+2028 are handled properly.
-    
+
     This test reproduces issue #1356 where special Unicode characters
     cause JSON parsing to fail and the raw exception is sent to the stream,
     preventing proper error handling.
@@ -137,20 +135,20 @@ async def test_json_parsing_with_problematic_unicode(problematic_server: str) ->
 
             # Call the tool that returns problematic Unicode
             # This should succeed and not hang
-            
+
             # Use a timeout to detect if we're hanging
             with anyio.fail_after(5):  # 5 second timeout
                 try:
                     response = await session.call_tool("get_problematic_unicode", {})
-                    
+
                     # If we get here, the Unicode was handled properly
                     assert len(response.content) == 1
                     text_content = response.content[0]
                     assert hasattr(text_content, "text"), f"Response doesn't have text: {text_content}"
-                    
+
                     expected = "This text contains a line separator\u2028character that may break JSON parsing"
                     assert text_content.text == expected, f"Expected: {expected!r}, Got: {text_content.text!r}"
-                    
+
                 except McpError:
                     pytest.fail("Unexpected error with tool call")
                 except TimeoutError:

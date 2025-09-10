@@ -20,18 +20,19 @@ logger = logging.getLogger(__name__)
 
 def remove_request_params(url: str) -> str:
     return urljoin(url, urlparse(url).path)
-        
+
+
 async def compliant_aiter_sse(event_source: EventSource) -> AsyncIterator[ServerSentEvent]:
     """
     Safely iterate over SSE events, working around httpx issue where U+2028 and U+2029
     are incorrectly treated as newlines, breaking SSE stream parsing.
-    
+
     This function replaces event_source.aiter_sse() to handle these Unicode characters
     correctly by processing the raw byte stream and only splitting on actual newlines.
-    
+
     Args:
         event_source: The EventSource to iterate over
-        
+
     Yields:
         ServerSentEvent objects parsed from the stream
     """
@@ -44,10 +45,10 @@ async def compliant_aiter_sse(event_source: EventSource) -> AsyncIterator[Server
     # Note: this is tricky, because we could have a "\r" at the end of a chunk and not yet
     # know if the next chunk starts with a "\n" or not.
     skip_leading_lf = False
-    
+
     async for chunk in event_source.response.aiter_bytes():
         buffer += chunk
-        
+
         while len(buffer) != 0:
             if skip_leading_lf and buffer.startswith(b"\n"):
                 buffer = buffer[1:]
@@ -63,21 +64,21 @@ async def compliant_aiter_sse(event_source: EventSource) -> AsyncIterator[Server
                 break
 
             line_bytes = buffer[:pos]
-            buffer = buffer[pos + 1:]
+            buffer = buffer[pos + 1 :]
 
             # If we have a CR first, skip any LF immediately after (may be in next chunk)
-            skip_leading_lf = (pos == cr)
+            skip_leading_lf = pos == cr
 
-            line = line_bytes.decode('utf-8', errors='replace')
+            line = line_bytes.decode("utf-8", errors="replace")
             sse = decoder.decode(line)
             if sse is not None:
                 yield sse
-    
+
     # Process any remaining data in buffer
     if buffer:
         assert b"\n" not in buffer
         assert b"\r" not in buffer
-        line = buffer.decode('utf-8', errors='replace')
+        line = buffer.decode("utf-8", errors="replace")
         sse = decoder.decode(line)
         if sse is not None:
             yield sse
