@@ -1,4 +1,5 @@
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -7,7 +8,8 @@ import anyio
 import httpx
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from httpx_sse import aconnect_sse
+from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
+from httpx_sse._decoders import SSEDecoder
 
 import mcp.types as types
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
@@ -18,6 +20,43 @@ logger = logging.getLogger(__name__)
 
 def remove_request_params(url: str) -> str:
     return urljoin(url, urlparse(url).path)
+        
+async def compliant_aiter_sse(event_source: EventSource) -> AsyncIterator[ServerSentEvent]:
+    """
+    Safely iterate over SSE events, working around httpx issue where U+2028 and U+2029
+    are incorrectly treated as newlines, breaking SSE stream parsing.
+    
+    This function replaces event_source.aiter_sse() to handle these Unicode characters
+    correctly by processing the raw byte stream and only splitting on actual newlines.
+    
+    Args:
+        event_source: The EventSource to iterate over
+        
+    Yields:
+        ServerSentEvent objects parsed from the stream
+    """
+    decoder = SSEDecoder()
+    buffer = b""
+    
+    async for chunk in event_source.response.aiter_bytes():
+        buffer += chunk
+        
+        # Split on "\n" only (not U+2028/U+2029 or other anything else)
+        # https://html.spec.whatwg.org/multipage/server-sent-events.html#parsing-an-event-stream
+        while b"\n" in buffer:
+            line_bytes, buffer = buffer.split(b"\n", 1)
+            line = line_bytes.decode('utf-8', errors='replace').rstrip("\r")
+            sse = decoder.decode(line)
+            if sse is not None:
+                yield sse
+    
+    # Process any remaining data in buffer
+    if buffer:
+        assert b"\n" not in buffer
+        line = buffer.decode('utf-8', errors='replace').rstrip("\r")
+        sse = decoder.decode(line)
+        if sse is not None:
+            yield sse
 
 
 @asynccontextmanager
@@ -69,7 +108,8 @@ async def sse_client(
                         task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED,
                     ):
                         try:
-                            async for sse in event_source.aiter_sse():
+                            # Use our compliant SSE iterator to handle Unicode correctly (issue #1356)
+                            async for sse in compliant_aiter_sse(event_source):
                                 logger.debug(f"Received SSE event: {sse.event}")
                                 match sse.event:
                                     case "endpoint":
