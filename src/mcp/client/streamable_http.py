@@ -18,6 +18,7 @@ from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
+from mcp.client.sse import compliant_aiter_sse
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
@@ -211,7 +212,8 @@ class StreamableHTTPTransport:
                 event_source.response.raise_for_status()
                 logger.debug("GET SSE connection established")
 
-                async for sse in event_source.aiter_sse():
+                # Use compliant SSE iterator to handle Unicode correctly (issue #1356)
+                async for sse in compliant_aiter_sse(event_source):
                     await self._handle_sse_event(sse, read_stream_writer)
 
         except Exception as exc:
@@ -240,7 +242,8 @@ class StreamableHTTPTransport:
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
 
-            async for sse in event_source.aiter_sse():
+            # Use compliant SSE iterator to handle Unicode correctly (issue #1356)
+            async for sse in compliant_aiter_sse(event_source):
                 is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
@@ -323,7 +326,8 @@ class StreamableHTTPTransport:
         """Handle SSE response from the server."""
         try:
             event_source = EventSource(response)
-            async for sse in event_source.aiter_sse():
+            # Use compliant SSE iterator to handle Unicode correctly (issue #1356)
+            async for sse in compliant_aiter_sse(event_source):
                 is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
