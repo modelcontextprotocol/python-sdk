@@ -958,14 +958,7 @@ class TestContextInjection:
         def resource_with_context(name: str, ctx: Context[ServerSession, None]) -> str:
             """Resource that receives context."""
             assert ctx is not None
-            # Context should be provided even if request_id might not be accessible
-            # in all contexts
-            try:
-                request_id = ctx.request_id
-                return f"Resource {name} - request_id: {request_id}"
-            except (AttributeError, ValueError):
-                # Context was injected but request context not available
-                return f"Resource {name} - context injected"
+            return f"Resource {name} - context injected"
 
         # Verify template has context_kwarg set
         templates = mcp._resource_manager.list_templates()
@@ -981,8 +974,7 @@ class TestContextInjection:
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
             # Should have either request_id or indication that context was injected
-            assert "Resource test" in content.text
-            assert "request_id:" in content.text or "context injected" in content.text
+            assert "Resource test - context injected" == content.text
 
     @pytest.mark.anyio
     async def test_resource_without_context(self):
@@ -998,8 +990,7 @@ class TestContextInjection:
         templates = mcp._resource_manager.list_templates()
         assert len(templates) == 1
         template = templates[0]
-        if hasattr(template, "context_kwarg"):
-            assert template.context_kwarg is None
+        assert template.context_kwarg is None
 
         # Test via client
         async with client_session(mcp._mcp_server) as client:
@@ -1024,8 +1015,7 @@ class TestContextInjection:
         templates = mcp._resource_manager.list_templates()
         assert len(templates) == 1
         template = templates[0]
-        if hasattr(template, "context_kwarg"):
-            assert template.context_kwarg == "my_ctx"
+        assert template.context_kwarg == "my_ctx"
 
         # Test via client
         async with client_session(mcp._mcp_server) as client:
@@ -1044,42 +1034,21 @@ class TestContextInjection:
         def prompt_with_context(text: str, ctx: Context[ServerSession, None]) -> str:
             """Prompt that expects context."""
             assert ctx is not None
-            try:
-                request_id = ctx.request_id
-                return f"Prompt '{text}' with context: {request_id}"
-            except (AttributeError, ValueError):
-                return f"Prompt '{text}' - context injected"
+            return f"Prompt '{text}' - context injected"
 
         # Check if prompt has context parameter detection
         prompts = mcp._prompt_manager.list_prompts()
         assert len(prompts) == 1
-        prompt = prompts[0]
-
-        # Check if context_kwarg attribute exists (for future implementation)
-        has_context_kwarg = hasattr(prompt, "context_kwarg")
 
         # Test via client
         async with client_session(mcp._mcp_server) as client:
-            try:
-                # Try calling without passing ctx explicitly
-                result = await client.get_prompt("prompt_with_ctx", {"text": "test"})
-                # If this succeeds, check if context was injected
-                assert len(result.messages) == 1
-                message = result.messages[0]
-                content = message.content
-                assert isinstance(content, TextContent)
-                if "context injected" in content.text or "with context:" in content.text:
-                    # Context injection is working for prompts
-                    assert has_context_kwarg, "Prompt should have context_kwarg attribute"
-                else:
-                    # Context was not injected
-                    pytest.skip("Prompt context injection not yet implemented")
-            except Exception as e:
-                if "Missing required arguments" in str(e) and "ctx" in str(e):
-                    # Context injection not working - expected for now
-                    pytest.skip("Prompt context injection not yet implemented")
-                else:
-                    raise
+            # Try calling without passing ctx explicitly
+            result = await client.get_prompt("prompt_with_ctx", {"text": "test"})
+            # If this succeeds, check if context was injected
+            assert len(result.messages) == 1
+            content = result.messages[0].content
+            assert isinstance(content, TextContent)
+            assert "Prompt 'test' - context injected" in content.text
 
     @pytest.mark.anyio
     async def test_prompt_without_context(self):

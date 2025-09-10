@@ -30,6 +30,7 @@ from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.fastmcp.tools import Tool, ToolManager
+from mcp.server.fastmcp.utilities.context_injection import find_context_parameter
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT
@@ -511,31 +512,19 @@ class FastMCP(Generic[LifespanResultT]):
 
         def decorator(fn: AnyFunction) -> AnyFunction:
             # Check if this should be a template
+            sig = inspect.signature(fn)
             has_uri_params = "{" in uri and "}" in uri
-            has_func_params = bool(inspect.signature(fn).parameters)
+            has_func_params = bool(sig.parameters)
 
             if has_uri_params or has_func_params:
                 # Check for Context parameter to exclude from validation
-                from typing import get_origin
-
-                sig = inspect.signature(fn)
-                context_param = None
-                for param_name, param in sig.parameters.items():
-                    if param.annotation is not inspect.Parameter.empty:
-                        # Check if it's a Context type
-                        if get_origin(param.annotation) is None:
-                            # Try to check if it's a Context without importing
-                            # (to avoid circular imports)
-                            annotation_str = str(param.annotation)
-                            if "Context" in annotation_str:
-                                context_param = param_name
-                                break
+                context_param = find_context_parameter(fn)
 
                 # Validate that URI params match function params (excluding context)
                 uri_params = set(re.findall(r"{(\w+)}", uri))
-                func_params = set(sig.parameters.keys())
-                if context_param:
-                    func_params.discard(context_param)
+                # We need to remove the context_param from the resource function if
+                # there is any.
+                func_params = {p for p in sig.parameters.keys() if p != context_param}
 
                 if uri_params != func_params:
                     raise ValueError(
@@ -1001,8 +990,7 @@ class FastMCP(Generic[LifespanResultT]):
             if not prompt:
                 raise ValueError(f"Unknown prompt: {name}")
 
-            context = self.get_context()
-            messages = await prompt.render(arguments, context=context)
+            messages = await prompt.render(arguments, context=self.get_context())
 
             return GetPromptResult(
                 description=prompt.description,
