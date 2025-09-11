@@ -5,13 +5,13 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from mcp.server.fastmcp.utilities.logging import get_logger
 
 logger = get_logger(__name__)
 
-MCP_PACKAGE = "mcp[cli]"
+MCP_PACKAGE: Final = "mcp[cli]"
 
 
 def get_claude_config_path() -> Path | None:
