@@ -810,6 +810,27 @@ class TestServerResourceTemplates:
         result = await resource.read()
         assert result == "Data for test"
 
+    @pytest.mark.anyio
+    async def test_resource_template_includes_mime_type(self):
+        """Test that list resource templates includes the correct mimeType."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://{user}/csv", mime_type="text/csv")
+        def get_csv(user: str) -> str:
+            return f"csv for {user}"
+
+        templates = await mcp.list_resource_templates()
+        assert len(templates) == 1
+        template = templates[0]
+
+        assert hasattr(template, "mimeType")
+        assert template.mimeType == "text/csv"
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.read_resource(AnyUrl("resource://bob/csv"))
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert result.contents[0].text == "csv for bob"
+
 
 class TestContextInjection:
     """Test context injection in tools, resources, and prompts."""
