@@ -2,11 +2,16 @@
 SSE Server Transport Module
 
 This module implements a Server-Sent Events (SSE) transport layer for MCP servers.
+Endpoints are specified as relative paths. This aligns with common client URL
+construction patterns (for example, `urllib.parse.urljoin`) and works correctly
+when applications are deployed behind proxies or at subpaths.
 
 Example usage:
-```
-    # Create an SSE transport at an endpoint
-    sse = SseServerTransport("/messages/")
+```python
+    # Recommended: provide a relative path segment (no scheme/host/query/fragment).
+    # Using "messages/" works well with clients that build absolute URLs using
+    # `urllib.parse.urljoin`, including in proxied/subpath deployments.
+    sse = SseServerTransport("messages/")
 
     # Create Starlette routes for SSE and message handling
     routes = [
@@ -29,6 +34,17 @@ Example usage:
     starlette_app = Starlette(routes=routes)
     uvicorn.run(starlette_app, host="127.0.0.1", port=port)
 ```
+
+Path behavior examples inside the server (final path emitted to clients):
+- root_path="" and endpoint="messages/"  -> "/messages/"
+- root_path="/api" and endpoint="messages/" -> "/api/messages/"
+
+Note: When clients use `urllib.parse.urljoin(base, path)`, joining a segment that
+starts with "/" replaces the base path. Providing a relative segment like
+`"messages/?id=1"` preserves the base path as intended.
+
+For servers behind proxies or mounted at subpaths, prefer a relative path without
+leading slash (e.g., "messages/") to ensure correct joining with `urljoin`.
 
 Note: The handle_sse function must return a Response to avoid a "TypeError: 'NoneType'
 object is not callable" error when client disconnects. The example above returns
@@ -83,8 +99,10 @@ class SseServerTransport:
         messages to the relative path given.
 
         Args:
-            endpoint: A relative path where messages should be posted
-                    (e.g., "/messages/").
+            endpoint: Relative path segment where messages should be posted
+                    (e.g., "messages/"). Avoid scheme/host/query/fragment. When
+                    clients construct absolute URLs using `urllib.parse.urljoin`,
+                    relative segments preserve any existing base path.
             security_settings: Optional security settings for DNS rebinding protection.
 
         Note:
@@ -96,27 +114,59 @@ class SseServerTransport:
             3. Portability: The same endpoint configuration works across different
                environments (development, staging, production)
 
+        The endpoint path handling preserves the provided relative path and is
+        suitable for deployments under proxies or subpaths.
+
         Raises:
             ValueError: If the endpoint is a full URL instead of a relative path
         """
 
         super().__init__()
 
-        # Validate that endpoint is a relative path and not a full URL
+        # Validate that endpoint is a relative path and not a full URL.
         if "://" in endpoint or endpoint.startswith("//") or "?" in endpoint or "#" in endpoint:
             raise ValueError(
-                f"Given endpoint: {endpoint} is not a relative path (e.g., '/messages/'), "
-                "expecting a relative path (e.g., '/messages/')."
+                f"Given endpoint: {endpoint} is not a relative path (e.g., 'messages/'), "
+                "expecting a relative path with no scheme/host/query/fragment."
             )
 
-        # Ensure endpoint starts with a forward slash
-        if not endpoint.startswith("/"):
-            endpoint = "/" + endpoint
-
+        # Store the endpoint as provided to retain relative-path semantics and make
+        # client URL construction predictable across deployment topologies.
         self._endpoint = endpoint
         self._read_stream_writers = {}
         self._security = TransportSecurityMiddleware(security_settings)
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
+
+    def _build_message_path(self, root_path: str) -> str:
+        """
+        Helper method to properly construct the message path
+
+        Constructs the message path relative to the app's mount point and the
+        provided `root_path`. The stored endpoint is treated as path-absolute if
+        it starts with "/", otherwise as a relative segment.
+
+        Args:
+            root_path: The root path from ASGI scope (e.g., "" or "/api_prefix")
+
+        Returns:
+            The properly constructed path for client message posting
+        """
+        # Clean up the root path
+        clean_root_path = root_path.rstrip("/")
+
+        # If endpoint starts with "/", treat it as path-absolute from the app mount;
+        # otherwise, treat it as relative to `root_path`.
+        if self._endpoint.startswith("/"):
+            # Path-absolute within the app mount - just concatenate
+            full_path = clean_root_path + self._endpoint
+        else:
+            # Relative path - ensure proper joining
+            if clean_root_path:
+                full_path = clean_root_path + "/" + self._endpoint
+            else:
+                full_path = "/" + self._endpoint
+
+        return full_path
 
     @asynccontextmanager
     async def connect_sse(self, scope: Scope, receive: Receive, send: Send):
@@ -145,17 +195,9 @@ class SseServerTransport:
         self._read_stream_writers[session_id] = read_stream_writer
         logger.debug(f"Created new session with ID: {session_id}")
 
-        # Determine the full path for the message endpoint to be sent to the client.
-        # scope['root_path'] is the prefix where the current Starlette app
-        # instance is mounted.
-        # e.g., "" if top-level, or "/api_prefix" if mounted under "/api_prefix".
+        # Use the new helper method for proper path construction
         root_path = scope.get("root_path", "")
-
-        # self._endpoint is the path *within* this app, e.g., "/messages".
-        # Concatenating them gives the full absolute path from the server root.
-        # e.g., "" + "/messages" -> "/messages"
-        # e.g., "/api_prefix" + "/messages" -> "/api_prefix/messages"
-        full_message_path_for_client = root_path.rstrip("/") + self._endpoint
+        full_message_path_for_client = self._build_message_path(root_path)
 
         # This is the URI (path + query) the client will use to POST messages.
         client_post_uri_data = f"{quote(full_message_path_for_client)}?session_id={session_id.hex}"

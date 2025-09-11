@@ -291,3 +291,47 @@ async def test_sse_security_post_valid_content_type(server_port: int):
     finally:
         process.terminate()
         process.join()
+
+
+@pytest.mark.anyio
+async def test_endpoint_validation_rejects_absolute_urls():
+    """Validate endpoint format: relative path segments only.
+
+    Context on URL joining (urllib.parse.urljoin):
+    - Joining a segment starting with "/" resets to the host root:
+      urljoin("http://host/app/sse", "/messages") -> "http://host/messages"
+    - Joining a relative segment appends relative to the base:
+      urljoin("http://host/hello/world", "messages") -> "http://host/hello/messages"
+      urljoin("http://host/hello/world/", "messages") -> "http://host/hello/world/messages"
+
+    This test ensures the transport accepts relative path segments (e.g., "messages/"),
+    rejects full URLs or paths containing query/fragment components, and stores accepted
+    values verbatim (no normalization). Both leading-slash and non-leading-slash forms
+    are permitted because the server handles construction relative to its mount path.
+    """
+    # Reject: fully-qualified URLs and segments that include query/fragment
+    invalid_endpoints = [
+        "http://example.com/messages/",
+        "https://example.com/messages/",
+        "//example.com/messages/",
+        "/messages/?query=test",
+        "/messages/#fragment",
+    ]
+
+    for invalid_endpoint in invalid_endpoints:
+        with pytest.raises(ValueError, match="is not a relative path"):
+            SseServerTransport(invalid_endpoint)
+
+    # Accept: relative path forms; endpoint is stored as provided (no normalization)
+    valid_endpoints_and_expected = [
+        ("/messages/", "/messages/"),  # Leading-slash path segment
+        ("messages/", "messages/"),  # Non-leading-slash path segment
+        ("/api/v1/messages/", "/api/v1/messages/"),
+        ("api/v1/messages/", "api/v1/messages/"),
+    ]
+
+    for valid_endpoint, expected_stored_value in valid_endpoints_and_expected:
+        # Should not raise an exception
+        transport = SseServerTransport(valid_endpoint)
+        # Endpoint should be stored exactly as provided (no normalization)
+        assert transport._endpoint == expected_stored_value
