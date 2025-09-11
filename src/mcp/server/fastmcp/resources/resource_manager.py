@@ -1,13 +1,20 @@
 """Resource manager functionality."""
 
+from __future__ import annotations
+
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import AnyUrl
 
 from mcp.server.fastmcp.resources.base import Resource
 from mcp.server.fastmcp.resources.templates import ResourceTemplate
 from mcp.server.fastmcp.utilities.logging import get_logger
+
+if TYPE_CHECKING:
+    from mcp.server.fastmcp.server import Context
+    from mcp.server.session import ServerSessionT
+    from mcp.shared.context import LifespanContextT, RequestT
 
 logger = get_logger(__name__)
 
@@ -67,7 +74,11 @@ class ResourceManager:
         self._templates[template.uri_template] = template
         return template
 
-    async def get_resource(self, uri: AnyUrl | str) -> Resource | None:
+    async def get_resource(
+        self,
+        uri: AnyUrl | str,
+        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
+    ) -> Resource | None:
         """Get resource by URI, checking concrete resources first, then templates."""
         uri_str = str(uri)
         logger.debug("Getting resource", extra={"uri": uri_str})
@@ -80,7 +91,7 @@ class ResourceManager:
         for template in self._templates.values():
             if params := template.matches(uri_str):
                 try:
-                    return await template.create_resource(uri_str, params)
+                    return await template.create_resource(uri_str, params, context=context)
                 except Exception as e:
                     raise ValueError(f"Error creating resource from template: {e}")
 
