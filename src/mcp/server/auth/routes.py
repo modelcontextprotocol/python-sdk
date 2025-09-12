@@ -164,7 +164,7 @@ def build_metadata(
         response_types_supported=["code"],
         response_modes_supported=None,
         grant_types_supported=["authorization_code", "refresh_token"],
-        token_endpoint_auth_methods_supported=["client_secret_post"],
+        token_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
         token_endpoint_auth_signing_alg_values_supported=None,
         service_documentation=service_documentation_url,
         ui_locales_supported=None,
@@ -181,7 +181,7 @@ def build_metadata(
     # Add revocation endpoint if supported
     if revocation_options.enabled:
         metadata.revocation_endpoint = AnyHttpUrl(str(issuer_url).rstrip("/") + REVOCATION_PATH)
-        metadata.revocation_endpoint_auth_methods_supported = ["client_secret_post"]
+        metadata.revocation_endpoint_auth_methods_supported = ["client_secret_post", "client_secret_basic"]
 
     return metadata
 
