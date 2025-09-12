@@ -1,0 +1,7 @@
+#!/bin/sh
+
+set -ex
+
+uv run coverage run -m pytest -n auto $@
+uv run coverage combine
+uv run coverage report
