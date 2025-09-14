@@ -2,7 +2,11 @@ import pytest
 
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
+    ClientCapabilities,
     ClientRequest,
+    Implementation,
+    InitializeRequest,
+    InitializeRequestParams,
     JSONRPCMessage,
     JSONRPCRequest,
 )
@@ -30,3 +34,25 @@ async def test_jsonrpc_request():
     assert request.root.method == "initialize"
     assert request.root.params is not None
     assert request.root.params["protocolVersion"] == LATEST_PROTOCOL_VERSION
+
+
+@pytest.mark.anyio
+async def test_method_initialization():
+    """
+    Test that the method is automatically set on object creation.
+    Testing just for InitializeRequest to keep the test simple, but should be set for other types as well.
+    """
+    initialize_request = InitializeRequest(
+        params=InitializeRequestParams(
+            protocolVersion=LATEST_PROTOCOL_VERSION,
+            capabilities=ClientCapabilities(),
+            clientInfo=Implementation(
+                name="mcp",
+                version="0.1.0",
+            ),
+        )
+    )
+
+    assert initialize_request.method == "initialize", "method should be set to 'initialize'"
+    assert initialize_request.params is not None
+    assert initialize_request.params.protocolVersion == LATEST_PROTOCOL_VERSION

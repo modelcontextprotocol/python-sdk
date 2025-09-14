@@ -11,16 +11,8 @@ from starlette.datastructures import Headers
 from starlette.requests import Request
 from starlette.types import Message, Receive, Scope, Send
 
-from mcp.server.auth.middleware.bearer_auth import (
-    AuthenticatedUser,
-    BearerAuthBackend,
-    RequireAuthMiddleware,
-)
-from mcp.server.auth.provider import (
-    AccessToken,
-    OAuthAuthorizationServerProvider,
-    ProviderTokenVerifier,
-)
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, BearerAuthBackend, RequireAuthMiddleware
+from mcp.server.auth.provider import AccessToken, OAuthAuthorizationServerProvider, ProviderTokenVerifier
 
 
 class MockOAuthProvider:
@@ -31,7 +23,7 @@ class MockOAuthProvider:
     """
 
     def __init__(self):
-        self.tokens = {}  # token -> AccessToken
+        self.tokens: dict[str, AccessToken] = {}  # token -> AccessToken
 
     def add_token(self, token: str, access_token: AccessToken) -> None:
         """Add a token to the provider."""
@@ -287,7 +279,7 @@ class TestRequireAuthMiddleware:
         async def receive() -> Message:
             return {"type": "http.request"}
 
-        sent_messages = []
+        sent_messages: list[Message] = []
 
         async def send(message: Message) -> None:
             sent_messages.append(message)
@@ -311,7 +303,7 @@ class TestRequireAuthMiddleware:
         async def receive() -> Message:
             return {"type": "http.request"}
 
-        sent_messages = []
+        sent_messages: list[Message] = []
 
         async def send(message: Message) -> None:
             sent_messages.append(message)
@@ -340,7 +332,7 @@ class TestRequireAuthMiddleware:
         async def receive() -> Message:
             return {"type": "http.request"}
 
-        sent_messages = []
+        sent_messages: list[Message] = []
 
         async def send(message: Message) -> None:
             sent_messages.append(message)
@@ -368,7 +360,7 @@ class TestRequireAuthMiddleware:
         async def receive() -> Message:
             return {"type": "http.request"}
 
-        sent_messages = []
+        sent_messages: list[Message] = []
 
         async def send(message: Message) -> None:
             sent_messages.append(message)

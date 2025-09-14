@@ -30,6 +30,7 @@ from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.fastmcp.tools import Tool, ToolManager
+from mcp.server.fastmcp.utilities.context_injection import find_context_parameter
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT
@@ -182,9 +183,8 @@ class FastMCP(Generic[LifespanResultT]):
                 raise ValueError("Cannot specify both auth_server_provider and token_verifier")
             if not auth_server_provider and not token_verifier:
                 raise ValueError("Must specify either auth_server_provider or token_verifier when auth is enabled")
-        else:
-            if auth_server_provider or token_verifier:
-                raise ValueError("Cannot specify auth_server_provider or token_verifier without auth settings")
+        elif auth_server_provider or token_verifier:
+            raise ValueError("Cannot specify auth_server_provider or token_verifier without auth settings")
 
         self._auth_server_provider = auth_server_provider
         self._token_verifier = token_verifier
@@ -327,7 +327,8 @@ class FastMCP(Generic[LifespanResultT]):
     async def read_resource(self, uri: AnyUrl | str) -> Iterable[ReadResourceContents]:
         """Read a resource by URI."""
 
-        resource = await self._resource_manager.get_resource(uri)
+        context = self.get_context()
+        resource = await self._resource_manager.get_resource(uri, context=context)
         if not resource:
             raise ResourceError(f"Unknown resource: {uri}")
 
@@ -511,13 +512,19 @@ class FastMCP(Generic[LifespanResultT]):
 
         def decorator(fn: AnyFunction) -> AnyFunction:
             # Check if this should be a template
+            sig = inspect.signature(fn)
             has_uri_params = "{" in uri and "}" in uri
-            has_func_params = bool(inspect.signature(fn).parameters)
+            has_func_params = bool(sig.parameters)
 
             if has_uri_params or has_func_params:
-                # Validate that URI params match function params
+                # Check for Context parameter to exclude from validation
+                context_param = find_context_parameter(fn)
+
+                # Validate that URI params match function params (excluding context)
                 uri_params = set(re.findall(r"{(\w+)}", uri))
-                func_params = set(inspect.signature(fn).parameters.keys())
+                # We need to remove the context_param from the resource function if
+                # there is any.
+                func_params = {p for p in sig.parameters.keys() if p != context_param}
 
                 if uri_params != func_params:
                     raise ValueError(
@@ -983,7 +990,7 @@ class FastMCP(Generic[LifespanResultT]):
             if not prompt:
                 raise ValueError(f"Unknown prompt: {name}")
 
-            messages = await prompt.render(arguments)
+            messages = await prompt.render(arguments, context=self.get_context())
 
             return GetPromptResult(
                 description=prompt.description,

@@ -2,7 +2,9 @@ import anyio
 import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
+from mcp.server.lowlevel.helper_types import ReadResourceContents
 from pydantic import AnyUrl, FileUrl
+from starlette.requests import Request
 
 SAMPLE_RESOURCES = {
     "greeting": {
@@ -45,7 +47,7 @@ def main(port: int, transport: str) -> int:
         ]
 
     @app.read_resource()
-    async def read_resource(uri: AnyUrl) -> str | bytes:
+    async def read_resource(uri: AnyUrl):
         if uri.path is None:
             raise ValueError(f"Invalid resource path: {uri}")
         name = uri.path.replace(".txt", "").lstrip("/")
@@ -53,7 +55,7 @@ def main(port: int, transport: str) -> int:
         if name not in SAMPLE_RESOURCES:
             raise ValueError(f"Unknown resource: {uri}")
 
-        return SAMPLE_RESOURCES[name]["content"]
+        return [ReadResourceContents(content=SAMPLE_RESOURCES[name]["content"], mime_type="text/plain")]
 
     if transport == "sse":
         from mcp.server.sse import SseServerTransport
@@ -63,13 +65,9 @@ def main(port: int, transport: str) -> int:
 
         sse = SseServerTransport("/messages/")
 
-        async def handle_sse(request):
-            async with sse.connect_sse(
-                request.scope, request.receive, request._send
-            ) as streams:
-                await app.run(
-                    streams[0], streams[1], app.create_initialization_options()
-                )
+        async def handle_sse(request: Request):
+            async with sse.connect_sse(request.scope, request.receive, request._send) as streams:  # type: ignore[reportPrivateUsage]
+                await app.run(streams[0], streams[1], app.create_initialization_options())
             return Response()
 
         starlette_app = Starlette(
@@ -88,9 +86,7 @@ def main(port: int, transport: str) -> int:
 
         async def arun():
             async with stdio_server() as streams:
-                await app.run(
-                    streams[0], streams[1], app.create_initialization_options()
-                )
+                await app.run(streams[0], streams[1], app.create_initialization_options())
 
         anyio.run(arun)
 
