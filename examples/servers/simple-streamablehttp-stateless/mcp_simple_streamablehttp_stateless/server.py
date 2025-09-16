@@ -9,6 +9,7 @@ import mcp.types as types
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.applications import Starlette
+from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Mount
 from starlette.types import Receive, Scope, Send
 
@@ -121,6 +122,15 @@ def main(
             Mount("/mcp", app=handle_streamable_http),
         ],
         lifespan=lifespan,
+    )
+
+    # Wrap ASGI application with CORS middleware to expose Mcp-Session-Id header
+    # for browser-based clients (ensures 500 errors get proper CORS headers)
+    starlette_app = CORSMiddleware(
+        starlette_app,
+        allow_origins=["*"],  # Allow all origins - adjust as needed for production
+        allow_methods=["GET", "POST", "DELETE"],  # MCP streamable HTTP methods
+        expose_headers=["Mcp-Session-Id"],
     )
 
     import uvicorn

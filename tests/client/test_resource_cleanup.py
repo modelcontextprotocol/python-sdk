@@ -35,7 +35,7 @@ async def test_send_request_stream_cleanup():
     )
 
     # Create a test request
-    request = ClientRequest(PingRequest(method="ping"))
+    request = ClientRequest(PingRequest())
 
     # Patch the _write_stream.send method to raise an exception
     async def mock_send(*args: Any, **kwargs: Any):

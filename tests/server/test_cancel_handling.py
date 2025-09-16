@@ -61,7 +61,6 @@ async def test_server_remains_functional_after_cancel():
                 await client.send_request(
                     ClientRequest(
                         CallToolRequest(
-                            method="tools/call",
                             params=CallToolRequestParams(name="test_tool", arguments={}),
                         )
                     ),
@@ -83,7 +82,6 @@ async def test_server_remains_functional_after_cancel():
             await client.send_notification(
                 ClientNotification(
                     CancelledNotification(
-                        method="notifications/cancelled",
                         params=CancelledNotificationParams(
                             requestId=first_request_id,
                             reason="Testing server recovery",
@@ -96,7 +94,6 @@ async def test_server_remains_functional_after_cancel():
         result = await client.send_request(
             ClientRequest(
                 CallToolRequest(
-                    method="tools/call",
                     params=CallToolRequestParams(name="test_tool", arguments={}),
                 )
             ),

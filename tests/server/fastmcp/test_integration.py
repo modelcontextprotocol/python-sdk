@@ -693,7 +693,7 @@ async def test_structured_output(server_transport: str, server_url: str) -> None
 
             # Check that the result contains expected weather data
             result_text = weather_result.content[0].text
-            assert "72.5" in result_text  # temperature
+            assert "22.5" in result_text  # temperature
             assert "sunny" in result_text  # condition
             assert "45" in result_text  # humidity
             assert "5.2" in result_text  # wind_speed

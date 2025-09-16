@@ -281,7 +281,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
 
 def construct_redirect_uri(redirect_uri_base: str, **params: str | None) -> str:
     parsed_uri = urlparse(redirect_uri_base)
-    query_params = [(k, v) for k, vs in parse_qs(parsed_uri.query) for v in vs]
+    query_params = [(k, v) for k, vs in parse_qs(parsed_uri.query).items() for v in vs]
     for k, v in params.items():
         if v is not None:
             query_params.append((k, v))
