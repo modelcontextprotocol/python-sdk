@@ -52,6 +52,7 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+.ruff_cache/
 cover/
 
 # Translations
@@ -168,3 +169,6 @@ cython_debug/
 .vscode/
 .windsurfrules
 **/CLAUDE.local.md
+
+# claude code
+.claude/
