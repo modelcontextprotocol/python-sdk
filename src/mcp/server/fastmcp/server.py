@@ -1175,12 +1175,20 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
 
     @property
     def request_meta(self) -> dict[str, Any]:
-        """Get the request metadata (hidden data passed from client)."""
+        """Get the request metadata (hidden data passed from client).
+
+        This contains metadata that was sent with the request but is not visible
+        to the LLM. Includes all metadata fields including progressToken.
+        Useful for authentication tokens, user context, session data, etc.
+
+        Returns:
+            Dictionary containing the complete request metadata, or empty dict if none provided.
+        """
         if not self.request_context.meta:
             return {}
 
-        meta_dict = self.request_context.meta.model_dump(exclude={"progressToken"})
-        return meta_dict
+        # Return all metadata fields, including progressToken
+        return self.request_context.meta.model_dump()
 
     @property
     def session(self):
