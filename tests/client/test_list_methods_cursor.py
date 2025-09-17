@@ -1,15 +1,16 @@
+from collections.abc import Callable
+
 import pytest
 
 from mcp.server.fastmcp import FastMCP
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as create_session,
-)
+from mcp.shared.memory import create_connected_server_and_client_session as create_session
 
-# Mark the whole module for async tests
+from .conftest import StreamSpyCollection
+
 pytestmark = pytest.mark.anyio
 
 
-async def test_list_tools_cursor_parameter(stream_spy):
+async def test_list_tools_cursor_parameter(stream_spy: Callable[[], StreamSpyCollection]):
     """Test that the cursor parameter is accepted for list_tools
     and that it is correctly passed to the server.
 
@@ -64,7 +65,7 @@ async def test_list_tools_cursor_parameter(stream_spy):
         assert list_tools_requests[0].params["cursor"] == ""
 
 
-async def test_list_resources_cursor_parameter(stream_spy):
+async def test_list_resources_cursor_parameter(stream_spy: Callable[[], StreamSpyCollection]):
     """Test that the cursor parameter is accepted for list_resources
     and that it is correctly passed to the server.
 
@@ -114,7 +115,7 @@ async def test_list_resources_cursor_parameter(stream_spy):
         assert list_resources_requests[0].params["cursor"] == ""
 
 
-async def test_list_prompts_cursor_parameter(stream_spy):
+async def test_list_prompts_cursor_parameter(stream_spy: Callable[[], StreamSpyCollection]):
     """Test that the cursor parameter is accepted for list_prompts
     and that it is correctly passed to the server.
     See: https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/pagination#request-format
@@ -163,7 +164,7 @@ async def test_list_prompts_cursor_parameter(stream_spy):
         assert list_prompts_requests[0].params["cursor"] == ""
 
 
-async def test_list_resource_templates_cursor_parameter(stream_spy):
+async def test_list_resource_templates_cursor_parameter(stream_spy: Callable[[], StreamSpyCollection]):
     """Test that the cursor parameter is accepted for list_resource_templates
     and that it is correctly passed to the server.
 

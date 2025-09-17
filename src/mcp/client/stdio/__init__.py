@@ -32,6 +32,7 @@ DEFAULT_INHERITED_ENV_VARS = (
         "HOMEPATH",
         "LOCALAPPDATA",
         "PATH",
+        "PATHEXT",
         "PROCESSOR_ARCHITECTURE",
         "SYSTEMDRIVE",
         "SYSTEMROOT",
@@ -186,13 +187,24 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         try:
             yield read_stream, write_stream
         finally:
-            # Clean up process to prevent any dangling orphaned processes
+            # MCP spec: stdio shutdown sequence
+            # 1. Close input stream to server
+            # 2. Wait for server to exit, or send SIGTERM if it doesn't exit in time
+            # 3. Send SIGKILL if still not exited
+            if process.stdin:
+                try:
+                    await process.stdin.aclose()
+                except Exception:
+                    # stdin might already be closed, which is fine
+                    pass
+
             try:
-                process.terminate()
+                # Give the process time to exit gracefully after stdin closes
                 with anyio.fail_after(PROCESS_TERMINATION_TIMEOUT):
                     await process.wait()
             except TimeoutError:
-                # If process doesn't terminate in time, force kill it
+                # Process didn't exit from stdin closure, use platform-specific termination
+                # which handles SIGTERM -> SIGKILL escalation
                 await _terminate_process_tree(process)
             except ProcessLookupError:
                 # Process already exited, which is fine

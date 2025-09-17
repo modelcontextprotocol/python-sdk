@@ -7,6 +7,20 @@ repos:
       - id: prettier
         types_or: [yaml, json5]
 
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.45.0
+    hooks:
+      - id: markdownlint
+        args:
+          [
+            "--fix",
+            "--config",
+            "pyproject.toml",
+            "--configPointer",
+            "/tool/markdown/lint",
+          ]
+        types: [markdown]
+
   - repo: local
     hooks:
       - id: ruff-format
@@ -27,7 +41,6 @@ repos:
       - id: pyright
         name: pyright
         entry: uv run pyright
-        args: [src]
         language: system
         types: [python]
         pass_filenames: false
