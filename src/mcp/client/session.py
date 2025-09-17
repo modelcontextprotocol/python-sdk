@@ -286,7 +286,7 @@ class ClientSession(
                     params=types.CallToolRequestParams(
                         name=name,
                         arguments=arguments,
-                        **({'_meta': request_meta} if request_meta else {}),
+                        **({"_meta": request_meta} if request_meta else {}),
                     ),
                 )
             ),

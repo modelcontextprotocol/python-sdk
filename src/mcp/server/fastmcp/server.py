@@ -1179,7 +1179,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         if not self.request_context.meta:
             return {}
 
-        meta_dict = self.request_context.meta.model_dump(exclude={'progressToken'})
+        meta_dict = self.request_context.meta.model_dump(exclude={"progressToken"})
         return meta_dict
 
     @property

@@ -1,3 +1,4 @@
+import inspect
 from typing import Any
 
 import anyio
@@ -24,8 +25,6 @@ from mcp.types import (
     ServerCapabilities,
     ServerResult,
 )
-import inspect
-from mcp.client.session import ClientSession
 
 
 @pytest.mark.anyio
@@ -500,14 +499,15 @@ async def test_client_capabilities_with_custom_callbacks():
     assert isinstance(received_capabilities.roots, types.RootsCapability)
     assert received_capabilities.roots.listChanged is True  # Should be True for custom callback
 
+
 def test_call_tool_method_signature():
     """Test that call_tool method accepts meta parameter in its signature."""
 
     signature = inspect.signature(ClientSession.call_tool)
 
-    assert 'meta' in signature.parameters, "call_tool method should have 'meta' parameter"
+    assert "meta" in signature.parameters, "call_tool method should have 'meta' parameter"
 
-    meta_param = signature.parameters['meta']
+    meta_param = signature.parameters["meta"]
     assert meta_param.default is None, "meta parameter should default to None"
 
 
@@ -515,10 +515,7 @@ def test_call_tool_request_params_construction():
     """Test that CallToolRequestParams can be constructed with metadata."""
     from mcp.types import CallToolRequestParams, RequestParams
 
-    params_no_meta = CallToolRequestParams(
-        name="test_tool",
-        arguments={"param": "value"}
-    )
+    params_no_meta = CallToolRequestParams(name="test_tool", arguments={"param": "value"})
     assert params_no_meta.name == "test_tool"
     assert params_no_meta.arguments == {"param": "value"}
     assert params_no_meta.meta is None
@@ -527,14 +524,14 @@ def test_call_tool_request_params_construction():
         "progressToken": None,
         "user_id": "test_user",
         "session_id": "test_session",
-        "custom_field": "custom_value"
+        "custom_field": "custom_value",
     }
     test_meta = RequestParams.Meta.model_validate(meta_data)
 
     params_with_meta = CallToolRequestParams(
         name="test_tool",
         arguments={"param": "value"},
-        **{"_meta": test_meta}  # Using alias
+        **{"_meta": test_meta},  # Using alias
     )
 
     assert params_with_meta.name == "test_tool"
@@ -551,21 +548,12 @@ def test_metadata_serialization():
     """Test that metadata is properly serialized with _meta alias."""
     from mcp.types import CallToolRequest, CallToolRequestParams, RequestParams
 
-    meta_data = {
-        "progressToken": None,
-        "user_id": "alice",
-        "api_key": "secret_123",
-        "permissions": ["read", "write"]
-    }
+    meta_data = {"progressToken": None, "user_id": "alice", "api_key": "secret_123", "permissions": ["read", "write"]}
     test_meta = RequestParams.Meta.model_validate(meta_data)
 
     request = CallToolRequest(
         method="tools/call",
-        params=CallToolRequestParams(
-            name="secure_tool",
-            arguments={"query": "sensitive_data"},
-            **{"_meta": test_meta}
-        )
+        params=CallToolRequestParams(name="secure_tool", arguments={"query": "sensitive_data"}, **{"_meta": test_meta}),
     )
 
     serialized = request.model_dump(by_alias=True)
