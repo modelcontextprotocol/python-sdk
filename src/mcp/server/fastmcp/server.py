@@ -1037,9 +1037,10 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         # Access resources
         data = ctx.read_resource("resource://data")
 
-        # Get request info
+        # Get request info and metadata
         request_id = ctx.request_id
         client_id = ctx.client_id
+        user_meta = ctx.request_meta
 
         return str(x)
     ```
@@ -1172,6 +1173,23 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     def request_id(self) -> str:
         """Get the unique ID for this request."""
         return str(self.request_context.request_id)
+
+    @property
+    def request_meta(self) -> dict[str, Any]:
+        """Get the request metadata (hidden data passed from client).
+
+        This contains metadata that was sent with the request but is not visible
+        to the LLM. Includes all metadata fields including progressToken.
+        Useful for authentication tokens, user context, session data, etc.
+
+        Returns:
+            Dictionary containing the complete request metadata, or empty dict if none provided.
+        """
+        if not self.request_context.meta:
+            return {}
+
+        # Return all metadata fields, including progressToken
+        return self.request_context.meta.model_dump()
 
     @property
     def session(self):
