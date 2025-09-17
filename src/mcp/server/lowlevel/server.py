@@ -85,7 +85,6 @@ import mcp.types as types
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.server.stdio import stdio_server as stdio_server
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
@@ -149,7 +148,6 @@ class Server(Generic[LifespanResultT, RequestT]):
             types.PingRequest: _ping_handler,
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
-        self.notification_options = NotificationOptions()
         self._tool_cache: dict[str, types.Tool] = {}
         logger.debug("Initializing server %r", name)
 
