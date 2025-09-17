@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Final
 
 import anyio
 import httpx
@@ -39,15 +40,15 @@ StreamWriter = MemoryObjectSendStream[SessionMessageOrError]
 StreamReader = MemoryObjectReceiveStream[SessionMessage]
 GetSessionIdCallback = Callable[[], str | None]
 
-MCP_SESSION_ID = "mcp-session-id"
-MCP_PROTOCOL_VERSION = "mcp-protocol-version"
-LAST_EVENT_ID = "last-event-id"
-CONTENT_TYPE = "content-type"
-ACCEPT = "accept"
+MCP_SESSION_ID: Final = "mcp-session-id"
+MCP_PROTOCOL_VERSION: Final = "mcp-protocol-version"
+LAST_EVENT_ID: Final = "last-event-id"
+CONTENT_TYPE: Final = "content-type"
+ACCEPT: Final = "accept"
 
 
-JSON = "application/json"
-SSE = "text/event-stream"
+JSON: Final = "application/json"
+SSE: Final = "text/event-stream"
 
 
 class StreamableHTTPError(Exception):

@@ -15,6 +15,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from http import HTTPStatus
+from typing import Final
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -48,20 +49,20 @@ logger = logging.getLogger(__name__)
 
 
 # Header names
-MCP_SESSION_ID_HEADER = "mcp-session-id"
-MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version"
-LAST_EVENT_ID_HEADER = "last-event-id"
+MCP_SESSION_ID_HEADER: Final = "mcp-session-id"
+MCP_PROTOCOL_VERSION_HEADER: Final = "mcp-protocol-version"
+LAST_EVENT_ID_HEADER: Final = "last-event-id"
 
 # Content types
-CONTENT_TYPE_JSON = "application/json"
-CONTENT_TYPE_SSE = "text/event-stream"
+CONTENT_TYPE_JSON: Final = "application/json"
+CONTENT_TYPE_SSE: Final = "text/event-stream"
 
 # Special key for the standalone GET stream
-GET_STREAM_KEY = "_GET_stream"
+GET_STREAM_KEY: Final = "_GET_stream"
 
 # Session ID validation pattern (visible ASCII characters ranging from 0x21 to 0x7E)
 # Pattern ensures entire string contains only valid characters by using ^ and $ anchors
-SESSION_ID_PATTERN = re.compile(r"^[\x21-\x7E]+$")
+SESSION_ID_PATTERN: Final = re.compile(r"^[\x21-\x7E]+$")
 
 # Type aliases
 StreamId = str

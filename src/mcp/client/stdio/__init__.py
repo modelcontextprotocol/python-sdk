@@ -3,7 +3,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal, TextIO
+from typing import Final, Literal, TextIO
 
 import anyio
 import anyio.lowlevel
@@ -25,8 +25,8 @@ from mcp.shared.message import SessionMessage
 logger = logging.getLogger(__name__)
 
 # Environment variables to inherit by default
-DEFAULT_INHERITED_ENV_VARS = (
-    [
+DEFAULT_INHERITED_ENV_VARS: Final = (
+    (
         "APPDATA",
         "HOMEDRIVE",
         "HOMEPATH",
@@ -39,13 +39,20 @@ DEFAULT_INHERITED_ENV_VARS = (
         "TEMP",
         "USERNAME",
         "USERPROFILE",
-    ]
+    )
     if sys.platform == "win32"
-    else ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"]
+    else (
+        "HOME",
+        "LOGNAME",
+        "PATH",
+        "SHELL",
+        "TERM",
+        "USER",
+    )
 )
 
 # Timeout for process termination before falling back to force kill
-PROCESS_TERMINATION_TIMEOUT = 2.0
+PROCESS_TERMINATION_TIMEOUT: Final = 2.0
 
 
 def get_default_environment() -> dict[str, str]:

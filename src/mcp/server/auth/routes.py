@@ -1,5 +1,5 @@
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Final
 
 from pydantic import AnyHttpUrl
 from starlette.middleware.cors import CORSMiddleware
@@ -46,10 +46,10 @@ def validate_issuer_url(url: AnyHttpUrl):
         raise ValueError("Issuer URL must not have a query string")
 
 
-AUTHORIZATION_PATH = "/authorize"
-TOKEN_PATH = "/token"
-REGISTRATION_PATH = "/register"
-REVOCATION_PATH = "/revoke"
+AUTHORIZATION_PATH: Final = "/authorize"
+TOKEN_PATH: Final = "/token"
+REGISTRATION_PATH: Final = "/register"
+REVOCATION_PATH: Final = "/revoke"
 
 
 def cors_middleware(
