@@ -3,6 +3,7 @@ from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
 from pydantic.networks import AnyUrl, UrlConstraints
+from typing_extensions import deprecated
 
 """
 Model Context Protocol bindings for Python
@@ -22,12 +23,20 @@ for reference.
   not separate types in the schema.
 """
 
-LATEST_PROTOCOL_VERSION = "2025-03-26"
+LATEST_PROTOCOL_VERSION = "2025-06-18"
+
+"""
+The default negotiated version of the Model Context Protocol when no version is specified.
+We need this to satisfy the MCP specification, which requires the server to assume a
+specific version if none is provided by the client. See section "Protocol Version Header" at
+https://modelcontextprotocol.io/specification
+"""
+DEFAULT_NEGOTIATED_VERSION = "2025-03-26"
 
 ProgressToken = str | int
 Cursor = str
 Role = Literal["user", "assistant"]
-RequestId = Annotated[int | str, Field(union_mode="left_to_right")]
+RequestId = Annotated[int, Field(strict=True)] | str
 AnyFunction: TypeAlias = Callable[..., Any]
 
 
@@ -60,8 +69,8 @@ class NotificationParams(BaseModel):
 
     meta: Meta | None = Field(alias="_meta", default=None)
     """
-    This parameter name is reserved by MCP to allow clients and servers to attach
-    additional metadata to their notifications.
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
     """
 
 
@@ -96,13 +105,12 @@ class Notification(BaseModel, Generic[NotificationParamsT, MethodT]):
 class Result(BaseModel):
     """Base class for JSON-RPC results."""
 
-    model_config = ConfigDict(extra="allow")
-
     meta: dict[str, Any] | None = Field(alias="_meta", default=None)
     """
-    This result property is reserved by the protocol to allow clients and servers to
-    attach additional metadata to their responses.
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
     """
+    model_config = ConfigDict(extra="allow")
 
 
 class PaginatedResult(Result):
@@ -188,10 +196,26 @@ class EmptyResult(Result):
     """A response that indicates success but carries no data."""
 
 
-class Implementation(BaseModel):
-    """Describes the name and version of an MCP implementation."""
+class BaseMetadata(BaseModel):
+    """Base class for entities with name and optional title fields."""
 
     name: str
+    """The programmatic name of the entity."""
+
+    title: str | None = None
+    """
+    Intended for UI and end-user contexts — optimized to be human-readable and easily understood,
+    even by those unfamiliar with domain-specific terminology.
+
+    If not provided, the name should be used for display (except for Tool,
+    where `annotations.title` should be given precedence over using `name`,
+    if present).
+    """
+
+
+class Implementation(BaseMetadata):
+    """Describes the name and version of an MCP implementation."""
+
     version: str
     model_config = ConfigDict(extra="allow")
 
@@ -210,6 +234,12 @@ class SamplingCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class ElicitationCapability(BaseModel):
+    """Capability for elicitation operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+
 class ClientCapabilities(BaseModel):
     """Capabilities a client may support."""
 
@@ -217,6 +247,8 @@ class ClientCapabilities(BaseModel):
     """Experimental, non-standard capabilities that the client supports."""
     sampling: SamplingCapability | None = None
     """Present if the client supports sampling from an LLM."""
+    elicitation: ElicitationCapability | None = None
+    """Present if the client supports elicitation from the user."""
     roots: RootsCapability | None = None
     """Present if the client supports listing roots."""
     model_config = ConfigDict(extra="allow")
@@ -254,6 +286,12 @@ class LoggingCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class CompletionsCapability(BaseModel):
+    """Capability for completions operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+
 class ServerCapabilities(BaseModel):
     """Capabilities that a server may support."""
 
@@ -267,6 +305,8 @@ class ServerCapabilities(BaseModel):
     """Present if the server offers any resources to read."""
     tools: ToolsCapability | None = None
     """Present if the server offers any tools to call."""
+    completions: CompletionsCapability | None = None
+    """Present if the server offers autocompletion suggestions for prompts and resources."""
     model_config = ConfigDict(extra="allow")
 
 
@@ -286,7 +326,7 @@ class InitializeRequest(Request[InitializeRequestParams, Literal["initialize"]])
     to begin initialization.
     """
 
-    method: Literal["initialize"]
+    method: Literal["initialize"] = "initialize"
     params: InitializeRequestParams
 
 
@@ -307,7 +347,7 @@ class InitializedNotification(Notification[NotificationParams | None, Literal["n
     finished.
     """
 
-    method: Literal["notifications/initialized"]
+    method: Literal["notifications/initialized"] = "notifications/initialized"
     params: NotificationParams | None = None
 
 
@@ -317,7 +357,7 @@ class PingRequest(Request[RequestParams | None, Literal["ping"]]):
     still alive.
     """
 
-    method: Literal["ping"]
+    method: Literal["ping"] = "ping"
     params: RequestParams | None = None
 
 
@@ -350,14 +390,14 @@ class ProgressNotification(Notification[ProgressNotificationParams, Literal["not
     long-running request.
     """
 
-    method: Literal["notifications/progress"]
+    method: Literal["notifications/progress"] = "notifications/progress"
     params: ProgressNotificationParams
 
 
 class ListResourcesRequest(PaginatedRequest[Literal["resources/list"]]):
     """Sent from the client to request a list of resources the server has."""
 
-    method: Literal["resources/list"]
+    method: Literal["resources/list"] = "resources/list"
 
 
 class Annotations(BaseModel):
@@ -366,13 +406,11 @@ class Annotations(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class Resource(BaseModel):
+class Resource(BaseMetadata):
     """A known resource that the server is capable of reading."""
 
     uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
     """The URI of this resource."""
-    name: str
-    """A human-readable name for this resource."""
     description: str | None = None
     """A description of what this resource represents."""
     mimeType: str | None = None
@@ -385,10 +423,15 @@ class Resource(BaseModel):
     This can be used by Hosts to display file sizes and estimate context window usage.
     """
     annotations: Annotations | None = None
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
     model_config = ConfigDict(extra="allow")
 
 
-class ResourceTemplate(BaseModel):
+class ResourceTemplate(BaseMetadata):
     """A template description for resources available on the server."""
 
     uriTemplate: str
@@ -396,8 +439,6 @@ class ResourceTemplate(BaseModel):
     A URI template (according to RFC 6570) that can be used to construct resource
     URIs.
     """
-    name: str
-    """A human-readable name for the type of resource this template refers to."""
     description: str | None = None
     """A human-readable description of what this template is for."""
     mimeType: str | None = None
@@ -406,6 +447,11 @@ class ResourceTemplate(BaseModel):
     included if all resources matching this template have the same type.
     """
     annotations: Annotations | None = None
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -418,7 +464,7 @@ class ListResourcesResult(PaginatedResult):
 class ListResourceTemplatesRequest(PaginatedRequest[Literal["resources/templates/list"]]):
     """Sent from the client to request a list of resource templates the server has."""
 
-    method: Literal["resources/templates/list"]
+    method: Literal["resources/templates/list"] = "resources/templates/list"
 
 
 class ListResourceTemplatesResult(PaginatedResult):
@@ -441,7 +487,7 @@ class ReadResourceRequestParams(RequestParams):
 class ReadResourceRequest(Request[ReadResourceRequestParams, Literal["resources/read"]]):
     """Sent from the client to the server, to read a specific resource URI."""
 
-    method: Literal["resources/read"]
+    method: Literal["resources/read"] = "resources/read"
     params: ReadResourceRequestParams
 
 
@@ -452,6 +498,11 @@ class ResourceContents(BaseModel):
     """The URI of this resource."""
     mimeType: str | None = None
     """The MIME type of this resource, if known."""
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -486,7 +537,7 @@ class ResourceListChangedNotification(
     of resources it can read from has changed.
     """
 
-    method: Literal["notifications/resources/list_changed"]
+    method: Literal["notifications/resources/list_changed"] = "notifications/resources/list_changed"
     params: NotificationParams | None = None
 
 
@@ -507,7 +558,7 @@ class SubscribeRequest(Request[SubscribeRequestParams, Literal["resources/subscr
     whenever a particular resource changes.
     """
 
-    method: Literal["resources/subscribe"]
+    method: Literal["resources/subscribe"] = "resources/subscribe"
     params: SubscribeRequestParams
 
 
@@ -525,7 +576,7 @@ class UnsubscribeRequest(Request[UnsubscribeRequestParams, Literal["resources/un
     the server.
     """
 
-    method: Literal["resources/unsubscribe"]
+    method: Literal["resources/unsubscribe"] = "resources/unsubscribe"
     params: UnsubscribeRequestParams
 
 
@@ -548,14 +599,14 @@ class ResourceUpdatedNotification(
     changed and may need to be read again.
     """
 
-    method: Literal["notifications/resources/updated"]
+    method: Literal["notifications/resources/updated"] = "notifications/resources/updated"
     params: ResourceUpdatedNotificationParams
 
 
 class ListPromptsRequest(PaginatedRequest[Literal["prompts/list"]]):
     """Sent from the client to request a list of prompts and prompt templates."""
 
-    method: Literal["prompts/list"]
+    method: Literal["prompts/list"] = "prompts/list"
 
 
 class PromptArgument(BaseModel):
@@ -570,15 +621,18 @@ class PromptArgument(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class Prompt(BaseModel):
+class Prompt(BaseMetadata):
     """A prompt or prompt template that the server offers."""
 
-    name: str
-    """The name of the prompt or prompt template."""
     description: str | None = None
     """An optional description of what this prompt provides."""
     arguments: list[PromptArgument] | None = None
     """A list of arguments to use for templating the prompt."""
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -601,7 +655,7 @@ class GetPromptRequestParams(RequestParams):
 class GetPromptRequest(Request[GetPromptRequestParams, Literal["prompts/get"]]):
     """Used by the client to get a prompt provided by the server."""
 
-    method: Literal["prompts/get"]
+    method: Literal["prompts/get"] = "prompts/get"
     params: GetPromptRequestParams
 
 
@@ -612,6 +666,11 @@ class TextContent(BaseModel):
     text: str
     """The text content of the message."""
     annotations: Annotations | None = None
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -627,6 +686,11 @@ class ImageContent(BaseModel):
     image types.
     """
     annotations: Annotations | None = None
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -642,6 +706,11 @@ class AudioContent(BaseModel):
     audio types.
     """
     annotations: Annotations | None = None
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -664,17 +733,36 @@ class EmbeddedResource(BaseModel):
     type: Literal["resource"]
     resource: TextResourceContents | BlobResourceContents
     annotations: Annotations | None = None
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
     model_config = ConfigDict(extra="allow")
 
 
-Content = TextContent | ImageContent | AudioContent | EmbeddedResource
+class ResourceLink(Resource):
+    """
+    A resource that the server is capable of reading, included in a prompt or tool call result.
+
+    Note: resource links returned by tools are not guaranteed to appear in the results of `resources/list` requests.
+    """
+
+    type: Literal["resource_link"]
+
+
+ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
+"""A content block that can be used in prompts and tool results."""
+
+Content: TypeAlias = ContentBlock
+# """DEPRECATED: Content is deprecated, you should use ContentBlock directly."""
 
 
 class PromptMessage(BaseModel):
     """Describes a message returned as part of a prompt."""
 
     role: Role
-    content: Content
+    content: ContentBlock
     model_config = ConfigDict(extra="allow")
 
 
@@ -694,14 +782,14 @@ class PromptListChangedNotification(
     of prompts it offers has changed.
     """
 
-    method: Literal["notifications/prompts/list_changed"]
+    method: Literal["notifications/prompts/list_changed"] = "notifications/prompts/list_changed"
     params: NotificationParams | None = None
 
 
 class ListToolsRequest(PaginatedRequest[Literal["tools/list"]]):
     """Sent from the client to request a list of tools the server has."""
 
-    method: Literal["tools/list"]
+    method: Literal["tools/list"] = "tools/list"
 
 
 class ToolAnnotations(BaseModel):
@@ -752,17 +840,25 @@ class ToolAnnotations(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class Tool(BaseModel):
+class Tool(BaseMetadata):
     """Definition for a tool the client can call."""
 
-    name: str
-    """The name of the tool."""
     description: str | None = None
     """A human-readable description of the tool."""
     inputSchema: dict[str, Any]
     """A JSON Schema object defining the expected parameters for the tool."""
+    outputSchema: dict[str, Any] | None = None
+    """
+    An optional JSON Schema object defining the structure of the tool's output
+    returned in the structuredContent field of a CallToolResult.
+    """
     annotations: ToolAnnotations | None = None
     """Optional additional tool information."""
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -783,14 +879,16 @@ class CallToolRequestParams(RequestParams):
 class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
     """Used by the client to invoke a tool provided by the server."""
 
-    method: Literal["tools/call"]
+    method: Literal["tools/call"] = "tools/call"
     params: CallToolRequestParams
 
 
 class CallToolResult(Result):
     """The server's response to a tool call."""
 
-    content: list[Content]
+    content: list[ContentBlock]
+    structuredContent: dict[str, Any] | None = None
+    """An optional JSON object that represents the structured result of the tool call."""
     isError: bool = False
 
 
@@ -800,7 +898,7 @@ class ToolListChangedNotification(Notification[NotificationParams | None, Litera
     of tools it offers has changed.
     """
 
-    method: Literal["notifications/tools/list_changed"]
+    method: Literal["notifications/tools/list_changed"] = "notifications/tools/list_changed"
     params: NotificationParams | None = None
 
 
@@ -818,7 +916,7 @@ class SetLevelRequestParams(RequestParams):
 class SetLevelRequest(Request[SetLevelRequestParams, Literal["logging/setLevel"]]):
     """A request from the client to the server, to enable or adjust logging."""
 
-    method: Literal["logging/setLevel"]
+    method: Literal["logging/setLevel"] = "logging/setLevel"
     params: SetLevelRequestParams
 
 
@@ -840,7 +938,7 @@ class LoggingMessageNotificationParams(NotificationParams):
 class LoggingMessageNotification(Notification[LoggingMessageNotificationParams, Literal["notifications/message"]]):
     """Notification of a log message passed from server to client."""
 
-    method: Literal["notifications/message"]
+    method: Literal["notifications/message"] = "notifications/message"
     params: LoggingMessageNotificationParams
 
 
@@ -935,7 +1033,7 @@ class CreateMessageRequestParams(RequestParams):
 class CreateMessageRequest(Request[CreateMessageRequestParams, Literal["sampling/createMessage"]]):
     """A request from the server to sample an LLM via the client."""
 
-    method: Literal["sampling/createMessage"]
+    method: Literal["sampling/createMessage"] = "sampling/createMessage"
     params: CreateMessageRequestParams
 
 
@@ -953,13 +1051,18 @@ class CreateMessageResult(Result):
     """The reason why sampling stopped, if known."""
 
 
-class ResourceReference(BaseModel):
+class ResourceTemplateReference(BaseModel):
     """A reference to a resource or resource template definition."""
 
     type: Literal["ref/resource"]
     uri: str
     """The URI or URI template of the resource."""
     model_config = ConfigDict(extra="allow")
+
+
+@deprecated("`ResourceReference` is deprecated, you should use `ResourceTemplateReference`.")
+class ResourceReference(ResourceTemplateReference):
+    pass
 
 
 class PromptReference(BaseModel):
@@ -981,18 +1084,28 @@ class CompletionArgument(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class CompletionContext(BaseModel):
+    """Additional, optional context for completions."""
+
+    arguments: dict[str, str] | None = None
+    """Previously-resolved variables in a URI template or prompt."""
+    model_config = ConfigDict(extra="allow")
+
+
 class CompleteRequestParams(RequestParams):
     """Parameters for completion requests."""
 
-    ref: ResourceReference | PromptReference
+    ref: ResourceTemplateReference | PromptReference
     argument: CompletionArgument
+    context: CompletionContext | None = None
+    """Additional, optional context for completions"""
     model_config = ConfigDict(extra="allow")
 
 
 class CompleteRequest(Request[CompleteRequestParams, Literal["completion/complete"]]):
     """A request from the client to the server, to ask for completion options."""
 
-    method: Literal["completion/complete"]
+    method: Literal["completion/complete"] = "completion/complete"
     params: CompleteRequestParams
 
 
@@ -1031,7 +1144,7 @@ class ListRootsRequest(Request[RequestParams | None, Literal["roots/list"]]):
     structure or access specific locations that the client has permission to read from.
     """
 
-    method: Literal["roots/list"]
+    method: Literal["roots/list"] = "roots/list"
     params: RequestParams | None = None
 
 
@@ -1049,6 +1162,11 @@ class Root(BaseModel):
     An optional name for the root. This can be used to provide a human-readable
     identifier for the root, which may be useful for display purposes or for
     referencing the root in other parts of the application.
+    """
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
     """
     model_config = ConfigDict(extra="allow")
 
@@ -1075,7 +1193,7 @@ class RootsListChangedNotification(
     using the ListRootsRequest.
     """
 
-    method: Literal["notifications/roots/list_changed"]
+    method: Literal["notifications/roots/list_changed"] = "notifications/roots/list_changed"
     params: NotificationParams | None = None
 
 
@@ -1095,7 +1213,7 @@ class CancelledNotification(Notification[CancelledNotificationParams, Literal["n
     previously-issued request.
     """
 
-    method: Literal["notifications/cancelled"]
+    method: Literal["notifications/cancelled"] = "notifications/cancelled"
     params: CancelledNotificationParams
 
 
@@ -1125,11 +1243,49 @@ class ClientNotification(
     pass
 
 
-class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult]):
+# Type for elicitation schema - a JSON Schema dict
+ElicitRequestedSchema: TypeAlias = dict[str, Any]
+"""Schema for elicitation requests."""
+
+
+class ElicitRequestParams(RequestParams):
+    """Parameters for elicitation requests."""
+
+    message: str
+    requestedSchema: ElicitRequestedSchema
+    model_config = ConfigDict(extra="allow")
+
+
+class ElicitRequest(Request[ElicitRequestParams, Literal["elicitation/create"]]):
+    """A request from the server to elicit information from the client."""
+
+    method: Literal["elicitation/create"] = "elicitation/create"
+    params: ElicitRequestParams
+
+
+class ElicitResult(Result):
+    """The client's response to an elicitation request."""
+
+    action: Literal["accept", "decline", "cancel"]
+    """
+    The user action in response to the elicitation.
+    - "accept": User submitted the form/confirmed the action
+    - "decline": User explicitly declined the action
+    - "cancel": User dismissed without making an explicit choice
+    """
+
+    content: dict[str, str | int | float | bool | None] | None = None
+    """
+    The submitted form data, only present when action is "accept".
+    Contains values matching the requested schema.
+    """
+
+
+class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult]):
     pass
 
 
-class ServerRequest(RootModel[PingRequest | CreateMessageRequest | ListRootsRequest]):
+class ServerRequest(RootModel[PingRequest | CreateMessageRequest | ListRootsRequest | ElicitRequest]):
     pass
 
 

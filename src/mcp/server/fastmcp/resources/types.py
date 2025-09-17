@@ -54,7 +54,12 @@ class FunctionResource(Resource):
     async def read(self) -> str | bytes:
         """Read the resource by calling the wrapped function."""
         try:
-            result = await self.fn() if inspect.iscoroutinefunction(self.fn) else self.fn()
+            # Call the function first to see if it returns a coroutine
+            result = self.fn()
+            # If it's a coroutine, await it
+            if inspect.iscoroutine(result):
+                result = await result
+
             if isinstance(result, Resource):
                 return await result.read()
             elif isinstance(result, bytes):
@@ -72,6 +77,7 @@ class FunctionResource(Resource):
         fn: Callable[..., Any],
         uri: str,
         name: str | None = None,
+        title: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
     ) -> "FunctionResource":
@@ -86,6 +92,7 @@ class FunctionResource(Resource):
         return cls(
             uri=AnyUrl(uri),
             name=func_name,
+            title=title,
             description=description or fn.__doc__ or "",
             mime_type=mime_type or "text/plain",
             fn=fn,

@@ -81,7 +81,7 @@ class CallbackHandler(BaseHTTPRequestHandler):
             <html>
             <body>
                 <h1>Authorization Failed</h1>
-                <p>Error: {query_params['error'][0]}</p>
+                <p>Error: {query_params["error"][0]}</p>
                 <p>You can close this window and return to the terminal.</p>
             </body>
             </html>
@@ -160,8 +160,7 @@ class SimpleAuthClient:
         print(f"🔗 Attempting to connect to {self.server_url}...")
 
         try:
-            # Set up callback server
-            callback_server = CallbackServer(port=3000)
+            callback_server = CallbackServer(port=3030)
             callback_server.start()
 
             async def callback_handler() -> tuple[str, str | None]:
@@ -175,7 +174,7 @@ class SimpleAuthClient:
 
             client_metadata_dict = {
                 "client_name": "Simple Auth Client",
-                "redirect_uris": ["http://localhost:3000/callback"],
+                "redirect_uris": ["http://localhost:3030/callback"],
                 "grant_types": ["authorization_code", "refresh_token"],
                 "response_types": ["code"],
                 "token_endpoint_auth_method": "client_secret_post",
@@ -189,9 +188,7 @@ class SimpleAuthClient:
             # Create OAuth authentication handler using the new interface
             oauth_auth = OAuthClientProvider(
                 server_url=self.server_url.replace("/mcp", ""),
-                client_metadata=OAuthClientMetadata.model_validate(
-                    client_metadata_dict
-                ),
+                client_metadata=OAuthClientMetadata.model_validate(client_metadata_dict),
                 storage=InMemoryTokenStorage(),
                 redirect_handler=_default_redirect_handler,
                 callback_handler=callback_handler,
@@ -323,9 +320,7 @@ class SimpleAuthClient:
                     await self.call_tool(tool_name, arguments)
 
                 else:
-                    print(
-                        "❌ Unknown command. Try 'list', 'call <tool_name>', or 'quit'"
-                    )
+                    print("❌ Unknown command. Try 'list', 'call <tool_name>', or 'quit'")
 
             except KeyboardInterrupt:
                 print("\n\n👋 Goodbye!")

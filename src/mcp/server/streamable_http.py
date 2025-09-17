@@ -24,8 +24,14 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+from mcp.server.transport_security import (
+    TransportSecurityMiddleware,
+    TransportSecuritySettings,
+)
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
+    DEFAULT_NEGOTIATED_VERSION,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
@@ -40,11 +46,10 @@ from mcp.types import (
 
 logger = logging.getLogger(__name__)
 
-# Maximum size for incoming messages
-MAXIMUM_MESSAGE_SIZE = 4 * 1024 * 1024  # 4MB
 
 # Header names
 MCP_SESSION_ID_HEADER = "mcp-session-id"
+MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version"
 LAST_EVENT_ID_HEADER = "last-event-id"
 
 # Content types
@@ -127,12 +132,14 @@ class StreamableHTTPServerTransport:
     _read_stream: MemoryObjectReceiveStream[SessionMessage | Exception] | None = None
     _write_stream: MemoryObjectSendStream[SessionMessage] | None = None
     _write_stream_reader: MemoryObjectReceiveStream[SessionMessage] | None = None
+    _security: TransportSecurityMiddleware
 
     def __init__(
         self,
         mcp_session_id: str | None,
         is_json_response_enabled: bool = False,
         event_store: EventStore | None = None,
+        security_settings: TransportSecuritySettings | None = None,
     ) -> None:
         """
         Initialize a new StreamableHTTP server transport.
@@ -145,6 +152,7 @@ class StreamableHTTPServerTransport:
             event_store: Event store for resumability support. If provided,
                         resumability will be enabled, allowing clients to
                         reconnect and resume messages.
+            security_settings: Optional security settings for DNS rebinding protection.
 
         Raises:
             ValueError: If the session ID contains invalid characters.
@@ -155,6 +163,7 @@ class StreamableHTTPServerTransport:
         self.mcp_session_id = mcp_session_id
         self.is_json_response_enabled = is_json_response_enabled
         self._event_store = event_store
+        self._security = TransportSecurityMiddleware(security_settings)
         self._request_streams: dict[
             RequestId,
             tuple[
@@ -163,6 +172,11 @@ class StreamableHTTPServerTransport:
             ],
         ] = {}
         self._terminated = False
+
+    @property
+    def is_terminated(self) -> bool:
+        """Check if this transport has been explicitly terminated."""
+        return self._terminated
 
     def _create_error_response(
         self,
@@ -239,8 +253,9 @@ class StreamableHTTPServerTransport:
                 # Close the request stream
                 await self._request_streams[request_id][0].aclose()
                 await self._request_streams[request_id][1].aclose()
-            except Exception as e:
-                logger.debug(f"Error closing memory streams: {e}")
+            except Exception:
+                # During cleanup, we catch all exceptions since streams might be in various states
+                logger.debug("Error closing memory streams - may already be closed")
             finally:
                 # Remove the request stream from the mapping
                 self._request_streams.pop(request_id, None)
@@ -248,6 +263,14 @@ class StreamableHTTPServerTransport:
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Application entry point that handles all HTTP requests"""
         request = Request(scope, receive)
+
+        # Validate request headers for DNS rebinding protection
+        is_post = request.method == "POST"
+        error_response = await self._security.validate_request(request, is_post=is_post)
+        if error_response:
+            await error_response(scope, receive, send)
+            return
+
         if self._terminated:
             # If the session has been terminated, return 404 Not Found
             response = self._create_error_response(
@@ -293,7 +316,7 @@ class StreamableHTTPServerTransport:
             has_json, has_sse = self._check_accept_headers(request)
             if not (has_json and has_sse):
                 response = self._create_error_response(
-                    ("Not Acceptable: Client must accept both application/json and " "text/event-stream"),
+                    ("Not Acceptable: Client must accept both application/json and text/event-stream"),
                     HTTPStatus.NOT_ACCEPTABLE,
                 )
                 await response(scope, receive, send)
@@ -310,13 +333,6 @@ class StreamableHTTPServerTransport:
 
             # Parse the body - only read it once
             body = await request.body()
-            if len(body) > MAXIMUM_MESSAGE_SIZE:
-                response = self._create_error_response(
-                    "Payload Too Large: Message exceeds maximum size",
-                    HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
-                )
-                await response(scope, receive, send)
-                return
 
             try:
                 raw_message = json.loads(body)
@@ -353,8 +369,7 @@ class StreamableHTTPServerTransport:
                         )
                         await response(scope, receive, send)
                         return
-            # For non-initialization requests, validate the session
-            elif not await self._validate_session(request, send):
+            elif not await self._validate_request_headers(request, send):
                 return
 
             # For notifications and responses only, return 202 Accepted
@@ -412,10 +427,10 @@ class StreamableHTTPServerTransport:
                             HTTPStatus.INTERNAL_SERVER_ERROR,
                         )
                         await response(scope, receive, send)
-                except Exception as e:
-                    logger.exception(f"Error processing JSON response: {e}")
+                except Exception:
+                    logger.exception("Error processing JSON response")
                     response = self._create_error_response(
-                        f"Error processing request: {str(e)}",
+                        "Error processing request",
                         HTTPStatus.INTERNAL_SERVER_ERROR,
                         INTERNAL_ERROR,
                     )
@@ -442,8 +457,8 @@ class StreamableHTTPServerTransport:
                                     JSONRPCResponse | JSONRPCError,
                                 ):
                                     break
-                    except Exception as e:
-                        logger.exception(f"Error in SSE writer: {e}")
+                    except Exception:
+                        logger.exception("Error in SSE writer")
                     finally:
                         logger.debug("Closing SSE writer")
                         await self._clean_up_memory_streams(request_id)
@@ -513,8 +528,9 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
             return
 
-        if not await self._validate_session(request, send):
+        if not await self._validate_request_headers(request, send):
             return
+
         # Handle resumability: check for Last-Event-ID header
         if last_event_id := request.headers.get(LAST_EVENT_ID_HEADER):
             await self._replay_events(last_event_id, request, send)
@@ -559,8 +575,8 @@ class StreamableHTTPServerTransport:
                         # Send the message via SSE
                         event_data = self._create_event_data(event_message)
                         await sse_stream_writer.send(event_data)
-            except Exception as e:
-                logger.exception(f"Error in standalone SSE writer: {e}")
+            except Exception:
+                logger.exception("Error in standalone SSE writer")
             finally:
                 logger.debug("Closing standalone SSE writer")
                 await self._clean_up_memory_streams(GET_STREAM_KEY)
@@ -575,8 +591,8 @@ class StreamableHTTPServerTransport:
         try:
             # This will send headers immediately and establish the SSE connection
             await response(request.scope, request.receive, send)
-        except Exception as e:
-            logger.exception(f"Error in standalone SSE response: {e}")
+        except Exception:
+            logger.exception("Error in standalone SSE response")
             await sse_stream_writer.aclose()
             await sse_stream_reader.aclose()
             await self._clean_up_memory_streams(GET_STREAM_KEY)
@@ -593,10 +609,10 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
             return
 
-        if not await self._validate_session(request, send):
+        if not await self._validate_request_headers(request, send):
             return
 
-        await self._terminate_session()
+        await self.terminate()
 
         response = self._create_json_response(
             None,
@@ -604,7 +620,7 @@ class StreamableHTTPServerTransport:
         )
         await response(request.scope, request.receive, send)
 
-    async def _terminate_session(self) -> None:
+    async def terminate(self) -> None:
         """Terminate the current session, closing all streams.
 
         Once terminated, all requests with this session ID will receive 404 Not Found.
@@ -618,10 +634,7 @@ class StreamableHTTPServerTransport:
 
         # Close all request streams asynchronously
         for key in request_stream_keys:
-            try:
-                await self._clean_up_memory_streams(key)
-            except Exception as e:
-                logger.debug(f"Error closing stream {key} during termination: {e}")
+            await self._clean_up_memory_streams(key)
 
         # Clear the request streams dictionary immediately
         self._request_streams.clear()
@@ -635,6 +648,7 @@ class StreamableHTTPServerTransport:
             if self._write_stream is not None:
                 await self._write_stream.aclose()
         except Exception as e:
+            # During cleanup, we catch all exceptions since streams might be in various states
             logger.debug(f"Error closing streams: {e}")
 
     async def _handle_unsupported_request(self, request: Request, send: Send) -> None:
@@ -652,6 +666,13 @@ class StreamableHTTPServerTransport:
             headers=headers,
         )
         await response(request.scope, request.receive, send)
+
+    async def _validate_request_headers(self, request: Request, send: Send) -> bool:
+        if not await self._validate_session(request, send):
+            return False
+        if not await self._validate_protocol_version(request, send):
+            return False
+        return True
 
     async def _validate_session(self, request: Request, send: Send) -> bool:
         """Validate the session ID in the request."""
@@ -676,6 +697,28 @@ class StreamableHTTPServerTransport:
             response = self._create_error_response(
                 "Not Found: Invalid or expired session ID",
                 HTTPStatus.NOT_FOUND,
+            )
+            await response(request.scope, request.receive, send)
+            return False
+
+        return True
+
+    async def _validate_protocol_version(self, request: Request, send: Send) -> bool:
+        """Validate the protocol version header in the request."""
+        # Get the protocol version from the request headers
+        protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
+
+        # If no protocol version provided, assume default version
+        if protocol_version is None:
+            protocol_version = DEFAULT_NEGOTIATED_VERSION
+
+        # Check if the protocol version is supported
+        if protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
+            supported_versions = ", ".join(SUPPORTED_PROTOCOL_VERSIONS)
+            response = self._create_error_response(
+                f"Bad Request: Unsupported protocol version: {protocol_version}. "
+                + f"Supported versions: {supported_versions}",
+                HTTPStatus.BAD_REQUEST,
             )
             await response(request.scope, request.receive, send)
             return False
@@ -726,8 +769,8 @@ class StreamableHTTPServerTransport:
                                     event_data = self._create_event_data(event_message)
 
                                     await sse_stream_writer.send(event_data)
-                except Exception as e:
-                    logger.exception(f"Error in replay sender: {e}")
+                except Exception:
+                    logger.exception("Error in replay sender")
 
             # Create and start EventSourceResponse
             response = EventSourceResponse(
@@ -738,16 +781,16 @@ class StreamableHTTPServerTransport:
 
             try:
                 await response(request.scope, request.receive, send)
-            except Exception as e:
-                logger.exception(f"Error in replay response: {e}")
+            except Exception:
+                logger.exception("Error in replay response")
             finally:
                 await sse_stream_writer.aclose()
                 await sse_stream_reader.aclose()
 
-        except Exception as e:
-            logger.exception(f"Error replaying events: {e}")
+        except Exception:
+            logger.exception("Error replaying events")
             response = self._create_error_response(
-                f"Error replaying events: {str(e)}",
+                "Error replaying events",
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 INTERNAL_ERROR,
             )
@@ -794,20 +837,17 @@ class StreamableHTTPServerTransport:
                             response_id = str(message.root.id)
                             # If this response is for an existing request stream,
                             # send it there
-                            if response_id in self._request_streams:
-                                target_request_id = response_id
-
-                        else:
-                            # Extract related_request_id from meta if it exists
-                            if (
-                                session_message.metadata is not None
-                                and isinstance(
-                                    session_message.metadata,
-                                    ServerMessageMetadata,
-                                )
-                                and session_message.metadata.related_request_id is not None
-                            ):
-                                target_request_id = str(session_message.metadata.related_request_id)
+                            target_request_id = response_id
+                        # Extract related_request_id from meta if it exists
+                        elif (
+                            session_message.metadata is not None
+                            and isinstance(
+                                session_message.metadata,
+                                ServerMessageMetadata,
+                            )
+                            and session_message.metadata.related_request_id is not None
+                        ):
+                            target_request_id = str(session_message.metadata.related_request_id)
 
                         request_stream_id = target_request_id if target_request_id is not None else GET_STREAM_KEY
 
@@ -835,8 +875,8 @@ class StreamableHTTPServerTransport:
                                 for message. Still processing message as the client
                                 might reconnect and replay."""
                             )
-                except Exception as e:
-                    logger.exception(f"Error in message router: {e}")
+                except Exception:
+                    logger.exception("Error in message router")
 
             # Start the message router
             tg.start_soon(message_router)
@@ -846,11 +886,7 @@ class StreamableHTTPServerTransport:
                 yield read_stream, write_stream
             finally:
                 for stream_id in list(self._request_streams.keys()):
-                    try:
-                        await self._clean_up_memory_streams(stream_id)
-                    except Exception as e:
-                        logger.debug(f"Error closing request stream: {e}")
-                        pass
+                    await self._clean_up_memory_streams(stream_id)
                 self._request_streams.clear()
 
                 # Clean up the read and write streams
@@ -860,4 +896,5 @@ class StreamableHTTPServerTransport:
                     await write_stream_reader.aclose()
                     await write_stream.aclose()
                 except Exception as e:
+                    # During cleanup, we catch all exceptions since streams might be in various states
                     logger.debug(f"Error closing streams: {e}")

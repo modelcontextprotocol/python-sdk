@@ -15,9 +15,16 @@ class RevocationOptions(BaseModel):
 class AuthSettings(BaseModel):
     issuer_url: AnyHttpUrl = Field(
         ...,
-        description="URL advertised as OAuth issuer; this should be the URL the server " "is reachable at",
+        description="OAuth authorization server URL that issues tokens for this resource server.",
     )
     service_documentation_url: AnyHttpUrl | None = None
     client_registration_options: ClientRegistrationOptions | None = None
     revocation_options: RevocationOptions | None = None
     required_scopes: list[str] | None = None
+
+    # Resource Server settings (when operating as RS only)
+    resource_server_url: AnyHttpUrl | None = Field(
+        ...,
+        description="The URL of the MCP server to be used as the resource identifier "
+        "and base route to look up OAuth Protected Resource Metadata.",
+    )
