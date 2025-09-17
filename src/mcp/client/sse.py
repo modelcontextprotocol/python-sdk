@@ -55,7 +55,9 @@ async def sse_client(
         try:
             logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
             async with httpx_client_factory(
-                headers=headers, auth=auth, timeout=httpx.Timeout(timeout, read=sse_read_timeout)
+                headers=headers,
+                timeout=httpx.Timeout(timeout, read=sse_read_timeout),
+                auth=auth,
             ) as client:
                 async with aconnect_sse(
                     client,
