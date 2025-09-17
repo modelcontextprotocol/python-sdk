@@ -21,6 +21,7 @@ class Resource(BaseModel, abc.ABC):
 
     uri: Annotated[AnyUrl, UrlConstraints(host_required=False)] = Field(default=..., description="URI of the resource")
     name: str | None = Field(description="Name of the resource", default=None)
+    title: str | None = Field(description="Human-readable title of the resource", default=None)
     description: str | None = Field(description="Description of the resource", default=None)
     mime_type: str = Field(
         default="text/plain",

@@ -33,7 +33,11 @@ class AuthorizationRequest(BaseModel):
     state: str | None = Field(None, description="Optional state parameter")
     scope: str | None = Field(
         None,
-        description="Optional scope; if specified, should be " "a space-separated list of scope strings",
+        description="Optional scope; if specified, should be a space-separated list of scope strings",
+    )
+    resource: str | None = Field(
+        None,
+        description="RFC 8707 resource indicator - the MCP server this token will be used with",
     )
 
 
@@ -95,7 +99,7 @@ class AuthorizationHandler:
             if client is None and attempt_load_client:
                 # make last-ditch attempt to load the client
                 client_id = best_effort_extract_string("client_id", params)
-                client = client_id and await self.provider.get_client(client_id)
+                client = await self.provider.get_client(client_id) if client_id else None
             if redirect_uri is None and client:
                 # make last-ditch effort to load the redirect uri
                 try:
@@ -197,6 +201,7 @@ class AuthorizationHandler:
                 code_challenge=auth_request.code_challenge,
                 redirect_uri=redirect_uri,
                 redirect_uri_provided_explicitly=auth_request.redirect_uri is not None,
+                resource=auth_request.resource,  # RFC 8707
             )
 
             try:

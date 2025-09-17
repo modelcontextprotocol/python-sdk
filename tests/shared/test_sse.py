@@ -3,6 +3,7 @@ import multiprocessing
 import socket
 import time
 from collections.abc import AsyncGenerator, Generator
+from typing import Any
 
 import anyio
 import httpx
@@ -20,6 +21,7 @@ from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import McpError
 from mcp.types import (
     EmptyResult,
@@ -73,14 +75,18 @@ class ServerTest(Server):
             ]
 
         @self.call_tool()
-        async def handle_call_tool(name: str, args: dict) -> list[TextContent]:
+        async def handle_call_tool(name: str, args: dict[str, Any]) -> list[TextContent]:
             return [TextContent(type="text", text=f"Called {name}")]
 
 
 # Test fixtures
 def make_server_app() -> Starlette:
     """Create test Starlette app with SSE transport"""
-    sse = SseServerTransport("/messages/")
+    # Configure security with allowed hosts/origins for testing
+    security_settings = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+    )
+    sse = SseServerTransport("/messages/", security_settings=security_settings)
     server = ServerTest()
 
     async def handle_sse(request: Request) -> Response:
@@ -142,7 +148,7 @@ def server(server_port: int) -> Generator[None, None, None]:
 
 
 @pytest.fixture()
-async def http_client(server, server_url) -> AsyncGenerator[httpx.AsyncClient, None]:
+async def http_client(server: None, server_url: str) -> AsyncGenerator[httpx.AsyncClient, None]:
     """Create test client"""
     async with httpx.AsyncClient(base_url=server_url) as client:
         yield client
@@ -189,7 +195,7 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
 
 
 @pytest.fixture
-async def initialized_sse_client_session(server, server_url: str) -> AsyncGenerator[ClientSession, None]:
+async def initialized_sse_client_session(server: None, server_url: str) -> AsyncGenerator[ClientSession, None]:
     async with sse_client(server_url + "/sse", sse_read_timeout=0.5) as streams:
         async with ClientSession(*streams) as session:
             await session.initialize()
@@ -300,7 +306,7 @@ class RequestContextServer(Server[object, Request]):
         super().__init__("request_context_server")
 
         @self.call_tool()
-        async def handle_call_tool(name: str, args: dict) -> list[TextContent]:
+        async def handle_call_tool(name: str, args: dict[str, Any]) -> list[TextContent]:
             headers_info = {}
             context = self.request_context
             if context.request:
@@ -339,7 +345,11 @@ class RequestContextServer(Server[object, Request]):
 
 def run_context_server(server_port: int) -> None:
     """Run a server that captures request context"""
-    sse = SseServerTransport("/messages/")
+    # Configure security with allowed hosts/origins for testing
+    security_settings = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+    )
+    sse = SseServerTransport("/messages/", security_settings=security_settings)
     context_server = RequestContextServer()
 
     async def handle_sse(request: Request) -> Response:
@@ -426,7 +436,7 @@ async def test_request_context_propagation(context_server: None, server_url: str
 @pytest.mark.anyio
 async def test_request_context_isolation(context_server: None, server_url: str) -> None:
     """Test that request contexts are isolated between different SSE clients."""
-    contexts = []
+    contexts: list[dict[str, Any]] = []
 
     # Create multiple clients with different headers
     for i in range(3):
@@ -457,10 +467,47 @@ async def test_request_context_isolation(context_server: None, server_url: str) 
 
 
 def test_sse_message_id_coercion():
-    """Test that string message IDs that look like integers are parsed as integers.
+    """Previously, the `RequestId` would coerce a string that looked like an integer into an integer.
 
     See <https://github.com/modelcontextprotocol/python-sdk/pull/851> for more details.
+
+    As per the JSON-RPC 2.0 specification, the id in the response object needs to be the same type as the id in the
+    request object. In other words, we can't perform the coercion.
+
+    See <https://www.jsonrpc.org/specification#response_object> for more details.
     """
     json_message = '{"jsonrpc": "2.0", "id": "123", "method": "ping", "params": null}'
     msg = types.JSONRPCMessage.model_validate_json(json_message)
+    assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", jsonrpc="2.0", id="123")))
+
+    json_message = '{"jsonrpc": "2.0", "id": 123, "method": "ping", "params": null}'
+    msg = types.JSONRPCMessage.model_validate_json(json_message)
     assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", jsonrpc="2.0", id=123)))
+
+
+@pytest.mark.parametrize(
+    "endpoint, expected_result",
+    [
+        # Valid endpoints - should normalize and work
+        ("/messages/", "/messages/"),
+        ("messages/", "/messages/"),
+        ("/", "/"),
+        # Invalid endpoints - should raise ValueError
+        ("http://example.com/messages/", ValueError),
+        ("//example.com/messages/", ValueError),
+        ("ftp://example.com/messages/", ValueError),
+        ("/messages/?param=value", ValueError),
+        ("/messages/#fragment", ValueError),
+    ],
+)
+def test_sse_server_transport_endpoint_validation(endpoint: str, expected_result: str | type[Exception]):
+    """Test that SseServerTransport properly validates and normalizes endpoints."""
+    if isinstance(expected_result, type):
+        # Test invalid endpoints that should raise an exception
+        with pytest.raises(expected_result, match="is not a relative path.*expecting a relative path"):
+            SseServerTransport(endpoint)
+    else:
+        # Test valid endpoints that should normalize correctly
+        sse = SseServerTransport(endpoint)
+        assert sse._endpoint == expected_result
+        assert sse._endpoint.startswith("/")
