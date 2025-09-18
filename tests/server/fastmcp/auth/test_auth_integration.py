@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
-from pydantic import AnyHttpUrl
+from pydantic import AnyHttpUrl, AnyUrl
 from starlette.applications import Starlette
 
 from mcp.server.auth.provider import (
@@ -357,7 +357,7 @@ class TestAuthEndpoints:
         assert metadata["revocation_endpoint"] == "https://auth.example.com/revoke"
         assert metadata["response_types_supported"] == ["code"]
         assert metadata["code_challenge_methods_supported"] == ["S256"]
-        assert metadata["token_endpoint_auth_methods_supported"] == ["client_secret_post"]
+        assert metadata["token_endpoint_auth_methods_supported"] == ["client_secret_post", "client_secret_basic"]
         assert metadata["grant_types_supported"] == [
             "authorization_code",
             "refresh_token",
@@ -376,8 +376,8 @@ class TestAuthEndpoints:
             },
         )
         error_response = response.json()
-        assert error_response["error"] == "invalid_request"
-        assert "error_description" in error_response  # Contains validation error messages
+        assert error_response["error"] == "unauthorized_client"
+        assert "error_description" in error_response  # Contains error message
 
     @pytest.mark.anyio
     async def test_token_invalid_auth_code(
@@ -941,6 +941,147 @@ class TestAuthEndpoints:
         assert "error" in error_data
         assert error_data["error"] == "invalid_client_metadata"
         assert error_data["error_description"] == "grant_types must be authorization_code and refresh_token"
+
+    @pytest.mark.anyio
+    async def test_client_secret_basic_authentication(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that client_secret_basic authentication works correctly."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Basic Auth Client",
+            "token_endpoint_auth_method": "client_secret_basic",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+        assert client_info["token_endpoint_auth_method"] == "client_secret_basic"
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        credentials = f"{client_info['client_id']}:{client_info['client_secret']}"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+
+        response = await test_client.post(
+            "/token",
+            headers={"Authorization": f"Basic {encoded_credentials}"},
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 200
+        token_response = response.json()
+        assert "access_token" in token_response
+
+    @pytest.mark.anyio
+    async def test_wrong_auth_method_without_valid_credentials_fails(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that using the wrong authentication method fails when credentials are missing."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Post Auth Client",
+            "token_endpoint_auth_method": "client_secret_post",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+        assert client_info["token_endpoint_auth_method"] == "client_secret_post"
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        # Try to use Basic auth when client_secret_post is registered (without secret in body)
+        # This should fail because the secret is missing from the expected location
+
+        credentials = f"{client_info['client_id']}:{client_info['client_secret']}"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+
+        response = await test_client.post(
+            "/token",
+            headers={"Authorization": f"Basic {encoded_credentials}"},
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],
+                # client_secret NOT in body where it should be
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 401
+        error_response = response.json()
+        assert error_response["error"] == "unauthorized_client"
+        assert "Client secret is required" in error_response["error_description"]
+
+    @pytest.mark.anyio
+    async def test_basic_auth_without_header_fails(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that omitting Basic auth when client_secret_basic is registered fails."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Basic Auth Client",
+            "token_endpoint_auth_method": "client_secret_basic",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+        assert client_info["token_endpoint_auth_method"] == "client_secret_basic"
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        response = await test_client.post(
+            "/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],
+                "client_secret": client_info["client_secret"],  # Secret in body (ignored)
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 401
+        error_response = response.json()
+        assert error_response["error"] == "unauthorized_client"
+        assert "Missing or invalid Basic authentication" in error_response["error_description"]
 
 
 class TestAuthorizeEndpointErrors:

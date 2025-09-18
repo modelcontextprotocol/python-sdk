@@ -40,6 +40,17 @@ class RevocationHandler:
         Handler for the OAuth 2.0 Token Revocation endpoint.
         """
         try:
+            client = await self.client_authenticator.authenticate_request(request)
+        except AuthenticationError as e:
+            return PydanticJSONResponse(
+                status_code=401,
+                content=RevocationErrorResponse(
+                    error="unauthorized_client",
+                    error_description=e.message,
+                ),
+            )
+
+        try:
             form_data = await request.form()
             revocation_request = RevocationRequest.model_validate(dict(form_data))
         except ValidationError as e:
@@ -48,20 +59,6 @@ class RevocationHandler:
                 content=RevocationErrorResponse(
                     error="invalid_request",
                     error_description=stringify_pydantic_error(e),
-                ),
-            )
-
-        # Authenticate client
-        try:
-            client = await self.client_authenticator.authenticate(
-                revocation_request.client_id, revocation_request.client_secret
-            )
-        except AuthenticationError as e:
-            return PydanticJSONResponse(
-                status_code=401,
-                content=RevocationErrorResponse(
-                    error="unauthorized_client",
-                    error_description=e.message,
                 ),
             )
 
