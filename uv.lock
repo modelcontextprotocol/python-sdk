@@ -12,6 +12,7 @@ members = [
     "mcp-simple-streamablehttp-stateless",
     "mcp-simple-tool",
     "mcp-snippets",
+    "mcp-structured-output-lowlevel",
 ]
 
 [[package]]
@@ -907,6 +908,17 @@ dev = [
 name = "mcp-snippets"
 version = "0.1.0"
 source = { editable = "examples/snippets" }
+dependencies = [
+    { name = "mcp" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "mcp", editable = "." }]
+
+[[package]]
+name = "mcp-structured-output-lowlevel"
+version = "0.1.0"
+source = { virtual = "examples/servers/structured-output-lowlevel" }
 dependencies = [
     { name = "mcp" },
 ]
