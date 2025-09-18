@@ -24,8 +24,6 @@ from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
-
 # Environment variables to inherit by default
 DEFAULT_INHERITED_ENV_VARS = (
     [
