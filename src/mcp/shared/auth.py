@@ -49,7 +49,7 @@ class OAuthClientMetadata(BaseModel):
     # grant_types: this implementation only supports authorization_code & refresh_token
     grant_types: list[Union[Literal["authorization_code", "refresh_token"], str]] = [
         "authorization_code",
-        "refresh_token"
+        "refresh_token",
     ]
     # The MCP spec requires the "code" response type, but OAuth
     # servers may also return additional types they support
