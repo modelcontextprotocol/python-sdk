@@ -24,6 +24,7 @@ for reference.
 """
 
 LATEST_PROTOCOL_VERSION = "2025-06-18"
+NEXT_PROTOCOL_VERSION = "next"  # Development version with async tool support
 
 """
 The default negotiated version of the Model Context Protocol when no version is specified.
@@ -852,6 +853,12 @@ class Tool(BaseMetadata):
     An optional JSON Schema object defining the structure of the tool's output
     returned in the structuredContent field of a CallToolResult.
     """
+    invocationMode: Literal["sync", "async"] | None = None
+    """
+    Optional invocation mode for the tool. If not specified, defaults to sync-only.
+    - "sync": Tool supports synchronous execution only
+    - "async": Tool supports asynchronous execution only
+    """
     annotations: ToolAnnotations | None = None
     """Optional additional tool information."""
     meta: dict[str, Any] | None = Field(alias="_meta", default=None)
@@ -868,11 +875,79 @@ class ListToolsResult(PaginatedResult):
     tools: list[Tool]
 
 
+class AsyncRequestProperties(BaseModel):
+    """Properties for async tool execution requests."""
+
+    keepAlive: int | None = None
+    """Number of seconds the client wants the result to be kept available upon completion."""
+    model_config = ConfigDict(extra="allow")
+
+
+class AsyncResultProperties(BaseModel):
+    """Properties for async tool execution results."""
+
+    token: str
+    """Server-generated token to use for checking status and retrieving results."""
+    keepAlive: int
+    """Number of seconds the result will be kept available upon completion."""
+    message: str | None = None
+    """Optional message to immediately provide to the client."""
+    model_config = ConfigDict(extra="allow")
+
+
+# Async status checking types
+class CheckToolAsyncStatusParams(RequestParams):
+    """Parameters for checking async tool status."""
+
+    token: str
+    """Token from the original async tool call."""
+
+
+class CheckToolAsyncStatusRequest(Request[CheckToolAsyncStatusParams, Literal["tools/async/status"]]):
+    """Request to check the status of an async tool call."""
+
+    method: Literal["tools/async/status"] = "tools/async/status"
+    params: CheckToolAsyncStatusParams
+
+
+class CheckToolAsyncStatusResult(Result):
+    """Result of checking async tool status."""
+
+    status: Literal["submitted", "working", "completed", "canceled", "failed", "unknown"]
+    """Current status of the async operation."""
+    error: str | None = None
+    """Error message if status is 'failed'."""
+
+
+# Async payload retrieval types
+class GetToolAsyncPayloadParams(RequestParams):
+    """Parameters for getting async tool payload."""
+
+    token: str
+    """Token from the original async tool call."""
+
+
+class GetToolAsyncPayloadRequest(Request[GetToolAsyncPayloadParams, Literal["tools/async/result"]]):
+    """Request to get the result of a completed async tool call."""
+
+    method: Literal["tools/async/result"] = "tools/async/result"
+    params: GetToolAsyncPayloadParams
+
+
+class GetToolAsyncPayloadResult(Result):
+    """Result containing the final async tool call result."""
+
+    result: "CallToolResult"
+    """The result of the tool call."""
+
+
 class CallToolRequestParams(RequestParams):
     """Parameters for calling a tool."""
 
     name: str
     arguments: dict[str, Any] | None = None
+    async_properties: AsyncRequestProperties | None = Field(serialization_alias="async", default=None)
+    """Optional async execution parameters."""
     model_config = ConfigDict(extra="allow")
 
 
@@ -890,6 +965,8 @@ class CallToolResult(Result):
     structuredContent: dict[str, Any] | None = None
     """An optional JSON object that represents the structured result of the tool call."""
     isError: bool = False
+    async_properties: AsyncResultProperties | None = Field(serialization_alias="async", default=None)
+    """Optional async execution information. Present when tool is executed asynchronously."""
 
 
 class ToolListChangedNotification(Notification[NotificationParams | None, Literal["notifications/tools/list_changed"]]):
@@ -1232,6 +1309,8 @@ class ClientRequest(
         | UnsubscribeRequest
         | CallToolRequest
         | ListToolsRequest
+        | CheckToolAsyncStatusRequest
+        | GetToolAsyncPayloadRequest
     ]
 ):
     pass
@@ -1315,6 +1394,8 @@ class ServerResult(
         | ReadResourceResult
         | CallToolResult
         | ListToolsResult
+        | CheckToolAsyncStatusResult
+        | GetToolAsyncPayloadResult
     ]
 ):
     pass
