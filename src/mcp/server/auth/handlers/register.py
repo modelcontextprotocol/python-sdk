@@ -68,7 +68,7 @@ class RegistrationHandler:
                     ),
                     status_code=400,
                 )
-        if set(client_metadata.grant_types) != {"authorization_code", "refresh_token"}:
+        if not {"authorization_code", "refresh_token"}.issubset(set(client_metadata.grant_types)):
             return PydanticJSONResponse(
                 content=RegistrationErrorResponse(
                     error="invalid_client_metadata",

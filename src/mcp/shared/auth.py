@@ -47,7 +47,7 @@ class OAuthClientMetadata(BaseModel):
     # ie: we do not support client_secret_basic
     token_endpoint_auth_method: Literal["none", "client_secret_post"] = "client_secret_post"
     # grant_types: this implementation only supports authorization_code & refresh_token
-    grant_types: list[Literal["authorization_code", "refresh_token"]] = [
+    grant_types: list[Literal["authorization_code", "refresh_token"] | str] = [
         "authorization_code",
         "refresh_token",
     ]
