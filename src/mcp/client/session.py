@@ -2,6 +2,7 @@ import logging
 from datetime import timedelta
 from typing import Any, Protocol
 
+import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from jsonschema import SchemaError, ValidationError, validate
@@ -273,8 +274,18 @@ class ClientSession(
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
         progress_callback: ProgressFnT | None = None,
+        *,
+        async_properties: types.AsyncRequestProperties | None = None,
     ) -> types.CallToolResult:
-        """Send a tools/call request with optional progress callback support."""
+        """Send a tools/call request with optional progress callback support.
+
+        Args:
+            name: Name of the tool to call
+            arguments: Arguments to pass to the tool
+            read_timeout_seconds: Read timeout for the request
+            progress_callback: Optional progress callback
+            async_properties: Optional async parameters for async tool execution
+        """
 
         result = await self.send_request(
             types.ClientRequest(
@@ -282,6 +293,7 @@ class ClientSession(
                     params=types.CallToolRequestParams(
                         name=name,
                         arguments=arguments,
+                        async_properties=async_properties,
                     ),
                 )
             ),
@@ -294,6 +306,42 @@ class ClientSession(
             await self._validate_tool_result(name, result)
 
         return result
+
+    async def check_tool_async_status(self, token: str) -> types.CheckToolAsyncStatusResult:
+        """Check the status of an async tool operation.
+
+        Args:
+            token: Token returned from async call_tool
+
+        Returns:
+            Status result with current operation state
+        """
+        return await self.send_request(
+            types.ClientRequest(
+                types.CheckToolAsyncStatusRequest(
+                    params=types.CheckToolAsyncStatusParams(token=token),
+                )
+            ),
+            types.CheckToolAsyncStatusResult,
+        )
+
+    async def get_tool_async_result(self, token: str) -> types.GetToolAsyncPayloadResult:
+        """Get the result of a completed async tool operation.
+
+        Args:
+            token: Token returned from async call_tool
+
+        Returns:
+            The final tool result
+        """
+        return await self.send_request(
+            types.ClientRequest(
+                types.GetToolAsyncPayloadRequest(
+                    params=types.GetToolAsyncPayloadParams(token=token),
+                )
+            ),
+            types.GetToolAsyncPayloadResult,
+        )
 
     async def _validate_tool_result(self, name: str, result: types.CallToolResult) -> None:
         """Validate the structured content of a tool result against its output schema."""

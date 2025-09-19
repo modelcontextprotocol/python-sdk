@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.server.fastmcp.tools.base import Tool
+from mcp.server.fastmcp.tools.base import InvocationMode, Tool
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.shared.context import LifespanContextT, RequestT
 from mcp.types import ToolAnnotations
@@ -50,8 +50,13 @@ class ToolManager:
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
         structured_output: bool | None = None,
+        invocation_modes: list[InvocationMode] | None = None,
     ) -> Tool:
         """Add a tool to the server."""
+        # Default to sync mode if no invocation modes specified
+        if invocation_modes is None:
+            invocation_modes = ["sync"]
+
         tool = Tool.from_function(
             fn,
             name=name,
@@ -59,6 +64,7 @@ class ToolManager:
             description=description,
             annotations=annotations,
             structured_output=structured_output,
+            invocation_modes=invocation_modes,
         )
         existing = self._tools.get(tool.name)
         if existing:

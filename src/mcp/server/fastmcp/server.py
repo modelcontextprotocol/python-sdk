@@ -30,6 +30,7 @@ from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.fastmcp.tools import Tool, ToolManager
+from mcp.server.fastmcp.tools.base import InvocationMode
 from mcp.server.fastmcp.utilities.context_injection import find_context_parameter
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -43,7 +44,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
-from mcp.types import AnyFunction, ContentBlock, GetPromptResult, ToolAnnotations
+from mcp.types import NEXT_PROTOCOL_VERSION, AnyFunction, ContentBlock, GetPromptResult, ToolAnnotations
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
@@ -266,9 +267,39 @@ class FastMCP(Generic[LifespanResultT]):
         self._mcp_server.get_prompt()(self.get_prompt)
         self._mcp_server.list_resource_templates()(self.list_resource_templates)
 
+    def _client_supports_async(self) -> bool:
+        """Check if the current client supports async tools based on protocol version."""
+        try:
+            context = self.get_context()
+            if context.request_context and context.request_context.session.client_params:
+                client_version = str(context.request_context.session.client_params.protocolVersion)
+                # Only "next" version supports async tools for now
+                return client_version == NEXT_PROTOCOL_VERSION
+        except ValueError:
+            # Context not available (outside of request), assume no async support
+            pass
+        return False
+
+    def _get_invocation_mode(self, info: Tool, client_supports_async: bool) -> Literal["sync", "async"] | None:
+        """Determine invocationMode field based on client support."""
+        if not client_supports_async:
+            return None  # Old clients don't see invocationMode field
+
+        # New clients see the invocationMode field
+        if "async" in info.invocation_modes and len(info.invocation_modes) == 1:
+            return "async"  # Async-only
+        elif len(info.invocation_modes) > 1 or info.invocation_modes == ["sync"]:
+            return "sync"  # Hybrid or explicit sync
+        return None
+
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""
         tools = self._tool_manager.list_tools()
+
+        # Check if client supports async tools based on protocol version
+        client_supports_async = self._client_supports_async()
+
+        # Filter out async-only tools for old clients and set invocationMode based on client support
         return [
             MCPTool(
                 name=info.name,
@@ -277,8 +308,10 @@ class FastMCP(Generic[LifespanResultT]):
                 inputSchema=info.parameters,
                 outputSchema=info.output_schema,
                 annotations=info.annotations,
+                invocationMode=self._get_invocation_mode(info, client_supports_async),
             )
             for info in tools
+            if client_supports_async or info.invocation_modes != ["async"]
         ]
 
     def get_context(self) -> Context[ServerSession, LifespanResultT, Request]:
@@ -348,6 +381,7 @@ class FastMCP(Generic[LifespanResultT]):
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
         structured_output: bool | None = None,
+        invocation_modes: list[InvocationMode] | None = None,
     ) -> None:
         """Add a tool to the server.
 
@@ -364,6 +398,8 @@ class FastMCP(Generic[LifespanResultT]):
                 - If None, auto-detects based on the function's return type annotation
                 - If True, unconditionally creates a structured tool (return type annotation permitting)
                 - If False, unconditionally creates an unstructured tool
+            invocation_modes: List of supported invocation modes (e.g., ["sync", "async"])
+                - If None, defaults to ["sync"] for backwards compatibility
         """
         self._tool_manager.add_tool(
             fn,
@@ -372,6 +408,7 @@ class FastMCP(Generic[LifespanResultT]):
             description=description,
             annotations=annotations,
             structured_output=structured_output,
+            invocation_modes=invocation_modes,
         )
 
     def tool(
@@ -381,6 +418,7 @@ class FastMCP(Generic[LifespanResultT]):
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
         structured_output: bool | None = None,
+        invocation_modes: list[InvocationMode] | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
 
@@ -397,6 +435,10 @@ class FastMCP(Generic[LifespanResultT]):
                 - If None, auto-detects based on the function's return type annotation
                 - If True, unconditionally creates a structured tool (return type annotation permitting)
                 - If False, unconditionally creates an unstructured tool
+            invocation_modes: List of supported invocation modes (e.g., ["sync", "async"])
+                - If None, defaults to ["sync"] for backwards compatibility
+                - Supports "sync" for synchronous execution and "async" for asynchronous execution
+                - Tools with "async" mode will be hidden from clients that don't support async execution
 
         Example:
             @server.tool()
@@ -411,6 +453,17 @@ class FastMCP(Generic[LifespanResultT]):
             @server.tool()
             async def async_tool(x: int, context: Context) -> str:
                 await context.report_progress(50, 100)
+                return str(x)
+
+            @server.tool(invocation_modes=["async"])
+            async def async_only_tool(data: str, ctx: Context) -> str:
+                # This tool only supports async execution
+                await ctx.info("Starting long-running analysis...")
+                return await analyze_data(data)
+
+            @server.tool(invocation_modes=["sync", "async"])
+            def hybrid_tool(x: int) -> str:
+                # This tool supports both sync and async execution
                 return str(x)
         """
         # Check if user passed function directly instead of calling decorator
@@ -427,6 +480,7 @@ class FastMCP(Generic[LifespanResultT]):
                 description=description,
                 annotations=annotations,
                 structured_output=structured_output,
+                invocation_modes=invocation_modes,
             )
             return fn
 

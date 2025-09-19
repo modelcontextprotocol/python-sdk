@@ -178,6 +178,55 @@ class TestAddTools:
             manager.add_tool(f)
             assert "Tool already exists: f" not in caplog.text
 
+    def test_invocation_modes_default(self):
+        """Test that tools default to sync mode when no invocation_modes specified."""
+
+        def sync_tool(x: int) -> int:
+            """A sync tool."""
+            return x * 2
+
+        manager = ToolManager()
+        tool = manager.add_tool(sync_tool)
+
+        assert tool.invocation_modes == ["sync"]
+
+    def test_invocation_modes_async_only(self):
+        """Test async-only tool creation."""
+
+        async def async_tool(x: int) -> int:
+            """An async-only tool."""
+            return x * 2
+
+        manager = ToolManager()
+        tool = manager.add_tool(async_tool, invocation_modes=["async"])
+
+        assert tool.invocation_modes == ["async"]
+        assert tool.is_async is True
+
+    def test_invocation_modes_hybrid(self):
+        """Test hybrid sync/async tool creation."""
+
+        def hybrid_tool(x: int) -> int:
+            """A hybrid tool that supports both modes."""
+            return x * 2
+
+        manager = ToolManager()
+        tool = manager.add_tool(hybrid_tool, invocation_modes=["sync", "async"])
+
+        assert tool.invocation_modes == ["sync", "async"]
+
+    def test_invocation_modes_explicit_sync(self):
+        """Test explicitly setting sync mode."""
+
+        def explicit_sync_tool(x: int) -> int:
+            """An explicitly sync tool."""
+            return x * 2
+
+        manager = ToolManager()
+        tool = manager.add_tool(explicit_sync_tool, invocation_modes=["sync"])
+
+        assert tool.invocation_modes == ["sync"]
+
 
 class TestCallTools:
     @pytest.mark.anyio
@@ -633,3 +682,53 @@ class TestStructuredOutput:
         # Test converted result
         result = await manager.call_tool("get_scores", {})
         assert result == expected
+
+
+class TestInvocationModes:
+    """Test invocation modes functionality."""
+
+    def test_invocation_mode_type_safety(self):
+        """Test InvocationMode literal type validation."""
+        from mcp.server.fastmcp.tools.base import InvocationMode
+
+        # Valid modes should work
+        valid_modes: list[InvocationMode] = ["sync", "async"]
+        assert valid_modes == ["sync", "async"]
+
+    def test_tool_from_function_with_invocation_modes(self):
+        """Test Tool.from_function with invocation_modes parameter."""
+        from mcp.server.fastmcp.tools.base import Tool
+
+        def test_tool(x: int) -> int:
+            return x
+
+        # Test default behavior
+        tool_default = Tool.from_function(test_tool)
+        assert tool_default.invocation_modes == ["sync"]
+
+        # Test explicit sync
+        tool_sync = Tool.from_function(test_tool, invocation_modes=["sync"])
+        assert tool_sync.invocation_modes == ["sync"]
+
+        # Test async only
+        tool_async = Tool.from_function(test_tool, invocation_modes=["async"])
+        assert tool_async.invocation_modes == ["async"]
+
+        # Test hybrid
+        tool_hybrid = Tool.from_function(test_tool, invocation_modes=["sync", "async"])
+        assert tool_hybrid.invocation_modes == ["sync", "async"]
+
+    def test_tool_manager_invocation_modes_parameter(self):
+        """Test ToolManager.add_tool with invocation_modes parameter."""
+        manager = ToolManager()
+
+        def test_tool(x: int) -> int:
+            return x
+
+        # Test that invocation_modes parameter is passed through
+        tool = manager.add_tool(test_tool, invocation_modes=["async"])
+        assert tool.invocation_modes == ["async"]
+
+        # Test default behavior when None
+        tool_default = manager.add_tool(test_tool, name="test_tool_default")
+        assert tool_default.invocation_modes == ["sync"]

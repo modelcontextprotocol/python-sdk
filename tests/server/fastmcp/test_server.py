@@ -603,6 +603,54 @@ class TestServerTools:
             assert result.isError is False
             assert result.structuredContent == {"theme": "dark", "language": "en", "timezone": "UTC"}
 
+    @pytest.mark.anyio
+    async def test_list_tools_invocation_mode_sync(self):
+        """Test that sync tools have proper invocationMode field."""
+        mcp = FastMCP()
+
+        @mcp.tool()
+        def sync_tool(x: int) -> int:
+            """A sync tool."""
+            return x * 2
+
+        async with client_session(mcp._mcp_server) as client:
+            tools = await client.list_tools()
+            tool = next(t for t in tools.tools if t.name == "sync_tool")
+            # Sync tools should not have invocationMode field (None) for old clients
+            assert tool.invocationMode is None
+
+    @pytest.mark.anyio
+    async def test_list_tools_invocation_mode_async_only(self):
+        """Test that async-only tools have proper invocationMode field."""
+        mcp = FastMCP()
+
+        @mcp.tool(invocation_modes=["async"])
+        async def async_only_tool(x: int) -> int:
+            """An async-only tool."""
+            return x * 2
+
+        async with client_session(mcp._mcp_server) as client:
+            tools = await client.list_tools()
+            # Async-only tools should be filtered out for old clients
+            async_tools = [t for t in tools.tools if t.name == "async_only_tool"]
+            assert len(async_tools) == 0
+
+    @pytest.mark.anyio
+    async def test_list_tools_invocation_mode_hybrid(self):
+        """Test that hybrid tools have proper invocationMode field."""
+        mcp = FastMCP()
+
+        @mcp.tool(invocation_modes=["sync", "async"])
+        def hybrid_tool(x: int) -> int:
+            """A hybrid tool."""
+            return x * 2
+
+        async with client_session(mcp._mcp_server) as client:
+            tools = await client.list_tools()
+            tool = next(t for t in tools.tools if t.name == "hybrid_tool")
+            # Hybrid tools should not have invocationMode field (None) for old clients
+            assert tool.invocationMode is None
+
 
 class TestServerResources:
     @pytest.mark.anyio

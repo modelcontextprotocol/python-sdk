@@ -4,7 +4,7 @@ import functools
 import inspect
 from collections.abc import Callable
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
     from mcp.server.session import ServerSessionT
     from mcp.shared.context import LifespanContextT, RequestT
+
+InvocationMode = Literal["sync", "async"]
 
 
 class Tool(BaseModel):
@@ -33,6 +35,9 @@ class Tool(BaseModel):
     is_async: bool = Field(description="Whether the tool is async")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
     annotations: ToolAnnotations | None = Field(None, description="Optional annotations for the tool")
+    invocation_modes: list[InvocationMode] = Field(
+        default=["sync"], description="Supported invocation modes (sync/async)"
+    )
 
     @cached_property
     def output_schema(self) -> dict[str, Any] | None:
@@ -48,6 +53,7 @@ class Tool(BaseModel):
         context_kwarg: str | None = None,
         annotations: ToolAnnotations | None = None,
         structured_output: bool | None = None,
+        invocation_modes: list[InvocationMode] | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
         func_name = name or fn.__name__
@@ -68,6 +74,10 @@ class Tool(BaseModel):
         )
         parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
 
+        # Default to sync mode if no invocation modes specified
+        if invocation_modes is None:
+            invocation_modes = ["sync"]
+
         return cls(
             fn=fn,
             name=func_name,
@@ -78,6 +88,7 @@ class Tool(BaseModel):
             is_async=is_async,
             context_kwarg=context_kwarg,
             annotations=annotations,
+            invocation_modes=invocation_modes,
         )
 
     async def run(
