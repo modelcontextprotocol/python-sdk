@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any, Literal, Union
 
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_validator
 
