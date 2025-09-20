@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 from pydantic.networks import AnyUrl, UrlConstraints
 from typing_extensions import deprecated
 
@@ -1151,11 +1151,10 @@ class ListRootsRequest(Request[RequestParams | None, Literal["roots/list"]]):
 class Root(BaseModel):
     """Represents a root directory or file that the server can operate on."""
 
-    uri: FileUrl
+    uri: AnyUrl
     """
-    The URI identifying the root. This *must* start with file:// for now.
-    This restriction may be relaxed in future versions of the protocol to allow
-    other URI schemes.
+    The URI identifying the root. Can be any valid URI scheme (e.g., file://, https://,
+    git://, s3://, etc.). Servers should document which URI schemes they support.
     """
     name: str | None = None
     """
