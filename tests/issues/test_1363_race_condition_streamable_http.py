@@ -141,8 +141,23 @@ run_server_with_logging({port})
 
     process = subprocess.Popen([sys.executable, script_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-    # Give server time to start
-    time.sleep(1)
+    # Wait for server to be running with connection testing (like other tests)
+    max_attempts = 20
+    attempt = 0
+    while attempt < max_attempts:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect(("127.0.0.1", port))
+                break
+        except ConnectionRefusedError:
+            time.sleep(0.1)
+            attempt += 1
+    else:
+        # If server failed to start, terminate the process and raise an error
+        process.terminate()
+        process.wait()
+        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+
     return process
 
 
