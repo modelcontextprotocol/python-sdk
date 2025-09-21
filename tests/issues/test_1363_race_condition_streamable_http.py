@@ -36,7 +36,7 @@ from mcp.types import Tool
 SERVER_NAME = "test_race_condition_server"
 
 
-def check_server_logs_for_errors(process, test_name: str):
+def check_server_logs_for_errors(process: subprocess.Popen[str], test_name: str) -> None:
     """
     Check server logs for ClosedResourceError and other race condition errors.
 
@@ -52,7 +52,7 @@ def check_server_logs_for_errors(process, test_name: str):
         server_logs = ""
 
     # Check for specific race condition errors
-    errors_found = []
+    errors_found: list[str] = []
 
     if "ClosedResourceError" in server_logs:
         errors_found.append("ClosedResourceError")
@@ -93,7 +93,7 @@ class RaceConditionTestServer(Server):
         return []
 
 
-def run_server_with_logging(port: int):
+def run_server_with_logging(port: int) -> None:
     """Run the StreamableHTTP server with logging to capture race condition errors."""
     app = RaceConditionTestServer()
 
@@ -122,7 +122,7 @@ def run_server_with_logging(port: int):
     uvicorn.run(starlette_app, host="127.0.0.1", port=port, log_level="debug")
 
 
-def start_server_process(port: int):
+def start_server_process(port: int) -> subprocess.Popen[str]:
     """Start server in a separate process."""
     # Create a temporary script to run the server
     import os
