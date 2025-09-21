@@ -126,20 +126,17 @@ def start_server_process(port: int) -> subprocess.Popen[str]:
     """Start server in a separate process."""
     # Create a temporary script to run the server
     import os
-    import tempfile
 
-    script_content = f"""
+    server_code = f"""
 import sys
 sys.path.insert(0, {repr(os.getcwd())})
 from tests.issues.test_1363_race_condition_streamable_http import run_server_with_logging
 run_server_with_logging({port})
 """
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(script_content)
-        script_path = f.name
-
-    process = subprocess.Popen([sys.executable, script_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    process = subprocess.Popen(
+        [sys.executable, "-c", server_code], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
 
     # Wait for server to be running with connection testing (like other tests)
     max_attempts = 20
