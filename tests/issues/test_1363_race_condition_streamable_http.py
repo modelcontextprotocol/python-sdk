@@ -130,7 +130,7 @@ def start_server_process(port: int) -> subprocess.Popen[str]:
 
     script_content = f"""
 import sys
-sys.path.insert(0, '{os.getcwd()}')
+sys.path.insert(0, {repr(os.getcwd())})
 from tests.issues.test_1363_race_condition_streamable_http import run_server_with_logging
 run_server_with_logging({port})
 """
