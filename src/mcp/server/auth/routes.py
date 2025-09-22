@@ -190,6 +190,8 @@ def create_protected_resource_routes(
     resource_url: AnyHttpUrl,
     authorization_servers: list[AnyHttpUrl],
     scopes_supported: list[str] | None = None,
+    resource_name: str | None = None,
+    resource_documentation: AnyHttpUrl | None = None,
 ) -> list[Route]:
     """
     Create routes for OAuth 2.0 Protected Resource Metadata (RFC 9728).
@@ -209,6 +211,8 @@ def create_protected_resource_routes(
         resource=resource_url,
         authorization_servers=authorization_servers,
         scopes_supported=scopes_supported,
+        resource_name=resource_name,
+        resource_documentation=resource_documentation,
         # bearer_methods_supported defaults to ["header"] in the model
     )
 

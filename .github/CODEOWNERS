@@ -1,0 +1,23 @@
+# CODEOWNERS for MCP Python SDK
+# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default maintainers for everything
+* @modelcontextprotocol/python-sdk
+
+# Auth-related code requires additional review from auth team
+/src/mcp/client/auth.py @modelcontextprotocol/python-sdk-auth
+/src/mcp/server/auth/ @modelcontextprotocol/python-sdk-auth
+/src/mcp/server/transport_security.py @modelcontextprotocol/python-sdk-auth
+/src/mcp/shared/auth*.py @modelcontextprotocol/python-sdk-auth
+
+# Auth-related tests
+/tests/client/test_auth.py @modelcontextprotocol/python-sdk-auth
+/tests/server/auth/ @modelcontextprotocol/python-sdk-auth
+/tests/server/test_*security.py @modelcontextprotocol/python-sdk-auth
+/tests/server/fastmcp/auth/ @modelcontextprotocol/python-sdk-auth
+/tests/shared/test_auth*.py @modelcontextprotocol/python-sdk-auth
+
+# Auth-related examples
+/examples/clients/simple-auth-client/ @modelcontextprotocol/python-sdk-auth
+/examples/snippets/clients/oauth_client.py @modelcontextprotocol/python-sdk-auth
+/examples/snippets/servers/oauth_server.py @modelcontextprotocol/python-sdk-auth

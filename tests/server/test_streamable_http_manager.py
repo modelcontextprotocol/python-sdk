@@ -1,13 +1,15 @@
 """Tests for StreamableHTTPSessionManager."""
 
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import anyio
 import pytest
+from starlette.types import Message
 
 from mcp.server import streamable_http_manager
 from mcp.server.lowlevel import Server
-from mcp.server.streamable_http import MCP_SESSION_ID_HEADER
+from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, StreamableHTTPServerTransport
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 
@@ -35,7 +37,7 @@ async def test_run_prevents_concurrent_calls():
     app = Server("test-server")
     manager = StreamableHTTPSessionManager(app=app)
 
-    errors = []
+    errors: list[Exception] = []
 
     async def try_run():
         try:
@@ -67,7 +69,7 @@ async def test_handle_request_without_run_raises_error():
     async def receive():
         return {"type": "http.request", "body": b""}
 
-    async def send(message):
+    async def send(message: Message):
         pass
 
     # Should raise error because run() hasn't been called
@@ -93,16 +95,16 @@ async def running_manager():
 
 
 @pytest.mark.anyio
-async def test_stateful_session_cleanup_on_graceful_exit(running_manager):
+async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[StreamableHTTPSessionManager, Server]):
     manager, app = running_manager
 
     mock_mcp_run = AsyncMock(return_value=None)
     # This will be called by StreamableHTTPSessionManager's run_server -> self.app.run
     app.run = mock_mcp_run
 
-    sent_messages = []
+    sent_messages: list[Message] = []
 
-    async def mock_send(message):
+    async def mock_send(message: Message):
         sent_messages.append(message)
 
     scope = {
@@ -148,15 +150,15 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager):
 
 
 @pytest.mark.anyio
-async def test_stateful_session_cleanup_on_exception(running_manager):
+async def test_stateful_session_cleanup_on_exception(running_manager: tuple[StreamableHTTPSessionManager, Server]):
     manager, app = running_manager
 
     mock_mcp_run = AsyncMock(side_effect=TestException("Simulated crash"))
     app.run = mock_mcp_run
 
-    sent_messages = []
+    sent_messages: list[Message] = []
 
-    async def mock_send(message):
+    async def mock_send(message: Message):
         sent_messages.append(message)
         # If an exception occurs, the transport might try to send an error response
         # For this test, we mostly care that the session is established enough
@@ -207,13 +209,13 @@ async def test_stateless_requests_memory_cleanup():
     manager = StreamableHTTPSessionManager(app=app, stateless=True)
 
     # Track created transport instances
-    created_transports = []
+    created_transports: list[StreamableHTTPServerTransport] = []
 
     # Patch StreamableHTTPServerTransport constructor to track instances
 
     original_constructor = streamable_http_manager.StreamableHTTPServerTransport
 
-    def track_transport(*args, **kwargs):
+    def track_transport(*args: Any, **kwargs: Any) -> StreamableHTTPServerTransport:
         transport = original_constructor(*args, **kwargs)
         created_transports.append(transport)
         return transport
@@ -224,9 +226,9 @@ async def test_stateless_requests_memory_cleanup():
             app.run = AsyncMock(return_value=None)
 
             # Send a simple request
-            sent_messages = []
+            sent_messages: list[Message] = []
 
-            async def mock_send(message):
+            async def mock_send(message: Message):
                 sent_messages.append(message)
 
             scope = {
