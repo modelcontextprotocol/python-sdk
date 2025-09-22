@@ -910,10 +910,14 @@ class CheckToolAsyncStatusRequest(Request[CheckToolAsyncStatusParams, Literal["t
     params: CheckToolAsyncStatusParams
 
 
+"""Status values for async operations."""
+AsyncOperationStatus = Literal["submitted", "working", "completed", "canceled", "failed", "unknown"]
+
+
 class CheckToolAsyncStatusResult(Result):
     """Result of checking async tool status."""
 
-    status: Literal["submitted", "working", "completed", "canceled", "failed", "unknown"]
+    status: AsyncOperationStatus
     """Current status of the async operation."""
     error: str | None = None
     """Error message if status is 'failed'."""

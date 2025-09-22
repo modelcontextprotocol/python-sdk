@@ -82,6 +82,7 @@ from pydantic import AnyUrl
 from typing_extensions import TypeVar
 
 import mcp.types as types
+from mcp.server.lowlevel.async_operations import AsyncOperation, AsyncOperationManager
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
@@ -135,6 +136,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         name: str,
         version: str | None = None,
         instructions: str | None = None,
+        async_operations: AsyncOperationManager | None = None,
         lifespan: Callable[
             [Server[LifespanResultT, RequestT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -144,6 +146,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         self.version = version
         self.instructions = instructions
         self.lifespan = lifespan
+        self.async_operations = async_operations or AsyncOperationManager()
         self.request_handlers: dict[type, Callable[..., Awaitable[types.ServerResult]]] = {
             types.PingRequest: _ping_handler,
         }
@@ -554,6 +557,64 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return decorator
 
+    def _validate_operation_token(self, token: str) -> AsyncOperation:
+        """Validate operation token and return operation if valid."""
+        operation = self.async_operations.get_operation(token)
+        if not operation:
+            raise McpError(types.ErrorData(code=-32602, message="Invalid token"))
+
+        if operation.is_expired:
+            raise McpError(types.ErrorData(code=-32602, message="Token expired"))
+
+        return operation
+
+    def check_tool_async_status(self):
+        """Register a handler for checking async tool execution status."""
+
+        def decorator(func: Callable[[str], Awaitable[types.CheckToolAsyncStatusResult]]):
+            logger.debug("Registering handler for CheckToolAsyncStatusRequest")
+
+            async def handler(req: types.CheckToolAsyncStatusRequest):
+                # Validate token and get operation
+                operation = self._validate_operation_token(req.params.token)
+
+                return types.ServerResult(
+                    types.CheckToolAsyncStatusResult(
+                        status=operation.status,
+                        error=operation.error,
+                    )
+                )
+
+            self.request_handlers[types.CheckToolAsyncStatusRequest] = handler
+            return func
+
+        return decorator
+
+    def get_tool_async_result(self):
+        """Register a handler for retrieving async tool execution results."""
+
+        def decorator(func: Callable[[str], Awaitable[types.GetToolAsyncPayloadResult]]):
+            logger.debug("Registering handler for GetToolAsyncPayloadRequest")
+
+            async def handler(req: types.GetToolAsyncPayloadRequest):
+                # Validate token and get operation
+                operation = self._validate_operation_token(req.params.token)
+
+                if operation.status != "completed":
+                    raise McpError(
+                        types.ErrorData(code=-32600, message=f"Operation not completed (status: {operation.status})")
+                    )
+
+                if not operation.result:
+                    raise McpError(types.ErrorData(code=-32600, message="No result available for completed operation"))
+
+                return types.ServerResult(types.GetToolAsyncPayloadResult(result=operation.result))
+
+            self.request_handlers[types.GetToolAsyncPayloadRequest] = handler
+            return func
+
+        return decorator
+
     async def run(
         self,
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -581,17 +642,27 @@ class Server(Generic[LifespanResultT, RequestT]):
                 )
             )
 
-            async with anyio.create_task_group() as tg:
-                async for message in session.incoming_messages:
-                    logger.debug("Received message: %s", message)
+            # Start async operations cleanup task
+            await self.async_operations.start_cleanup_task()
 
-                    tg.start_soon(
-                        self._handle_message,
-                        message,
-                        session,
-                        lifespan_context,
-                        raise_exceptions,
-                    )
+            try:
+                async with anyio.create_task_group() as tg:
+                    async for message in session.incoming_messages:
+                        logger.debug("Received message: %s", message)
+
+                        tg.start_soon(
+                            self._handle_message,
+                            message,
+                            session,
+                            lifespan_context,
+                            raise_exceptions,
+                        )
+            finally:
+                # Cancel session operations and stop cleanup task
+                session_id = getattr(session, "session_id", None)
+                if session_id is not None:
+                    self.async_operations.cancel_session_operations(session_id)
+                await self.async_operations.stop_cleanup_task()
 
     async def _handle_message(
         self,
