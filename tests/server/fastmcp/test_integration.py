@@ -4,6 +4,11 @@ Integration tests for FastMCP server functionality.
 These tests validate the proper functioning of FastMCP features using focused,
 single-feature servers across different transports (SSE and StreamableHTTP).
 """
+# TODO(Marcelo): The `examples` package is not being imported as package. We need to solve this.
+# pyright: reportUnknownMemberType=false
+# pyright: reportMissingImports=false
+# pyright: reportUnknownVariableType=false
+# pyright: reportUnknownArgumentType=false
 
 import json
 import multiprocessing
@@ -13,6 +18,7 @@ from collections.abc import Generator
 
 import pytest
 import uvicorn
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 
 from examples.snippets.servers import (
@@ -21,23 +27,35 @@ from examples.snippets.servers import (
     basic_tool,
     completion,
     elicitation,
+    fastmcp_quickstart,
     notifications,
     sampling,
+    structured_output,
     tool_progress,
 )
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import GetSessionIdCallback, streamablehttp_client
+from mcp.shared.context import RequestContext
+from mcp.shared.message import SessionMessage
+from mcp.shared.session import RequestResponder
 from mcp.types import (
+    ClientResult,
+    CreateMessageRequestParams,
     CreateMessageResult,
+    ElicitRequestParams,
     ElicitResult,
     GetPromptResult,
     InitializeResult,
     LoggingMessageNotification,
+    LoggingMessageNotificationParams,
+    NotificationParams,
     ProgressNotification,
+    ProgressNotificationParams,
     ReadResourceResult,
     ResourceListChangedNotification,
     ServerNotification,
+    ServerRequest,
     TextContent,
     TextResourceContents,
     ToolListChangedNotification,
@@ -48,12 +66,14 @@ class NotificationCollector:
     """Collects notifications from the server for testing."""
 
     def __init__(self):
-        self.progress_notifications: list = []
-        self.log_messages: list = []
-        self.resource_notifications: list = []
-        self.tool_notifications: list = []
+        self.progress_notifications: list[ProgressNotificationParams] = []
+        self.log_messages: list[LoggingMessageNotificationParams] = []
+        self.resource_notifications: list[NotificationParams | None] = []
+        self.tool_notifications: list[NotificationParams | None] = []
 
-    async def handle_generic_notification(self, message) -> None:
+    async def handle_generic_notification(
+        self, message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception
+    ) -> None:
         """Handle any server notification and route to appropriate handler."""
         if isinstance(message, ServerNotification):
             if isinstance(message.root, ProgressNotification):
@@ -100,6 +120,10 @@ def run_server_with_transport(module_name: str, port: int, transport: str) -> No
         mcp = completion.mcp
     elif module_name == "notifications":
         mcp = notifications.mcp
+    elif module_name == "fastmcp_quickstart":
+        mcp = fastmcp_quickstart.mcp
+    elif module_name == "structured_output":
+        mcp = structured_output.mcp
     else:
         raise ImportError(f"Unknown module: {module_name}")
 
@@ -117,7 +141,7 @@ def run_server_with_transport(module_name: str, port: int, transport: str) -> No
 
 
 @pytest.fixture
-def server_transport(request, server_port: int) -> Generator[str, None, None]:
+def server_transport(request: pytest.FixtureRequest, server_port: int) -> Generator[str, None, None]:
     """Start server in a separate process with specified MCP instance and transport.
 
     Args:
@@ -171,7 +195,14 @@ def create_client_for_transport(transport: str, server_url: str):
         raise ValueError(f"Invalid transport: {transport}")
 
 
-def unpack_streams(client_streams):
+def unpack_streams(
+    client_streams: tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]]
+    | tuple[
+        MemoryObjectReceiveStream[SessionMessage | Exception],
+        MemoryObjectSendStream[SessionMessage],
+        GetSessionIdCallback,
+    ],
+):
     """Unpack client streams handling different return values from SSE vs StreamableHTTP.
 
     SSE client returns (read_stream, write_stream)
@@ -191,7 +222,9 @@ def unpack_streams(client_streams):
 
 
 # Callback functions for testing
-async def sampling_callback(context, params) -> CreateMessageResult:
+async def sampling_callback(
+    context: RequestContext[ClientSession, None], params: CreateMessageRequestParams
+) -> CreateMessageResult:
     """Sampling callback for tests."""
     return CreateMessageResult(
         role="assistant",
@@ -203,7 +236,7 @@ async def sampling_callback(context, params) -> CreateMessageResult:
     )
 
 
-async def elicitation_callback(context, params):
+async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
     """Elicitation callback for tests."""
     # For restaurant booking test
     if "No tables available" in params.message:
@@ -361,7 +394,7 @@ async def test_tool_progress(server_transport: str, server_url: str) -> None:
     transport = server_transport
     collector = NotificationCollector()
 
-    async def message_handler(message):
+    async def message_handler(message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception):
         await collector.handle_generic_notification(message)
         if isinstance(message, Exception):
             raise message
@@ -502,7 +535,7 @@ async def test_notifications(server_transport: str, server_url: str) -> None:
     transport = server_transport
     collector = NotificationCollector()
 
-    async def message_handler(message):
+    async def message_handler(message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception):
         await collector.handle_generic_notification(message)
         if isinstance(message, Exception):
             raise message
@@ -590,3 +623,77 @@ async def test_completion(server_transport: str, server_url: str) -> None:
             assert completion_result.completion is not None
             assert "python" in completion_result.completion.values
             assert all(lang.startswith("py") for lang in completion_result.completion.values)
+
+
+# Test FastMCP quickstart example
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "server_transport",
+    [
+        ("fastmcp_quickstart", "sse"),
+        ("fastmcp_quickstart", "streamable-http"),
+    ],
+    indirect=True,
+)
+async def test_fastmcp_quickstart(server_transport: str, server_url: str) -> None:
+    """Test FastMCP quickstart example."""
+    transport = server_transport
+    client_cm = create_client_for_transport(transport, server_url)
+
+    async with client_cm as client_streams:
+        read_stream, write_stream = unpack_streams(client_streams)
+        async with ClientSession(read_stream, write_stream) as session:
+            # Test initialization
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "Demo"
+
+            # Test add tool
+            tool_result = await session.call_tool("add", {"a": 10, "b": 20})
+            assert len(tool_result.content) == 1
+            assert isinstance(tool_result.content[0], TextContent)
+            assert tool_result.content[0].text == "30"
+
+            # Test greeting resource directly
+            from pydantic import AnyUrl
+
+            resource_result = await session.read_resource(AnyUrl("greeting://Alice"))
+            assert len(resource_result.contents) == 1
+            assert isinstance(resource_result.contents[0], TextResourceContents)
+            assert resource_result.contents[0].text == "Hello, Alice!"
+
+
+# Test structured output example
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "server_transport",
+    [
+        ("structured_output", "sse"),
+        ("structured_output", "streamable-http"),
+    ],
+    indirect=True,
+)
+async def test_structured_output(server_transport: str, server_url: str) -> None:
+    """Test structured output functionality."""
+    transport = server_transport
+    client_cm = create_client_for_transport(transport, server_url)
+
+    async with client_cm as client_streams:
+        read_stream, write_stream = unpack_streams(client_streams)
+        async with ClientSession(read_stream, write_stream) as session:
+            # Test initialization
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "Structured Output Example"
+
+            # Test get_weather tool
+            weather_result = await session.call_tool("get_weather", {"city": "New York"})
+            assert len(weather_result.content) == 1
+            assert isinstance(weather_result.content[0], TextContent)
+
+            # Check that the result contains expected weather data
+            result_text = weather_result.content[0].text
+            assert "22.5" in result_text  # temperature
+            assert "sunny" in result_text  # condition
+            assert "45" in result_text  # humidity
+            assert "5.2" in result_text  # wind_speed

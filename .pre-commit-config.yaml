@@ -25,14 +25,14 @@ repos:
     hooks:
       - id: ruff-format
         name: Ruff Format
-        entry: uv run ruff
+        entry: uv run --frozen ruff
         args: [format]
         language: system
         types: [python]
         pass_filenames: false
       - id: ruff
         name: Ruff
-        entry: uv run ruff
+        entry: uv run --frozen ruff
         args: ["check", "--fix", "--exit-non-zero-on-fix"]
         types: [python]
         language: system
@@ -40,7 +40,7 @@ repos:
         exclude: ^README\.md$
       - id: pyright
         name: pyright
-        entry: uv run pyright
+        entry: uv run --frozen pyright
         language: system
         types: [python]
         pass_filenames: false
@@ -52,7 +52,7 @@ repos:
         pass_filenames: false
       - id: readme-snippets
         name: Check README snippets are up to date
-        entry: uv run scripts/update_readme_snippets.py --check
+        entry: uv run --frozen python scripts/update_readme_snippets.py --check
         language: system
         files: ^(README\.md|examples/.*\.py|scripts/update_readme_snippets\.py)$
         pass_filenames: false

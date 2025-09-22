@@ -85,7 +85,6 @@ import mcp.types as types
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.server.stdio import stdio_server as stdio_server
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
@@ -93,7 +92,7 @@ from mcp.shared.session import RequestResponder
 
 logger = logging.getLogger(__name__)
 
-LifespanResultT = TypeVar("LifespanResultT")
+LifespanResultT = TypeVar("LifespanResultT", default=Any)
 RequestT = TypeVar("RequestT", default=Any)
 
 # type aliases for tool call results
@@ -118,7 +117,7 @@ class NotificationOptions:
 
 
 @asynccontextmanager
-async def lifespan(server: Server[LifespanResultT, RequestT]) -> AsyncIterator[object]:
+async def lifespan(_: Server[LifespanResultT, RequestT]) -> AsyncIterator[dict[str, Any]]:
     """Default lifespan context manager that does nothing.
 
     Args:
@@ -149,7 +148,6 @@ class Server(Generic[LifespanResultT, RequestT]):
             types.PingRequest: _ping_handler,
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
-        self.notification_options = NotificationOptions()
         self._tool_cache: dict[str, types.Tool] = {}
         logger.debug("Initializing server %r", name)
 
@@ -647,6 +645,12 @@ class Server(Generic[LifespanResultT, RequestT]):
                 response = await handler(req)
             except McpError as err:
                 response = err.error
+            except anyio.get_cancelled_exc_class():
+                logger.info(
+                    "Request %s cancelled - duplicate response suppressed",
+                    message.request_id,
+                )
+                return
             except Exception as err:
                 if raise_exceptions:
                     raise err

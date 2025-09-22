@@ -5,11 +5,12 @@ import httpx
 import inspect
 from collections.abc import Callable
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, get_origin
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.fastmcp.utilities.context_injection import find_context_parameter
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
 from mcp.types import ToolAnnotations
 
@@ -50,8 +51,6 @@ class Tool(BaseModel):
         structured_output: bool | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
-        from mcp.server.fastmcp.server import Context
-
         func_name = name or fn.__name__
 
         if func_name == "<lambda>":
@@ -61,20 +60,14 @@ class Tool(BaseModel):
         is_async = _is_async_callable(fn)
 
         if context_kwarg is None:
-            sig = inspect.signature(fn)
-            for param_name, param in sig.parameters.items():
-                if get_origin(param.annotation) is not None:
-                    continue
-                if issubclass(param.annotation, Context):
-                    context_kwarg = param_name
-                    break
+            context_kwarg = find_context_parameter(fn)
 
         func_arg_metadata = func_metadata(
             fn,
             skip_names=[context_kwarg] if context_kwarg is not None else [],
             structured_output=structured_output,
         )
-        parameters = func_arg_metadata.arg_model.model_json_schema()
+        parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
 
         return cls(
             fn=fn,
