@@ -3,6 +3,12 @@ name: Shared Checks
 on:
   workflow_call:
 
+permissions:
+  contents: read
+
+env:
+  COLUMNS: 150
+
 jobs:
   pre-commit:
     runs-on: ubuntu-latest
@@ -26,9 +32,11 @@ jobs:
   test:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+    continue-on-error: true
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
+        dep-resolution: ["lowest-direct", "highest"]
         os: [ubuntu-latest, windows-latest]
 
     steps:
@@ -41,8 +49,23 @@ jobs:
           version: 0.7.2
 
       - name: Install the project
-        run: uv sync --frozen --all-extras --python ${{ matrix.python-version }}
+        run: uv sync --frozen --all-extras --python ${{ matrix.python-version }} --resolution ${{ matrix.dep-resolution }}
 
       - name: Run pytest
         run: uv run --frozen --no-sync pytest
-    continue-on-error: true
+
+  readme-snippets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: 0.7.2
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras --python 3.10
+
+      - name: Check README snippets are up to date
+        run: uv run --frozen scripts/update_readme_snippets.py --check

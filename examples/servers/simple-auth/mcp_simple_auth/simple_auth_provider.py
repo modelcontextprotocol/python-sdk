@@ -46,7 +46,7 @@ class SimpleAuthSettings(BaseSettings):
     mcp_scope: str = "user"
 
 
-class SimpleOAuthProvider(OAuthAuthorizationServerProvider):
+class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToken, AccessToken]):
     """
     Simple OAuth provider for demo purposes.
 
@@ -89,7 +89,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider):
         }
 
         # Build simple login URL that points to login page
-        auth_url = f"{self.auth_callback_url}" f"?state={state}" f"&client_id={client.client_id}"
+        auth_url = f"{self.auth_callback_url}?state={state}&client_id={client.client_id}"
 
         return auth_url
 
@@ -116,8 +116,8 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider):
             <p>This is a simplified authentication demo. Use the demo credentials below:</p>
             <p><strong>Username:</strong> demo_user<br>
             <strong>Password:</strong> demo_password</p>
-            
-            <form action="{self.server_url.rstrip('/')}/login/callback" method="post">
+
+            <form action="{self.server_url.rstrip("/")}/login/callback" method="post">
                 <input type="hidden" name="state" value="{state}">
                 <div class="form-group">
                     <label>Username:</label>
@@ -264,7 +264,8 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider):
         """Exchange refresh token - not supported in this example."""
         raise NotImplementedError("Refresh tokens not supported")
 
-    async def revoke_token(self, token: str, token_type_hint: str | None = None) -> None:
+    # TODO(Marcelo): The type hint is wrong. We need to fix, and test to check if it works.
+    async def revoke_token(self, token: str, token_type_hint: str | None = None) -> None:  # type: ignore
         """Revoke a token."""
         if token in self.tokens:
             del self.tokens[token]

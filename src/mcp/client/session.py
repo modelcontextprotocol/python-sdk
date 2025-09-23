@@ -15,7 +15,6 @@ from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("client")
 
 
@@ -169,7 +168,7 @@ class ClientSession(
         )
 
         if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
-            raise RuntimeError("Unsupported protocol version from the server: " f"{result.protocolVersion}")
+            raise RuntimeError(f"Unsupported protocol version from the server: {result.protocolVersion}")
 
         await self.send_notification(
             types.ClientNotification(types.InitializedNotification(method="notifications/initialized"))

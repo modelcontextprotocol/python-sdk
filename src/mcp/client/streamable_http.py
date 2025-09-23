@@ -43,7 +43,7 @@ MCP_SESSION_ID = "mcp-session-id"
 MCP_PROTOCOL_VERSION = "mcp-protocol-version"
 LAST_EVENT_ID = "last-event-id"
 CONTENT_TYPE = "content-type"
-ACCEPT = "Accept"
+ACCEPT = "accept"
 
 
 JSON = "application/json"
@@ -248,6 +248,7 @@ class StreamableHTTPTransport:
                     ctx.metadata.on_resumption_token_update if ctx.metadata else None,
                 )
                 if is_complete:
+                    await event_source.response.aclose()
                     break
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
@@ -308,7 +309,7 @@ class StreamableHTTPTransport:
             session_message = SessionMessage(message)
             await read_stream_writer.send(session_message)
         except Exception as exc:
-            logger.error(f"Error parsing JSON response: {exc}")
+            logger.exception("Error parsing JSON response")
             await read_stream_writer.send(exc)
 
     async def _handle_sse_response(
@@ -330,6 +331,7 @@ class StreamableHTTPTransport:
                 # If the SSE event indicates completion, like returning respose/error
                 # break the loop
                 if is_complete:
+                    await response.aclose()
                     break
         except Exception as e:
             logger.exception("Error reading SSE stream:")
@@ -410,8 +412,8 @@ class StreamableHTTPTransport:
                     else:
                         await handle_request_async()
 
-        except Exception as exc:
-            logger.error(f"Error in post_writer: {exc}")
+        except Exception:
+            logger.exception("Error in post_writer")
         finally:
             await read_stream_writer.aclose()
             await write_stream.aclose()

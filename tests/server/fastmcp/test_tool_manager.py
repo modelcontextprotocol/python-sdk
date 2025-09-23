@@ -19,23 +19,23 @@ class TestAddTools:
     def test_basic_function(self):
         """Test registering and running a basic function."""
 
-        def add(a: int, b: int) -> int:
+        def sum(a: int, b: int) -> int:
             """Add two numbers."""
             return a + b
 
         manager = ToolManager()
-        manager.add_tool(add)
+        manager.add_tool(sum)
 
-        tool = manager.get_tool("add")
+        tool = manager.get_tool("sum")
         assert tool is not None
-        assert tool.name == "add"
+        assert tool.name == "sum"
         assert tool.description == "Add two numbers."
         assert tool.is_async is False
         assert tool.parameters["properties"]["a"]["type"] == "integer"
         assert tool.parameters["properties"]["b"]["type"] == "integer"
 
-    def test_init_with_tools(self, caplog):
-        def add(a: int, b: int) -> int:
+    def test_init_with_tools(self, caplog: pytest.LogCaptureFixture):
+        def sum(a: int, b: int) -> int:
             return a + b
 
         class AddArguments(ArgModelBase):
@@ -45,10 +45,10 @@ class TestAddTools:
         fn_metadata = FuncMetadata(arg_model=AddArguments)
 
         original_tool = Tool(
-            name="add",
+            name="sum",
             title="Add Tool",
             description="Add two numbers.",
-            fn=add,
+            fn=sum,
             fn_metadata=fn_metadata,
             is_async=False,
             parameters=AddArguments.model_json_schema(),
@@ -56,13 +56,13 @@ class TestAddTools:
             annotations=None,
         )
         manager = ToolManager(tools=[original_tool])
-        saved_tool = manager.get_tool("add")
+        saved_tool = manager.get_tool("sum")
         assert saved_tool == original_tool
 
         # warn on duplicate tools
         with caplog.at_level(logging.WARNING):
             manager = ToolManager(True, tools=[original_tool, original_tool])
-            assert "Tool already exists: add" in caplog.text
+            assert "Tool already exists: sum" in caplog.text
 
     @pytest.mark.anyio
     async def test_async_function(self):
@@ -89,7 +89,7 @@ class TestAddTools:
             name: str
             age: int
 
-        def create_user(user: UserInput, flag: bool) -> dict:
+        def create_user(user: UserInput, flag: bool) -> dict[str, Any]:
             """Create a new user."""
             return {"id": 1, **user.model_dump()}
 
@@ -145,15 +145,15 @@ class TestAddTools:
 
     def test_add_lambda(self):
         manager = ToolManager()
-        tool = manager.add_tool(lambda x: x, name="my_tool")
+        tool = manager.add_tool(lambda x: x, name="my_tool")  # type: ignore[reportUnknownLambdaType]
         assert tool.name == "my_tool"
 
     def test_add_lambda_with_no_name(self):
         manager = ToolManager()
         with pytest.raises(ValueError, match="You must provide a name for lambda functions"):
-            manager.add_tool(lambda x: x)
+            manager.add_tool(lambda x: x)  # type: ignore[reportUnknownLambdaType]
 
-    def test_warn_on_duplicate_tools(self, caplog):
+    def test_warn_on_duplicate_tools(self, caplog: pytest.LogCaptureFixture):
         """Test warning on duplicate tools."""
 
         def f(x: int) -> int:
@@ -165,7 +165,7 @@ class TestAddTools:
             manager.add_tool(f)
             assert "Tool already exists: f" in caplog.text
 
-    def test_disable_warn_on_duplicate_tools(self, caplog):
+    def test_disable_warn_on_duplicate_tools(self, caplog: pytest.LogCaptureFixture):
         """Test disabling warning on duplicate tools."""
 
         def f(x: int) -> int:
@@ -182,13 +182,13 @@ class TestAddTools:
 class TestCallTools:
     @pytest.mark.anyio
     async def test_call_tool(self):
-        def add(a: int, b: int) -> int:
+        def sum(a: int, b: int) -> int:
             """Add two numbers."""
             return a + b
 
         manager = ToolManager()
-        manager.add_tool(add)
-        result = await manager.call_tool("add", {"a": 1, "b": 2})
+        manager.add_tool(sum)
+        result = await manager.call_tool("sum", {"a": 1, "b": 2})
         assert result == 3
 
     @pytest.mark.anyio
@@ -232,25 +232,25 @@ class TestCallTools:
 
     @pytest.mark.anyio
     async def test_call_tool_with_default_args(self):
-        def add(a: int, b: int = 1) -> int:
+        def sum(a: int, b: int = 1) -> int:
             """Add two numbers."""
             return a + b
 
         manager = ToolManager()
-        manager.add_tool(add)
-        result = await manager.call_tool("add", {"a": 1})
+        manager.add_tool(sum)
+        result = await manager.call_tool("sum", {"a": 1})
         assert result == 2
 
     @pytest.mark.anyio
     async def test_call_tool_with_missing_args(self):
-        def add(a: int, b: int) -> int:
+        def sum(a: int, b: int) -> int:
             """Add two numbers."""
             return a + b
 
         manager = ToolManager()
-        manager.add_tool(add)
+        manager.add_tool(sum)
         with pytest.raises(ToolError):
-            await manager.call_tool("add", {"a": 1})
+            await manager.call_tool("sum", {"a": 1})
 
     @pytest.mark.anyio
     async def test_call_unknown_tool(self):
@@ -297,7 +297,7 @@ class TestCallTools:
             shrimp: list[Shrimp]
             x: None
 
-        def name_shrimp(tank: MyShrimpTank, ctx: Context) -> list[str]:
+        def name_shrimp(tank: MyShrimpTank, ctx: Context[ServerSessionT, None]) -> list[str]:
             return [x.name for x in tank.shrimp]
 
         manager = ToolManager()
@@ -317,7 +317,7 @@ class TestCallTools:
 class TestToolSchema:
     @pytest.mark.anyio
     async def test_context_arg_excluded_from_schema(self):
-        def something(a: int, ctx: Context) -> int:
+        def something(a: int, ctx: Context[ServerSessionT, None]) -> int:
             return a
 
         manager = ToolManager()
@@ -334,7 +334,7 @@ class TestContextHandling:
         """Test that context parameters are properly detected in
         Tool.from_function()."""
 
-        def tool_with_context(x: int, ctx: Context) -> str:
+        def tool_with_context(x: int, ctx: Context[ServerSessionT, None]) -> str:
             return str(x)
 
         manager = ToolManager()
@@ -357,7 +357,7 @@ class TestContextHandling:
     async def test_context_injection(self):
         """Test that context is properly injected during tool execution."""
 
-        def tool_with_context(x: int, ctx: Context) -> str:
+        def tool_with_context(x: int, ctx: Context[ServerSessionT, None]) -> str:
             assert isinstance(ctx, Context)
             return str(x)
 
@@ -373,7 +373,7 @@ class TestContextHandling:
     async def test_context_injection_async(self):
         """Test that context is properly injected in async tools."""
 
-        async def async_tool(x: int, ctx: Context) -> str:
+        async def async_tool(x: int, ctx: Context[ServerSessionT, None]) -> str:
             assert isinstance(ctx, Context)
             return str(x)
 
@@ -389,7 +389,7 @@ class TestContextHandling:
     async def test_context_optional(self):
         """Test that context is optional when calling tools."""
 
-        def tool_with_context(x: int, ctx: Context | None = None) -> str:
+        def tool_with_context(x: int, ctx: Context[ServerSessionT, None] | None = None) -> str:
             return str(x)
 
         manager = ToolManager()
@@ -402,7 +402,7 @@ class TestContextHandling:
     async def test_context_error_handling(self):
         """Test error handling when context injection fails."""
 
-        def tool_with_context(x: int, ctx: Context) -> str:
+        def tool_with_context(x: int, ctx: Context[ServerSessionT, None]) -> str:
             raise ValueError("Test error")
 
         manager = ToolManager()
@@ -552,7 +552,7 @@ class TestStructuredOutput:
     async def test_tool_without_structured_output(self):
         """Test that tools work normally when structured_output=False."""
 
-        def get_dict() -> dict:
+        def get_dict() -> dict[str, Any]:
             """Get a dict."""
             return {"key": "value"}
 
