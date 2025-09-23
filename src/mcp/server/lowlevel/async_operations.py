@@ -172,6 +172,32 @@ class AsyncOperationManager:
 
         return canceled_count
 
+    def mark_input_required(self, token: str) -> bool:
+        """Mark operation as requiring input from client."""
+        operation = self._operations.get(token)
+        if not operation:
+            return False
+
+        # Can only move to input_required from submitted or working states
+        if operation.status not in ("submitted", "working"):
+            return False
+
+        operation.status = "input_required"
+        return True
+
+    def mark_input_completed(self, token: str) -> bool:
+        """Mark operation as no longer requiring input, return to working state."""
+        operation = self._operations.get(token)
+        if not operation:
+            return False
+
+        # Can only move from input_required back to working
+        if operation.status != "input_required":
+            return False
+
+        operation.status = "working"
+        return True
+
     async def start_cleanup_task(self) -> None:
         """Start the background cleanup task."""
         if self._cleanup_task is not None:

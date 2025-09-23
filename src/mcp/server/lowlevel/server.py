@@ -641,6 +641,35 @@ class Server(Generic[LifespanResultT, RequestT]):
         logger.debug(f"Received cancellation notification for request {request_id}")
         self.handle_cancelled_notification(request_id)
 
+    def send_request_for_operation(self, token: str, request: types.ServerRequest) -> None:
+        """Send a request associated with an async operation."""
+        # Mark operation as requiring input
+        if self.async_operations.mark_input_required(token):
+            # Add operation token to request
+            if hasattr(request.root, "params") and request.root.params is not None:
+                if not hasattr(request.root.params, "operation") or request.root.params.operation is None:
+                    # Create operation field if it doesn't exist
+                    operation_data = types.RequestParams.Operation(token=token)
+                    request.root.params.operation = operation_data
+            logger.debug(f"Marked operation {token} as input_required and added to request")
+
+    def send_notification_for_operation(self, token: str, notification: types.ServerNotification) -> None:
+        """Send a notification associated with an async operation."""
+        # Mark operation as requiring input
+        if self.async_operations.mark_input_required(token):
+            # Add operation token to notification
+            if hasattr(notification.root, "params") and notification.root.params is not None:
+                if not hasattr(notification.root.params, "operation") or notification.root.params.operation is None:
+                    # Create operation field if it doesn't exist
+                    operation_data = types.NotificationParams.Operation(token=token)
+                    notification.root.params.operation = operation_data
+            logger.debug(f"Marked operation {token} as input_required and added to notification")
+
+    def complete_request_for_operation(self, token: str) -> None:
+        """Mark that a request for an operation has been completed."""
+        if self.async_operations.mark_input_completed(token):
+            logger.debug(f"Marked operation {token} as no longer requiring input")
+
     async def run(
         self,
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -740,6 +769,16 @@ class Server(Generic[LifespanResultT, RequestT]):
                     )
                 )
                 response = await handler(req)
+
+                # Handle operation token in response (for input_required operations)
+                if (
+                    hasattr(req, "params")
+                    and req.params is not None
+                    and hasattr(req.params, "operation")
+                    and req.params.operation is not None
+                ):
+                    operation_token = req.params.operation.token
+                    self.complete_request_for_operation(operation_token)
 
                 # Track async operations for cancellation
                 if isinstance(req, types.CallToolRequest):
