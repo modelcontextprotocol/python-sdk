@@ -342,11 +342,8 @@ class TestAuthEndpoints:
     @pytest.mark.anyio
     async def test_metadata_endpoint(self, test_client: httpx.AsyncClient):
         """Test the OAuth 2.0 metadata endpoint."""
-        print("Sending request to metadata endpoint")
+
         response = await test_client.get("/.well-known/oauth-authorization-server")
-        print(f"Got response: {response.status_code}")
-        if response.status_code != 200:
-            print(f"Response content: {response.content}")
         assert response.status_code == 200
 
         metadata = response.json()
@@ -399,9 +396,7 @@ class TestAuthEndpoints:
                 "redirect_uri": "https://client.example.com/callback",
             },
         )
-        print(f"Status code: {response.status_code}")
-        print(f"Response body: {response.content}")
-        print(f"Response JSON: {response.json()}")
+
         assert response.status_code == 400
         error_response = response.json()
         assert error_response["error"] == "invalid_grant"
