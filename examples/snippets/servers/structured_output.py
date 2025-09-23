@@ -24,7 +24,7 @@ def get_weather(city: str) -> WeatherData:
     """Get weather for a city - returns structured data."""
     # Simulated weather data
     return WeatherData(
-        temperature=72.5,
+        temperature=22.5,
         humidity=45.0,
         condition="sunny",
         wind_speed=5.2,
@@ -71,7 +71,7 @@ def get_user(user_id: str) -> UserProfile:
 
 # Classes WITHOUT type hints cannot be used for structured output
 class UntypedConfig:
-    def __init__(self, setting1, setting2):
+    def __init__(self, setting1, setting2):  # type: ignore[reportMissingParameterType]
         self.setting1 = setting1
         self.setting2 = setting2
 

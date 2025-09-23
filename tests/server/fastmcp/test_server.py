@@ -10,7 +10,8 @@ from starlette.routing import Mount, Route
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.prompts.base import Message, UserMessage
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
-from mcp.server.fastmcp.utilities.types import Image
+from mcp.server.fastmcp.utilities.types import Audio, Image
+from mcp.server.session import ServerSession
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import (
     create_connected_server_and_client_session as client_session,
@@ -194,6 +195,10 @@ def image_tool_fn(path: str) -> Image:
     return Image(path)
 
 
+def audio_tool_fn(path: str) -> Audio:
+    return Audio(path)
+
+
 def mixed_content_tool_fn() -> list[ContentBlock]:
     return [
         TextContent(type="text", text="Hello"),
@@ -300,6 +305,60 @@ class TestServerTools:
             assert result.structuredContent is None
 
     @pytest.mark.anyio
+    async def test_tool_audio_helper(self, tmp_path: Path):
+        # Create a test audio
+        audio_path = tmp_path / "test.wav"
+        audio_path.write_bytes(b"fake wav data")
+
+        mcp = FastMCP()
+        mcp.add_tool(audio_tool_fn)
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("audio_tool_fn", {"path": str(audio_path)})
+            assert len(result.content) == 1
+            content = result.content[0]
+            assert isinstance(content, AudioContent)
+            assert content.type == "audio"
+            assert content.mimeType == "audio/wav"
+            # Verify base64 encoding
+            decoded = base64.b64decode(content.data)
+            assert decoded == b"fake wav data"
+            # Check structured content - Image return type should NOT have structured output
+            assert result.structuredContent is None
+
+    @pytest.mark.parametrize(
+        "filename,expected_mime_type",
+        [
+            ("test.wav", "audio/wav"),
+            ("test.mp3", "audio/mpeg"),
+            ("test.ogg", "audio/ogg"),
+            ("test.flac", "audio/flac"),
+            ("test.aac", "audio/aac"),
+            ("test.m4a", "audio/mp4"),
+            ("test.unknown", "application/octet-stream"),  # Unknown extension fallback
+        ],
+    )
+    @pytest.mark.anyio
+    async def test_tool_audio_suffix_detection(self, tmp_path: Path, filename: str, expected_mime_type: str):
+        """Test that Audio helper correctly detects MIME types from file suffixes"""
+        mcp = FastMCP()
+        mcp.add_tool(audio_tool_fn)
+
+        # Create a test audio file with the specific extension
+        audio_path = tmp_path / filename
+        audio_path.write_bytes(b"fake audio data")
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("audio_tool_fn", {"path": str(audio_path)})
+            assert len(result.content) == 1
+            content = result.content[0]
+            assert isinstance(content, AudioContent)
+            assert content.type == "audio"
+            assert content.mimeType == expected_mime_type
+            # Verify base64 encoding
+            decoded = base64.b64decode(content.data)
+            assert decoded == b"fake audio data"
+
+    @pytest.mark.anyio
     async def test_tool_mixed_content(self):
         mcp = FastMCP()
         mcp.add_tool(mixed_content_tool_fn)
@@ -331,26 +390,33 @@ class TestServerTools:
                     assert structured_result[i][key] == value
 
     @pytest.mark.anyio
-    async def test_tool_mixed_list_with_image(self, tmp_path: Path):
+    async def test_tool_mixed_list_with_audio_and_image(self, tmp_path: Path):
         """Test that lists containing Image objects and other types are handled
         correctly"""
         # Create a test image
         image_path = tmp_path / "test.png"
         image_path.write_bytes(b"test image data")
 
-        def mixed_list_fn() -> list:
-            return [
+        # Create a test audio
+        audio_path = tmp_path / "test.wav"
+        audio_path.write_bytes(b"test audio data")
+
+        # TODO(Marcelo): It seems if we add the proper type hint, it generates an invalid JSON schema.
+        # We need to fix this.
+        def mixed_list_fn() -> list:  # type: ignore
+            return [  # type: ignore
                 "text message",
                 Image(image_path),
+                Audio(audio_path),
                 {"key": "value"},
                 TextContent(type="text", text="direct content"),
             ]
 
         mcp = FastMCP()
-        mcp.add_tool(mixed_list_fn)
+        mcp.add_tool(mixed_list_fn)  # type: ignore
         async with client_session(mcp._mcp_server) as client:
             result = await client.call_tool("mixed_list_fn", {})
-            assert len(result.content) == 4
+            assert len(result.content) == 5
             # Check text conversion
             content1 = result.content[0]
             assert isinstance(content1, TextContent)
@@ -360,14 +426,19 @@ class TestServerTools:
             assert isinstance(content2, ImageContent)
             assert content2.mimeType == "image/png"
             assert base64.b64decode(content2.data) == b"test image data"
-            # Check dict conversion
+            # Check audio conversion
             content3 = result.content[2]
-            assert isinstance(content3, TextContent)
-            assert '"key": "value"' in content3.text
-            # Check direct TextContent
+            assert isinstance(content3, AudioContent)
+            assert content3.mimeType == "audio/wav"
+            assert base64.b64decode(content3.data) == b"test audio data"
+            # Check dict conversion
             content4 = result.content[3]
             assert isinstance(content4, TextContent)
-            assert content4.text == "direct content"
+            assert '"key": "value"' in content4.text
+            # Check direct TextContent
+            content5 = result.content[4]
+            assert isinstance(content5, TextContent)
+            assert content5.text == "direct content"
             # Check structured content - untyped list with Image objects should NOT have structured output
             assert result.structuredContent is None
 
@@ -655,7 +726,7 @@ class TestServerResourceTemplates:
         mcp = FastMCP()
 
         @mcp.resource("resource://{param}")
-        def get_data(param) -> str:
+        def get_data(param) -> str:  # type: ignore
             return "Data"
 
     @pytest.mark.anyio
@@ -739,16 +810,37 @@ class TestServerResourceTemplates:
         result = await resource.read()
         assert result == "Data for test"
 
+    @pytest.mark.anyio
+    async def test_resource_template_includes_mime_type(self):
+        """Test that list resource templates includes the correct mimeType."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://{user}/csv", mime_type="text/csv")
+        def get_csv(user: str) -> str:
+            return f"csv for {user}"
+
+        templates = await mcp.list_resource_templates()
+        assert len(templates) == 1
+        template = templates[0]
+
+        assert hasattr(template, "mimeType")
+        assert template.mimeType == "text/csv"
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.read_resource(AnyUrl("resource://bob/csv"))
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert result.contents[0].text == "csv for bob"
+
 
 class TestContextInjection:
-    """Test context injection in tools."""
+    """Test context injection in tools, resources, and prompts."""
 
     @pytest.mark.anyio
     async def test_context_detection(self):
         """Test that context parameters are properly detected."""
         mcp = FastMCP()
 
-        def tool_with_context(x: int, ctx: Context) -> str:
+        def tool_with_context(x: int, ctx: Context[ServerSession, None]) -> str:
             return f"Request {ctx.request_id}: {x}"
 
         tool = mcp._tool_manager.add_tool(tool_with_context)
@@ -759,7 +851,7 @@ class TestContextInjection:
         """Test that context is properly injected into tool calls."""
         mcp = FastMCP()
 
-        def tool_with_context(x: int, ctx: Context) -> str:
+        def tool_with_context(x: int, ctx: Context[ServerSession, None]) -> str:
             assert ctx.request_id is not None
             return f"Request {ctx.request_id}: {x}"
 
@@ -777,7 +869,7 @@ class TestContextInjection:
         """Test that context works in async functions."""
         mcp = FastMCP()
 
-        async def async_tool(x: int, ctx: Context) -> str:
+        async def async_tool(x: int, ctx: Context[ServerSession, None]) -> str:
             assert ctx.request_id is not None
             return f"Async request {ctx.request_id}: {x}"
 
@@ -792,12 +884,10 @@ class TestContextInjection:
 
     @pytest.mark.anyio
     async def test_context_logging(self):
-        import mcp.server.session
-
         """Test that context logging methods work."""
         mcp = FastMCP()
 
-        async def logging_tool(msg: str, ctx: Context) -> str:
+        async def logging_tool(msg: str, ctx: Context[ServerSession, None]) -> str:
             await ctx.debug("Debug message")
             await ctx.info("Info message")
             await ctx.warning("Warning message")
@@ -866,7 +956,7 @@ class TestContextInjection:
             return "resource data"
 
         @mcp.tool()
-        async def tool_with_resource(ctx: Context) -> str:
+        async def tool_with_resource(ctx: Context[ServerSession, None]) -> str:
             r_iter = await ctx.read_resource("test://data")
             r_list = list(r_iter)
             assert len(r_list) == 1
@@ -879,6 +969,126 @@ class TestContextInjection:
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert "Read resource: resource data" in content.text
+
+    @pytest.mark.anyio
+    async def test_resource_with_context(self):
+        """Test that resources can receive context parameter."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://context/{name}")
+        def resource_with_context(name: str, ctx: Context[ServerSession, None]) -> str:
+            """Resource that receives context."""
+            assert ctx is not None
+            return f"Resource {name} - context injected"
+
+        # Verify template has context_kwarg set
+        templates = mcp._resource_manager.list_templates()
+        assert len(templates) == 1
+        template = templates[0]
+        assert hasattr(template, "context_kwarg")
+        assert template.context_kwarg == "ctx"
+
+        # Test via client
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.read_resource(AnyUrl("resource://context/test"))
+            assert len(result.contents) == 1
+            content = result.contents[0]
+            assert isinstance(content, TextResourceContents)
+            # Should have either request_id or indication that context was injected
+            assert "Resource test - context injected" == content.text
+
+    @pytest.mark.anyio
+    async def test_resource_without_context(self):
+        """Test that resources without context work normally."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://nocontext/{name}")
+        def resource_no_context(name: str) -> str:
+            """Resource without context."""
+            return f"Resource {name} works"
+
+        # Verify template has no context_kwarg
+        templates = mcp._resource_manager.list_templates()
+        assert len(templates) == 1
+        template = templates[0]
+        assert template.context_kwarg is None
+
+        # Test via client
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.read_resource(AnyUrl("resource://nocontext/test"))
+            assert len(result.contents) == 1
+            content = result.contents[0]
+            assert isinstance(content, TextResourceContents)
+            assert content.text == "Resource test works"
+
+    @pytest.mark.anyio
+    async def test_resource_context_custom_name(self):
+        """Test resource context with custom parameter name."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://custom/{id}")
+        def resource_custom_ctx(id: str, my_ctx: Context[ServerSession, None]) -> str:
+            """Resource with custom context parameter name."""
+            assert my_ctx is not None
+            return f"Resource {id} with context"
+
+        # Verify template detects custom context parameter
+        templates = mcp._resource_manager.list_templates()
+        assert len(templates) == 1
+        template = templates[0]
+        assert template.context_kwarg == "my_ctx"
+
+        # Test via client
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.read_resource(AnyUrl("resource://custom/123"))
+            assert len(result.contents) == 1
+            content = result.contents[0]
+            assert isinstance(content, TextResourceContents)
+            assert "Resource 123 with context" in content.text
+
+    @pytest.mark.anyio
+    async def test_prompt_with_context(self):
+        """Test that prompts can receive context parameter."""
+        mcp = FastMCP()
+
+        @mcp.prompt("prompt_with_ctx")
+        def prompt_with_context(text: str, ctx: Context[ServerSession, None]) -> str:
+            """Prompt that expects context."""
+            assert ctx is not None
+            return f"Prompt '{text}' - context injected"
+
+        # Check if prompt has context parameter detection
+        prompts = mcp._prompt_manager.list_prompts()
+        assert len(prompts) == 1
+
+        # Test via client
+        async with client_session(mcp._mcp_server) as client:
+            # Try calling without passing ctx explicitly
+            result = await client.get_prompt("prompt_with_ctx", {"text": "test"})
+            # If this succeeds, check if context was injected
+            assert len(result.messages) == 1
+            content = result.messages[0].content
+            assert isinstance(content, TextContent)
+            assert "Prompt 'test' - context injected" in content.text
+
+    @pytest.mark.anyio
+    async def test_prompt_without_context(self):
+        """Test that prompts without context work normally."""
+        mcp = FastMCP()
+
+        @mcp.prompt("prompt_no_ctx")
+        def prompt_no_context(text: str) -> str:
+            """Prompt without context."""
+            return f"Prompt '{text}' works"
+
+        # Test via client
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.get_prompt("prompt_no_ctx", {"text": "test"})
+            assert len(result.messages) == 1
+            message = result.messages[0]
+            content = message.content
+            assert isinstance(content, TextContent)
+            assert content.text == "Prompt 'test' works"
 
 
 class TestServerPrompts:
