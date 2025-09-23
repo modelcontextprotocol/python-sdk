@@ -90,6 +90,7 @@ from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
+from mcp.types import RequestId
 
 logger = logging.getLogger(__name__)
 
@@ -147,10 +148,14 @@ class Server(Generic[LifespanResultT, RequestT]):
         self.instructions = instructions
         self.lifespan = lifespan
         self.async_operations = async_operations or AsyncOperationManager()
+        # Track request ID to operation token mapping for cancellation
+        self._request_to_operation: dict[RequestId, str] = {}
         self.request_handlers: dict[type, Callable[..., Awaitable[types.ServerResult]]] = {
             types.PingRequest: _ping_handler,
         }
-        self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
+        self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {
+            types.CancelledNotification: self._handle_cancelled_notification,
+        }
         self._tool_cache: dict[str, types.Tool] = {}
         logger.debug("Initializing server %r", name)
 
@@ -566,6 +571,10 @@ class Server(Generic[LifespanResultT, RequestT]):
         if operation.is_expired:
             raise McpError(types.ErrorData(code=-32602, message="Token expired"))
 
+        # Check if operation was cancelled - ignore subsequent requests
+        if operation.status == "canceled":
+            raise McpError(types.ErrorData(code=-32602, message="Operation was cancelled"))
+
         return operation
 
     def get_operation_status(self):
@@ -614,6 +623,23 @@ class Server(Generic[LifespanResultT, RequestT]):
             return func
 
         return decorator
+
+    def handle_cancelled_notification(self, request_id: RequestId) -> None:
+        """Handle cancellation notification for a request."""
+        # Check if this request ID corresponds to an async operation
+        if request_id in self._request_to_operation:
+            token = self._request_to_operation[request_id]
+            # Cancel the operation
+            if self.async_operations.cancel_operation(token):
+                logger.debug(f"Cancelled async operation {token} for request {request_id}")
+            # Clean up the mapping
+            del self._request_to_operation[request_id]
+
+    async def _handle_cancelled_notification(self, notification: types.CancelledNotification) -> None:
+        """Handle cancelled notification from client."""
+        request_id = notification.params.requestId
+        logger.debug(f"Received cancellation notification for request {request_id}")
+        self.handle_cancelled_notification(request_id)
 
     async def run(
         self,
@@ -695,7 +721,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         if handler := self.request_handlers.get(type(req)):  # type: ignore
             logger.debug("Dispatching request of type %s", type(req).__name__)
 
-            token = None
+            context_token = None
             try:
                 # Extract request context from message metadata
                 request_data = None
@@ -704,7 +730,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
                 # Set our global state that can be retrieved via
                 # app.get_request_context()
-                token = request_ctx.set(
+                context_token = request_ctx.set(
                     RequestContext(
                         message.request_id,
                         message.request_meta,
@@ -714,6 +740,16 @@ class Server(Generic[LifespanResultT, RequestT]):
                     )
                 )
                 response = await handler(req)
+
+                # Track async operations for cancellation
+                if isinstance(req, types.CallToolRequest):
+                    result = response.root
+                    if isinstance(result, types.CallToolResult) and result.operation_result is not None:
+                        # This is an async operation, track the request ID to token mapping
+                        operation_token = result.operation_result.token
+                        self._request_to_operation[message.request_id] = operation_token
+                        logger.debug(f"Tracking async operation {operation_token} for request {message.request_id}")
+
             except McpError as err:
                 response = err.error
             except anyio.get_cancelled_exc_class():
@@ -728,8 +764,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                 response = types.ErrorData(code=0, message=str(err), data=None)
             finally:
                 # Reset the global state after we are done
-                if token is not None:
-                    request_ctx.reset(token)
+                if context_token is not None:
+                    request_ctx.reset(context_token)
 
             await message.respond(response)
         else:
