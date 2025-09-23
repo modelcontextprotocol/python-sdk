@@ -470,18 +470,27 @@ def _get_typed_annotation(annotation: Any, globalns: dict[str, Any]) -> Any:
 
 def _get_typed_signature(call: Callable[..., Any]) -> inspect.Signature:
     """Get function signature while evaluating forward references"""
+
     signature = inspect.signature(call)
-    globalns = getattr(call, "__globals__", {})
+    try:
+        type_hints = get_type_hints(call, include_extras=True)
+    except TypeError:
+        # get_type_hints doesn't handle callable objects.
+        type_hints = {}
+
+    def resolve_annotation(name: str, annotation: Any) -> Any:
+        return type_hints.get(name, annotation) if isinstance(annotation, str) else annotation
+
     typed_params = [
         inspect.Parameter(
             name=param.name,
             kind=param.kind,
             default=param.default,
-            annotation=_get_typed_annotation(param.annotation, globalns),
+            annotation=resolve_annotation(param.name, param.annotation),
         )
         for param in signature.parameters.values()
     ]
-    typed_return = _get_typed_annotation(signature.return_annotation, globalns)
+    typed_return = resolve_annotation("return", signature.return_annotation)
     typed_signature = inspect.Signature(typed_params, return_annotation=typed_return)
     return typed_signature
 
