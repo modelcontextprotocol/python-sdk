@@ -293,7 +293,7 @@ class ClientSession(
                     params=types.CallToolRequestParams(
                         name=name,
                         arguments=arguments,
-                        async_properties=async_properties,
+                        operation_params=async_properties,
                     ),
                 )
             ),
@@ -307,7 +307,7 @@ class ClientSession(
 
         return result
 
-    async def check_tool_async_status(self, token: str) -> types.CheckToolAsyncStatusResult:
+    async def get_operation_status(self, token: str) -> types.GetOperationStatusResult:
         """Check the status of an async tool operation.
 
         Args:
@@ -318,14 +318,14 @@ class ClientSession(
         """
         return await self.send_request(
             types.ClientRequest(
-                types.CheckToolAsyncStatusRequest(
-                    params=types.CheckToolAsyncStatusParams(token=token),
+                types.GetOperationStatusRequest(
+                    params=types.GetOperationStatusParams(token=token),
                 )
             ),
-            types.CheckToolAsyncStatusResult,
+            types.GetOperationStatusResult,
         )
 
-    async def get_tool_async_result(self, token: str) -> types.GetToolAsyncPayloadResult:
+    async def get_operation_result(self, token: str) -> types.GetOperationPayloadResult:
         """Get the result of a completed async tool operation.
 
         Args:
@@ -336,11 +336,11 @@ class ClientSession(
         """
         return await self.send_request(
             types.ClientRequest(
-                types.GetToolAsyncPayloadRequest(
-                    params=types.GetToolAsyncPayloadParams(token=token),
+                types.GetOperationPayloadRequest(
+                    params=types.GetOperationPayloadParams(token=token),
                 )
             ),
-            types.GetToolAsyncPayloadResult,
+            types.GetOperationPayloadResult,
         )
 
     async def _validate_tool_result(self, name: str, result: types.CallToolResult) -> None:

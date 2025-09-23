@@ -568,35 +568,35 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return operation
 
-    def check_tool_async_status(self):
+    def get_operation_status(self):
         """Register a handler for checking async tool execution status."""
 
-        def decorator(func: Callable[[str], Awaitable[types.CheckToolAsyncStatusResult]]):
-            logger.debug("Registering handler for CheckToolAsyncStatusRequest")
+        def decorator(func: Callable[[str], Awaitable[types.GetOperationStatusResult]]):
+            logger.debug("Registering handler for GetOperationStatusRequest")
 
-            async def handler(req: types.CheckToolAsyncStatusRequest):
+            async def handler(req: types.GetOperationStatusRequest):
                 # Validate token and get operation
                 operation = self._validate_operation_token(req.params.token)
 
                 return types.ServerResult(
-                    types.CheckToolAsyncStatusResult(
+                    types.GetOperationStatusResult(
                         status=operation.status,
                         error=operation.error,
                     )
                 )
 
-            self.request_handlers[types.CheckToolAsyncStatusRequest] = handler
+            self.request_handlers[types.GetOperationStatusRequest] = handler
             return func
 
         return decorator
 
-    def get_tool_async_result(self):
+    def get_operation_result(self):
         """Register a handler for retrieving async tool execution results."""
 
-        def decorator(func: Callable[[str], Awaitable[types.GetToolAsyncPayloadResult]]):
-            logger.debug("Registering handler for GetToolAsyncPayloadRequest")
+        def decorator(func: Callable[[str], Awaitable[types.GetOperationPayloadResult]]):
+            logger.debug("Registering handler for GetOperationPayloadRequest")
 
-            async def handler(req: types.GetToolAsyncPayloadRequest):
+            async def handler(req: types.GetOperationPayloadRequest):
                 # Validate token and get operation
                 operation = self._validate_operation_token(req.params.token)
 
@@ -608,9 +608,9 @@ class Server(Generic[LifespanResultT, RequestT]):
                 if not operation.result:
                     raise McpError(types.ErrorData(code=-32600, message="No result available for completed operation"))
 
-                return types.ServerResult(types.GetToolAsyncPayloadResult(result=operation.result))
+                return types.ServerResult(types.GetOperationPayloadResult(result=operation.result))
 
-            self.request_handlers[types.GetToolAsyncPayloadRequest] = handler
+            self.request_handlers[types.GetOperationPayloadRequest] = handler
             return func
 
         return decorator

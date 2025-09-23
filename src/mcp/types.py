@@ -53,7 +53,14 @@ class RequestParams(BaseModel):
 
         model_config = ConfigDict(extra="allow")
 
+    class Operation(BaseModel):
+        token: str
+        """The token associated with the originating asynchronous tool call."""
+        model_config = ConfigDict(extra="allow")
+
     meta: Meta | None = Field(alias="_meta", default=None)
+    operation: Operation | None = Field(alias="_operation", default=None)
+    """Async operation parameters, only used when a request is sent during an asynchronous tool call."""
 
 
 class PaginatedRequestParams(RequestParams):
@@ -68,11 +75,18 @@ class NotificationParams(BaseModel):
     class Meta(BaseModel):
         model_config = ConfigDict(extra="allow")
 
+    class Operation(BaseModel):
+        token: str
+        """The token associated with the originating asynchronous tool call."""
+        model_config = ConfigDict(extra="allow")
+
     meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
     """
+    operation: Operation | None = Field(alias="_operation", default=None)
+    """Async operation parameters, only used when a notification is sent during an asynchronous tool call."""
 
 
 RequestParamsT = TypeVar("RequestParamsT", bound=RequestParams | dict[str, Any] | None)
@@ -106,10 +120,19 @@ class Notification(BaseModel, Generic[NotificationParamsT, MethodT]):
 class Result(BaseModel):
     """Base class for JSON-RPC results."""
 
+    class Operation(BaseModel):
+        token: str
+        """The token associated with the originating asynchronous tool call."""
+        model_config = ConfigDict(extra="allow")
+
     meta: dict[str, Any] | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
+    """
+    operation: Operation | None = Field(alias="_operation", default=None)
+    """
+    Async operation parameters, only used when a result is sent in response to a request with operation parameters.
     """
     model_config = ConfigDict(extra="allow")
 
@@ -896,25 +919,25 @@ class AsyncResultProperties(BaseModel):
 
 
 # Async status checking types
-class CheckToolAsyncStatusParams(RequestParams):
+class GetOperationStatusParams(RequestParams):
     """Parameters for checking async tool status."""
 
     token: str
     """Token from the original async tool call."""
 
 
-class CheckToolAsyncStatusRequest(Request[CheckToolAsyncStatusParams, Literal["tools/async/status"]]):
+class GetOperationStatusRequest(Request[GetOperationStatusParams, Literal["tools/async/status"]]):
     """Request to check the status of an async tool call."""
 
     method: Literal["tools/async/status"] = "tools/async/status"
-    params: CheckToolAsyncStatusParams
+    params: GetOperationStatusParams
 
 
 """Status values for async operations."""
-AsyncOperationStatus = Literal["submitted", "working", "completed", "canceled", "failed", "unknown"]
+AsyncOperationStatus = Literal["submitted", "working", "input_required", "completed", "canceled", "failed", "unknown"]
 
 
-class CheckToolAsyncStatusResult(Result):
+class GetOperationStatusResult(Result):
     """Result of checking async tool status."""
 
     status: AsyncOperationStatus
@@ -924,21 +947,21 @@ class CheckToolAsyncStatusResult(Result):
 
 
 # Async payload retrieval types
-class GetToolAsyncPayloadParams(RequestParams):
+class GetOperationPayloadParams(RequestParams):
     """Parameters for getting async tool payload."""
 
     token: str
     """Token from the original async tool call."""
 
 
-class GetToolAsyncPayloadRequest(Request[GetToolAsyncPayloadParams, Literal["tools/async/result"]]):
+class GetOperationPayloadRequest(Request[GetOperationPayloadParams, Literal["tools/async/result"]]):
     """Request to get the result of a completed async tool call."""
 
     method: Literal["tools/async/result"] = "tools/async/result"
-    params: GetToolAsyncPayloadParams
+    params: GetOperationPayloadParams
 
 
-class GetToolAsyncPayloadResult(Result):
+class GetOperationPayloadResult(Result):
     """Result containing the final async tool call result."""
 
     result: "CallToolResult"
@@ -950,7 +973,7 @@ class CallToolRequestParams(RequestParams):
 
     name: str
     arguments: dict[str, Any] | None = None
-    async_properties: AsyncRequestProperties | None = Field(serialization_alias="async", default=None)
+    operation_params: AsyncRequestProperties | None = Field(serialization_alias="operation", default=None)
     """Optional async execution parameters."""
     model_config = ConfigDict(extra="allow")
 
@@ -969,7 +992,7 @@ class CallToolResult(Result):
     structuredContent: dict[str, Any] | None = None
     """An optional JSON object that represents the structured result of the tool call."""
     isError: bool = False
-    async_properties: AsyncResultProperties | None = Field(serialization_alias="async", default=None)
+    operation_result: AsyncResultProperties | None = Field(serialization_alias="operation", default=None)
     """Optional async execution information. Present when tool is executed asynchronously."""
 
 
@@ -1313,8 +1336,8 @@ class ClientRequest(
         | UnsubscribeRequest
         | CallToolRequest
         | ListToolsRequest
-        | CheckToolAsyncStatusRequest
-        | GetToolAsyncPayloadRequest
+        | GetOperationStatusRequest
+        | GetOperationPayloadRequest
     ]
 ):
     pass
@@ -1398,8 +1421,8 @@ class ServerResult(
         | ReadResourceResult
         | CallToolResult
         | ListToolsResult
-        | CheckToolAsyncStatusResult
-        | GetToolAsyncPayloadResult
+        | GetOperationStatusResult
+        | GetOperationPayloadResult
     ]
 ):
     pass
