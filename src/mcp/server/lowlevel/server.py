@@ -11,7 +11,7 @@ Usage:
 
 2. Define request handlers using decorators:
    @server.list_prompts()
-   async def handle_list_prompts() -> list[types.Prompt]:
+   async def handle_list_prompts(request: types.ListPromptsRequest) -> types.ListPromptsResult:
        # Implementation
 
    @server.get_prompt()
@@ -21,7 +21,7 @@ Usage:
        # Implementation
 
    @server.list_tools()
-   async def handle_list_tools() -> list[types.Tool]:
+   async def handle_list_tools(request: types.ListToolsRequest) -> types.ListToolsResult:
        # Implementation
 
    @server.call_tool()
@@ -82,6 +82,7 @@ from pydantic import AnyUrl
 from typing_extensions import TypeVar
 
 import mcp.types as types
+from mcp.server.lowlevel.func_inspection import create_call_wrapper
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
@@ -235,12 +236,22 @@ class Server(Generic[LifespanResultT, RequestT]):
         return request_ctx.get()
 
     def list_prompts(self):
-        def decorator(func: Callable[[], Awaitable[list[types.Prompt]]]):
+        def decorator(
+            func: Callable[[], Awaitable[list[types.Prompt]]]
+            | Callable[[types.ListPromptsRequest], Awaitable[types.ListPromptsResult]],
+        ):
             logger.debug("Registering handler for PromptListRequest")
 
-            async def handler(_: Any):
-                prompts = await func()
-                return types.ServerResult(types.ListPromptsResult(prompts=prompts))
+            wrapper = create_call_wrapper(func, types.ListPromptsRequest)
+
+            async def handler(req: types.ListPromptsRequest):
+                result = await wrapper(req)
+                # Handle both old style (list[Prompt]) and new style (ListPromptsResult)
+                if isinstance(result, types.ListPromptsResult):
+                    return types.ServerResult(result)
+                else:
+                    # Old style returns list[Prompt]
+                    return types.ServerResult(types.ListPromptsResult(prompts=result))
 
             self.request_handlers[types.ListPromptsRequest] = handler
             return func
@@ -263,12 +274,22 @@ class Server(Generic[LifespanResultT, RequestT]):
         return decorator
 
     def list_resources(self):
-        def decorator(func: Callable[[], Awaitable[list[types.Resource]]]):
+        def decorator(
+            func: Callable[[], Awaitable[list[types.Resource]]]
+            | Callable[[types.ListResourcesRequest], Awaitable[types.ListResourcesResult]],
+        ):
             logger.debug("Registering handler for ListResourcesRequest")
 
-            async def handler(_: Any):
-                resources = await func()
-                return types.ServerResult(types.ListResourcesResult(resources=resources))
+            wrapper = create_call_wrapper(func, types.ListResourcesRequest)
+
+            async def handler(req: types.ListResourcesRequest):
+                result = await wrapper(req)
+                # Handle both old style (list[Resource]) and new style (ListResourcesResult)
+                if isinstance(result, types.ListResourcesResult):
+                    return types.ServerResult(result)
+                else:
+                    # Old style returns list[Resource]
+                    return types.ServerResult(types.ListResourcesResult(resources=result))
 
             self.request_handlers[types.ListResourcesRequest] = handler
             return func
@@ -386,16 +407,30 @@ class Server(Generic[LifespanResultT, RequestT]):
         return decorator
 
     def list_tools(self):
-        def decorator(func: Callable[[], Awaitable[list[types.Tool]]]):
+        def decorator(
+            func: Callable[[], Awaitable[list[types.Tool]]]
+            | Callable[[types.ListToolsRequest], Awaitable[types.ListToolsResult]],
+        ):
             logger.debug("Registering handler for ListToolsRequest")
 
-            async def handler(_: Any):
-                tools = await func()
-                # Refresh the tool cache
-                self._tool_cache.clear()
-                for tool in tools:
-                    self._tool_cache[tool.name] = tool
-                return types.ServerResult(types.ListToolsResult(tools=tools))
+            wrapper = create_call_wrapper(func, types.ListToolsRequest)
+
+            async def handler(req: types.ListToolsRequest):
+                result = await wrapper(req)
+
+                # Handle both old style (list[Tool]) and new style (ListToolsResult)
+                if isinstance(result, types.ListToolsResult):
+                    # Refresh the tool cache with returned tools
+                    for tool in result.tools:
+                        self._tool_cache[tool.name] = tool
+                    return types.ServerResult(result)
+                else:
+                    # Old style returns list[Tool]
+                    # Clear and refresh the entire tool cache
+                    self._tool_cache.clear()
+                    for tool in result:
+                        self._tool_cache[tool.name] = tool
+                    return types.ServerResult(types.ListToolsResult(tools=result))
 
             self.request_handlers[types.ListToolsRequest] = handler
             return func
