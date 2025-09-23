@@ -68,7 +68,6 @@ messages from the client.
 from __future__ import annotations as _annotations
 
 import contextvars
-import inspect
 import json
 import logging
 import warnings
@@ -104,9 +103,6 @@ CombinationContent: TypeAlias = tuple[UnstructuredContent, StructuredContent]
 
 # This will be properly typed in each Server instance's context
 request_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any, Any]] = contextvars.ContextVar("request_ctx")
-
-# Context variable to hold the current ServerSession, accessible by notification handlers
-current_session_ctx: contextvars.ContextVar[ServerSession] = contextvars.ContextVar("current_server_session")
 
 
 class NotificationOptions:
@@ -512,16 +508,23 @@ class Server(Generic[LifespanResultT, RequestT]):
 
     def progress_notification(self):
         def decorator(
-            func: Callable[[str | int, float, float | None, str | None], Awaitable[None]],
+            func: Callable[
+                [str | int, float, float | None, str | None, ServerSession | None],
+                Awaitable[None],
+            ],
         ):
             logger.debug("Registering handler for ProgressNotification")
 
-            async def handler(req: types.ProgressNotification):
+            async def handler(
+                req: types.ProgressNotification,
+                session: ServerSession | None = None,
+            ):
                 await func(
                     req.params.progressToken,
                     req.params.progress,
                     req.params.total,
                     req.params.message,
+                    session,
                 )
 
             self.notification_handlers[types.ProgressNotification] = handler
@@ -533,10 +536,10 @@ class Server(Generic[LifespanResultT, RequestT]):
         """Decorator to register a handler for InitializedNotification."""
 
         def decorator(
-            func: (
-                Callable[[types.InitializedNotification, ServerSession], Awaitable[None]]
-                | Callable[[types.InitializedNotification], Awaitable[None]]
-            ),
+            func: Callable[
+                [types.InitializedNotification, ServerSession | None],
+                Awaitable[None],
+            ],
         ):
             logger.debug("Registering handler for InitializedNotification")
             self.notification_handlers[types.InitializedNotification] = func
@@ -548,10 +551,10 @@ class Server(Generic[LifespanResultT, RequestT]):
         """Decorator to register a handler for RootsListChangedNotification."""
 
         def decorator(
-            func: (
-                Callable[[types.RootsListChangedNotification, ServerSession], Awaitable[None]]
-                | Callable[[types.RootsListChangedNotification], Awaitable[None]]
-            ),
+            func: Callable[
+                [types.RootsListChangedNotification, ServerSession | None],
+                Awaitable[None],
+            ],
         ):
             logger.debug("Registering handler for RootsListChangedNotification")
             self.notification_handlers[types.RootsListChangedNotification] = func
@@ -635,21 +638,17 @@ class Server(Generic[LifespanResultT, RequestT]):
         lifespan_context: LifespanResultT,
         raise_exceptions: bool = False,
     ):
-        session_token = current_session_ctx.set(session)
-        try:
-            with warnings.catch_warnings(record=True) as w:
-                # TODO(Marcelo): We should be checking if message is Exception here.
-                match message:  # type: ignore[reportMatchNotExhaustive]
-                    case RequestResponder(request=types.ClientRequest(root=req)) as responder:
-                        with responder:
-                            await self._handle_request(message, req, session, lifespan_context, raise_exceptions)
-                    case types.ClientNotification(root=notify):
-                        await self._handle_notification(notify)
+        with warnings.catch_warnings(record=True) as w:
+            # TODO(Marcelo): We should be checking if message is Exception here.
+            match message:  # type: ignore[reportMatchNotExhaustive]
+                case RequestResponder(request=types.ClientRequest(root=req)) as responder:
+                    with responder:
+                        await self._handle_request(message, req, session, lifespan_context, raise_exceptions)
+                case types.ClientNotification(root=notify):
+                    await self._handle_notification(notify, session)
 
-            for warning in w:
-                logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
-        finally:
-            current_session_ctx.reset(session_token)
+        for warning in w:
+            logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
 
     async def _handle_request(
         self,
@@ -710,15 +709,14 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         logger.debug("Response sent")
 
-    async def _handle_notification(self, notify: Any):
+    async def _handle_notification(self, notify: Any, session: ServerSession):
         if handler := self.notification_handlers.get(type(notify)):  # type: ignore
             logger.debug("Dispatching notification of type %s", type(notify).__name__)
 
             try:
-                sig = inspect.signature(handler)
-                if "session" in sig.parameters:
-                    await handler(notify, current_session_ctx.get())
-                else:
+                try:
+                    await handler(notify, session)
+                except TypeError:
                     await handler(notify)
             except Exception:
                 logger.exception("Uncaught exception in notification handler")
