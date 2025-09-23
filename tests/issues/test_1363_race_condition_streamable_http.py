@@ -19,19 +19,9 @@ import socket
 import subprocess
 import sys
 import time
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
 
 import httpx
 import pytest
-import uvicorn
-from starlette.applications import Starlette
-from starlette.routing import Mount
-from starlette.types import Receive, Scope, Send
-
-from mcp.server import Server
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.types import Tool
 
 SERVER_NAME = "test_race_condition_server"
 
@@ -85,6 +75,32 @@ def server_url(server_port: int) -> str:
     return f"http://127.0.0.1:{server_port}"
 
 
+def start_server_process(port: int) -> subprocess.Popen[str]:
+    """Start server in a separate process."""
+    # Create a temporary script to run the server
+    import os
+
+    server_code = f"""
+import sys
+import os
+sys.path.insert(0, {repr(os.getcwd())})
+
+import socket
+import time
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
+import uvicorn
+from starlette.applications import Starlette
+from starlette.routing import Mount
+from starlette.types import Receive, Scope, Send
+
+from mcp.server import Server
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.types import Tool
+
+SERVER_NAME = "test_race_condition_server"
+
 class RaceConditionTestServer(Server):
     def __init__(self):
         super().__init__(SERVER_NAME)
@@ -92,9 +108,7 @@ class RaceConditionTestServer(Server):
     async def on_list_tools(self) -> list[Tool]:
         return []
 
-
 def run_server_with_logging(port: int) -> None:
-    """Run the StreamableHTTP server with logging to capture race condition errors."""
     app = RaceConditionTestServer()
 
     # Create session manager
@@ -121,16 +135,6 @@ def run_server_with_logging(port: int) -> None:
     starlette_app = Starlette(routes=routes, lifespan=lifespan)
     uvicorn.run(starlette_app, host="127.0.0.1", port=port, log_level="debug")
 
-
-def start_server_process(port: int) -> subprocess.Popen[str]:
-    """Start server in a separate process."""
-    # Create a temporary script to run the server
-    import os
-
-    server_code = f"""
-import sys
-sys.path.insert(0, {repr(os.getcwd())})
-from tests.issues.test_1363_race_condition_streamable_http import run_server_with_logging
 run_server_with_logging({port})
 """
 
