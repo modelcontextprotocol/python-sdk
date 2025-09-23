@@ -5,6 +5,7 @@ Run from the repository root:
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import mcp.server.stdio
 import mcp.types as types
@@ -33,7 +34,7 @@ class Database:
 
 
 @asynccontextmanager
-async def server_lifespan(_server: Server) -> AsyncIterator[dict]:
+async def server_lifespan(_server: Server) -> AsyncIterator[dict[str, Any]]:
     """Manage server startup and shutdown lifecycle."""
     # Initialize resources on startup
     db = await Database.connect()
@@ -65,7 +66,7 @@ async def handle_list_tools() -> list[types.Tool]:
 
 
 @server.call_tool()
-async def query_db(name: str, arguments: dict) -> list[types.TextContent]:
+async def query_db(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
     """Handle database query tool call."""
     if name != "query_db":
         raise ValueError(f"Unknown tool: {name}")
