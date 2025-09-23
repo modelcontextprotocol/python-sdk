@@ -21,7 +21,7 @@ from pydantic_core import PydanticUndefined
 
 from mcp.server.fastmcp.exceptions import InvalidSignature
 from mcp.server.fastmcp.utilities.logging import get_logger
-from mcp.server.fastmcp.utilities.types import Image
+from mcp.server.fastmcp.utilities.types import Audio, Image
 from mcp.types import ContentBlock, TextContent
 
 logger = get_logger(__name__)
@@ -139,14 +139,14 @@ class FuncMetadata(BaseModel):
             if field_info.alias:
                 key_to_field_info[field_info.alias] = field_info
 
-        for data_key in data.keys():
+        for data_key, data_value in data.items():
             if data_key not in key_to_field_info:
                 continue
 
             field_info = key_to_field_info[data_key]
-            if isinstance(data[data_key], str) and field_info.annotation is not str:
+            if isinstance(data_value, str) and field_info.annotation is not str:
                 try:
-                    pre_parsed = json.loads(data[data_key])
+                    pre_parsed = json.loads(data_value)
                 except json.JSONDecodeError:
                     continue  # Not JSON - skip
                 if isinstance(pre_parsed, str | int | float):
@@ -187,7 +187,7 @@ def func_metadata(
             the model.
         structured_output: Controls whether the tool's output is structured or unstructured
             - If None, auto-detects based on the function's return type annotation
-            - If True, unconditionally creates a structured tool (return type annotation permitting)
+            - If True, creates a structured tool (return type annotation permitting)
             - If False, unconditionally creates an unstructured tool
 
         If structured, creates a Pydantic model for the function's result based on its annotation.
@@ -505,6 +505,9 @@ def _convert_to_content(
 
     if isinstance(result, Image):
         return [result.to_image_content()]
+
+    if isinstance(result, Audio):
+        return [result.to_audio_content()]
 
     if isinstance(result, list | tuple):
         return list(

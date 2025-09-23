@@ -88,7 +88,6 @@ async def test_request_cancellation():
             await client_session.send_request(
                 ClientRequest(
                     types.CallToolRequest(
-                        method="tools/call",
                         params=types.CallToolRequestParams(name="slow_tool", arguments={}),
                     )
                 ),
@@ -113,7 +112,6 @@ async def test_request_cancellation():
             await client_session.send_notification(
                 ClientNotification(
                     CancelledNotification(
-                        method="notifications/cancelled",
                         params=CancelledNotificationParams(requestId=request_id),
                     )
                 )
