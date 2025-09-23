@@ -23,6 +23,8 @@ async def test_bidirectional_progress_notifications():
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](5)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](5)
 
+    server_session_ref: list[ServerSession | None] = [None]
+
     # Run a server session so we can send progress updates in tool
     async def run_server():
         # Create a server session
@@ -35,9 +37,7 @@ async def test_bidirectional_progress_notifications():
                 capabilities=server.get_capabilities(NotificationOptions(), {}),
             ),
         ) as server_session:
-            global serv_sesh
-
-            serv_sesh = server_session
+            server_session_ref[0] = server_session
             async for message in server_session.incoming_messages:
                 try:
                     await server._handle_message(message, server_session, {})
@@ -87,6 +87,10 @@ async def test_bidirectional_progress_notifications():
     # Register tool handler
     @server.call_tool()
     async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
+        serv_sesh = server_session_ref[0]
+        if not serv_sesh:
+            raise ValueError("Server session not available")
+
         # Make sure we received a progress token
         if name == "test_tool":
             if arguments and "_meta" in arguments:
