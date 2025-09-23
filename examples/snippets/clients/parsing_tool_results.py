@@ -34,7 +34,7 @@ async def parse_tool_results():
                     resource = content.resource
                     if isinstance(resource, types.TextResourceContents):
                         print(f"Config from {resource.uri}: {resource.text}")
-                    elif isinstance(resource, types.BlobResourceContents):
+                    else:
                         print(f"Binary data from {resource.uri}")
 
             # Example 4: Parsing image content

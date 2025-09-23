@@ -11,11 +11,7 @@ from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
 from mcp.shared.progress import progress
-from mcp.shared.session import (
-    BaseSession,
-    RequestResponder,
-    SessionMessage,
-)
+from mcp.shared.session import BaseSession, RequestResponder, SessionMessage
 
 
 @pytest.mark.anyio
@@ -47,8 +43,8 @@ async def test_bidirectional_progress_notifications():
                     raise e
 
     # Track progress updates
-    server_progress_updates = []
-    client_progress_updates = []
+    server_progress_updates: list[dict[str, Any]] = []
+    client_progress_updates: list[dict[str, Any]] = []
 
     # Progress tokens
     server_progress_token = "server_token_123"
@@ -87,7 +83,7 @@ async def test_bidirectional_progress_notifications():
 
     # Register tool handler
     @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict | None) -> list:
+    async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
         # Make sure we received a progress token
         if name == "test_tool":
             if arguments and "_meta" in arguments:
@@ -124,7 +120,7 @@ async def test_bidirectional_progress_notifications():
             else:
                 raise ValueError("Progress token not sent.")
 
-            return ["Tool executed successfully"]
+            return [types.TextContent(type="text", text="Tool executed successfully")]
 
         raise ValueError(f"Unknown tool: {name}")
 
@@ -217,9 +213,11 @@ async def test_progress_context_manager():
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](5)
 
     # Track progress updates
-    server_progress_updates = []
+    server_progress_updates: list[dict[str, Any]] = []
 
     server = Server(name="ProgressContextTestServer")
+
+    progress_token = None
 
     # Register progress handler
     @server.progress_notification()
@@ -230,12 +228,7 @@ async def test_progress_context_manager():
         message: str | None,
     ):
         server_progress_updates.append(
-            {
-                "token": progress_token,
-                "progress": progress,
-                "total": total,
-                "message": message,
-            }
+            {"token": progress_token, "progress": progress, "total": total, "message": message}
         )
 
     # Run server session to receive progress updates
@@ -288,13 +281,7 @@ async def test_progress_context_manager():
         )
 
         # cast for type checker
-        typed_context = cast(
-            RequestContext[
-                BaseSession[Any, Any, Any, Any, Any],
-                Any,
-            ],
-            request_context,
-        )
+        typed_context = cast(RequestContext[BaseSession[Any, Any, Any, Any, Any], Any], request_context)
 
         # Utilize progress context manager
         with progress(typed_context, total=100) as p:

@@ -3,15 +3,18 @@
 from collections.abc import Sequence
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import anyio
 import pytest
 from anyio.abc import TaskStatus
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 from mcp import types
 from mcp.client.session import ClientSession
 from mcp.server.lowlevel import Server
 from mcp.shared.exceptions import McpError
+from mcp.shared.message import SessionMessage
 from mcp.types import ContentBlock, TextContent
 
 
@@ -46,7 +49,7 @@ async def test_notification_validation_error(tmp_path: Path):
         ]
 
     @server.call_tool()
-    async def slow_tool(name: str, arg) -> Sequence[ContentBlock]:
+    async def slow_tool(name: str, arguments: dict[str, Any]) -> Sequence[ContentBlock]:
         nonlocal request_count
         request_count += 1
 
@@ -58,8 +61,8 @@ async def test_notification_validation_error(tmp_path: Path):
         return [TextContent(type="text", text=f"unknown {request_count}")]
 
     async def server_handler(
-        read_stream,
-        write_stream,
+        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
+        write_stream: MemoryObjectSendStream[SessionMessage],
         task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED,
     ):
         with anyio.CancelScope() as scope:
@@ -71,7 +74,11 @@ async def test_notification_validation_error(tmp_path: Path):
                 raise_exceptions=True,
             )
 
-    async def client(read_stream, write_stream, scope):
+    async def client(
+        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
+        write_stream: MemoryObjectSendStream[SessionMessage],
+        scope: anyio.CancelScope,
+    ):
         # Use a timeout that's:
         # - Long enough for fast operations (>10ms)
         # - Short enough for slow operations (<200ms)
@@ -99,8 +106,8 @@ async def test_notification_validation_error(tmp_path: Path):
         scope.cancel()
 
     # Run server and client in separate task groups to avoid cancellation
-    server_writer, server_reader = anyio.create_memory_object_stream(1)
-    client_writer, client_reader = anyio.create_memory_object_stream(1)
+    server_writer, server_reader = anyio.create_memory_object_stream[SessionMessage](1)
+    client_writer, client_reader = anyio.create_memory_object_stream[SessionMessage](1)
 
     async with anyio.create_task_group() as tg:
         scope = await tg.start(server_handler, server_reader, client_writer)
