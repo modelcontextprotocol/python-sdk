@@ -135,5 +135,27 @@ async def batch_operation_tool(items: list[str], ctx: Context) -> list[str]:  # 
     return results
 
 
+@mcp.tool(invocation_modes=["async"], keep_alive=1800)
+async def long_running_task(task_name: str, ctx: Context) -> str:  # type: ignore[type-arg]
+    """A long-running task with custom keep_alive duration."""
+    await ctx.info(f"Starting long-running task: {task_name}")
+
+    # Simulate extended processing
+    await asyncio.sleep(2)
+    await ctx.report_progress(0.5, 1.0, "Halfway through processing")
+    await asyncio.sleep(2)
+
+    await ctx.info(f"Task '{task_name}' completed successfully")
+    return f"Long-running task '{task_name}' finished with 30-minute keep_alive"
+
+
+@mcp.tool(invocation_modes=["async"], keep_alive=2)
+async def quick_expiry_task(message: str, ctx: Context) -> str:  # type: ignore[type-arg]
+    """A task with very short keep_alive for testing expiry."""
+    await ctx.info(f"Quick task starting: {message}")
+    await asyncio.sleep(1)
+    return f"Quick task completed: {message} (expires in 2 seconds)"
+
+
 if __name__ == "__main__":
     mcp.run()

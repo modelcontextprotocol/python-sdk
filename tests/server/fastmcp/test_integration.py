@@ -10,6 +10,7 @@ single-feature servers across different transports (SSE and StreamableHTTP).
 # pyright: reportUnknownVariableType=false
 # pyright: reportUnknownArgumentType=false
 
+import asyncio
 import json
 import multiprocessing
 import socket
@@ -702,9 +703,6 @@ async def test_async_tools(server_transport: str, server_url: str) -> None:
             assert async_result.operation is not None
             token = async_result.operation.token
 
-            # Poll for completion
-            import asyncio
-
             while True:
                 status = await session.get_operation_status(token)
                 if status.status == "completed":
@@ -717,13 +715,50 @@ async def test_async_tools(server_transport: str, server_url: str) -> None:
                     break
                 elif status.status == "failed":
                     pytest.fail(f"Async operation failed: {status.error}")
-                await asyncio.sleep(0.01)
 
             # Test hybrid tool (should work as sync by default)
             hybrid_result = await session.call_tool("hybrid_tool", {"message": "hello"})
             assert len(hybrid_result.content) == 1
             assert isinstance(hybrid_result.content[0], TextContent)
             assert "Hybrid result: HELLO" in hybrid_result.content[0].text
+
+            # Test long-running task with custom keep_alive
+            long_task_result = await session.call_tool("long_running_task", {"task_name": "test_task"})
+            assert long_task_result.operation is not None
+            long_token = long_task_result.operation.token
+
+            while True:
+                status = await session.get_operation_status(long_token)
+                if status.status == "completed":
+                    final_result = await session.get_operation_result(long_token)
+                    assert not final_result.result.isError
+                    assert len(final_result.result.content) == 1
+                    content = final_result.result.content[0]
+                    assert isinstance(content, TextContent)
+                    assert "Long-running task 'test_task' finished with 30-minute keep_alive" in content.text
+                    break
+                elif status.status == "failed":
+                    pytest.fail(f"Long-running task failed: {status.error}")
+
+            # Test quick expiry task (should complete then expire)
+            quick_result = await session.call_tool("quick_expiry_task", {"message": "test_expiry"})
+            assert quick_result.operation is not None
+            quick_token = quick_result.operation.token
+
+            # Wait for completion
+            while True:
+                status = await session.get_operation_status(quick_token)
+                if status.status == "completed":
+                    break
+                elif status.status == "failed":
+                    pytest.fail(f"Quick task failed: {status.error}")
+
+            # Wait for expiry (2 seconds + buffer)
+            await asyncio.sleep(3)
+
+            # Should now be expired
+            with pytest.raises(Exception):  # Should raise error when trying to access expired operation
+                await session.get_operation_result(quick_token)
 
 
 # Test async tools example with legacy protocol
