@@ -633,6 +633,84 @@ class TestStructuredOutput:
         }
         assert tool.output_schema == expected_schema
 
+    def test_tool_meta_property(self):
+        """Test that Tool.meta property works correctly."""
+
+        def double_number(n: int) -> int:
+            """Double a number."""
+            return 10
+
+        manager = ToolManager()
+        tool = manager.add_tool(double_number, meta={"foo": "bar"})
+
+        # Test that meta is populated
+        expected_meta = {
+            "foo": "bar",
+        }
+        assert tool.meta == expected_meta
+
+    def test_tool_keep_alive_property_sync(self):
+        """Test that keep_alive property works correctly with sync-only tools."""
+
+        def double_number(n: int) -> int:
+            """Double a number."""
+            return 10
+
+        manager = ToolManager()
+
+        # Should raise error when keep_alive is used on sync-only tool
+        with pytest.raises(ValueError, match="keep_alive parameter can only be used with async-compatible tools"):
+            manager.add_tool(double_number, invocation_modes=["sync"], keep_alive=1)
+
+    def test_tool_keep_alive_property_async(self):
+        """Test that keep_alive property works correctly with async-only tools."""
+
+        def double_number(n: int) -> int:
+            """Double a number."""
+            return 10
+
+        manager = ToolManager()
+        tool = manager.add_tool(double_number, invocation_modes=["async"], keep_alive=1)
+
+        # Test that meta is populated and has the keepalive stashed in it
+        expected_meta = {
+            "_keep_alive": 1,
+        }
+        assert tool.meta == expected_meta
+
+    def test_tool_keep_alive_property_hybrid(self):
+        """Test that keep_alive property works correctly with hybrid sync/async tools."""
+
+        def double_number(n: int) -> int:
+            """Double a number."""
+            return 10
+
+        manager = ToolManager()
+        tool = manager.add_tool(double_number, invocation_modes=["sync", "async"], keep_alive=1)
+
+        # Test that meta is populated and has the keepalive stashed in it
+        expected_meta = {
+            "_keep_alive": 1,
+        }
+        assert tool.meta == expected_meta
+
+    def test_tool_keep_alive_property_meta(self):
+        """Test that keep_alive property works correctly with existing metadata defined."""
+
+        def double_number(n: int) -> int:
+            """Double a number."""
+            return 10
+
+        manager = ToolManager()
+        tool = manager.add_tool(double_number, invocation_modes=["async"], keep_alive=1, meta={"foo": "bar"})
+
+        # Test that meta is populated and has the keepalive stashed in it
+        expected_meta = {
+            "foo": "bar",
+            "_keep_alive": 1,
+        }
+        assert tool.meta == expected_meta
+
     @pytest.mark.anyio
     async def test_tool_with_dict_str_any_output(self):
         """Test tool with dict[str, Any] return type."""

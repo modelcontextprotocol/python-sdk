@@ -749,6 +749,125 @@ class TestServerTools:
                     pytest.fail("Operation should have failed due to validation error")
                 await asyncio.sleep(0.01)
 
+    @pytest.mark.anyio
+    async def test_tool_keep_alive_validation_no_sync_only(self):
+        """Test that keep_alive validation prevents use on sync-only tools."""
+        mcp = FastMCP()
+
+        # Should raise error when keep_alive is used on sync-only tool
+        with pytest.raises(ValueError, match="keep_alive parameter can only be used with async-compatible tools"):
+
+            @mcp.tool(keep_alive=1800)  # Custom keep_alive on sync-only tool
+            def sync_only_tool(x: int) -> str:
+                return str(x)
+
+    @pytest.mark.anyio
+    async def test_tool_keep_alive_default_async_tools(self):
+        """Test that async tools get correct default keep_alive."""
+        mcp = FastMCP()
+
+        # Async tools should get default keep_alive of 3600
+        @mcp.tool(invocation_modes=["async"])  # No keep_alive specified
+        def async_tool_default(x: int) -> str:
+            return str(x)
+
+        tools = mcp._tool_manager.list_tools()
+        tool = next(t for t in tools if t.name == "async_tool_default")
+        assert tool.meta is not None
+        assert tool.meta["_keep_alive"] == 3600
+
+    @pytest.mark.anyio
+    async def test_async_tool_keep_alive_expiry(self):
+        """Test that async operations expire after keep_alive duration."""
+        mcp = FastMCP("AsyncKeepAliveTest")
+
+        @mcp.tool(invocation_modes=["async"], keep_alive=1)  # 1 second keep_alive
+        def short_lived_tool(data: str) -> str:
+            return f"Processed: {data}"
+
+        # Check that the tool has correct keep_alive
+        tools = mcp._tool_manager.list_tools()
+        tool = next(t for t in tools if t.name == "short_lived_tool")
+        assert tool.meta is not None
+        assert tool.meta["_keep_alive"] == 1
+
+        async with client_session(mcp._mcp_server, protocol_version="next") as client:
+            # First list tools to populate keep_alive mapping
+            await client.list_tools()
+
+            # Call the async tool
+            result = await client.call_tool("short_lived_tool", {"data": "test"})
+
+            # Should get operation token
+            assert result.operation is not None
+            token = result.operation.token
+            assert result.operation.keepAlive == 1
+
+            # Wait for operation to complete
+            while True:
+                status = await client.get_operation_status(token)
+                if status.status == "completed":
+                    break
+
+            # Get result while still alive
+            operation_result = await client.get_operation_result(token)
+            assert operation_result.result is not None
+
+            # Wait for keep_alive to expire (1 second + buffer)
+            await asyncio.sleep(1.2)
+
+            # Operation should now be expired/unavailable
+            with pytest.raises(Exception):  # Should raise error for expired operation
+                await client.get_operation_result(token)
+
+    @pytest.mark.anyio
+    async def test_async_tool_keep_alive_expiry_structured_content(self):
+        """Test that async operations with structured content expire correctly."""
+        mcp = FastMCP("AsyncKeepAliveStructuredTest")
+
+        class ProcessResult(BaseModel):
+            status: str
+            data: str
+            count: int
+
+        @mcp.tool(invocation_modes=["async"], keep_alive=1)  # 1 second keep_alive
+        def structured_tool(input_data: str) -> ProcessResult:
+            return ProcessResult(status="success", data=f"Processed: {input_data}", count=42)
+
+        async with client_session(mcp._mcp_server, protocol_version="next") as client:
+            # First list tools to populate keep_alive mapping
+            await client.list_tools()
+
+            # Call the async tool
+            result = await client.call_tool("structured_tool", {"input_data": "test"})
+
+            # Should get operation token
+            assert result.operation is not None
+            token = result.operation.token
+            assert result.operation.keepAlive == 1
+
+            # Wait for operation to complete
+            while True:
+                status = await client.get_operation_status(token)
+                if status.status == "completed":
+                    break
+
+            # Get structured result while still alive
+            operation_result = await client.get_operation_result(token)
+            assert operation_result.result is not None
+            assert operation_result.result.structuredContent is not None
+            structured_data = operation_result.result.structuredContent
+            assert structured_data["status"] == "success"
+            assert structured_data["data"] == "Processed: test"
+            assert structured_data["count"] == 42
+
+            # Wait for keep_alive to expire (1 second + buffer)
+            await asyncio.sleep(1.2)
+
+            # Operation should now be expired/unavailable - validation should fail gracefully
+            with pytest.raises(Exception):  # Should raise error for expired operation
+                await client.get_operation_result(token)
+
 
 class TestServerResources:
     @pytest.mark.anyio

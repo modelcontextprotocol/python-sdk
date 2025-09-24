@@ -38,6 +38,7 @@ class Tool(BaseModel):
     invocation_modes: list[InvocationMode] = Field(
         default=["sync"], description="Supported invocation modes (sync/async)"
     )
+    meta: dict[str, Any] | None = Field(description="Optional additional tool information.", default=None)
 
     @cached_property
     def output_schema(self) -> dict[str, Any] | None:
@@ -54,6 +55,7 @@ class Tool(BaseModel):
         annotations: ToolAnnotations | None = None,
         structured_output: bool | None = None,
         invocation_modes: list[InvocationMode] | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
         func_name = name or fn.__name__
@@ -89,6 +91,7 @@ class Tool(BaseModel):
             context_kwarg=context_kwarg,
             annotations=annotations,
             invocation_modes=invocation_modes,
+            meta=meta,
         )
 
     async def run(

@@ -130,6 +130,8 @@ def lifespan_wrapper(
 
 
 class FastMCP(Generic[LifespanResultT]):
+    _tool_manager: ToolManager
+
     def __init__(
         self,
         name: str | None = None,
@@ -361,6 +363,7 @@ class FastMCP(Generic[LifespanResultT]):
                 outputSchema=info.output_schema,
                 annotations=info.annotations,
                 invocationMode=self._get_invocation_mode(info, client_supports_async),
+                _meta=info.meta,
             )
             for info in tools
             if client_supports_async or info.invocation_modes != ["async"]
@@ -434,6 +437,7 @@ class FastMCP(Generic[LifespanResultT]):
         annotations: ToolAnnotations | None = None,
         structured_output: bool | None = None,
         invocation_modes: list[InvocationMode] | None = None,
+        keep_alive: int | None = None,
     ) -> None:
         """Add a tool to the server.
 
@@ -452,6 +456,8 @@ class FastMCP(Generic[LifespanResultT]):
                 - If False, unconditionally creates an unstructured tool
             invocation_modes: List of supported invocation modes (e.g., ["sync", "async"])
                 - If None, defaults to ["sync"] for backwards compatibility
+            keep_alive: How long (in seconds) async operation results should be kept available.
+                Only applies to async tools.
         """
         self._tool_manager.add_tool(
             fn,
@@ -461,6 +467,7 @@ class FastMCP(Generic[LifespanResultT]):
             annotations=annotations,
             structured_output=structured_output,
             invocation_modes=invocation_modes,
+            keep_alive=keep_alive,
         )
 
     def tool(
@@ -471,6 +478,7 @@ class FastMCP(Generic[LifespanResultT]):
         annotations: ToolAnnotations | None = None,
         structured_output: bool | None = None,
         invocation_modes: list[InvocationMode] | None = None,
+        keep_alive: int | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
 
@@ -491,6 +499,8 @@ class FastMCP(Generic[LifespanResultT]):
                 - If None, defaults to ["sync"] for backwards compatibility
                 - Supports "sync" for synchronous execution and "async" for asynchronous execution
                 - Tools with "async" mode will be hidden from clients that don't support async execution
+            keep_alive: How long (in seconds) async operation results should be kept available.
+                Only applies to async tools.
 
         Example:
             @server.tool()
@@ -533,6 +543,7 @@ class FastMCP(Generic[LifespanResultT]):
                 annotations=annotations,
                 structured_output=structured_output,
                 invocation_modes=invocation_modes,
+                keep_alive=keep_alive,
             )
             return fn
 

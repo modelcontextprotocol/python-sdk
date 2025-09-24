@@ -468,10 +468,13 @@ class Server(Generic[LifespanResultT, RequestT]):
 
                     # Check for async execution
                     if tool and self.async_operations and self._should_execute_async(tool):
+                        keep_alive = self._get_tool_keep_alive(tool)
+
                         # Create async operation
                         operation = self.async_operations.create_operation(
                             tool_name=tool_name,
                             arguments=arguments,
+                            keep_alive=keep_alive,
                         )
                         logger.debug(f"Created async operation with token: {operation.token}")
 
@@ -499,7 +502,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                                 content=[],
                                 operation=types.AsyncResultProperties(
                                     token=operation.token,
-                                    keepAlive=3600,
+                                    keepAlive=operation.keep_alive,
                                 ),
                             )
                         )
@@ -575,6 +578,12 @@ class Server(Generic[LifespanResultT, RequestT]):
         # Check if tool is async-only
         invocation_mode = getattr(tool, "invocationMode", None)
         return invocation_mode == "async"
+
+    def _get_tool_keep_alive(self, tool: types.Tool) -> int:
+        """Get the keepalive value for an async tool."""
+        if not tool.meta or "_keep_alive" not in tool.meta:
+            raise ValueError(f"_keep_alive not defined for tool {tool.name}")
+        return cast(int, tool.meta["_keep_alive"])
 
     def progress_notification(self):
         def decorator(

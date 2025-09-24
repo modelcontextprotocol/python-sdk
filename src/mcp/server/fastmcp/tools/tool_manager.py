@@ -51,11 +51,37 @@ class ToolManager:
         annotations: ToolAnnotations | None = None,
         structured_output: bool | None = None,
         invocation_modes: list[InvocationMode] | None = None,
+        keep_alive: int | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> Tool:
         """Add a tool to the server."""
         # Default to sync mode if no invocation modes specified
         if invocation_modes is None:
             invocation_modes = ["sync"]
+
+        # Set appropriate default keep_alive based on async compatibility
+        # if user didn't specify custom keep_alive
+        if keep_alive is None and "async" in invocation_modes:
+            keep_alive = 3600  # Default for async-compatible tools
+
+        # Validate keep_alive is only used with async-compatible tools
+        if keep_alive is not None and "async" not in invocation_modes:
+            raise ValueError(
+                f"keep_alive parameter can only be used with async-compatible tools. "
+                f"Tool '{name or fn.__name__}' has invocation_modes={invocation_modes} "
+                f"but specifies keep_alive={keep_alive}. "
+                f"Add 'async' to invocation_modes to use keep_alive."
+            )
+
+        meta = meta or {}
+        if keep_alive is not None:
+            meta.update(
+                {
+                    # default keepalive value is stashed in _meta to pass it to the lowlevel Server
+                    # without adding it to the actual protocol-level tool definition
+                    "_keep_alive": keep_alive
+                }
+            )
 
         tool = Tool.from_function(
             fn,
@@ -65,6 +91,7 @@ class ToolManager:
             annotations=annotations,
             structured_output=structured_output,
             invocation_modes=invocation_modes,
+            meta=meta,
         )
         existing = self._tools.get(tool.name)
         if existing:
