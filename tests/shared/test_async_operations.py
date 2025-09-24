@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 
 import mcp.types as types
-from mcp.server.lowlevel.async_operations import AsyncOperation, AsyncOperationManager
+from mcp.shared.async_operations import ServerAsyncOperation, ServerAsyncOperationManager
 from mcp.types import AsyncOperationStatus
 
 
@@ -17,26 +17,26 @@ class TestAsyncOperationManager:
 
     def _create_manager_with_operation(
         self, session_id: str = "session1", **kwargs: Any
-    ) -> tuple[AsyncOperationManager, AsyncOperation]:
+    ) -> tuple[ServerAsyncOperationManager, ServerAsyncOperation]:
         """Helper to create manager with a test operation."""
-        manager = AsyncOperationManager()
-        operation = manager.create_operation("test_tool", {"arg": "value"}, session_id, **kwargs)
+        manager = ServerAsyncOperationManager()
+        operation = manager.create_operation("test_tool", {"arg": "value"}, session_id=session_id, **kwargs)
         return manager, operation
 
     def test_token_generation(self):
         """Test token generation with default and custom generators."""
         # Default token generation
-        manager = AsyncOperationManager()
+        manager = ServerAsyncOperationManager()
         token1 = manager.generate_token("test_session")
         token2 = manager.generate_token("test_session")
         assert token1 != token2 and len(token1) > 20 and not token1.startswith("test_session_")
 
         # Custom token generator
-        custom_manager = AsyncOperationManager(token_generator=lambda sid: f"custom_{sid}_token")
+        custom_manager = ServerAsyncOperationManager(token_generator=lambda sid: f"custom_{sid}_token")
         assert custom_manager.generate_token("test") == "custom_test_token"
 
         # Session-scoped token generator
-        scoped_manager = AsyncOperationManager(token_generator=lambda sid: f"{sid}_{secrets.token_urlsafe(16)}")
+        scoped_manager = ServerAsyncOperationManager(token_generator=lambda sid: f"{sid}_{secrets.token_urlsafe(16)}")
         token1, token2 = scoped_manager.generate_token("s1"), scoped_manager.generate_token("s2")
         assert token1.startswith("s1_") and token2.startswith("s2_") and token1 != token2
 
@@ -110,10 +110,10 @@ class TestAsyncOperationManager:
         assert completed_check is not None and completed_check.status == "completed"
 
         # Test other terminal states (use separate managers since previous operation is already completed)
-        def fail_action(m: AsyncOperationManager, t: str) -> bool:
+        def fail_action(m: ServerAsyncOperationManager, t: str) -> bool:
             return m.fail_operation(t, "err")
 
-        def cancel_action(m: AsyncOperationManager, t: str) -> bool:
+        def cancel_action(m: ServerAsyncOperationManager, t: str) -> bool:
             return m.cancel_operation(t)
 
         for status, action in [
@@ -128,7 +128,7 @@ class TestAsyncOperationManager:
 
     def test_nonexistent_token_operations(self):
         """Test operations on nonexistent tokens."""
-        manager = AsyncOperationManager()
+        manager = ServerAsyncOperationManager()
         fake_token = "fake_token"
 
         for method, args in [
@@ -144,10 +144,10 @@ class TestAsyncOperationManager:
 
     def test_session_management(self):
         """Test session-based operation management and termination."""
-        manager = AsyncOperationManager()
+        manager = ServerAsyncOperationManager()
 
         # Create operations for different sessions
-        ops = [manager.create_operation(f"tool{i}", {}, f"session{i % 2}") for i in range(4)]
+        ops = [manager.create_operation(f"tool{i}", {}, session_id=f"session{i % 2}") for i in range(4)]
 
         # Test session filtering
         s0_ops = manager.get_session_operations("session0")
@@ -169,11 +169,11 @@ class TestAsyncOperationManager:
 
     def test_expiration_and_cleanup(self):
         """Test operation expiration and cleanup."""
-        manager = AsyncOperationManager()
+        manager = ServerAsyncOperationManager()
 
         # Create operations with different expiration times
-        short_op = manager.create_operation("tool1", {}, "session1", keep_alive=1)
-        long_op = manager.create_operation("tool2", {}, "session1", keep_alive=10)
+        short_op = manager.create_operation("tool1", {}, keep_alive=1, session_id="session1")
+        long_op = manager.create_operation("tool2", {}, keep_alive=10, session_id="session1")
 
         # Complete both and make first expired
         for op in [short_op, long_op]:
@@ -191,10 +191,12 @@ class TestAsyncOperationManager:
 
     def test_concurrent_operations(self):
         """Test concurrent operation handling and memory management."""
-        manager = AsyncOperationManager()
+        manager = ServerAsyncOperationManager()
 
         # Create many operations
-        operations = [manager.create_operation(f"tool_{i}", {"data": "x" * 100}, f"session_{i % 3}") for i in range(50)]
+        operations = [
+            manager.create_operation(f"tool_{i}", {"data": "x" * 100}, session_id=f"session_{i % 3}") for i in range(50)
+        ]
 
         # All should be created successfully with unique tokens
         assert len(operations) == 50
@@ -214,7 +216,7 @@ class TestAsyncOperationManager:
     @pytest.mark.anyio
     async def test_cleanup_task_lifecycle(self):
         """Test background cleanup task management."""
-        manager = AsyncOperationManager()
+        manager = ServerAsyncOperationManager()
 
         await manager.start_cleanup_task()
         assert manager._cleanup_task is not None and not manager._cleanup_task.done()
@@ -231,8 +233,8 @@ class TestAsyncOperationManager:
         from mcp.server.lowlevel import Server
 
         # Test custom manager injection
-        custom_manager = AsyncOperationManager()
-        operation = custom_manager.create_operation("shared_tool", {"data": "shared"}, "session1")
+        custom_manager = ServerAsyncOperationManager()
+        operation = custom_manager.create_operation("shared_tool", {"data": "shared"}, session_id="session1")
 
         # Test FastMCP integration
         fastmcp = FastMCP("FastMCP", async_operations=custom_manager)
@@ -247,12 +249,12 @@ class TestAsyncOperationManager:
         # Test default creation
         default_fastmcp = FastMCP("Default")
         default_server = Server("Default")
-        assert isinstance(default_fastmcp._async_operations, AsyncOperationManager)
-        assert isinstance(default_server.async_operations, AsyncOperationManager)
+        assert isinstance(default_fastmcp._async_operations, ServerAsyncOperationManager)
+        assert isinstance(default_server.async_operations, ServerAsyncOperationManager)
         assert default_fastmcp._async_operations is not custom_manager
 
         # Test shared manager between servers
-        new_op = fastmcp._async_operations.create_operation("new_tool", {}, "session2")
+        new_op = fastmcp._async_operations.create_operation("new_tool", {}, session_id="session2")
         assert lowlevel.async_operations.get_operation(new_op.token) is new_op
 
 
@@ -262,7 +264,7 @@ class TestAsyncOperation:
     def test_terminal_and_expiration_logic(self):
         """Test terminal state detection and expiration logic."""
         now = time.time()
-        operation = AsyncOperation("test", "test", {}, "session", "submitted", now, 3600)
+        operation = ServerAsyncOperation("test", "test", {}, "submitted", now, 3600)
 
         # Test terminal state detection
         for status_str, is_terminal in [

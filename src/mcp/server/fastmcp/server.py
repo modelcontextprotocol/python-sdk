@@ -33,7 +33,6 @@ from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.tools.base import InvocationMode
 from mcp.server.fastmcp.utilities.context_injection import find_context_parameter
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
-from mcp.server.lowlevel.async_operations import AsyncOperationManager
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.lowlevel.server import Server as MCPServer
@@ -44,6 +43,7 @@ from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared.async_operations import ServerAsyncOperationManager
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
 from mcp.types import (
     NEXT_PROTOCOL_VERSION,
@@ -138,7 +138,7 @@ class FastMCP(Generic[LifespanResultT]):
         token_verifier: TokenVerifier | None = None,
         event_store: EventStore | None = None,
         *,
-        async_operations: AsyncOperationManager | None = None,
+        async_operations: ServerAsyncOperationManager | None = None,
         tools: list[Tool] | None = None,
         debug: bool = False,
         log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
@@ -178,7 +178,7 @@ class FastMCP(Generic[LifespanResultT]):
             transport_security=transport_security,
         )
 
-        self._async_operations = async_operations or AsyncOperationManager()
+        self._async_operations = async_operations or ServerAsyncOperationManager()
 
         self._mcp_server = MCPServer(
             name=name or "FastMCP",

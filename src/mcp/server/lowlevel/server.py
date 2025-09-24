@@ -83,10 +83,10 @@ from pydantic import AnyUrl
 from typing_extensions import TypeVar
 
 import mcp.types as types
-from mcp.server.lowlevel.async_operations import AsyncOperation, AsyncOperationManager
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
+from mcp.shared.async_operations import ServerAsyncOperation, ServerAsyncOperationManager
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
@@ -138,7 +138,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         name: str,
         version: str | None = None,
         instructions: str | None = None,
-        async_operations: AsyncOperationManager | None = None,
+        async_operations: ServerAsyncOperationManager | None = None,
         lifespan: Callable[
             [Server[LifespanResultT, RequestT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -148,7 +148,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         self.version = version
         self.instructions = instructions
         self.lifespan = lifespan
-        self.async_operations = async_operations or AsyncOperationManager()
+        self.async_operations = async_operations or ServerAsyncOperationManager()
         # Track request ID to operation token mapping for cancellation
         self._request_to_operation: dict[RequestId, str] = {}
         self.request_handlers: dict[type, Callable[..., Awaitable[types.ServerResult]]] = {
@@ -469,11 +469,9 @@ class Server(Generic[LifespanResultT, RequestT]):
                     # Check for async execution
                     if tool and self.async_operations and self._should_execute_async(tool):
                         # Create async operation
-                        session_id = f"session_{id(self.request_context.session)}"
                         operation = self.async_operations.create_operation(
                             tool_name=tool_name,
                             arguments=arguments,
-                            session_id=session_id,
                         )
                         logger.debug(f"Created async operation with token: {operation.token}")
 
@@ -627,7 +625,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return decorator
 
-    def _validate_operation_token(self, token: str) -> AsyncOperation:
+    def _validate_operation_token(self, token: str) -> ServerAsyncOperation:
         """Validate operation token and return operation if valid."""
         operation = self.async_operations.get_operation(token)
         if not operation:

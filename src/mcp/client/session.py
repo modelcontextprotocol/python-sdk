@@ -9,6 +9,7 @@ from jsonschema import SchemaError, ValidationError, validate
 from pydantic import AnyUrl, TypeAdapter
 
 import mcp.types as types
+from mcp.shared.async_operations import ClientAsyncOperationManager
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
@@ -136,6 +137,7 @@ class ClientSession(
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
+        self._operation_manager = ClientAsyncOperationManager()
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
@@ -174,7 +176,14 @@ class ClientSession(
 
         await self.send_notification(types.ClientNotification(types.InitializedNotification()))
 
+        # Start cleanup task for operations
+        await self._operation_manager.start_cleanup_task()
+
         return result
+
+    async def close(self) -> None:
+        """Clean up resources."""
+        await self._operation_manager.stop_cleanup_task()
 
     async def send_ping(self) -> types.EmptyResult:
         """Send a ping request."""
@@ -305,7 +314,14 @@ class ClientSession(
         )
 
         if not result.isError:
-            await self._validate_tool_result(name, result)
+            # Track operation for async operations
+            if result.operation is not None:
+                self._operation_manager.track_operation(
+                    result.operation.token, name, result.operation.keepAlive or 3600
+                )
+                logger.debug(f"Tracking operation for token: {result.operation.token}")
+            else:
+                await self._validate_tool_result(name, result)
 
         return result
 
@@ -336,7 +352,7 @@ class ClientSession(
         Returns:
             The final tool result
         """
-        return await self.send_request(
+        result = await self.send_request(
             types.ClientRequest(
                 types.GetOperationPayloadRequest(
                     params=types.GetOperationPayloadParams(token=token),
@@ -345,7 +361,18 @@ class ClientSession(
             types.GetOperationPayloadResult,
         )
 
-    async def _validate_tool_result(self, name: str, result: types.CallToolResult) -> None:
+        # Validate using the stored tool name
+        if hasattr(result, "result") and result.result:
+            # Clean up expired operations first
+            self._operation_manager.cleanup_expired()
+
+            tool_name = self._operation_manager.get_tool_name(token)
+            await self._validate_tool_result(tool_name, result.result)
+            # Keep the operation for potential future retrievals
+
+        return result
+
+    async def _validate_tool_result(self, name: str | None, result: types.CallToolResult) -> None:
         """Validate the structured content of a tool result against its output schema."""
         if name not in self._tool_output_schemas:
             # refresh output schema cache
@@ -358,6 +385,7 @@ class ClientSession(
             logger.warning(f"Tool {name} not listed by server, cannot validate any structured content")
 
         if output_schema is not None:
+            logger.debug(f"Validating structured content for tool: {name}")
             if result.structuredContent is None:
                 raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
             try:
