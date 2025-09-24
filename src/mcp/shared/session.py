@@ -16,11 +16,14 @@ from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMe
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
+    CallToolResult,
     CancelledNotification,
     ClientNotification,
     ClientRequest,
     ClientResult,
     ErrorData,
+    GetOperationPayloadRequest,
+    GetOperationPayloadResult,
     JSONRPCError,
     JSONRPCMessage,
     JSONRPCNotification,
@@ -177,6 +180,7 @@ class BaseSession(
     _request_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
     _progress_callbacks: dict[RequestId, ProgressFnT]
+    _operation_requests: dict[str, RequestId]
 
     def __init__(
         self,
@@ -196,6 +200,7 @@ class BaseSession(
         self._session_read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
         self._progress_callbacks = {}
+        self._operation_requests = {}
         self._exit_stack = AsyncExitStack()
 
     async def __aenter__(self) -> Self:
@@ -251,6 +256,7 @@ class BaseSession(
             # Store the callback for this request
             self._progress_callbacks[request_id] = progress_callback
 
+        pop_progress: RequestId | None = request_id
         try:
             jsonrpc_request = JSONRPCRequest(
                 jsonrpc="2.0",
@@ -285,11 +291,28 @@ class BaseSession(
             if isinstance(response_or_error, JSONRPCError):
                 raise McpError(response_or_error.error)
             else:
-                return result_type.model_validate(response_or_error.result)
+                result = result_type.model_validate(response_or_error.result)
+                if isinstance(result, CallToolResult) and result.operation is not None:
+                    # Store mapping of operation token to request ID for async operations
+                    self._operation_requests[result.operation.token] = request_id
+
+                    # Don't pop the progress function if we were given one
+                    pop_progress = None
+                elif isinstance(request, GetOperationPayloadRequest) and isinstance(result, GetOperationPayloadResult):
+                    # Checked request and result to ensure no error
+                    operation_token = request.params.token
+
+                    # Pop the progress function for the original request
+                    pop_progress = self._operation_requests[operation_token]
+
+                    # Pop the token mapping since we know we won't need it anymore
+                    self._operation_requests.pop(operation_token, None)
+                return result
 
         finally:
             self._response_streams.pop(request_id, None)
-            self._progress_callbacks.pop(request_id, None)
+            if pop_progress:
+                self._progress_callbacks.pop(pop_progress, None)
             await response_stream.aclose()
             await response_stream_reader.aclose()
 

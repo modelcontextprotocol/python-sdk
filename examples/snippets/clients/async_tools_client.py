@@ -90,13 +90,23 @@ async def demonstrate_batch_processing(session: ClientSession):
     print("\n=== Batch Processing Demo ===")
 
     items = ["apple", "banana", "cherry", "date", "elderberry"]
-    result = await session.call_tool("batch_operation_tool", arguments={"items": items})
+
+    # Define progress callback
+    async def progress_callback(progress: float, total: float | None, message: str | None) -> None:
+        progress_pct = int(progress * 100) if progress else 0
+        total_str = f"/{int(total * 100)}%" if total else ""
+        message_str = f" - {message}" if message else ""
+        print(f"Progress: {progress_pct}{total_str}{message_str}")
+
+    result = await session.call_tool(
+        "batch_operation_tool", arguments={"items": items}, progress_callback=progress_callback
+    )
 
     if result.operation:
         token = result.operation.token
         print(f"Batch operation started with token: {token}")
 
-        # Poll for status with progress tracking
+        # Poll for status
         while True:
             status = await session.get_operation_status(token)
             print(f"Status: {status.status}")

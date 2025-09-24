@@ -760,6 +760,42 @@ async def test_async_tools(server_transport: str, server_url: str) -> None:
             with pytest.raises(Exception):  # Should raise error when trying to access expired operation
                 await session.get_operation_result(quick_token)
 
+            # Test batch operation with progress notifications
+            progress_received = False
+
+            async def progress_callback(progress: float, total: float | None, message: str | None) -> None:
+                nonlocal progress_received
+                progress_received = True
+                assert 0.0 <= progress <= 1.0  # Progress should be between 0 and 1
+
+            batch_result = await session.call_tool(
+                "batch_operation_tool",
+                {"items": ["apple", "banana", "cherry"]},
+                progress_callback=progress_callback,
+            )
+            assert batch_result.operation is not None
+            batch_token = batch_result.operation.token
+
+            while True:
+                status = await session.get_operation_status(batch_token)
+
+                if status.status == "completed":
+                    final_result = await session.get_operation_result(batch_token)
+                    assert not final_result.result.isError
+                    # Should have structured content with processed items
+                    if final_result.result.structuredContent:
+                        # Structured content is wrapped in {"result": [...]} for list return types
+                        assert isinstance(final_result.result.structuredContent, dict)
+                        assert "result" in final_result.result.structuredContent
+                        assert isinstance(final_result.result.structuredContent["result"], list)
+                        assert len(final_result.result.structuredContent["result"]) == 3
+                    break
+                elif status.status == "failed":
+                    pytest.fail(f"Batch operation failed: {status.error}")
+
+            # Assert that we received at least one progress notification
+            assert progress_received, "Should have received progress notifications during batch operation"
+
 
 # Test async tools example with legacy protocol
 @pytest.mark.anyio
