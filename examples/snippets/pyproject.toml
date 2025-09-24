@@ -3,9 +3,7 @@ name = "mcp-snippets"
 version = "0.1.0"
 description = "MCP Example Snippets"
 requires-python = ">=3.10"
-dependencies = [
-    "mcp",
-]
+dependencies = ["mcp"]
 
 [build-system]
 requires = ["setuptools", "wheel"]
@@ -21,3 +19,4 @@ completion-client = "clients.completion_client:main"
 direct-execution-server = "servers.direct_execution:main"
 display-utilities-client = "clients.display_utilities:main"
 oauth-client = "clients.oauth_client:run"
+async-tools-client = "clients.async_tools_client:main"

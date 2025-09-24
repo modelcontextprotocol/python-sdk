@@ -236,8 +236,8 @@ class TestAsyncOperationManager:
 
         # Test FastMCP integration
         fastmcp = FastMCP("FastMCP", async_operations=custom_manager)
-        assert fastmcp.async_operations is custom_manager
-        assert fastmcp.async_operations.get_operation(operation.token) is operation
+        assert fastmcp._async_operations is custom_manager
+        assert fastmcp._async_operations.get_operation(operation.token) is operation
 
         # Test lowlevel Server integration
         lowlevel = Server("LowLevel", async_operations=custom_manager)
@@ -247,12 +247,12 @@ class TestAsyncOperationManager:
         # Test default creation
         default_fastmcp = FastMCP("Default")
         default_server = Server("Default")
-        assert isinstance(default_fastmcp.async_operations, AsyncOperationManager)
+        assert isinstance(default_fastmcp._async_operations, AsyncOperationManager)
         assert isinstance(default_server.async_operations, AsyncOperationManager)
-        assert default_fastmcp.async_operations is not custom_manager
+        assert default_fastmcp._async_operations is not custom_manager
 
         # Test shared manager between servers
-        new_op = fastmcp.async_operations.create_operation("new_tool", {}, "session2")
+        new_op = fastmcp._async_operations.create_operation("new_tool", {}, "session2")
         assert lowlevel.async_operations.get_operation(new_op.token) is new_op
 
 
