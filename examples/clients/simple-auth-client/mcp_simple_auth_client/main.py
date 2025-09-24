@@ -150,7 +150,7 @@ class CallbackServer:
 class SimpleAuthClient:
     """Simple MCP client with auth support."""
 
-    def __init__(self, server_url: str, transport_type: str = "streamable_http"):
+    def __init__(self, server_url: str, transport_type: str = "streamable-http"):
         self.server_url = server_url
         self.transport_type = transport_type
         self.session: ClientSession | None = None
@@ -334,10 +334,10 @@ async def main():
     # Default server URL - can be overridden with environment variable
     # Most MCP streamable HTTP servers use /mcp as the endpoint
     server_url = os.getenv("MCP_SERVER_PORT", 8000)
-    transport_type = os.getenv("MCP_TRANSPORT_TYPE", "streamable_http")
+    transport_type = os.getenv("MCP_TRANSPORT_TYPE", "streamable-http")
     server_url = (
         f"http://localhost:{server_url}/mcp"
-        if transport_type == "streamable_http"
+        if transport_type == "streamable-http"
         else f"http://localhost:{server_url}/sse"
     )
 
