@@ -67,6 +67,7 @@ messages from the client.
 
 from __future__ import annotations as _annotations
 
+import asyncio
 import contextvars
 import json
 import logging
@@ -465,46 +466,55 @@ class Server(Generic[LifespanResultT, RequestT]):
                         except jsonschema.ValidationError as e:
                             return self._make_error_result(f"Input validation error: {e.message}")
 
+                    # Check for async execution
+                    if tool and self.async_operations and self._should_execute_async(tool):
+                        # Create async operation
+                        session_id = f"session_{id(self.request_context.session)}"
+                        operation = self.async_operations.create_operation(
+                            tool_name=tool_name,
+                            arguments=arguments,
+                            session_id=session_id,
+                        )
+                        logger.debug(f"Created async operation with token: {operation.token}")
+
+                        # Start async execution in background
+                        async def execute_async():
+                            try:
+                                logger.debug(f"Starting async execution of {tool_name}")
+                                results = await func(tool_name, arguments)
+                                logger.debug(f"Async execution completed for {tool_name}")
+
+                                # Process results using shared logic
+                                result = self._process_tool_result(results, tool)
+                                self.async_operations.complete_operation(operation.token, result)
+                                logger.debug(f"Completed async operation {operation.token}")
+                            except Exception as e:
+                                logger.exception(f"Async execution failed for {tool_name}")
+                                self.async_operations.fail_operation(operation.token, str(e))
+
+                        asyncio.create_task(execute_async())
+
+                        # Return operation result immediately
+                        logger.info(f"Returning async operation result for {tool_name}")
+                        return types.ServerResult(
+                            types.CallToolResult(
+                                content=[],
+                                operation=types.AsyncResultProperties(
+                                    token=operation.token,
+                                    keepAlive=3600,
+                                ),
+                            )
+                        )
+
                     # tool call
                     results = await func(tool_name, arguments)
 
-                    # output normalization
-                    unstructured_content: UnstructuredContent
-                    maybe_structured_content: StructuredContent | None
-                    if isinstance(results, tuple) and len(results) == 2:
-                        # tool returned both structured and unstructured content
-                        unstructured_content, maybe_structured_content = cast(CombinationContent, results)
-                    elif isinstance(results, dict):
-                        # tool returned structured content only
-                        maybe_structured_content = cast(StructuredContent, results)
-                        unstructured_content = [types.TextContent(type="text", text=json.dumps(results, indent=2))]
-                    elif hasattr(results, "__iter__"):
-                        # tool returned unstructured content only
-                        unstructured_content = cast(UnstructuredContent, results)
-                        maybe_structured_content = None
-                    else:
-                        return self._make_error_result(f"Unexpected return type from tool: {type(results).__name__}")
-
-                    # output validation
-                    if tool and tool.outputSchema is not None:
-                        if maybe_structured_content is None:
-                            return self._make_error_result(
-                                "Output validation error: outputSchema defined but no structured output returned"
-                            )
-                        else:
-                            try:
-                                jsonschema.validate(instance=maybe_structured_content, schema=tool.outputSchema)
-                            except jsonschema.ValidationError as e:
-                                return self._make_error_result(f"Output validation error: {e.message}")
-
-                    # result
-                    return types.ServerResult(
-                        types.CallToolResult(
-                            content=list(unstructured_content),
-                            structuredContent=maybe_structured_content,
-                            isError=False,
-                        )
-                    )
+                    # Process results using shared logic
+                    try:
+                        result = self._process_tool_result(results, tool)
+                        return types.ServerResult(result)
+                    except ValueError as e:
+                        return self._make_error_result(str(e))
                 except Exception as e:
                     return self._make_error_result(str(e))
 
@@ -512,6 +522,61 @@ class Server(Generic[LifespanResultT, RequestT]):
             return func
 
         return decorator
+
+    def _process_tool_result(
+        self, results: UnstructuredContent | StructuredContent | CombinationContent, tool: types.Tool | None = None
+    ) -> types.CallToolResult:
+        """Process tool results and create CallToolResult with validation."""
+        # output normalization
+        unstructured_content: UnstructuredContent
+        maybe_structured_content: StructuredContent | None
+        if isinstance(results, tuple) and len(results) == 2:
+            # tool returned both structured and unstructured content
+            unstructured_content, maybe_structured_content = cast(CombinationContent, results)
+        elif isinstance(results, dict):
+            # tool returned structured content only
+            maybe_structured_content = cast(StructuredContent, results)
+            unstructured_content = [types.TextContent(type="text", text=json.dumps(results, indent=2))]
+        elif hasattr(results, "__iter__"):
+            # tool returned unstructured content only
+            unstructured_content = cast(UnstructuredContent, results)
+            maybe_structured_content = None
+        else:
+            raise ValueError(f"Unexpected return type from tool: {type(results).__name__}")
+
+        # output validation
+        if tool and tool.outputSchema is not None:
+            if maybe_structured_content is None:
+                raise ValueError("Output validation error: outputSchema defined but no structured output returned")
+            else:
+                try:
+                    jsonschema.validate(instance=maybe_structured_content, schema=tool.outputSchema)
+                except jsonschema.ValidationError as e:
+                    raise ValueError(f"Output validation error: {e.message}")
+
+        # result
+        return types.CallToolResult(
+            content=list(unstructured_content),
+            structuredContent=maybe_structured_content,
+            isError=False,
+        )
+
+    def _should_execute_async(self, tool: types.Tool) -> bool:
+        """Check if a tool should be executed asynchronously."""
+        # Check if client supports async tools (protocol version "next")
+        try:
+            if self.request_context and self.request_context.session.client_params:
+                client_version = str(self.request_context.session.client_params.protocolVersion)
+                if client_version != "next":
+                    return False
+            else:
+                return False
+        except (AttributeError, ValueError):
+            return False
+
+        # Check if tool is async-only
+        invocation_mode = getattr(tool, "invocationMode", None)
+        return invocation_mode == "async"
 
     def progress_notification(self):
         def decorator(
@@ -783,9 +848,9 @@ class Server(Generic[LifespanResultT, RequestT]):
                 # Track async operations for cancellation
                 if isinstance(req, types.CallToolRequest):
                     result = response.root
-                    if isinstance(result, types.CallToolResult) and result.operation_result is not None:
+                    if isinstance(result, types.CallToolResult) and result.operation is not None:
                         # This is an async operation, track the request ID to token mapping
-                        operation_token = result.operation_result.token
+                        operation_token = result.operation.token
                         self._request_to_operation[message.request_id] = operation_token
                         logger.debug(f"Tracking async operation {operation_token} for request {message.request_id}")
 

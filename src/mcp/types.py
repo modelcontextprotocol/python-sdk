@@ -130,7 +130,7 @@ class Result(BaseModel):
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
     """
-    operation: Operation | None = Field(alias="_operation", default=None)
+    _operation: Operation | None = None
     """
     Async operation parameters, only used when a result is sent in response to a request with operation parameters.
     """
@@ -992,7 +992,7 @@ class CallToolResult(Result):
     structuredContent: dict[str, Any] | None = None
     """An optional JSON object that represents the structured result of the tool call."""
     isError: bool = False
-    operation_result: AsyncResultProperties | None = Field(serialization_alias="operation", default=None)
+    operation: AsyncResultProperties | None = Field(default=None)
     """Optional async execution information. Present when tool is executed asynchronously."""
 
 

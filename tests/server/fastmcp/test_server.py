@@ -1,3 +1,4 @@
+import asyncio
 import base64
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -650,6 +651,103 @@ class TestServerTools:
             tool = next(t for t in tools.tools if t.name == "hybrid_tool")
             # Hybrid tools should not have invocationMode field (None) for old clients
             assert tool.invocationMode is None
+
+    @pytest.mark.anyio
+    async def test_async_tool_call_basic(self):
+        """Test basic async tool call functionality."""
+        mcp = FastMCP("AsyncTest")
+
+        @mcp.tool(invocation_modes=["async"])
+        async def async_add(a: int, b: int) -> int:
+            """Add two numbers asynchronously."""
+            await asyncio.sleep(0.01)  # Simulate async work
+            return a + b
+
+        async with client_session(mcp._mcp_server, protocol_version="next") as client:
+            result = await client.call_tool("async_add", {"a": 5, "b": 3})
+
+            # Should get operation token for async call
+            assert result.operation is not None
+            token = result.operation.token
+
+            # Poll for completion
+            while True:
+                status = await client.get_operation_status(token)
+                if status.status == "completed":
+                    final_result = await client.get_operation_result(token)
+                    assert not final_result.result.isError
+                    assert len(final_result.result.content) == 1
+                    content = final_result.result.content[0]
+                    assert isinstance(content, TextContent)
+                    assert content.text == "8"
+                    break
+                elif status.status == "failed":
+                    pytest.fail(f"Operation failed: {status.error}")
+                await asyncio.sleep(0.01)
+
+    @pytest.mark.anyio
+    async def test_async_tool_call_structured_output(self):
+        """Test async tool call with structured output."""
+        mcp = FastMCP("AsyncTest")
+
+        class AsyncResult(BaseModel):
+            value: int
+            processed: bool = True
+
+        @mcp.tool(invocation_modes=["async"])
+        async def async_structured_tool(x: int) -> AsyncResult:
+            """Process data and return structured result."""
+            await asyncio.sleep(0.01)  # Simulate async work
+            return AsyncResult(value=x * 2)
+
+        async with client_session(mcp._mcp_server, protocol_version="next") as client:
+            result = await client.call_tool("async_structured_tool", {"x": 21})
+
+            # Should get operation token for async call
+            assert result.operation is not None
+            token = result.operation.token
+
+            # Poll for completion
+            while True:
+                status = await client.get_operation_status(token)
+                if status.status == "completed":
+                    final_result = await client.get_operation_result(token)
+                    assert not final_result.result.isError
+                    assert final_result.result.structuredContent is not None
+                    assert final_result.result.structuredContent == {"value": 42, "processed": True}
+                    break
+                elif status.status == "failed":
+                    pytest.fail(f"Operation failed: {status.error}")
+                await asyncio.sleep(0.01)
+
+    @pytest.mark.anyio
+    async def test_async_tool_call_validation_error(self):
+        """Test async tool call with server-side validation error."""
+        mcp = FastMCP("AsyncTest")
+
+        @mcp.tool(invocation_modes=["async"])
+        async def async_invalid_tool() -> list[int]:
+            """Tool that returns invalid structured output."""
+            await asyncio.sleep(0.01)  # Simulate async work
+            return [1, 2, 3, [4]]  # type: ignore
+
+        async with client_session(mcp._mcp_server, protocol_version="next") as client:
+            result = await client.call_tool("async_invalid_tool", {})
+
+            # Should get operation token for async call
+            assert result.operation is not None
+            token = result.operation.token
+
+            # Poll for completion - should fail due to validation error
+            while True:
+                status = await client.get_operation_status(token)
+                if status.status == "failed":
+                    # Operation should fail due to validation error
+                    assert status.error is not None
+                    break
+                elif status.status == "completed":
+                    pytest.fail("Operation should have failed due to validation error")
+                await asyncio.sleep(0.01)
 
 
 class TestServerResources:
