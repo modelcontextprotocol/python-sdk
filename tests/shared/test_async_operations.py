@@ -178,7 +178,7 @@ class TestAsyncOperationManager:
         # Complete both and make first expired
         for op in [short_op, long_op]:
             manager.complete_operation(op.token, Mock())
-        short_op.created_at = time.time() - 2
+        short_op.resolved_at = time.time() - 2
 
         # Test expiration detection
         assert short_op.is_expired and not long_op.is_expired
@@ -207,7 +207,7 @@ class TestAsyncOperationManager:
         for i in range(25):
             manager.complete_operation(operations[i].token, Mock())
             operations[i].keep_alive = 1
-            operations[i].created_at = time.time() - 2
+            operations[i].resolved_at = time.time() - 2
 
         # Cleanup should remove expired operations
         removed_count = manager.cleanup_expired_operations()
@@ -286,8 +286,8 @@ class TestAsyncOperation:
 
         completed_status: AsyncOperationStatus = "completed"
         operation.status = completed_status
-        operation.created_at = now - 1800  # 30 minutes ago
+        operation.resolved_at = now - 1800  # 30 minutes ago
         assert not operation.is_expired  # Within keepAlive
 
-        operation.created_at = now - 7200  # 2 hours ago
+        operation.resolved_at = now - 7200  # 2 hours ago
         assert operation.is_expired  # Past keepAlive

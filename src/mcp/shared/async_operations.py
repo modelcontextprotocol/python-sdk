@@ -25,7 +25,7 @@ class ClientAsyncOperation:
     @property
     def is_expired(self) -> bool:
         """Check if operation has expired based on keepAlive."""
-        return time.time() > (self.created_at + self.keep_alive)
+        return time.time() > (self.created_at + self.keep_alive * 2)  # Give some buffer before expiration
 
 
 @dataclass
@@ -38,6 +38,7 @@ class ServerAsyncOperation:
     status: AsyncOperationStatus
     created_at: float
     keep_alive: int
+    resolved_at: float | None = None
     session_id: str | None = None
     result: types.CallToolResult | None = None
     error: str | None = None
@@ -45,8 +46,10 @@ class ServerAsyncOperation:
     @property
     def is_expired(self) -> bool:
         """Check if operation has expired based on keepAlive."""
+        if not self.resolved_at:
+            return False
         if self.status in ("completed", "failed", "canceled"):
-            return time.time() > (self.created_at + self.keep_alive)
+            return time.time() > (self.resolved_at + self.keep_alive)
         return False
 
     @property
@@ -197,6 +200,7 @@ class ServerAsyncOperationManager(BaseOperationManager[ServerAsyncOperation]):
 
         operation.status = "completed"
         operation.result = result
+        operation.resolved_at = time.time()
         return True
 
     def fail_operation(self, token: str, error: str) -> bool:
@@ -211,6 +215,7 @@ class ServerAsyncOperationManager(BaseOperationManager[ServerAsyncOperation]):
 
         operation.status = "failed"
         operation.error = error
+        operation.resolved_at = time.time()
         return True
 
     def get_operation_result(self, token: str) -> types.CallToolResult | None:

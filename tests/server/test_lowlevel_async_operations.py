@@ -55,7 +55,7 @@ class TestLowlevelServerAsyncOperations:
         manager.complete_operation(operation.token, types.CallToolResult(content=[]))
 
         # Make it expired
-        operation.created_at = time.time() - 2
+        operation.resolved_at = time.time() - 2
 
         expired_request = types.GetOperationStatusRequest(params=types.GetOperationStatusParams(token=operation.token))
 
@@ -164,7 +164,7 @@ class TestLowlevelServerAsyncOperations:
         manager.complete_operation(operation.token, types.CallToolResult(content=[]))
 
         # Make it expired
-        operation.created_at = time.time() - 2
+        operation.resolved_at = time.time() - 2
 
         expired_request = types.GetOperationPayloadRequest(
             params=types.GetOperationPayloadParams(token=operation.token)
