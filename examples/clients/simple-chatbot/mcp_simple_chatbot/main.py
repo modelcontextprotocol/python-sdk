@@ -344,7 +344,7 @@ class ChatSession:
                 "Choose the appropriate tool based on the user's question. "
                 "If no tool is needed, reply directly.\n\n"
                 "IMPORTANT: When you need to use a tool, you must ONLY respond with "
-                "the exact JSON object format below, nothing else:\n"
+                "the exact JSON object format below without the triple backticks fences, nothing else:\n"
                 "{\n"
                 '    "tool": "tool-name",\n'
                 '    "arguments": {\n'
