@@ -274,6 +274,7 @@ class StreamableHTTPSessionManager:
             # Invalid session ID
             response = Response(
                 "Bad Request: No valid session ID provided",
-                status_code=HTTPStatus.BAD_REQUEST,
+                status_code=HTTPStatus.NOT_FOUND,
+                headers={MCP_SESSION_ID_HEADER: request_mcp_session_id} if request_mcp_session_id else {},
             )
             await response(scope, receive, send)
