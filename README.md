@@ -57,6 +57,7 @@
   - [Advanced Usage](#advanced-usage)
     - [Low-Level Server](#low-level-server)
       - [Structured Output Support](#structured-output-support)
+    - [Pagination (Advanced)](#pagination-advanced)
     - [Writing MCP Clients](#writing-mcp-clients)
     - [Client Display Utilities](#client-display-utilities)
     - [OAuth Authentication for Clients](#oauth-authentication-for-clients)
@@ -1738,6 +1739,116 @@ Tools can return data in three ways:
 3. **Both**: Return a tuple of (content, structured_data) preferred option to use for backwards compatibility
 
 When an `outputSchema` is defined, the server automatically validates the structured output against the schema. This ensures type safety and helps catch errors early.
+
+### Pagination (Advanced)
+
+For servers that need to handle large datasets, the low-level server provides paginated versions of list operations. This is an optional optimization - most servers won't need pagination unless they're dealing with hundreds or thousands of items.
+
+#### Server-side Implementation
+
+<!-- snippet-source examples/snippets/servers/pagination_example.py -->
+```python
+"""
+Example of implementing pagination with MCP server decorators.
+"""
+
+from pydantic import AnyUrl
+
+import mcp.types as types
+from mcp.server.lowlevel import Server
+
+# Initialize the server
+server = Server("paginated-server")
+
+# Sample data to paginate
+ITEMS = [f"Item {i}" for i in range(1, 101)]  # 100 items
+
+
+@server.list_resources()
+async def list_resources_paginated(request: types.ListResourcesRequest) -> types.ListResourcesResult:
+    """List resources with pagination support."""
+    page_size = 10
+
+    # Extract cursor from request params
+    cursor = request.params.cursor if request.params is not None else None
+
+    # Parse cursor to get offset
+    start = 0 if cursor is None else int(cursor)
+    end = start + page_size
+
+    # Get page of resources
+    page_items = [
+        types.Resource(uri=AnyUrl(f"resource://items/{item}"), name=item, description=f"Description for {item}")
+        for item in ITEMS[start:end]
+    ]
+
+    # Determine next cursor
+    next_cursor = str(end) if end < len(ITEMS) else None
+
+    return types.ListResourcesResult(resources=page_items, nextCursor=next_cursor)
+```
+
+_Full example: [examples/snippets/servers/pagination_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/pagination_example.py)_
+<!-- /snippet-source -->
+
+#### Client-side Consumption
+
+<!-- snippet-source examples/snippets/clients/pagination_client.py -->
+```python
+"""
+Example of consuming paginated MCP endpoints from a client.
+"""
+
+import asyncio
+
+from mcp.client.session import ClientSession
+from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.types import Resource
+
+
+async def list_all_resources() -> None:
+    """Fetch all resources using pagination."""
+    async with stdio_client(StdioServerParameters(command="uv", args=["run", "mcp-simple-pagination"])) as (
+        read,
+        write,
+    ):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+
+            all_resources: list[Resource] = []
+            cursor = None
+
+            while True:
+                # Fetch a page of resources
+                result = await session.list_resources(cursor=cursor)
+                all_resources.extend(result.resources)
+
+                print(f"Fetched {len(result.resources)} resources")
+
+                # Check if there are more pages
+                if result.nextCursor:
+                    cursor = result.nextCursor
+                else:
+                    break
+
+            print(f"Total resources: {len(all_resources)}")
+
+
+if __name__ == "__main__":
+    asyncio.run(list_all_resources())
+```
+
+_Full example: [examples/snippets/clients/pagination_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/pagination_client.py)_
+<!-- /snippet-source -->
+
+#### Key Points
+
+- **Cursors are opaque strings** - the server defines the format (numeric offsets, timestamps, etc.)
+- **Return `nextCursor=None`** when there are no more pages
+- **Backward compatible** - clients that don't support pagination will still work (they'll just get the first page)
+- **Flexible page sizes** - Each endpoint can define its own page size based on data characteristics
+
+See the [simple-pagination example](examples/servers/simple-pagination) for a complete implementation.
 
 ### Writing MCP Clients
 

@@ -1,9 +1,16 @@
 """Prompt management functionality."""
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from mcp.server.fastmcp.prompts.base import Message, Prompt
 from mcp.server.fastmcp.utilities.logging import get_logger
+
+if TYPE_CHECKING:
+    from mcp.server.fastmcp.server import Context
+    from mcp.server.session import ServerSessionT
+    from mcp.shared.context import LifespanContextT, RequestT
 
 logger = get_logger(__name__)
 
@@ -39,10 +46,15 @@ class PromptManager:
         self._prompts[prompt.name] = prompt
         return prompt
 
-    async def render_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> list[Message]:
+    async def render_prompt(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
+    ) -> list[Message]:
         """Render a prompt by name with arguments."""
         prompt = self.get_prompt(name)
         if not prompt:
             raise ValueError(f"Unknown prompt: {name}")
 
-        return await prompt.render(arguments)
+        return await prompt.render(arguments, context=context)
