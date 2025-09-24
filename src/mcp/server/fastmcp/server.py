@@ -45,7 +45,15 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
-from mcp.types import NEXT_PROTOCOL_VERSION, AnyFunction, ContentBlock, GetPromptResult, ToolAnnotations
+from mcp.types import (
+    NEXT_PROTOCOL_VERSION,
+    AnyFunction,
+    ContentBlock,
+    GetOperationPayloadResult,
+    GetOperationStatusResult,
+    GetPromptResult,
+    ToolAnnotations,
+)
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
@@ -170,9 +178,12 @@ class FastMCP(Generic[LifespanResultT]):
             transport_security=transport_security,
         )
 
+        self._async_operations = async_operations or AsyncOperationManager()
+
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
             instructions=instructions,
+            async_operations=self._async_operations,
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an FastMCP and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
@@ -180,7 +191,6 @@ class FastMCP(Generic[LifespanResultT]):
         self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
         self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
-        self.async_operations = async_operations or AsyncOperationManager()
         # Validate auth configuration
         if self.settings.auth is not None:
             if auth_server_provider and token_verifier:
@@ -269,6 +279,45 @@ class FastMCP(Generic[LifespanResultT]):
         self._mcp_server.list_prompts()(self.list_prompts)
         self._mcp_server.get_prompt()(self.get_prompt)
         self._mcp_server.list_resource_templates()(self.list_resource_templates)
+
+        # Register async operation handlers
+        logger.info(f"Async operations manager: {self._async_operations}")
+        logger.info("Registering async operation handlers")
+        self._mcp_server.get_operation_status()(self.get_operation_status)
+        self._mcp_server.get_operation_result()(self.get_operation_result)
+
+    async def get_operation_status(self, token: str) -> GetOperationStatusResult:
+        """Get the status of an async operation."""
+        try:
+            operation = self._async_operations.get_operation(token)
+            if not operation:
+                raise ValueError(f"Operation not found: {token}")
+
+            return GetOperationStatusResult(
+                status=operation.status,
+                error=operation.error if operation.status == "failed" else None,
+            )
+        except Exception:
+            logger.exception(f"Error getting operation status for token {token}")
+            raise
+
+    async def get_operation_result(self, token: str) -> GetOperationPayloadResult:
+        """Get the result of a completed async operation."""
+        try:
+            operation = self._async_operations.get_operation(token)
+            if not operation:
+                raise ValueError(f"Operation not found: {token}")
+
+            if operation.status != "completed":
+                raise ValueError(f"Operation not completed: {operation.status}")
+
+            if not operation.result:
+                raise ValueError("Operation completed but no result available")
+
+            return GetOperationPayloadResult(result=operation.result)
+        except Exception:
+            logger.exception(f"Error getting operation result for token {token}")
+            raise
 
     def _client_supports_async(self) -> bool:
         """Check if the current client supports async tools based on protocol version."""
