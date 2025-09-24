@@ -291,8 +291,15 @@ class ChatSession:
         """
         import json
 
+        def _clean_json_string(json_string: str) -> str:
+            """Remove ```json ... ``` or ``` ... ``` wrappers if the LLM response is fenced."""
+            import re
+
+            pattern = r'^```(?:\s*json)?\s*(.*?)\s*```$'
+            return re.sub(pattern, r'\1', json_string, flags=re.DOTALL | re.IGNORECASE).strip()
+
         try:
-            tool_call = json.loads(llm_response)
+            tool_call = json.loads(_clean_json_string(llm_response))
             if "tool" in tool_call and "arguments" in tool_call:
                 logging.info(f"Executing tool: {tool_call['tool']}")
                 logging.info(f"With arguments: {tool_call['arguments']}")
