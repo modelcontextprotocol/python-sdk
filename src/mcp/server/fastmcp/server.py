@@ -43,7 +43,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
-from mcp.types import AnyFunction, ContentBlock, GetPromptResult, ToolAnnotations
+from mcp.types import AnyFunction, ContentBlock, GetPromptResult, Icon, ToolAnnotations
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
@@ -120,10 +120,12 @@ def lifespan_wrapper(
 
 
 class FastMCP(Generic[LifespanResultT]):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         name: str | None = None,
         instructions: str | None = None,
+        website_url: str | None = None,
+        icons: list[Icon] | None = None,
         auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
         token_verifier: TokenVerifier | None = None,
         event_store: EventStore | None = None,
@@ -170,6 +172,8 @@ class FastMCP(Generic[LifespanResultT]):
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
             instructions=instructions,
+            website_url=website_url,
+            icons=icons,
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an FastMCP and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
@@ -210,6 +214,14 @@ class FastMCP(Generic[LifespanResultT]):
     @property
     def instructions(self) -> str | None:
         return self._mcp_server.instructions
+
+    @property
+    def website_url(self) -> str | None:
+        return self._mcp_server.website_url
+
+    @property
+    def icons(self) -> list[Icon] | None:
+        return self._mcp_server.icons
 
     @property
     def session_manager(self) -> StreamableHTTPSessionManager:
@@ -277,6 +289,7 @@ class FastMCP(Generic[LifespanResultT]):
                 inputSchema=info.parameters,
                 outputSchema=info.output_schema,
                 annotations=info.annotations,
+                icons=info.icons,
             )
             for info in tools
         ]
@@ -308,6 +321,7 @@ class FastMCP(Generic[LifespanResultT]):
                 title=resource.title,
                 description=resource.description,
                 mimeType=resource.mime_type,
+                icons=resource.icons,
             )
             for resource in resources
         ]
@@ -347,6 +361,7 @@ class FastMCP(Generic[LifespanResultT]):
         title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        icons: list[Icon] | None = None,
         structured_output: bool | None = None,
     ) -> None:
         """Add a tool to the server.
@@ -371,6 +386,7 @@ class FastMCP(Generic[LifespanResultT]):
             title=title,
             description=description,
             annotations=annotations,
+            icons=icons,
             structured_output=structured_output,
         )
 
@@ -380,6 +396,7 @@ class FastMCP(Generic[LifespanResultT]):
         title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        icons: list[Icon] | None = None,
         structured_output: bool | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
@@ -426,6 +443,7 @@ class FastMCP(Generic[LifespanResultT]):
                 title=title,
                 description=description,
                 annotations=annotations,
+                icons=icons,
                 structured_output=structured_output,
             )
             return fn
@@ -466,6 +484,7 @@ class FastMCP(Generic[LifespanResultT]):
         title: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
+        icons: list[Icon] | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a function as a resource.
 
@@ -540,6 +559,7 @@ class FastMCP(Generic[LifespanResultT]):
                     title=title,
                     description=description,
                     mime_type=mime_type,
+                    # Note: Resource templates don't support icons
                 )
             else:
                 # Register as regular resource
@@ -550,6 +570,7 @@ class FastMCP(Generic[LifespanResultT]):
                     title=title,
                     description=description,
                     mime_type=mime_type,
+                    icons=icons,
                 )
                 self.add_resource(resource)
             return fn
@@ -565,7 +586,11 @@ class FastMCP(Generic[LifespanResultT]):
         self._prompt_manager.add_prompt(prompt)
 
     def prompt(
-        self, name: str | None = None, title: str | None = None, description: str | None = None
+        self,
+        name: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        icons: list[Icon] | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a prompt.
 
@@ -609,7 +634,7 @@ class FastMCP(Generic[LifespanResultT]):
             )
 
         def decorator(func: AnyFunction) -> AnyFunction:
-            prompt = Prompt.from_function(func, name=name, title=title, description=description)
+            prompt = Prompt.from_function(func, name=name, title=title, description=description, icons=icons)
             self.add_prompt(prompt)
             return func
 
@@ -980,6 +1005,7 @@ class FastMCP(Generic[LifespanResultT]):
                     )
                     for arg in (prompt.arguments or [])
                 ],
+                icons=prompt.icons,
             )
             for prompt in prompts
         ]
