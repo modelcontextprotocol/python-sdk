@@ -233,8 +233,7 @@ class BaseSession(
         Do not use this method to emit notifications! Use send_notification()
         instead.
         """
-        request_id = self._request_id
-        self._request_id = request_id + 1
+        request_id = self.next_request_id()
 
         response_stream, response_stream_reader = anyio.create_memory_object_stream[JSONRPCResponse | JSONRPCError](1)
         self._response_streams[request_id] = response_stream
@@ -468,3 +467,12 @@ class BaseSession(
     ) -> None:
         """A generic handler for incoming messages. Overwritten by subclasses."""
         pass
+
+    def next_request_id(self) -> int:
+        """
+        Increment the request ID and return its current value. Can be
+        overwritten by subclasses.
+        """
+        request_id = self._request_id
+        self._request_id = request_id + 1
+        return request_id
