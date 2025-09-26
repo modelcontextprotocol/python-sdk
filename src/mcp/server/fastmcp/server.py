@@ -938,9 +938,15 @@ class FastMCP(Generic[LifespanResultT]):
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
                 from pydantic import AnyHttpUrl
+                from urllib.parse import urlparse
 
+                # RFC 9728 §3.1: Insert /.well-known/oauth-protected-resource between host and resource path
+                # This URL will be used in WWW-Authenticate header for client discovery
+                parsed = urlparse(str(self.settings.auth.resource_server_url))
+                # Handle trailing slash: if path is just "/", treat as empty
+                resource_path = parsed.path if parsed.path != "/" else ""
                 resource_metadata_url = AnyHttpUrl(
-                    str(self.settings.auth.resource_server_url).rstrip("/") + "/.well-known/oauth-protected-resource"
+                    f"{parsed.scheme}://{parsed.netloc}/.well-known/oauth-protected-resource{resource_path}"
                 )
 
             routes.append(
@@ -963,15 +969,23 @@ class FastMCP(Generic[LifespanResultT]):
             from mcp.server.auth.handlers.metadata import ProtectedResourceMetadataHandler
             from mcp.server.auth.routes import cors_middleware
             from mcp.shared.auth import ProtectedResourceMetadata
+            from urllib.parse import urlparse
 
             protected_resource_metadata = ProtectedResourceMetadata(
                 resource=self.settings.auth.resource_server_url,
                 authorization_servers=[self.settings.auth.issuer_url],
                 scopes_supported=self.settings.auth.required_scopes,
             )
+            
+            # RFC 9728 §3.1: Register route at /.well-known/oauth-protected-resource + resource path
+            parsed = urlparse(str(self.settings.auth.resource_server_url))
+            # Handle trailing slash: if path is just "/", treat as empty
+            resource_path = parsed.path if parsed.path != "/" else ""
+            well_known_path = f"/.well-known/oauth-protected-resource{resource_path}"
+            
             routes.append(
                 Route(
-                    "/.well-known/oauth-protected-resource",
+                    well_known_path,
                     endpoint=cors_middleware(
                         ProtectedResourceMetadataHandler(protected_resource_metadata).handle,
                         ["GET", "OPTIONS"],
