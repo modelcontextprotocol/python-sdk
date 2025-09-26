@@ -295,8 +295,8 @@ class ChatSession:
             """Remove ```json ... ``` or ``` ... ``` wrappers if the LLM response is fenced."""
             import re
 
-            pattern = r'^```(?:\s*json)?\s*(.*?)\s*```$'
-            return re.sub(pattern, r'\1', json_string, flags=re.DOTALL | re.IGNORECASE).strip()
+            pattern = r"^```(?:\s*json)?\s*(.*?)\s*```$"
+            return re.sub(pattern, r"\1", json_string, flags=re.DOTALL | re.IGNORECASE).strip()
 
         try:
             tool_call = json.loads(_clean_json_string(llm_response))
