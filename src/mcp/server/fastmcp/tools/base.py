@@ -2,7 +2,7 @@ from __future__ import annotations as _annotations
 
 import functools
 import inspect
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -39,6 +39,9 @@ class Tool(BaseModel):
         default=["sync"], description="Supported invocation modes (sync/async)"
     )
     meta: dict[str, Any] | None = Field(description="Optional additional tool information.", default=None)
+    immediate_result: Callable[..., Awaitable[list[Any]]] | None = Field(
+        None, exclude=True, description="Optional immediate result function for async tools"
+    )
 
     @cached_property
     def output_schema(self) -> dict[str, Any] | None:
@@ -55,7 +58,9 @@ class Tool(BaseModel):
         annotations: ToolAnnotations | None = None,
         structured_output: bool | None = None,
         invocation_modes: list[InvocationMode] | None = None,
+        keep_alive: int | None = None,
         meta: dict[str, Any] | None = None,
+        immediate_result: Callable[..., Awaitable[list[Any]]] | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
         func_name = name or fn.__name__
@@ -80,6 +85,39 @@ class Tool(BaseModel):
         if invocation_modes is None:
             invocation_modes = ["sync"]
 
+        # Set appropriate default keep_alive based on async compatibility
+        # if user didn't specify custom keep_alive
+        if keep_alive is None and "async" in invocation_modes:
+            keep_alive = 3600  # Default for async-compatible tools
+
+        # Validate keep_alive is only used with async-compatible tools
+        if keep_alive is not None and "async" not in invocation_modes:
+            raise ValueError(
+                f"keep_alive parameter can only be used with async-compatible tools. "
+                f"Tool '{func_name}' has invocation_modes={invocation_modes} "
+                f"but specifies keep_alive={keep_alive}. "
+                f"Add 'async' to invocation_modes to use keep_alive."
+            )
+
+        # Process meta dictionary and add keep_alive if specified
+        meta = meta or {}
+        if keep_alive is not None:
+            meta = meta.copy()  # Don't modify the original dict
+            meta["_keep_alive"] = keep_alive
+
+        # Validate immediate_result usage
+        if immediate_result is not None:
+            # Check if tool supports async invocation
+            if "async" not in invocation_modes:
+                raise ValueError(
+                    "immediate_result can only be used with async-compatible tools. "
+                    "Add 'async' to invocation_modes to use immediate_result."
+                )
+
+            # Validate that immediate_result is an async callable
+            if not _is_async_callable(immediate_result):
+                raise ValueError("immediate_result must be an async callable that returns list[ContentBlock]")
+
         return cls(
             fn=fn,
             name=func_name,
@@ -92,6 +130,7 @@ class Tool(BaseModel):
             annotations=annotations,
             invocation_modes=invocation_modes,
             meta=meta,
+            immediate_result=immediate_result,
         )
 
     async def run(
