@@ -21,6 +21,7 @@ from starlette.responses import Response
 from starlette.routing import Mount, Route
 from starlette.types import Receive, Scope, Send
 
+import mcp.types as types
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
@@ -364,6 +365,10 @@ class FastMCP(Generic[LifespanResultT]):
                 annotations=info.annotations,
                 invocationMode=self._get_invocation_mode(info, client_supports_async),
                 _meta=info.meta,
+                internal=types.InternalToolProperties(
+                    immediate_result=info.immediate_result,
+                    keepalive=info.meta.get("_keep_alive") if info.meta else None,
+                ),
             )
             for info in tools
             if client_supports_async or info.invocation_modes != ["async"]
@@ -438,6 +443,7 @@ class FastMCP(Generic[LifespanResultT]):
         structured_output: bool | None = None,
         invocation_modes: list[InvocationMode] | None = None,
         keep_alive: int | None = None,
+        immediate_result: Callable[..., Awaitable[list[ContentBlock]]] | None = None,
     ) -> None:
         """Add a tool to the server.
 
@@ -458,6 +464,8 @@ class FastMCP(Generic[LifespanResultT]):
                 - If None, defaults to ["sync"] for backwards compatibility
             keep_alive: How long (in seconds) async operation results should be kept available.
                 Only applies to async tools.
+            immediate_result: Optional async function that returns immediate feedback content
+                for async tools. Must return list[ContentBlock]. Only valid for async-compatible tools.
         """
         self._tool_manager.add_tool(
             fn,
@@ -468,6 +476,7 @@ class FastMCP(Generic[LifespanResultT]):
             structured_output=structured_output,
             invocation_modes=invocation_modes,
             keep_alive=keep_alive,
+            immediate_result=immediate_result,
         )
 
     def tool(
@@ -479,6 +488,7 @@ class FastMCP(Generic[LifespanResultT]):
         structured_output: bool | None = None,
         invocation_modes: list[InvocationMode] | None = None,
         keep_alive: int | None = None,
+        immediate_result: Callable[..., Awaitable[list[ContentBlock]]] | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
 
@@ -501,6 +511,8 @@ class FastMCP(Generic[LifespanResultT]):
                 - Tools with "async" mode will be hidden from clients that don't support async execution
             keep_alive: How long (in seconds) async operation results should be kept available.
                 Only applies to async tools.
+            immediate_result: Optional async function that returns immediate feedback content
+                for async tools. Must return list[ContentBlock]. Only valid for async-compatible tools.
 
         Example:
             @server.tool()
@@ -527,6 +539,15 @@ class FastMCP(Generic[LifespanResultT]):
             def hybrid_tool(x: int) -> str:
                 # This tool supports both sync and async execution
                 return str(x)
+
+            async def immediate_feedback(operation: str) -> list[ContentBlock]:
+                return [TextContent(type="text", text=f"Starting {operation}...")]
+
+            @server.tool(invocation_modes=["async"], immediate_result=immediate_feedback)
+            async def long_running_tool(operation: str, ctx: Context) -> str:
+                # This tool provides immediate feedback while running asynchronously
+                await ctx.info(f"Processing {operation}")
+                return f"Completed {operation}"
         """
         # Check if user passed function directly instead of calling decorator
         if callable(name):
@@ -544,6 +565,7 @@ class FastMCP(Generic[LifespanResultT]):
                 structured_output=structured_output,
                 invocation_modes=invocation_modes,
                 keep_alive=keep_alive,
+                immediate_result=immediate_result,
             )
             return fn
 

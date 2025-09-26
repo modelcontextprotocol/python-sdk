@@ -9,6 +9,7 @@ import asyncio
 
 from pydantic import BaseModel, Field
 
+from mcp import types
 from mcp.server.fastmcp import Context, FastMCP
 
 # Create an MCP server with async operations support
@@ -204,6 +205,26 @@ async def quick_expiry_task(message: str, ctx: Context) -> str:  # type: ignore[
     await ctx.info(f"Quick task starting: {message}")
     await asyncio.sleep(1)
     return f"Quick task completed: {message} (expires in 2 seconds)"
+
+
+async def immediate_feedback(operation: str) -> list[types.ContentBlock]:
+    """Provide immediate feedback for long-running operations."""
+    return [types.TextContent(type="text", text=f"🚀 Starting {operation}... This may take a moment.")]
+
+
+@mcp.tool(invocation_modes=["async"], immediate_result=immediate_feedback)
+async def long_running_analysis(operation: str, ctx: Context) -> str:  # type: ignore[type-arg]
+    """Perform analysis with immediate user feedback."""
+    await ctx.info(f"Beginning {operation} analysis")
+
+    # Simulate long-running work with progress updates
+    for i in range(5):
+        await asyncio.sleep(1)
+        progress = (i + 1) / 5
+        await ctx.report_progress(progress, 1.0, f"Step {i + 1}/5 complete")
+
+    await ctx.info(f"Analysis '{operation}' completed successfully!")
+    return f"Analysis '{operation}' completed successfully with detailed results!"
 
 
 if __name__ == "__main__":

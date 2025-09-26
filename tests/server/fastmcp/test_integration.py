@@ -1033,3 +1033,102 @@ async def test_structured_output(server_transport: str, server_url: str) -> None
             assert "sunny" in result_text  # condition
             assert "45" in result_text  # humidity
             assert "5.2" in result_text  # wind_speed
+
+
+# Test immediate_result functionality integration
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "server_transport",
+    [
+        ("async_tools", "sse"),
+        ("async_tools", "streamable-http"),
+    ],
+    indirect=True,
+)
+async def test_immediate_result_integration(server_transport: str, server_url: str) -> None:
+    """Test complete flow from tool registration to immediate result execution."""
+    transport = server_transport
+    client_cm = create_client_for_transport(transport, server_url)
+
+    async with client_cm as client_streams:
+        read_stream, write_stream = unpack_streams(client_streams)
+        async with ClientSession(read_stream, write_stream, protocol_version="next") as session:
+            # Test initialization
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "Async Tools Demo"
+
+            # Test tool with immediate_result
+            immediate_result = await session.call_tool("long_running_analysis", {"operation": "data_processing"})
+
+            # Verify immediate result is returned in content
+            assert len(immediate_result.content) == 1
+            assert isinstance(immediate_result.content[0], TextContent)
+            assert "🚀 Starting data_processing... This may take a moment." in immediate_result.content[0].text
+
+            # Verify async operation is created
+            assert immediate_result.operation is not None
+            token = immediate_result.operation.token
+
+            # Poll for final result
+            while True:
+                status = await session.get_operation_status(token)
+                if status.status == "completed":
+                    final_result = await session.get_operation_result(token)
+                    assert not final_result.result.isError
+                    assert len(final_result.result.content) == 1
+                    content = final_result.result.content[0]
+                    assert isinstance(content, TextContent)
+                    assert "Analysis 'data_processing' completed successfully with detailed results!" in content.text
+                    break
+                elif status.status == "failed":
+                    pytest.fail(f"Async operation failed: {status.error}")
+                await asyncio.sleep(0.01)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "server_transport",
+    [
+        ("async_tools", "sse"),
+        ("async_tools", "streamable-http"),
+    ],
+    indirect=True,
+)
+async def test_immediate_result_backward_compatibility(server_transport: str, server_url: str) -> None:
+    """Test that existing async tools without immediate_result work unchanged."""
+    transport = server_transport
+    client_cm = create_client_for_transport(transport, server_url)
+
+    async with client_cm as client_streams:
+        read_stream, write_stream = unpack_streams(client_streams)
+        async with ClientSession(read_stream, write_stream, protocol_version="next") as session:
+            # Test initialization
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "Async Tools Demo"
+
+            # Test async tool without immediate_result (should have empty content initially)
+            async_result = await session.call_tool("async_only_tool", {"data": "test_data"})
+
+            # Should have empty content array (no immediate result)
+            assert len(async_result.content) == 0
+
+            # Should still have async operation
+            assert async_result.operation is not None
+            token = async_result.operation.token
+
+            # Poll for final result
+            while True:
+                status = await session.get_operation_status(token)
+                if status.status == "completed":
+                    final_result = await session.get_operation_result(token)
+                    assert not final_result.result.isError
+                    assert len(final_result.result.content) == 1
+                    content = final_result.result.content[0]
+                    assert isinstance(content, TextContent)
+                    assert "Async analysis result for: test_data" in content.text
+                    break
+                elif status.status == "failed":
+                    pytest.fail(f"Async operation failed: {status.error}")
+                await asyncio.sleep(0.01)

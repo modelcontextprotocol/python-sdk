@@ -469,6 +469,23 @@ class Server(Generic[LifespanResultT, RequestT]):
                     # Check for async execution
                     if tool and self.async_operations and self._should_execute_async(tool):
                         keep_alive = self._get_tool_keep_alive(tool)
+                        immediate_content: list[types.ContentBlock] = []
+
+                        # Execute immediate result if available
+                        if self._has_immediate_result(tool):
+                            try:
+                                immediate_content = await self._execute_immediate_result(tool, arguments)
+                                logger.debug(f"Executed immediate result for {tool_name}")
+                            except McpError:
+                                # Re-raise McpError as-is
+                                raise
+                            except Exception as e:
+                                raise McpError(
+                                    types.ErrorData(
+                                        code=types.INTERNAL_ERROR,
+                                        message=f"Immediate result execution failed: {str(e)}",
+                                    )
+                                )
 
                         # Create async operation
                         operation = self.async_operations.create_operation(
@@ -499,11 +516,11 @@ class Server(Generic[LifespanResultT, RequestT]):
 
                         asyncio.create_task(execute_async())
 
-                        # Return operation result immediately
+                        # Return operation result with immediate content
                         logger.info(f"Returning async operation result for {tool_name}")
                         return types.ServerResult(
                             types.CallToolResult(
-                                content=[],
+                                content=immediate_content,
                                 operation=types.AsyncResultProperties(
                                     token=operation.token,
                                     keepAlive=operation.keep_alive,
@@ -588,9 +605,34 @@ class Server(Generic[LifespanResultT, RequestT]):
 
     def _get_tool_keep_alive(self, tool: types.Tool) -> int:
         """Get the keepalive value for an async tool."""
-        if not tool.meta or "_keep_alive" not in tool.meta:
-            raise ValueError(f"_keep_alive not defined for tool {tool.name}")
-        return cast(int, tool.meta["_keep_alive"])
+        if tool.internal.keepalive is None:
+            raise ValueError(f"keepalive not defined for tool {tool.name}")
+        return tool.internal.keepalive
+
+    def _has_immediate_result(self, tool: types.Tool) -> bool:
+        """Check if tool has immediate_result function."""
+        return tool.internal.immediate_result is not None and callable(tool.internal.immediate_result)
+
+    async def _execute_immediate_result(self, tool: types.Tool, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        """Execute immediate result function and return content blocks."""
+        immediate_fn = tool.internal.immediate_result
+
+        if immediate_fn is None:
+            raise ValueError(f"No immediate_result function found for tool {tool.name}")
+
+        # Validate function signature and execute
+        try:
+            result = await immediate_fn(**arguments)
+            if not isinstance(result, list):
+                raise ValueError("immediate_result must return list[ContentBlock]")
+            return cast(list[types.ContentBlock], result)
+        except McpError:
+            # Re-raise McpError as-is
+            raise
+        except Exception as e:
+            raise McpError(
+                types.ErrorData(code=types.INTERNAL_ERROR, message=f"Immediate result execution error: {str(e)}")
+            )
 
     def progress_notification(self):
         def decorator(

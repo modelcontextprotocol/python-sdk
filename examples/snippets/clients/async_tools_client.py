@@ -1,5 +1,14 @@
 """
-Client example showing how to use async tools.
+Client example showing how to use async tools, including immediate result functionality.
+
+This example demonstrates:
+- Synchronous tools (immediate response)
+- Hybrid tools (sync/async modes)
+- Async-only tools (background execution with polling)
+- Batch processing with progress updates
+- Data processing pipelines
+- Elicitation (user input during async execution)
+- Immediate result tools (instant feedback + async execution)
 
 cd to the `examples/snippets` directory and run:
     uv run async-tools-client
@@ -222,6 +231,61 @@ async def demonstrate_elicitation(session: ClientSession):
             await asyncio.sleep(0.5)
 
 
+async def test_immediate_result_tool(session: ClientSession):
+    """Test calling async tool with immediate result functionality.
+
+    This demonstrates the immediate_result feature where async tools can provide
+    instant feedback while continuing to execute in the background.
+    """
+    print("\n=== Immediate Result Tool Demo ===")
+
+    # Call the async tool with immediate_result functionality
+    result = await session.call_tool("long_running_analysis", arguments={"operation": "data_processing"})
+
+    # Display immediate feedback (should be available immediately)
+    print("Immediate response received:")
+    if result.content:
+        for content in result.content:
+            if isinstance(content, types.TextContent):
+                print(f"  📋 {content.text}")
+    else:
+        print("  (No immediate content received)")
+
+    # Check if there's an async operation to poll
+    if result.operation:
+        token = result.operation.token
+        print(f"\nAsync operation started with token: {token}")
+        print("Polling for final results...")
+
+        # Poll for status updates and final result
+        while True:
+            status = await session.get_operation_status(token)
+            print(f"  Status: {status.status}")
+
+            if status.status == "completed":
+                # Get the final result
+                final_result = await session.get_operation_result(token)
+                print("\nFinal result received:")
+                for content in final_result.result.content:
+                    if isinstance(content, types.TextContent):
+                        print(f"  ✅ {content.text}")
+                break
+            elif status.status == "failed":
+                print(f"  ❌ Operation failed: {status.error}")
+                break
+            elif status.status in ("canceled", "unknown"):
+                print(f"  ⚠️ Operation ended with status: {status.status}")
+                break
+
+            # Wait before polling again
+            await asyncio.sleep(1)
+    else:
+        # This shouldn't happen for async tools, but handle gracefully
+        print("⚠️ Unexpected: tool returned synchronous result instead of async operation")
+
+    print("Immediate result demonstration complete!")
+
+
 async def run():
     """Run all async tool demonstrations."""
     # Determine protocol version from command line
@@ -261,6 +325,7 @@ async def run():
             await demonstrate_batch_processing(session)
             await demonstrate_data_processing(session)
             await demonstrate_elicitation(session)
+            await test_immediate_result_tool(session)
 
             print("\n=== All demonstrations complete! ===")
 

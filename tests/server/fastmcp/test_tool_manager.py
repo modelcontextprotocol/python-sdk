@@ -54,6 +54,7 @@ class TestAddTools:
             parameters=AddArguments.model_json_schema(),
             context_kwarg=None,
             annotations=None,
+            immediate_result=None,
         )
         manager = ToolManager(tools=[original_tool])
         saved_tool = manager.get_tool("sum")

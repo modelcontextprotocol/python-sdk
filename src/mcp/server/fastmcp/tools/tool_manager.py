@@ -1,13 +1,13 @@
 from __future__ import annotations as _annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools.base import InvocationMode, Tool
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.shared.context import LifespanContextT, RequestT
-from mcp.types import ToolAnnotations
+from mcp.types import ContentBlock, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -52,6 +52,7 @@ class ToolManager:
         structured_output: bool | None = None,
         invocation_modes: list[InvocationMode] | None = None,
         keep_alive: int | None = None,
+        immediate_result: Callable[..., Awaitable[list[ContentBlock]]] | None = None,
         meta: dict[str, Any] | None = None,
     ) -> Tool:
         """Add a tool to the server."""
@@ -64,6 +65,7 @@ class ToolManager:
             structured_output=structured_output,
             invocation_modes=invocation_modes,
             keep_alive=keep_alive,
+            immediate_result=immediate_result,
             meta=meta,
         )
         existing = self._tools.get(tool.name)

@@ -858,6 +858,18 @@ class ToolAnnotations(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class InternalToolProperties(BaseModel):
+    """
+    Internal properties for tools that are not serialized in the MCP protocol.
+    """
+
+    immediate_result: Any = Field(default=None)
+    """Function to execute for immediate results in async operations."""
+
+    keepalive: int | None = Field(default=None)
+    """Keepalive duration in seconds for async operations."""
+
+
 class Tool(BaseMetadata):
     """Definition for a tool the client can call."""
 
@@ -882,6 +894,10 @@ class Tool(BaseMetadata):
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
+    """
+    internal: InternalToolProperties = Field(default_factory=InternalToolProperties, exclude=True)
+    """
+    Internal properties not serialized in MCP protocol.
     """
     model_config = ConfigDict(extra="allow")
 

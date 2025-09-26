@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.context_injection import find_context_parameter
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
-from mcp.types import ToolAnnotations
+from mcp.types import ContentBlock, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -38,10 +38,10 @@ class Tool(BaseModel):
     invocation_modes: list[InvocationMode] = Field(
         default=["sync"], description="Supported invocation modes (sync/async)"
     )
-    meta: dict[str, Any] | None = Field(description="Optional additional tool information.", default=None)
-    immediate_result: Callable[..., Awaitable[list[Any]]] | None = Field(
+    immediate_result: Callable[..., Awaitable[list[ContentBlock]]] | None = Field(
         None, exclude=True, description="Optional immediate result function for async tools"
     )
+    meta: dict[str, Any] | None = Field(description="Optional additional tool information.", default=None)
 
     @cached_property
     def output_schema(self) -> dict[str, Any] | None:
@@ -59,8 +59,8 @@ class Tool(BaseModel):
         structured_output: bool | None = None,
         invocation_modes: list[InvocationMode] | None = None,
         keep_alive: int | None = None,
-        meta: dict[str, Any] | None = None,
         immediate_result: Callable[..., Awaitable[list[Any]]] | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
         func_name = name or fn.__name__
@@ -129,8 +129,8 @@ class Tool(BaseModel):
             context_kwarg=context_kwarg,
             annotations=annotations,
             invocation_modes=invocation_modes,
-            meta=meta,
             immediate_result=immediate_result,
+            meta=meta,
         )
 
     async def run(
