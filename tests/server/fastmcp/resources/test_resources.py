@@ -18,6 +18,7 @@ class TestResourceValidation:
             uri=AnyUrl("http://example.com/data"),
             name="test",
             fn=dummy_func,
+            context_kwarg=None,
         )
         assert str(resource.uri) == "http://example.com/data"
 
@@ -27,6 +28,7 @@ class TestResourceValidation:
                 uri=AnyUrl("invalid"),
                 name="test",
                 fn=dummy_func,
+                context_kwarg=None,
             )
 
         # Missing host
@@ -35,6 +37,7 @@ class TestResourceValidation:
                 uri=AnyUrl("http://"),
                 name="test",
                 fn=dummy_func,
+                context_kwarg=None,
             )
 
     def test_resource_name_from_uri(self):
@@ -46,6 +49,7 @@ class TestResourceValidation:
         resource = FunctionResource(
             uri=AnyUrl("resource://my-resource"),
             fn=dummy_func,
+            context_kwarg=None,
         )
         assert resource.name == "resource://my-resource"
 
@@ -59,6 +63,7 @@ class TestResourceValidation:
         with pytest.raises(ValueError, match="Either name or uri must be provided"):
             FunctionResource(
                 fn=dummy_func,
+                context_kwarg=None,
             )
 
         # Explicit name takes precedence over URI
@@ -66,6 +71,7 @@ class TestResourceValidation:
             uri=AnyUrl("resource://uri-name"),
             name="explicit-name",
             fn=dummy_func,
+            context_kwarg=None,
         )
         assert resource.name == "explicit-name"
 
@@ -79,6 +85,7 @@ class TestResourceValidation:
         resource = FunctionResource(
             uri=AnyUrl("resource://test"),
             fn=dummy_func,
+            context_kwarg=None,
         )
         assert resource.mime_type == "text/plain"
 
@@ -87,6 +94,7 @@ class TestResourceValidation:
             uri=AnyUrl("resource://test"),
             fn=dummy_func,
             mime_type="application/json",
+            context_kwarg=None,
         )
         assert resource.mime_type == "application/json"
 
