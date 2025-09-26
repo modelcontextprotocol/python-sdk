@@ -938,6 +938,23 @@ class TestAuthEndpoints:
         assert error_data["error_description"] == "grant_types must be authorization_code and refresh_token"
 
     @pytest.mark.anyio
+    async def test_client_registration_with_additional_grant_type(self, test_client: httpx.AsyncClient):
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Test Client",
+            "grant_types": ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+
+        # Verify client was registered successfully
+        assert "client_id" in client_info
+        assert "client_secret" in client_info
+        assert client_info["client_name"] == "Test Client"
+
+    @pytest.mark.anyio
     async def test_client_registration_with_additional_response_types(
         self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider
     ):
