@@ -2,8 +2,8 @@ import inspect
 import json
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
-from types import GenericAlias
-from typing import Annotated, Any, ForwardRef, cast, get_args, get_origin, get_type_hints
+from types import GenericAlias, UnionType
+from typing import Annotated, Any, ForwardRef, Union, cast, get_args, get_origin, get_type_hints
 
 import pydantic_core
 from pydantic import (
@@ -231,6 +231,12 @@ def func_metadata(
                 # 🤷
                 WithJsonSchema({"title": param.name, "type": "string"}),
             ]
+
+        # if it's Optional[SomeType] or SomeType | None and has no explicit default, set default=None
+        origin = get_origin(annotation)
+        if (origin is Union or origin is UnionType) and type(None) in get_args(annotation):
+            if isinstance(param.default, FieldInfo) and param.default.default is PydanticUndefined:
+                param.default.default = None
 
         field_info = FieldInfo.from_annotated_attribute(
             _get_typed_annotation(annotation, globalns),

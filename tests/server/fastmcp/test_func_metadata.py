@@ -5,7 +5,7 @@
 # pyright: reportUnknownLambdaType=false
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, Optional, TypedDict
 
 import annotated_types
 import pytest
@@ -1094,3 +1094,52 @@ def test_basemodel_reserved_names_with_json_preparsing():
     assert result["json"] == {"nested": "data"}
     assert result["model_dump"] == [1, 2, 3]
     assert result["normal"] == "plain string"
+
+
+def test_optional_parameters_not_required():
+    """Test that Optional parameters are not marked as required in JSON schema."""
+
+    def func_with_optional_params(
+        required: str = Field(description="This should be required"),
+        optional: str | None = Field(description="This should be optional"),
+        optional_with_default: str | None = Field(default="hello", description="This should be optional with default"),
+        optional_with_union_type: Optional[str] = Field(description="This should be optional"),  # noqa: UP045
+        optional_with_union_type_and_default: Optional[str] | None = Field(  # noqa: UP045
+            default="hello", description="This should be optional with default"
+        ),
+    ) -> str:
+        return f"{required}|{optional}|{optional_with_default}|{optional_with_union_type}|{optional_with_union_type_and_default}"
+
+    meta = func_metadata(func_with_optional_params)
+    assert meta.arg_model.model_json_schema() == {
+        "properties": {
+            "required": {"description": "This should be required", "title": "Required", "type": "string"},
+            "optional": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "default": None,
+                "description": "This should be optional",
+                "title": "Optional",
+            },
+            "optional_with_default": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "default": "hello",
+                "description": "This should be optional with default",
+                "title": "Optional With Default",
+            },
+            "optional_with_union_type": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "default": None,
+                "description": "This should be optional",
+                "title": "Optional With Union Type",
+            },
+            "optional_with_union_type_and_default": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "default": "hello",
+                "description": "This should be optional with default",
+                "title": "Optional With Union Type And Default",
+            },
+        },
+        "required": ["required"],
+        "title": "func_with_optional_paramsArguments",
+        "type": "object",
+    }
