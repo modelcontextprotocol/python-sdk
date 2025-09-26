@@ -14,6 +14,7 @@ import pydantic_core
 from pydantic import AnyUrl, Field, ValidationInfo, validate_call
 
 from mcp.server.fastmcp.resources.base import Resource
+from mcp.server.fastmcp.utilities.context_injection import find_context_parameter, inject_context
 from mcp.types import Annotations, Icon
 
 
@@ -22,7 +23,7 @@ class TextResource(Resource):
 
     text: str = Field(description="Text content of the resource")
 
-    async def read(self) -> str:
+    async def read(self, context: Any | None = None) -> str:
         """Read the text content."""
         return self.text  # pragma: no cover
 
@@ -32,7 +33,7 @@ class BinaryResource(Resource):
 
     data: bytes = Field(description="Binary content of the resource")
 
-    async def read(self) -> bytes:
+    async def read(self, context: Any | None = None) -> bytes:
         """Read the binary content."""
         return self.data  # pragma: no cover
 
@@ -51,24 +52,39 @@ class FunctionResource(Resource):
     """
 
     fn: Callable[[], Any] = Field(exclude=True)
+    context_kwarg: str | None = Field(None, exclude=True)
 
-    async def read(self) -> str | bytes:
-        """Read the resource by calling the wrapped function."""
+    async def read(self, context: Any | None = None) -> str | bytes:
+        """Read the resource content by calling the function."""
+        # Inject context using utility which handles optimization
+        # If context_kwarg is set, it's used directly (fast)
+        # If not set (manual init), it falls back to inspection (safe)
+        args = inject_context(self.fn, {}, context, self.context_kwarg)
+
         try:
-            # Call the function first to see if it returns a coroutine
-            result = self.fn()
-            # If it's a coroutine, await it
-            if inspect.iscoroutine(result):
-                result = await result
-
-            if isinstance(result, Resource):  # pragma: no cover
-                return await result.read()
-            elif isinstance(result, bytes):
-                return result
-            elif isinstance(result, str):
-                return result
+            if inspect.iscoroutinefunction(self.fn):
+                result = await self.fn(**args)
             else:
-                return pydantic_core.to_json(result, fallback=str, indent=2).decode()
+                result = self.fn(**args)
+
+            # Support cases where a sync function returns a coroutine
+            if inspect.iscoroutine(result):
+                result = await result  # pragma: no cover
+
+            # Support returning a Resource instance (recursive read)
+            if isinstance(result, Resource):
+                return await result.read(context)  # pragma: no cover
+
+            if isinstance(result, str | bytes):
+                return result
+            if isinstance(result, pydantic.BaseModel):
+                return result.model_dump_json(indent=2)
+
+            # For other types, convert to a JSON string
+            try:
+                return json.dumps(pydantic_core.to_jsonable_python(result))
+            except pydantic_core.PydanticSerializationError:
+                return json.dumps(str(result))
         except Exception as e:
             raise ValueError(f"Error reading resource {self.uri}: {e}")
 
@@ -86,8 +102,10 @@ class FunctionResource(Resource):
     ) -> "FunctionResource":
         """Create a FunctionResource from a function."""
         func_name = name or fn.__name__
-        if func_name == "<lambda>":  # pragma: no cover
-            raise ValueError("You must provide a name for lambda functions")
+        if func_name == "<lambda>":
+            raise ValueError("You must provide a name for lambda functions")  # pragma: no cover
+
+        context_kwarg = find_context_parameter(fn) or ""
 
         # ensure the arguments are properly cast
         fn = validate_call(fn)
@@ -100,6 +118,7 @@ class FunctionResource(Resource):
             mime_type=mime_type or "text/plain",
             fn=fn,
             icons=icons,
+            context_kwarg=context_kwarg,
             annotations=annotations,
         )
 
@@ -125,7 +144,7 @@ class FileResource(Resource):
     def validate_absolute_path(cls, path: Path) -> Path:  # pragma: no cover
         """Ensure path is absolute."""
         if not path.is_absolute():
-            raise ValueError("Path must be absolute")
+            raise ValueError("Path must be absolute")  # pragma: no cover
         return path
 
     @pydantic.field_validator("is_binary")
@@ -137,7 +156,7 @@ class FileResource(Resource):
         mime_type = info.data.get("mime_type", "text/plain")
         return not mime_type.startswith("text/")
 
-    async def read(self) -> str | bytes:
+    async def read(self, context: Any | None = None) -> str | bytes:
         """Read the file content."""
         try:
             if self.is_binary:
@@ -153,7 +172,7 @@ class HttpResource(Resource):
     url: str = Field(description="URL to fetch content from")
     mime_type: str = Field(default="application/json", description="MIME type of the resource content")
 
-    async def read(self) -> str | bytes:
+    async def read(self, context: Any | None = None) -> str | bytes:
         """Read the HTTP content."""
         async with httpx.AsyncClient() as client:  # pragma: no cover
             response = await client.get(self.url)
@@ -191,7 +210,7 @@ class DirectoryResource(Resource):
         except Exception as e:
             raise ValueError(f"Error listing directory {self.path}: {e}")
 
-    async def read(self) -> str:  # Always returns JSON string  # pragma: no cover
+    async def read(self, context: Any | None = None) -> str:  # Always returns JSON string  # pragma: no cover
         """Read the directory listing."""
         try:
             files = await anyio.to_thread.run_sync(self.list_files)

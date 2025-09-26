@@ -99,12 +99,12 @@ class Prompt(BaseModel):
 
         # Find context parameter if it exists
         if context_kwarg is None:  # pragma: no branch
-            context_kwarg = find_context_parameter(fn)
+            context_kwarg = find_context_parameter(fn) or ""
 
         # Get schema from func_metadata, excluding context parameter
         func_arg_metadata = func_metadata(
             fn,
-            skip_names=[context_kwarg] if context_kwarg is not None else [],
+            skip_names=[context_kwarg] if context_kwarg else [],
         )
         parameters = func_arg_metadata.arg_model.model_json_schema()
 
