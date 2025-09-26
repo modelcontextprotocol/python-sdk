@@ -7,10 +7,59 @@ cd to the `examples/snippets/clients` directory and run:
 
 import asyncio
 
+from pydantic import BaseModel, Field
+
 from mcp.server.fastmcp import Context, FastMCP
 
 # Create an MCP server with async operations support
 mcp = FastMCP("Async Tools Demo")
+
+
+class UserPreferences(BaseModel):
+    """Schema for collecting user preferences."""
+
+    continue_processing: bool = Field(description="Should we continue with the operation?")
+    priority_level: str = Field(
+        default="normal",
+        description="Priority level: low, normal, high",
+    )
+
+
+@mcp.tool(invocation_modes=["async"])
+async def async_elicitation_tool(operation: str, ctx: Context) -> str:  # type: ignore[type-arg]
+    """An async tool that uses elicitation to get user input."""
+    await ctx.info(f"Starting operation: {operation}")
+
+    # Simulate some initial processing
+    await asyncio.sleep(0.5)
+    await ctx.report_progress(0.3, 1.0, "Initial processing complete")
+
+    await ctx.debug("About to call elicit")
+    try:
+        # Ask user for preferences
+        result = await ctx.elicit(
+            message=f"Operation '{operation}' requires user input. How should we proceed?",
+            schema=UserPreferences,
+        )
+        await ctx.debug(f"Elicit result: {result}")
+    except Exception as e:
+        await ctx.error(f"Elicitation failed: {e}")
+        raise
+
+    if result.action == "accept" and result.data:
+        if result.data.continue_processing:
+            await ctx.info(f"Continuing with {result.data.priority_level} priority")
+            # Simulate processing based on user choice
+            processing_time = {"low": 0.5, "normal": 1.0, "high": 1.5}.get(result.data.priority_level, 1.0)
+            await asyncio.sleep(processing_time)
+            await ctx.report_progress(1.0, 1.0, "Operation complete")
+            return f"Operation '{operation}' completed successfully with {result.data.priority_level} priority"
+        else:
+            await ctx.warning("User chose not to continue")
+            return f"Operation '{operation}' cancelled by user"
+    else:
+        await ctx.error("User declined or cancelled the operation")
+        return f"Operation '{operation}' aborted"
 
 
 @mcp.tool()

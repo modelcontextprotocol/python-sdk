@@ -12,6 +12,7 @@ single-feature servers across different transports (SSE and StreamableHTTP).
 
 import asyncio
 import json
+import logging
 import multiprocessing
 import socket
 import time
@@ -62,6 +63,8 @@ from mcp.types import (
     TextResourceContents,
     ToolListChangedNotification,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class NotificationCollector:
@@ -247,6 +250,12 @@ async def elicitation_callback(context: RequestContext[ClientSession, None], par
         return ElicitResult(
             action="accept",
             content={"checkAlternative": True, "alternativeDate": "2024-12-26"},
+        )
+    # For async elicitation tool test
+    elif "data_migration" in params.message:
+        return ElicitResult(
+            action="accept",
+            content={"continue_processing": True, "priority_level": "high"},
         )
     else:
         return ElicitResult(action="decline")
@@ -795,6 +804,156 @@ async def test_async_tools(server_transport: str, server_url: str) -> None:
 
             # Assert that we received at least one progress notification
             assert progress_received, "Should have received progress notifications during batch operation"
+
+
+# Test async elicitation tool (demonstrates bug in streamable-http transport)
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "server_transport",
+    [
+        ("async_tools", "streamable-http"),
+    ],
+    indirect=True,
+)
+async def test_async_elicitation_tool(server_transport: str, server_url: str) -> None:
+    """Test async elicitation tool functionality.
+
+    This test demonstrates a bug in streamable-http transport where elicitation
+    requests during async operations don't reach the client callback.
+    """
+    transport = server_transport
+    client_cm = create_client_for_transport(transport, server_url)
+
+    # Use the same elicitation callback as the client
+    async def test_elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+        """Handle elicitation requests from the server."""
+        logger.debug(f"Client elicitation callback called with message: {params.message}")
+        if "data_migration" in params.message:
+            logger.debug("Client accepting elicitation request")
+            return ElicitResult(
+                action="accept",
+                content={"continue_processing": True, "priority_level": "normal"},
+            )
+        else:
+            logger.debug("Client declining elicitation request")
+            return ElicitResult(action="decline")
+
+    async with client_cm as client_streams:
+        read_stream, write_stream = unpack_streams(client_streams)
+        async with ClientSession(
+            read_stream,
+            write_stream,
+            protocol_version="next",
+            elicitation_callback=test_elicitation_callback,
+        ) as session:
+            # Test initialization
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "Async Tools Demo"
+
+            # Test async elicitation tool - same as client
+            elicit_result = await session.call_tool("async_elicitation_tool", {"operation": "data_migration"})
+            assert elicit_result.operation is not None
+            token = elicit_result.operation.token
+
+            # Poll exactly like the client does
+            max_polls = 20
+            poll_count = 0
+            while poll_count < max_polls:
+                status = await session.get_operation_status(token)
+                if status.status == "completed":
+                    final_result = await session.get_operation_result(token)
+                    assert not final_result.result.isError
+                    assert len(final_result.result.content) == 1
+                    content = final_result.result.content[0]
+                    assert isinstance(content, TextContent)
+                    assert "Operation 'data_migration'" in content.text
+                    assert "completed successfully" in content.text
+                    return
+                elif status.status == "failed":
+                    pytest.fail(f"Async elicitation failed: {status.error}")
+                elif status.status in ("canceled", "unknown"):
+                    pytest.fail(f"Operation ended with status: {status.status}")
+
+                poll_count += 1
+                await asyncio.sleep(0.5)
+
+            pytest.fail(f"Test timed out after {max_polls} polls")
+
+
+# Test async elicitation tool with stdio transport (works as expected)
+@pytest.mark.anyio
+async def test_async_elicitation_tool_stdio() -> None:
+    """Test async elicitation tool functionality using stdio transport.
+
+    This test works because stdio transport properly handles elicitation during async operations.
+    """
+    import os
+
+    from mcp import StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    # Use the same server parameters as the client
+    server_params = StdioServerParameters(
+        command="uv",
+        args=["run", "server", "async_tools", "stdio"],
+        env={"UV_INDEX": os.environ.get("UV_INDEX", "")},
+    )
+
+    # Use the same elicitation callback as the client
+    async def test_elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+        """Handle elicitation requests from the server."""
+        logger.debug(f"Client elicitation callback called with message: {params.message}")
+        if "data_migration" in params.message:
+            logger.debug("Client accepting elicitation request")
+            return ElicitResult(
+                action="accept",
+                content={"continue_processing": True, "priority_level": "normal"},
+            )
+        else:
+            logger.debug("Client declining elicitation request")
+            return ElicitResult(action="decline")
+
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(
+            read,
+            write,
+            protocol_version="next",
+            elicitation_callback=test_elicitation_callback,
+        ) as session:
+            # Test initialization
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "Async Tools Demo"
+
+            # Test async elicitation tool
+            elicit_result = await session.call_tool("async_elicitation_tool", {"operation": "data_migration"})
+            assert elicit_result.operation is not None
+            token = elicit_result.operation.token
+
+            # Poll for completion
+            max_polls = 20
+            poll_count = 0
+            while poll_count < max_polls:
+                status = await session.get_operation_status(token)
+                if status.status == "completed":
+                    final_result = await session.get_operation_result(token)
+                    assert not final_result.result.isError
+                    assert len(final_result.result.content) == 1
+                    content = final_result.result.content[0]
+                    assert isinstance(content, TextContent)
+                    assert "Operation 'data_migration'" in content.text
+                    assert "completed successfully" in content.text
+                    return
+                elif status.status == "failed":
+                    pytest.fail(f"Async elicitation failed: {status.error}")
+                elif status.status in ("canceled", "unknown"):
+                    pytest.fail(f"Operation ended with status: {status.status}")
+
+                poll_count += 1
+                await asyncio.sleep(0.5)
+
+            pytest.fail(f"Test timed out after {max_polls} polls")
 
 
 # Test async tools example with legacy protocol

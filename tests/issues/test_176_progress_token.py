@@ -21,6 +21,7 @@ async def test_progress_token_zero_first_call():
 
     request_context = RequestContext(
         request_id="test-request",
+        operation_token=None,
         session=mock_session,
         meta=mock_meta,
         lifespan_context=None,
@@ -36,6 +37,27 @@ async def test_progress_token_zero_first_call():
 
     # Verify progress notifications
     assert mock_session.send_progress_notification.call_count == 3, "All progress notifications should be sent"
-    mock_session.send_progress_notification.assert_any_call(progress_token=0, progress=0.0, total=10.0, message=None)
-    mock_session.send_progress_notification.assert_any_call(progress_token=0, progress=5.0, total=10.0, message=None)
-    mock_session.send_progress_notification.assert_any_call(progress_token=0, progress=10.0, total=10.0, message=None)
+    mock_session.send_progress_notification.assert_any_call(
+        progress_token=0,
+        progress=0.0,
+        total=10.0,
+        message=None,
+        related_request_id="test-request",
+        related_operation_token=None,
+    )
+    mock_session.send_progress_notification.assert_any_call(
+        progress_token=0,
+        progress=5.0,
+        total=10.0,
+        message=None,
+        related_request_id="test-request",
+        related_operation_token=None,
+    )
+    mock_session.send_progress_notification.assert_any_call(
+        progress_token=0,
+        progress=10.0,
+        total=10.0,
+        message=None,
+        related_request_id="test-request",
+        related_operation_token=None,
+    )

@@ -1213,6 +1213,8 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             progress=progress,
             total=total,
             message=message,
+            related_request_id=self.request_id,
+            related_operation_token=self.request_context.operation_token,
         )
 
     async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:
@@ -1255,7 +1257,11 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         """
 
         return await elicit_with_validation(
-            session=self.request_context.session, message=message, schema=schema, related_request_id=self.request_id
+            session=self.request_context.session,
+            message=message,
+            schema=schema,
+            related_request_id=self.request_id,
+            related_operation_token=self.request_context.operation_token,
         )
 
     async def log(

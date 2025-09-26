@@ -466,6 +466,7 @@ class ClientSession(
     async def _received_request(self, responder: RequestResponder[types.ServerRequest, types.ClientResult]) -> None:
         ctx = RequestContext[ClientSession, Any](
             request_id=responder.request_id,
+            operation_token=responder.operation.token if responder.operation is not None else None,
             meta=responder.request_meta,
             session=self,
             lifespan_context=None,
@@ -475,12 +476,36 @@ class ClientSession(
             case types.CreateMessageRequest(params=params):
                 with responder:
                     response = await self._sampling_callback(ctx, params)
+                    if isinstance(response, types.CreateMessageResult):
+                        response.operation_props = (
+                            types.Operation(token=responder.operation.token)
+                            if responder.operation is not None
+                            else None
+                        )
+                    else:
+                        response.operation = (
+                            types.Operation(token=responder.operation.token)
+                            if responder.operation is not None
+                            else None
+                        )
                     client_response = ClientResponse.validate_python(response)
                     await responder.respond(client_response)
 
             case types.ElicitRequest(params=params):
                 with responder:
                     response = await self._elicitation_callback(ctx, params)
+                    if isinstance(response, types.ElicitResult):
+                        response.operation_props = (
+                            types.Operation(token=responder.operation.token)
+                            if responder.operation is not None
+                            else None
+                        )
+                    else:
+                        response.operation = (
+                            types.Operation(token=responder.operation.token)
+                            if responder.operation is not None
+                            else None
+                        )
                     client_response = ClientResponse.validate_python(response)
                     await responder.respond(client_response)
 

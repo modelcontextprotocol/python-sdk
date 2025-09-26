@@ -13,6 +13,7 @@ import sys
 
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
+from mcp.shared.context import RequestContext
 
 # Create server parameters for stdio connection
 server_params = StdioServerParameters(
@@ -20,6 +21,22 @@ server_params = StdioServerParameters(
     args=["run", "server", "async_tools", "stdio"],
     env={"UV_INDEX": os.environ.get("UV_INDEX", "")},
 )
+
+
+async def elicitation_callback(context: RequestContext[ClientSession, None], params: types.ElicitRequestParams):
+    """Handle elicitation requests from the server."""
+    if "data_migration" in params.message:
+        return types.ElicitResult(
+            action="accept",
+            content={"continue_processing": True, "priority_level": "normal"},
+        )
+    else:
+        return types.ElicitResult(action="decline")
+
+
+async def logging_callback(params: types.LoggingMessageNotificationParams):
+    """Handle logging messages from the server."""
+    print(f"Server log: {params.data}", file=sys.stderr)
 
 
 async def demonstrate_sync_tool(session: ClientSession):
@@ -174,6 +191,37 @@ async def demonstrate_data_processing(session: ClientSession):
             await asyncio.sleep(0.8)
 
 
+async def demonstrate_elicitation(session: ClientSession):
+    """Demonstrate async elicitation tool."""
+    print("\n=== Async Elicitation Demo ===")
+
+    result = await session.call_tool("async_elicitation_tool", arguments={"operation": "data_migration"})
+
+    if result.operation:
+        token = result.operation.token
+        print(f"Elicitation operation started with token: {token}")
+
+        # Poll for completion
+        while True:
+            status = await session.get_operation_status(token)
+            print(f"Status: {status.status}")
+
+            if status.status == "completed":
+                final_result = await session.get_operation_result(token)
+                for content in final_result.result.content:
+                    if isinstance(content, types.TextContent):
+                        print(f"Elicitation result: {content.text}")
+                break
+            elif status.status == "failed":
+                print(f"Elicitation failed: {status.error}")
+                break
+            elif status.status in ("canceled", "unknown"):
+                print(f"Elicitation ended with status: {status.status}")
+                break
+
+            await asyncio.sleep(0.5)
+
+
 async def run():
     """Run all async tool demonstrations."""
     # Determine protocol version from command line
@@ -189,7 +237,13 @@ async def run():
 
     async with stdio_client(server_params) as (read, write):
         # Use configured protocol version
-        async with ClientSession(read, write, protocol_version=protocol_version) as session:
+        async with ClientSession(
+            read,
+            write,
+            protocol_version=protocol_version,
+            elicitation_callback=elicitation_callback,
+            logging_callback=logging_callback,
+        ) as session:
             # Initialize the connection
             await session.initialize()
 
@@ -206,6 +260,7 @@ async def run():
             await demonstrate_async_tool(session)
             await demonstrate_batch_processing(session)
             await demonstrate_data_processing(session)
+            await demonstrate_elicitation(session)
 
             print("\n=== All demonstrations complete! ===")
 

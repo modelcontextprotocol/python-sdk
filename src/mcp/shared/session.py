@@ -29,6 +29,7 @@ from mcp.types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    Operation,
     ProgressNotification,
     RequestParams,
     ServerNotification,
@@ -73,6 +74,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         request_id: RequestId,
         request_meta: RequestParams.Meta | None,
         request: ReceiveRequestT,
+        operation: Operation | None,
         session: """BaseSession[
             SendRequestT,
             SendNotificationT,
@@ -86,6 +88,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         self.request_id = request_id
         self.request_meta = request_meta
         self.request = request
+        self.operation = operation
         self.message_metadata = message_metadata
         self._session = session
         self._completed = False
@@ -371,6 +374,9 @@ class BaseSession(
                                 if validated_request.root.params
                                 else None,
                                 request=validated_request,
+                                operation=validated_request.root.params.operation
+                                if validated_request.root.params
+                                else None,
                                 session=self,
                                 on_complete=lambda r: self._in_flight.pop(r.request_id, None),
                                 message_metadata=message.metadata,

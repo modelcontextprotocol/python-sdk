@@ -41,6 +41,12 @@ RequestId = Annotated[int, Field(strict=True)] | str
 AnyFunction: TypeAlias = Callable[..., Any]
 
 
+class Operation(BaseModel):
+    token: str
+    """The token associated with the originating asynchronous tool call."""
+    model_config = ConfigDict(extra="allow")
+
+
 class RequestParams(BaseModel):
     class Meta(BaseModel):
         progressToken: ProgressToken | None = None
@@ -51,11 +57,6 @@ class RequestParams(BaseModel):
         notifications. The receiver is not obligated to provide these notifications.
         """
 
-        model_config = ConfigDict(extra="allow")
-
-    class Operation(BaseModel):
-        token: str
-        """The token associated with the originating asynchronous tool call."""
         model_config = ConfigDict(extra="allow")
 
     meta: Meta | None = Field(alias="_meta", default=None)
@@ -73,11 +74,6 @@ class PaginatedRequestParams(RequestParams):
 
 class NotificationParams(BaseModel):
     class Meta(BaseModel):
-        model_config = ConfigDict(extra="allow")
-
-    class Operation(BaseModel):
-        token: str
-        """The token associated with the originating asynchronous tool call."""
         model_config = ConfigDict(extra="allow")
 
     meta: Meta | None = Field(alias="_meta", default=None)
@@ -120,17 +116,12 @@ class Notification(BaseModel, Generic[NotificationParamsT, MethodT]):
 class Result(BaseModel):
     """Base class for JSON-RPC results."""
 
-    class Operation(BaseModel):
-        token: str
-        """The token associated with the originating asynchronous tool call."""
-        model_config = ConfigDict(extra="allow")
-
     meta: dict[str, Any] | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
     """
-    _operation: Operation | None = None
+    operation_props: Operation | None = Field(alias="_operation", default=None)
     """
     Async operation parameters, only used when a result is sent in response to a request with operation parameters.
     """
@@ -199,6 +190,9 @@ class ErrorData(BaseModel):
     Additional information about the error. The value of this member is defined by the
     sender (e.g. detailed error information, nested errors etc.).
     """
+
+    operation: Operation | None = Field(alias="_operation", default=None)
+    """Async operation parameters, only used when an error is sent during an asynchronous tool call."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -913,8 +907,6 @@ class AsyncResultProperties(BaseModel):
     """Server-generated token to use for checking status and retrieving results."""
     keepAlive: int
     """Number of seconds the result will be kept available upon completion."""
-    message: str | None = None
-    """Optional message to immediately provide to the client."""
     model_config = ConfigDict(extra="allow")
 
 
@@ -992,7 +984,7 @@ class CallToolResult(Result):
     structuredContent: dict[str, Any] | None = None
     """An optional JSON object that represents the structured result of the tool call."""
     isError: bool = False
-    operation: AsyncResultProperties | None = Field(default=None)
+    operation: AsyncResultProperties | None = None
     """Optional async execution information. Present when tool is executed asynchronously."""
 
 

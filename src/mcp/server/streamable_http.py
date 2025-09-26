@@ -172,6 +172,8 @@ class StreamableHTTPServerTransport:
             ],
         ] = {}
         self._terminated = False
+        # Track operation tokens to original request IDs for stream resumption
+        self._operation_to_request_id: dict[str, str] = {}
 
     @property
     def is_terminated(self) -> bool:
@@ -399,6 +401,7 @@ class StreamableHTTPServerTransport:
                 metadata = ServerMessageMetadata(request_context=request)
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
+                should_pop_stream = True  # Default to cleaning up stream
                 try:
                     # Process messages from the request-specific stream
                     # We need to collect all messages until we get a response
@@ -416,6 +419,19 @@ class StreamableHTTPServerTransport:
 
                     # At this point we should have a response
                     if response_message:
+                        # Check if this is an async operation response - keep stream open
+                        if (
+                            isinstance(response_message.root, JSONRPCResponse)
+                            and response_message.root.result
+                            and "_operation" in response_message.root.result
+                            and (
+                                ("token" in response_message.root.result["_operation"])
+                                and response_message.root.result["_operation"]["token"]
+                            )
+                        ):
+                            # This is an async operation - keep the stream open for elicitation/sampling
+                            should_pop_stream = False
+
                         # Create JSON response
                         response = self._create_json_response(response_message)
                         await response(scope, receive, send)
@@ -436,7 +452,8 @@ class StreamableHTTPServerTransport:
                     )
                     await response(scope, receive, send)
                 finally:
-                    await self._clean_up_memory_streams(request_id)
+                    if should_pop_stream:
+                        await self._clean_up_memory_streams(request_id)
             else:
                 # Create SSE stream
                 sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
@@ -838,6 +855,38 @@ class StreamableHTTPServerTransport:
                             # If this response is for an existing request stream,
                             # send it there
                             target_request_id = response_id
+
+                            # Track operation tokens for stream resumption
+                            if (
+                                isinstance(message.root, JSONRPCResponse)
+                                and message.root.result
+                                and "_operation" in message.root.result
+                                and (
+                                    ("token" in message.root.result["_operation"])
+                                    and message.root.result["_operation"]["token"]
+                                )
+                            ):
+                                operation_token = message.root.result["_operation"]["token"]
+                                self._operation_to_request_id[operation_token] = response_id
+                                logger.info(f"Tracking operation token {operation_token} -> request {response_id}")
+                        elif (
+                            message.root.params
+                            and "_operation" in message.root.params
+                            and (
+                                ("token" in message.root.params["_operation"])
+                                and message.root.params["_operation"]["token"]
+                            )
+                        ):
+                            # Route operation-related messages back to the original request stream
+                            operation_token = message.root.params["_operation"]["token"]
+                            if operation_token in self._operation_to_request_id:
+                                target_request_id = self._operation_to_request_id[operation_token]
+                                logging.info(operation_token)
+                            else:
+                                logger.warning(
+                                    f"Operation token {operation_token} not found in mapping, using GET_STREAM_KEY"
+                                )
+                                target_request_id = GET_STREAM_KEY
                         # Extract related_request_id from meta if it exists
                         elif (
                             session_message.metadata is not None
