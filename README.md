@@ -516,6 +516,41 @@ def debug_error(error: str) -> list[base.Message]:
 _Full example: [examples/snippets/servers/basic_prompt.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_prompt.py)_
 <!-- /snippet-source -->
 
+### Icons
+
+MCP servers can provide icons for UI display. Icons can be added to the server implementation, tools, resources, and prompts:
+
+```python
+from mcp.server.fastmcp import FastMCP, Icon
+
+# Create an icon from a file path or URL
+icon = Icon(
+    src="icon.png",
+    mimeType="image/png",
+    sizes="64x64"
+)
+
+# Add icons to server
+mcp = FastMCP(
+    "My Server",
+    website_url="https://example.com",
+    icons=[icon]
+)
+
+# Add icons to tools, resources, and prompts
+@mcp.tool(icons=[icon])
+def my_tool():
+    """Tool with an icon."""
+    return "result"
+
+@mcp.resource("demo://resource", icons=[icon])
+def my_resource():
+    """Resource with an icon."""
+    return "content"
+```
+
+_Full example: [examples/fastmcp/icons_demo.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/fastmcp/icons_demo.py)_
+
 ### Images
 
 FastMCP provides an `Image` class that automatically handles image data:
@@ -898,6 +933,8 @@ The FastMCP server instance accessible via `ctx.fastmcp` provides access to serv
 
 - `ctx.fastmcp.name` - The server's name as defined during initialization
 - `ctx.fastmcp.instructions` - Server instructions/description provided to clients
+- `ctx.fastmcp.website_url` - Optional website URL for the server
+- `ctx.fastmcp.icons` - Optional list of icons for UI display
 - `ctx.fastmcp.settings` - Complete server configuration object containing:
   - `debug` - Debug mode flag
   - `log_level` - Current logging level
