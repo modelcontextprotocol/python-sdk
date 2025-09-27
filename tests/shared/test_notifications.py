@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, cast
 
 import anyio
@@ -10,8 +11,9 @@ from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
+from mcp.shared.message import SessionMessage
 from mcp.shared.progress import progress
-from mcp.shared.session import BaseSession, RequestResponder, SessionMessage
+from mcp.shared.session import BaseSession, RequestResponder
 
 
 @pytest.mark.anyio
@@ -20,6 +22,8 @@ async def test_bidirectional_progress_notifications():
     # Create memory streams for client/server
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](5)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](5)
+
+    server_session_ref: list[ServerSession | None] = [None]
 
     # Run a server session so we can send progress updates in tool
     async def run_server():
@@ -33,9 +37,7 @@ async def test_bidirectional_progress_notifications():
                 capabilities=server.get_capabilities(NotificationOptions(), {}),
             ),
         ) as server_session:
-            global serv_sesh
-
-            serv_sesh = server_session
+            server_session_ref[0] = server_session
             async for message in server_session.incoming_messages:
                 try:
                     await server._handle_message(message, server_session, {})
@@ -60,6 +62,7 @@ async def test_bidirectional_progress_notifications():
         progress: float,
         total: float | None,
         message: str | None,
+        session: ServerSession | None,
     ):
         server_progress_updates.append(
             {
@@ -84,6 +87,10 @@ async def test_bidirectional_progress_notifications():
     # Register tool handler
     @server.call_tool()
     async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
+        serv_sesh = server_session_ref[0]
+        if not serv_sesh:
+            raise ValueError("Server session not available")
+
         # Make sure we received a progress token
         if name == "test_tool":
             if arguments and "_meta" in arguments:
@@ -226,6 +233,7 @@ async def test_progress_context_manager():
         progress: float,
         total: float | None,
         message: str | None,
+        session: ServerSession | None,
     ):
         server_progress_updates.append(
             {"token": progress_token, "progress": progress, "total": total, "message": message}
@@ -320,3 +328,106 @@ async def test_progress_context_manager():
     assert server_progress_updates[3]["progress"] == 100
     assert server_progress_updates[3]["total"] == 100
     assert server_progress_updates[3]["message"] == "Processing results..."
+
+
+@pytest.mark.anyio
+async def test_initialized_notification():
+    """Test that the server receives and handles InitializedNotification."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    server = Server("test")
+    initialized_received = asyncio.Event()
+    received_session: ServerSession | None = None
+
+    @server.initialized_notification()
+    async def handle_initialized(
+        notification: types.InitializedNotification,
+        session: ServerSession | None = None,
+    ):
+        nonlocal received_session
+        received_session = session
+        initialized_received.set()
+
+    async def run_server():
+        await server.run(
+            client_to_server_receive,
+            server_to_client_send,
+            server.create_initialization_options(),
+        )
+
+    async def message_handler(
+        message: (RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception),
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=message_handler,
+        ) as client_session,
+        anyio.create_task_group() as tg,
+    ):
+        tg.start_soon(run_server)
+        await client_session.initialize()
+        await initialized_received.wait()
+        tg.cancel_scope.cancel()
+
+    assert initialized_received.is_set()
+    assert isinstance(received_session, ServerSession)
+
+
+@pytest.mark.anyio
+async def test_roots_list_changed_notification():
+    """Test that the server receives and handles RootsListChangedNotification."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    server = Server("test")
+    roots_list_changed_received = asyncio.Event()
+    received_session: ServerSession | None = None
+
+    @server.roots_list_changed_notification()
+    async def handle_roots_list_changed(
+        notification: types.RootsListChangedNotification,
+        session: ServerSession | None = None,
+    ):
+        nonlocal received_session
+        received_session = session
+        roots_list_changed_received.set()
+
+    async def run_server():
+        await server.run(
+            client_to_server_receive,
+            server_to_client_send,
+            server.create_initialization_options(),
+        )
+
+    async def message_handler(
+        message: (RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception),
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=message_handler,
+        ) as client_session,
+        anyio.create_task_group() as tg,
+    ):
+        tg.start_soon(run_server)
+        await client_session.initialize()
+        await client_session.send_notification(
+            types.ClientNotification(
+                root=types.RootsListChangedNotification(method="notifications/roots/list_changed", params=None)
+            )
+        )
+        await roots_list_changed_received.wait()
+        tg.cancel_scope.cancel()
+
+    assert roots_list_changed_received.is_set()
+    assert isinstance(received_session, ServerSession)
