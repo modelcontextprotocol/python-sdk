@@ -1004,6 +1004,62 @@ class TestAuthEndpoints:
         client_info = response.json()
         assert client_info["grant_types"] == ["client_credentials"]
 
+    @pytest.mark.anyio
+    async def test_client_registration_with_additional_response_types(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider
+    ):
+        """Test that registration accepts additional response_types values alongside 'code'."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Test Client",
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code", "none"],  # Keycloak-style response with additional value
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        data = response.json()
+
+        client = await mock_oauth_provider.get_client(data["client_id"])
+        assert client is not None
+        assert "code" in client.response_types
+
+    @pytest.mark.anyio
+    async def test_client_registration_response_types_without_code(self, test_client: httpx.AsyncClient):
+        """Test that registration rejects response_types that don't include 'code'."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Test Client",
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["token", "none", "nonsense-string"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 400
+        error_data = response.json()
+        assert "error" in error_data
+        assert error_data["error"] == "invalid_client_metadata"
+        assert "response_types must include 'code'" in error_data["error_description"]
+
+    @pytest.mark.anyio
+    async def test_client_registration_default_response_types(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider
+    ):
+        """Test that registration uses default response_types of ['code'] when not specified."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Test Client",
+            "grant_types": ["authorization_code", "refresh_token"],
+            # response_types not specified, should default to ["code"]
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        data = response.json()
+
+        assert "response_types" in data
+        assert data["response_types"] == ["code"]
+
 
 class TestAuthorizeEndpointErrors:
     """Test error handling in the OAuth authorization endpoint."""
