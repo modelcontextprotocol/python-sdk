@@ -1,8 +1,11 @@
+import functools
 import inspect
 import json
+import sys
+import typing as t
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
-from types import GenericAlias
+from types import GenericAlias, MethodType, ModuleType
 from typing import Annotated, Any, ForwardRef, cast, get_args, get_origin, get_type_hints
 
 import pydantic_core
@@ -468,10 +471,67 @@ def _get_typed_annotation(annotation: Any, globalns: dict[str, Any]) -> Any:
     return annotation
 
 
+def _resolve_callable_and_globalns(
+    callable_obj: Callable[..., object] | functools.partial[Any] | MethodType,
+) -> tuple[Callable[..., object], dict[str, object]]:
+    """Unwrap a possibly-decorated/partial/method callable.
+
+    Returns the original function and robust global namespace for type-hint evaluation.
+
+    Args:
+        callable_obj: A function, bound method, or functools.partial.
+
+    Returns:
+        (unwrapped_callable, globalns)
+    """
+    # Handle functools.partial
+    base: object = callable_obj.func if isinstance(callable_obj, functools.partial) else callable_obj
+
+    # Follow __wrapped__ chain (requires @functools.wraps in decorators)
+    unwrapped_obj: object = inspect.unwrap(cast(Callable[..., object], base))
+
+    # Handle bound methods
+    if inspect.ismethod(unwrapped_obj):
+        unwrapped_callable: Callable[..., object] = cast(MethodType, unwrapped_obj).__func__  # type: ignore[assignment]
+    else:
+        unwrapped_callable = cast(Callable[..., object], unwrapped_obj)
+
+    # Build globalns from module + function’s own globals
+    globalns: dict[str, object] = {}
+    module_name: str | None = getattr(unwrapped_callable, "__module__", None)  # type: ignore[attr-defined]
+    module_obj: ModuleType | None = sys.modules.get(module_name) if isinstance(module_name, str) else None
+    if module_obj is not None:
+        globalns.update(vars(module_obj))
+
+    func_globals: dict[str, object] | None = getattr(unwrapped_callable, "__globals__", None)  # type: ignore[attr-defined]
+    if isinstance(func_globals, dict):
+        globalns.update(func_globals)
+
+    # Seed common typing names for resilience
+    globalns.setdefault("typing", t)
+    for name in (
+        "Literal",
+        "Annotated",
+        "Optional",
+        "Union",
+        "Tuple",
+        "Dict",
+        "List",
+        "Set",
+        "Type",
+        "Callable",
+    ):
+        if name not in globalns and hasattr(t, name):
+            globalns[name] = getattr(t, name)  # type: ignore[index]
+
+    return unwrapped_callable, globalns
+
+
 def _get_typed_signature(call: Callable[..., Any]) -> inspect.Signature:
     """Get function signature while evaluating forward references"""
-    signature = inspect.signature(call)
-    globalns = getattr(call, "__globals__", {})
+    fn, globalns = _resolve_callable_and_globalns(call)
+    signature = inspect.signature(fn)
+
     typed_params = [
         inspect.Parameter(
             name=param.name,
