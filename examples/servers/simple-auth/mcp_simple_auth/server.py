@@ -79,7 +79,7 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
         auth=AuthSettings(
             issuer_url=settings.auth_server_url,
             required_scopes=[settings.mcp_scope],
-            resource_server_url=settings.server_url,
+            resource_server_url=AnyHttpUrl(f"{str(settings.server_url).rstrip('/')}/mcp"),
         ),
     )
 
