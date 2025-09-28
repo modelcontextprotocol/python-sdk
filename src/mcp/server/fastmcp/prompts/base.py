@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
 from mcp.server.fastmcp.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.fastmcp.utilities.func_metadata import func_metadata
-from mcp.types import ContentBlock, TextContent
+from mcp.types import ContentBlock, Icon, TextContent
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -71,6 +71,7 @@ class Prompt(BaseModel):
     description: str | None = Field(None, description="Description of what the prompt does")
     arguments: list[PromptArgument] | None = Field(None, description="Arguments that can be passed to the prompt")
     fn: Callable[..., PromptResult | Awaitable[PromptResult]] = Field(exclude=True)
+    icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this prompt")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context", exclude=True)
 
     @classmethod
@@ -80,6 +81,7 @@ class Prompt(BaseModel):
         name: str | None = None,
         title: str | None = None,
         description: str | None = None,
+        icons: list[Icon] | None = None,
         context_kwarg: str | None = None,
     ) -> Prompt:
         """Create a Prompt from a function.
@@ -128,6 +130,7 @@ class Prompt(BaseModel):
             description=description or fn.__doc__ or "",
             arguments=arguments,
             fn=fn,
+            icons=icons,
             context_kwarg=context_kwarg,
         )
 

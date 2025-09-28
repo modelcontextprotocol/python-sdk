@@ -77,6 +77,17 @@ class RegistrationHandler:
                 status_code=400,
             )
 
+        # The MCP spec requires servers to use the authorization `code` flow
+        # with PKCE
+        if "code" not in client_metadata.response_types:
+            return PydanticJSONResponse(
+                content=RegistrationErrorResponse(
+                    error="invalid_client_metadata",
+                    error_description="response_types must include 'code' for authorization_code grant",
+                ),
+                status_code=400,
+            )
+
         client_id_issued_at = int(time.time())
         client_secret_expires_at = (
             client_id_issued_at + self.options.client_secret_expiry_seconds
