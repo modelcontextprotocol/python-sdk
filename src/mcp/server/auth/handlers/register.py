@@ -81,8 +81,9 @@ class RegistrationHandler:
                 content=RegistrationErrorResponse(
                     error="invalid_client_metadata",
                     error_description=(
-                        "grant_types must include authorization_code and refresh_token, "
-                        "client_credentials, token_exchange, or client_credentials and token_exchange"
+                        "grant_types must be authorization_code and refresh_token "
+                        "or client_credentials or token exchange or "
+                        "client_credentials and token_exchange"
                     ),
                 ),
                 status_code=400,
