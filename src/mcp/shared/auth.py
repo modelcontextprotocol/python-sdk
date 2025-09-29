@@ -47,13 +47,15 @@ class OAuthClientMetadata(BaseModel):
     # client_secret_post;
     # ie: we do not support client_secret_basic
     token_endpoint_auth_method: Literal["none", "client_secret_post"] = "client_secret_post"
-    # grant_types: this implementation supports authorization_code, refresh_token, client_credentials, & token_exchange
+    # grant_types: this implementation supports authorization_code, refresh_token, client_credentials, token_exchange,
+    # and allows additional grant types provided by the client (e.g. device code)
     grant_types: list[
         Literal[
             "authorization_code",
             "refresh_token",
             "client_credentials",
             "token_exchange",
+            "urn:ietf:params:oauth:grant-type:device_code",
         ]
     ] = [
         "authorization_code",

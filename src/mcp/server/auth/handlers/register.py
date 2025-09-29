@@ -69,20 +69,20 @@ class RegistrationHandler:
                     status_code=400,
                 )
         grant_types_set: set[str] = set(client_metadata.grant_types)
-        valid_sets = [
+        required_sets = [
             {"authorization_code", "refresh_token"},
             {"client_credentials"},
             {"token_exchange"},
             {"client_credentials", "token_exchange"},
         ]
 
-        if grant_types_set not in valid_sets:
+        if not any(required_set.issubset(grant_types_set) for required_set in required_sets):
             return PydanticJSONResponse(
                 content=RegistrationErrorResponse(
                     error="invalid_client_metadata",
                     error_description=(
-                        "grant_types must be authorization_code and refresh_token "
-                        "or client_credentials or token exchange or client_credentials and token_exchange"
+                        "grant_types must include authorization_code and refresh_token, "
+                        "client_credentials, token_exchange, or client_credentials and token_exchange"
                     ),
                 ),
                 status_code=400,
