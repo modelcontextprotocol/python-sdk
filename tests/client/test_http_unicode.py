@@ -5,6 +5,9 @@ Verifies that Unicode text is correctly transmitted and received in both directi
 (server→client and client→server) using the streamable HTTP transport.
 """
 
+import multiprocessing
+import socket
+import time
 from collections.abc import Generator
 
 import pytest
@@ -144,8 +147,6 @@ def run_unicode_server(port: int) -> None:
 @pytest.fixture
 def unicode_server_port() -> int:
     """Find an available port for the Unicode test server."""
-    import socket
-
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
@@ -154,10 +155,6 @@ def unicode_server_port() -> int:
 @pytest.fixture
 def running_unicode_server(unicode_server_port: int) -> Generator[str, None, None]:
     """Start a Unicode test server in a separate process."""
-    import multiprocessing
-    import socket
-    import time
-
     proc = multiprocessing.Process(target=run_unicode_server, kwargs={"port": unicode_server_port}, daemon=True)
     proc.start()
 
