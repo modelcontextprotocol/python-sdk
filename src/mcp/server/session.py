@@ -156,11 +156,16 @@ class ServerSession(
                                 serverInfo=types.Implementation(
                                     name=self._init_options.server_name,
                                     version=self._init_options.server_version,
+                                    websiteUrl=self._init_options.website_url,
+                                    icons=self._init_options.icons,
                                 ),
                                 instructions=self._init_options.instructions,
                             )
                         )
                     )
+            case types.PingRequest():
+                # Ping requests are allowed at any time
+                pass
             case _:
                 if self._initialization_state != InitializationState.Initialized:
                     raise RuntimeError("Received request before initialization was complete")
@@ -186,7 +191,6 @@ class ServerSession(
         await self.send_notification(
             types.ServerNotification(
                 types.LoggingMessageNotification(
-                    method="notifications/message",
                     params=types.LoggingMessageNotificationParams(
                         level=level,
                         data=data,
@@ -202,7 +206,6 @@ class ServerSession(
         await self.send_notification(
             types.ServerNotification(
                 types.ResourceUpdatedNotification(
-                    method="notifications/resources/updated",
                     params=types.ResourceUpdatedNotificationParams(uri=uri),
                 )
             )
@@ -225,7 +228,6 @@ class ServerSession(
         return await self.send_request(
             request=types.ServerRequest(
                 types.CreateMessageRequest(
-                    method="sampling/createMessage",
                     params=types.CreateMessageRequestParams(
                         messages=messages,
                         systemPrompt=system_prompt,
@@ -247,11 +249,7 @@ class ServerSession(
     async def list_roots(self) -> types.ListRootsResult:
         """Send a roots/list request."""
         return await self.send_request(
-            types.ServerRequest(
-                types.ListRootsRequest(
-                    method="roots/list",
-                )
-            ),
+            types.ServerRequest(types.ListRootsRequest()),
             types.ListRootsResult,
         )
 
@@ -273,7 +271,6 @@ class ServerSession(
         return await self.send_request(
             types.ServerRequest(
                 types.ElicitRequest(
-                    method="elicitation/create",
                     params=types.ElicitRequestParams(
                         message=message,
                         requestedSchema=requestedSchema,
@@ -287,11 +284,7 @@ class ServerSession(
     async def send_ping(self) -> types.EmptyResult:
         """Send a ping request."""
         return await self.send_request(
-            types.ServerRequest(
-                types.PingRequest(
-                    method="ping",
-                )
-            ),
+            types.ServerRequest(types.PingRequest()),
             types.EmptyResult,
         )
 
@@ -307,7 +300,6 @@ class ServerSession(
         await self.send_notification(
             types.ServerNotification(
                 types.ProgressNotification(
-                    method="notifications/progress",
                     params=types.ProgressNotificationParams(
                         progressToken=progress_token,
                         progress=progress,
@@ -321,33 +313,15 @@ class ServerSession(
 
     async def send_resource_list_changed(self) -> None:
         """Send a resource list changed notification."""
-        await self.send_notification(
-            types.ServerNotification(
-                types.ResourceListChangedNotification(
-                    method="notifications/resources/list_changed",
-                )
-            )
-        )
+        await self.send_notification(types.ServerNotification(types.ResourceListChangedNotification()))
 
     async def send_tool_list_changed(self) -> None:
         """Send a tool list changed notification."""
-        await self.send_notification(
-            types.ServerNotification(
-                types.ToolListChangedNotification(
-                    method="notifications/tools/list_changed",
-                )
-            )
-        )
+        await self.send_notification(types.ServerNotification(types.ToolListChangedNotification()))
 
     async def send_prompt_list_changed(self) -> None:
         """Send a prompt list changed notification."""
-        await self.send_notification(
-            types.ServerNotification(
-                types.PromptListChangedNotification(
-                    method="notifications/prompts/list_changed",
-                )
-            )
-        )
+        await self.send_notification(types.ServerNotification(types.PromptListChangedNotification()))
 
     async def _handle_incoming(self, req: ServerRequestResponder) -> None:
         await self._incoming_message_stream_writer.send(req)
