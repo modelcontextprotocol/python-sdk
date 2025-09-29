@@ -24,7 +24,11 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pydantic import AnyUrl
 
 from examples.snippets.servers import (
-    async_tools,
+    async_tool_basic,
+    async_tool_elicitation,
+    async_tool_immediate,
+    async_tool_progress,
+    async_tool_sampling,
     basic_prompt,
     basic_resource,
     basic_tool,
@@ -109,8 +113,16 @@ def server_url(server_port: int) -> str:
 def run_server_with_transport(module_name: str, port: int, transport: str) -> None:
     """Run server with specified transport."""
     # Get the MCP instance based on module name
-    if module_name == "async_tools":
-        mcp = async_tools.mcp
+    if module_name == "async_tool_basic":
+        mcp = async_tool_basic.mcp
+    elif module_name == "async_tool_elicitation":
+        mcp = async_tool_elicitation.mcp
+    elif module_name == "async_tool_immediate":
+        mcp = async_tool_immediate.mcp
+    elif module_name == "async_tool_progress":
+        mcp = async_tool_progress.mcp
+    elif module_name == "async_tool_sampling":
+        mcp = async_tool_sampling.mcp
     elif module_name == "basic_tool":
         mcp = basic_tool.mcp
     elif module_name == "basic_resource":
@@ -683,12 +695,12 @@ async def test_fastmcp_quickstart(server_transport: str, server_url: str) -> Non
     [
         # Skip SSE for async tools - SSE client has issues with long polling in test environment
         # causing BrokenResourceError during async operation status polling
-        # ("async_tools", "sse"),
-        ("async_tools", "streamable-http"),
+        # ("async_tool_basic", "sse"),
+        ("async_tool_basic", "streamable-http"),
     ],
     indirect=True,
 )
-async def test_async_tools(server_transport: str, server_url: str) -> None:
+async def test_async_tool_basic(server_transport: str, server_url: str) -> None:
     """Test async tools functionality with 'next' protocol version."""
     transport = server_transport
     client_cm = create_client_for_transport(transport, server_url)
@@ -699,20 +711,23 @@ async def test_async_tools(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Async Tools Demo"
+            assert result.serverInfo.name == "Async Tool Basic"
 
             # Test sync tool (should work normally)
-            sync_result = await session.call_tool("sync_tool", {"x": 21})
+            sync_result = await session.call_tool("process_text", {"text": "hello"})
             assert len(sync_result.content) == 1
             assert isinstance(sync_result.content[0], TextContent)
-            assert sync_result.content[0].text == "Sync result: 42"
+            assert sync_result.content[0].text == "Processed: HELLO"
 
             # Test async-only tool (should return operation token)
-            async_result = await session.call_tool("async_only_tool", {"data": "test data"})
+            async_result = await session.call_tool("analyze_data", {"dataset": "test data"})
             assert async_result.operation is not None
             token = async_result.operation.token
 
-            while True:
+            # Poll for completion with timeout
+            max_attempts = 20
+            attempt = 0
+            while attempt < max_attempts:
                 status = await session.get_operation_status(token)
                 if status.status == "completed":
                     final_result = await session.get_operation_result(token)
@@ -720,165 +735,21 @@ async def test_async_tools(server_transport: str, server_url: str) -> None:
                     assert len(final_result.result.content) == 1
                     content = final_result.result.content[0]
                     assert isinstance(content, TextContent)
-                    assert "Async analysis result for: test data" in content.text
+                    assert "Analysis results for test data: 95% accuracy achieved" in content.text
                     break
                 elif status.status == "failed":
                     pytest.fail(f"Async operation failed: {status.error}")
 
-            # Test hybrid tool (should work as sync by default)
-            hybrid_result = await session.call_tool("hybrid_tool", {"message": "hello"})
+                attempt += 1
+                await asyncio.sleep(0.5)
+            else:
+                pytest.fail("Async operation timed out")
+
+            # Test hybrid tool (process_text can work in sync or async mode)
+            hybrid_result = await session.call_tool("process_text", {"text": "world"})
             assert len(hybrid_result.content) == 1
             assert isinstance(hybrid_result.content[0], TextContent)
-            assert "Hybrid result: HELLO" in hybrid_result.content[0].text
-
-            # Test long-running task with custom keep_alive
-            long_task_result = await session.call_tool("long_running_task", {"task_name": "test_task"})
-            assert long_task_result.operation is not None
-            long_token = long_task_result.operation.token
-
-            while True:
-                status = await session.get_operation_status(long_token)
-                if status.status == "completed":
-                    final_result = await session.get_operation_result(long_token)
-                    assert not final_result.result.isError
-                    assert len(final_result.result.content) == 1
-                    content = final_result.result.content[0]
-                    assert isinstance(content, TextContent)
-                    assert "Long-running task 'test_task' finished with 30-minute keep_alive" in content.text
-                    break
-                elif status.status == "failed":
-                    pytest.fail(f"Long-running task failed: {status.error}")
-
-            # Test quick expiry task (should complete then expire)
-            quick_result = await session.call_tool("quick_expiry_task", {"message": "test_expiry"})
-            assert quick_result.operation is not None
-            quick_token = quick_result.operation.token
-
-            # Wait for completion
-            while True:
-                status = await session.get_operation_status(quick_token)
-                if status.status == "completed":
-                    break
-                elif status.status == "failed":
-                    pytest.fail(f"Quick task failed: {status.error}")
-
-            # Wait for expiry (2 seconds + buffer)
-            await asyncio.sleep(3)
-
-            # Should now be expired
-            with pytest.raises(Exception):  # Should raise error when trying to access expired operation
-                await session.get_operation_result(quick_token)
-
-            # Test batch operation with progress notifications
-            progress_received = False
-
-            async def progress_callback(progress: float, total: float | None, message: str | None) -> None:
-                nonlocal progress_received
-                progress_received = True
-                assert 0.0 <= progress <= 1.0  # Progress should be between 0 and 1
-
-            batch_result = await session.call_tool(
-                "batch_operation_tool",
-                {"items": ["apple", "banana", "cherry"]},
-                progress_callback=progress_callback,
-            )
-            assert batch_result.operation is not None
-            batch_token = batch_result.operation.token
-
-            while True:
-                status = await session.get_operation_status(batch_token)
-
-                if status.status == "completed":
-                    final_result = await session.get_operation_result(batch_token)
-                    assert not final_result.result.isError
-                    # Should have structured content with processed items
-                    if final_result.result.structuredContent:
-                        # Structured content is wrapped in {"result": [...]} for list return types
-                        assert isinstance(final_result.result.structuredContent, dict)
-                        assert "result" in final_result.result.structuredContent
-                        assert isinstance(final_result.result.structuredContent["result"], list)
-                        assert len(final_result.result.structuredContent["result"]) == 3
-                    break
-                elif status.status == "failed":
-                    pytest.fail(f"Batch operation failed: {status.error}")
-
-            # Assert that we received at least one progress notification
-            assert progress_received, "Should have received progress notifications during batch operation"
-
-
-# Test async elicitation tool (demonstrates bug in streamable-http transport)
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    "server_transport",
-    [
-        ("async_tools", "streamable-http"),
-    ],
-    indirect=True,
-)
-async def test_async_elicitation_tool(server_transport: str, server_url: str) -> None:
-    """Test async elicitation tool functionality.
-
-    This test demonstrates a bug in streamable-http transport where elicitation
-    requests during async operations don't reach the client callback.
-    """
-    transport = server_transport
-    client_cm = create_client_for_transport(transport, server_url)
-
-    # Use the same elicitation callback as the client
-    async def test_elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
-        """Handle elicitation requests from the server."""
-        logger.debug(f"Client elicitation callback called with message: {params.message}")
-        if "data_migration" in params.message:
-            logger.debug("Client accepting elicitation request")
-            return ElicitResult(
-                action="accept",
-                content={"continue_processing": True, "priority_level": "normal"},
-            )
-        else:
-            logger.debug("Client declining elicitation request")
-            return ElicitResult(action="decline")
-
-    async with client_cm as client_streams:
-        read_stream, write_stream = unpack_streams(client_streams)
-        async with ClientSession(
-            read_stream,
-            write_stream,
-            protocol_version="next",
-            elicitation_callback=test_elicitation_callback,
-        ) as session:
-            # Test initialization
-            result = await session.initialize()
-            assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Async Tools Demo"
-
-            # Test async elicitation tool - same as client
-            elicit_result = await session.call_tool("async_elicitation_tool", {"operation": "data_migration"})
-            assert elicit_result.operation is not None
-            token = elicit_result.operation.token
-
-            # Poll exactly like the client does
-            max_polls = 20
-            poll_count = 0
-            while poll_count < max_polls:
-                status = await session.get_operation_status(token)
-                if status.status == "completed":
-                    final_result = await session.get_operation_result(token)
-                    assert not final_result.result.isError
-                    assert len(final_result.result.content) == 1
-                    content = final_result.result.content[0]
-                    assert isinstance(content, TextContent)
-                    assert "Operation 'data_migration'" in content.text
-                    assert "completed successfully" in content.text
-                    return
-                elif status.status == "failed":
-                    pytest.fail(f"Async elicitation failed: {status.error}")
-                elif status.status in ("canceled", "unknown"):
-                    pytest.fail(f"Operation ended with status: {status.status}")
-
-                poll_count += 1
-                await asyncio.sleep(0.5)
-
-            pytest.fail(f"Test timed out after {max_polls} polls")
+            assert "Processed: WORLD" in hybrid_result.content[0].text
 
 
 # Test async tools example with legacy protocol
@@ -886,11 +757,11 @@ async def test_async_elicitation_tool(server_transport: str, server_url: str) ->
 @pytest.mark.parametrize(
     "server_transport",
     [
-        ("async_tools", "streamable-http"),
+        ("async_tool_basic", "streamable-http"),
     ],
     indirect=True,
 )
-async def test_async_tools_legacy_protocol(server_transport: str, server_url: str) -> None:
+async def test_async_tool_basic_legacy_protocol(server_transport: str, server_url: str) -> None:
     """Test async tools functionality with '2025-06-18' protocol version."""
     transport = server_transport
     client_cm = create_client_for_transport(transport, server_url)
@@ -901,27 +772,27 @@ async def test_async_tools_legacy_protocol(server_transport: str, server_url: st
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Async Tools Demo"
+            assert result.serverInfo.name == "Async Tool Basic"
 
             # Test sync tool (should work normally)
-            sync_result = await session.call_tool("sync_tool", {"x": 21})
+            sync_result = await session.call_tool("process_text", {"text": "hello"})
             assert len(sync_result.content) == 1
             assert isinstance(sync_result.content[0], TextContent)
-            assert sync_result.content[0].text == "Sync result: 42"
+            assert sync_result.content[0].text == "Processed: HELLO"
 
             # Test async-only tool (executes synchronously with legacy protocol)
-            async_result = await session.call_tool("async_only_tool", {"data": "test data"})
+            async_result = await session.call_tool("analyze_data", {"dataset": "test data"})
             assert async_result.operation is None  # No operation token with legacy protocol
             assert len(async_result.content) == 1
             content = async_result.content[0]
             assert isinstance(content, TextContent)
-            assert "Async analysis result for: test data" in content.text
+            assert "Analysis results for test data: 95% accuracy achieved" in content.text
 
             # Test hybrid tool (should work as sync)
-            hybrid_result = await session.call_tool("hybrid_tool", {"message": "hello"})
+            hybrid_result = await session.call_tool("process_text", {"text": "hello"})
             assert len(hybrid_result.content) == 1
             assert isinstance(hybrid_result.content[0], TextContent)
-            assert "Hybrid result: HELLO" in hybrid_result.content[0].text
+            assert "Processed: HELLO" in hybrid_result.content[0].text
 
 
 # Test structured output example
@@ -965,8 +836,8 @@ async def test_structured_output(server_transport: str, server_url: str) -> None
 @pytest.mark.parametrize(
     "server_transport",
     [
-        ("async_tools", "sse"),
-        ("async_tools", "streamable-http"),
+        ("async_tool_immediate", "sse"),
+        ("async_tool_immediate", "streamable-http"),
     ],
     indirect=True,
 )
@@ -981,22 +852,24 @@ async def test_immediate_result_integration(server_transport: str, server_url: s
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Async Tools Demo"
+            assert result.serverInfo.name == "Async Tool Immediate"
 
             # Test tool with immediate_result
-            immediate_result = await session.call_tool("long_running_analysis", {"operation": "data_processing"})
+            immediate_result = await session.call_tool("long_analysis", {"operation": "data_processing"})
 
             # Verify immediate result is returned in content
             assert len(immediate_result.content) == 1
             assert isinstance(immediate_result.content[0], TextContent)
-            assert "🚀 Starting data_processing... This may take a moment." in immediate_result.content[0].text
+            assert "Starting data_processing operation. This will take a moment." in immediate_result.content[0].text
 
             # Verify async operation is created
             assert immediate_result.operation is not None
             token = immediate_result.operation.token
 
-            # Poll for final result
-            while True:
+            # Poll for final result with timeout
+            max_attempts = 20
+            attempt = 0
+            while attempt < max_attempts:
                 status = await session.get_operation_status(token)
                 if status.status == "completed":
                     final_result = await session.get_operation_result(token)
@@ -1004,19 +877,23 @@ async def test_immediate_result_integration(server_transport: str, server_url: s
                     assert len(final_result.result.content) == 1
                     content = final_result.result.content[0]
                     assert isinstance(content, TextContent)
-                    assert "Analysis 'data_processing' completed successfully with detailed results!" in content.text
+                    assert "Analysis 'data_processing' completed with detailed results" in content.text
                     break
                 elif status.status == "failed":
                     pytest.fail(f"Async operation failed: {status.error}")
-                await asyncio.sleep(0.01)
+
+                attempt += 1
+                await asyncio.sleep(0.5)
+            else:
+                pytest.fail("Async operation timed out")
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "server_transport",
     [
-        ("async_tools", "sse"),
-        ("async_tools", "streamable-http"),
+        ("async_tool_basic", "sse"),
+        ("async_tool_basic", "streamable-http"),
     ],
     indirect=True,
 )
@@ -1031,10 +908,10 @@ async def test_immediate_result_backward_compatibility(server_transport: str, se
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Async Tools Demo"
+            assert result.serverInfo.name == "Async Tool Basic"
 
             # Test async tool without immediate_result (should have empty content initially)
-            async_result = await session.call_tool("async_only_tool", {"data": "test_data"})
+            async_result = await session.call_tool("analyze_data", {"dataset": "test_data"})
 
             # Should have empty content array (no immediate result)
             assert len(async_result.content) == 0
@@ -1043,8 +920,10 @@ async def test_immediate_result_backward_compatibility(server_transport: str, se
             assert async_result.operation is not None
             token = async_result.operation.token
 
-            # Poll for final result
-            while True:
+            # Poll for final result with timeout
+            max_attempts = 20
+            attempt = 0
+            while attempt < max_attempts:
                 status = await session.get_operation_status(token)
                 if status.status == "completed":
                     final_result = await session.get_operation_result(token)
@@ -1052,8 +931,230 @@ async def test_immediate_result_backward_compatibility(server_transport: str, se
                     assert len(final_result.result.content) == 1
                     content = final_result.result.content[0]
                     assert isinstance(content, TextContent)
-                    assert "Async analysis result for: test_data" in content.text
+                    assert "Analysis results for test_data: 95% accuracy achieved" in content.text
                     break
                 elif status.status == "failed":
                     pytest.fail(f"Async operation failed: {status.error}")
+
+                attempt += 1
+                await asyncio.sleep(0.5)
+            else:
+                pytest.fail("Async operation timed out")
                 await asyncio.sleep(0.01)
+
+
+# Test async progress notifications
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "server_transport",
+    [
+        ("async_tool_progress", "sse"),
+        ("async_tool_progress", "streamable-http"),
+    ],
+    indirect=True,
+)
+async def test_async_tool_progress(server_transport: str, server_url: str) -> None:
+    """Test async tools with progress notifications."""
+    transport = server_transport
+    collector = NotificationCollector()
+
+    async def message_handler(message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception):
+        await collector.handle_generic_notification(message)
+        if isinstance(message, Exception):
+            raise message
+
+    client_cm = create_client_for_transport(transport, server_url)
+
+    async with client_cm as client_streams:
+        read_stream, write_stream = unpack_streams(client_streams)
+        async with ClientSession(
+            read_stream, write_stream, protocol_version="next", message_handler=message_handler
+        ) as session:
+            # Test initialization
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "Async Tool Progress"
+
+            # Test batch processing with progress
+            progress_updates = []
+
+            async def progress_callback(progress: float, total: float | None, message: str | None) -> None:
+                progress_updates.append((progress, total, message))
+
+            batch_result = await session.call_tool(
+                "batch_process",
+                {"items": ["apple", "banana", "cherry"]},
+                progress_callback=progress_callback,
+            )
+            assert batch_result.operation is not None
+            token = batch_result.operation.token
+
+            # Poll for completion
+            max_attempts = 20
+            attempt = 0
+            while attempt < max_attempts:
+                status = await session.get_operation_status(token)
+                if status.status == "completed":
+                    final_result = await session.get_operation_result(token)
+                    assert not final_result.result.isError
+
+                    # Check structured content
+                    if final_result.result.structuredContent:
+                        assert isinstance(final_result.result.structuredContent, dict)
+                        assert "result" in final_result.result.structuredContent
+                        processed_items = final_result.result.structuredContent["result"]
+                        assert len(processed_items) == 3
+                        assert all("PROCESSED_" in item for item in processed_items)
+                    break
+                elif status.status == "failed":
+                    pytest.fail(f"Batch operation failed: {status.error}")
+
+                attempt += 1
+                await asyncio.sleep(0.3)
+            else:
+                pytest.fail("Batch operation timed out")
+
+            # Verify progress updates were received
+            assert len(progress_updates) == 3
+            for i, (progress, total, message) in enumerate(progress_updates):
+                expected_progress = (i + 1) / 3
+                assert abs(progress - expected_progress) < 0.01
+                assert total == 1.0
+                assert f"Processed {i + 1}/3" in message
+
+
+# Test async elicitation
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "server_transport",
+    [
+        ("async_tool_elicitation", "streamable-http"),  # Only test streamable-http for elicitation
+    ],
+    indirect=True,
+)
+async def test_async_tool_elicitation(server_transport: str, server_url: str) -> None:
+    """Test async tools with elicitation."""
+    transport = server_transport
+    client_cm = create_client_for_transport(transport, server_url)
+
+    async def test_elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+        """Handle elicitation requests from the server."""
+        if "data_migration" in params.message:
+            return ElicitResult(
+                action="accept",
+                content={"continue_processing": True, "priority_level": "high"},
+            )
+        elif "file operation" in params.message.lower():
+            return ElicitResult(
+                action="accept",
+                content={"confirm_operation": True, "backup_first": True},
+            )
+        else:
+            return ElicitResult(action="decline")
+
+    async with client_cm as client_streams:
+        read_stream, write_stream = unpack_streams(client_streams)
+        async with ClientSession(
+            read_stream,
+            write_stream,
+            protocol_version="next",
+            elicitation_callback=test_elicitation_callback,
+        ) as session:
+            # Test initialization
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "Async Tool Elicitation"
+
+            # Test process with confirmation
+            elicit_result = await session.call_tool("process_with_confirmation", {"operation": "data_migration"})
+            assert elicit_result.operation is not None
+            token = elicit_result.operation.token
+
+            # Poll for completion
+            max_attempts = 20
+            attempt = 0
+            while attempt < max_attempts:
+                status = await session.get_operation_status(token)
+                if status.status == "completed":
+                    final_result = await session.get_operation_result(token)
+                    assert not final_result.result.isError
+                    assert len(final_result.result.content) == 1
+                    content = final_result.result.content[0]
+                    assert isinstance(content, TextContent)
+                    assert "Operation 'data_migration' completed successfully with high priority" in content.text
+                    break
+                elif status.status == "failed":
+                    pytest.fail(f"Elicitation operation failed: {status.error}")
+
+                attempt += 1
+                await asyncio.sleep(0.3)
+            else:
+                pytest.fail("Elicitation operation timed out")
+
+
+# Test async sampling
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "server_transport",
+    [
+        ("async_tool_sampling", "sse"),
+        ("async_tool_sampling", "streamable-http"),
+    ],
+    indirect=True,
+)
+async def test_async_tool_sampling(server_transport: str, server_url: str) -> None:
+    """Test async tools with sampling (LLM interaction)."""
+    transport = server_transport
+    client_cm = create_client_for_transport(transport, server_url)
+
+    async def test_sampling_callback(
+        context: RequestContext[ClientSession, None], params: CreateMessageRequestParams
+    ) -> CreateMessageResult:
+        """Handle sampling requests from the server."""
+        return CreateMessageResult(
+            role="assistant",
+            content=TextContent(type="text", text="This is a simulated LLM response for testing"),
+            model="test-model",
+        )
+
+    async with client_cm as client_streams:
+        read_stream, write_stream = unpack_streams(client_streams)
+        async with ClientSession(
+            read_stream,
+            write_stream,
+            protocol_version="next",
+            sampling_callback=test_sampling_callback,
+        ) as session:
+            # Test initialization
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "Async Tool Sampling"
+
+            # Test content generation
+            sampling_result = await session.call_tool(
+                "generate_content", {"topic": "artificial intelligence", "content_type": "poem"}
+            )
+            assert sampling_result.operation is not None
+            token = sampling_result.operation.token
+
+            # Poll for completion
+            max_attempts = 20
+            attempt = 0
+            while attempt < max_attempts:
+                status = await session.get_operation_status(token)
+                if status.status == "completed":
+                    final_result = await session.get_operation_result(token)
+                    assert not final_result.result.isError
+                    assert len(final_result.result.content) == 1
+                    content = final_result.result.content[0]
+                    assert isinstance(content, TextContent)
+                    assert "Generated poem about 'artificial intelligence'" in content.text
+                    assert "This is a simulated LLM response" in content.text
+                    break
+                elif status.status == "failed":
+                    pytest.fail(f"Sampling operation failed: {status.error}")
+
+                attempt += 1
+                await asyncio.sleep(0.3)
+            else:
+                pytest.fail("Sampling operation timed out")

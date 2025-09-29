@@ -493,280 +493,175 @@ Tools can be configured to run asynchronously, allowing for long-running operati
 
 Tools can specify their invocation mode: `sync` (default), `async`, or `["sync", "async"]` for hybrid tools that support both patterns. Async tools can provide immediate feedback while continuing to execute, and support configurable keep-alive duration for result availability.
 
-<!-- snippet-source examples/snippets/servers/async_tools.py -->
+<!-- snippet-source examples/snippets/servers/async_tool_basic.py -->
 ```python
 """
-FastMCP async tools example showing different invocation modes.
+Basic async tool example.
 
 cd to the `examples/snippets/clients` directory and run:
-    uv run server async_tools stdio
+    uv run server async_tool_basic stdio
 """
 
 import asyncio
 
-from pydantic import BaseModel, Field
-
-from mcp import types
 from mcp.server.fastmcp import Context, FastMCP
 
-# Create an MCP server with async operations support
-mcp = FastMCP("Async Tools Demo")
-
-
-class UserPreferences(BaseModel):
-    """Schema for collecting user preferences."""
-
-    continue_processing: bool = Field(description="Should we continue with the operation?")
-    priority_level: str = Field(
-        default="normal",
-        description="Priority level: low, normal, high",
-    )
+mcp = FastMCP("Async Tool Basic")
 
 
 @mcp.tool(invocation_modes=["async"])
-async def async_elicitation_tool(operation: str, ctx: Context) -> str:  # type: ignore[type-arg]
-    """An async tool that uses elicitation to get user input."""
-    await ctx.info(f"Starting operation: {operation}")
+async def analyze_data(dataset: str, ctx: Context) -> str:  # type: ignore[type-arg]
+    """Analyze a dataset asynchronously with progress updates."""
+    await ctx.info(f"Starting analysis of {dataset}")
 
-    # Simulate some initial processing
-    await asyncio.sleep(0.5)
-    await ctx.report_progress(0.3, 1.0, "Initial processing complete")
-
-    # Ask user for preferences
-    result = await ctx.elicit(
-        message=f"Operation '{operation}' requires user input. How should we proceed?",
-        schema=UserPreferences,
-    )
-
-    if result.action == "accept" and result.data:
-        if result.data.continue_processing:
-            await ctx.info(f"Continuing with {result.data.priority_level} priority")
-            # Simulate processing based on user choice
-            processing_time = {"low": 0.5, "normal": 1.0, "high": 1.5}.get(result.data.priority_level, 1.0)
-            await asyncio.sleep(processing_time)
-            await ctx.report_progress(1.0, 1.0, "Operation complete")
-            return f"Operation '{operation}' completed successfully with {result.data.priority_level} priority"
-        else:
-            await ctx.warning("User chose not to continue")
-            return f"Operation '{operation}' cancelled by user"
-    else:
-        await ctx.error("User declined or cancelled the operation")
-        return f"Operation '{operation}' aborted"
-
-
-@mcp.tool()
-def sync_tool(x: int) -> str:
-    """An implicitly-synchronous tool."""
-    return f"Sync result: {x * 2}"
-
-
-@mcp.tool(invocation_modes=["async"])
-async def async_only_tool(data: str, ctx: Context) -> str:  # type: ignore[type-arg]
-    """An async-only tool that takes time to complete."""
-    await ctx.info("Starting long-running analysis...")
-
-    # Simulate long-running work with progress updates
+    # Simulate analysis with progress updates
     for i in range(5):
         await asyncio.sleep(0.5)
         progress = (i + 1) / 5
         await ctx.report_progress(progress, 1.0, f"Processing step {i + 1}/5")
 
-    await ctx.info("Analysis complete!")
-    return f"Async analysis result for: {data}"
+    await ctx.info("Analysis complete")
+    return f"Analysis results for {dataset}: 95% accuracy achieved"
 
 
 @mcp.tool(invocation_modes=["sync", "async"])
-def hybrid_tool(message: str, ctx: Context | None = None) -> str:  # type: ignore[type-arg]
-    """A hybrid tool that works both sync and async."""
+def process_text(text: str, ctx: Context | None = None) -> str:  # type: ignore[type-arg]
+    """Process text in sync or async mode."""
     if ctx:
-        # Async mode - we have context for progress reporting
+        # Async mode with context
         import asyncio
 
-        async def async_work():
-            await ctx.info(f"Processing '{message}' asynchronously...")
-            await asyncio.sleep(0.5)  # Simulate some work
-            await ctx.debug("Async processing complete")
+        async def async_processing():
+            await ctx.info(f"Processing text asynchronously: {text[:20]}...")
+            await asyncio.sleep(0.3)
 
-        # Run the async work (this is a bit of a hack for demo purposes)
         try:
             loop = asyncio.get_event_loop()
-            loop.create_task(async_work())
+            loop.create_task(async_processing())
         except RuntimeError:
-            pass  # No event loop running
+            pass
 
-    # Both sync and async modes return the same result
-    return f"Hybrid result: {message.upper()}"
-
-
-async def immediate_feedback(operation: str) -> list[types.ContentBlock]:
-    """Provide immediate feedback for long-running operations."""
-    return [types.TextContent(type="text", text=f"🚀 Starting {operation}... This may take a moment.")]
-
-
-@mcp.tool(invocation_modes=["async"], immediate_result=immediate_feedback)
-async def long_running_analysis(operation: str, ctx: Context) -> str:  # type: ignore[type-arg]
-    """Perform analysis with immediate user feedback."""
-    await ctx.info(f"Beginning {operation} analysis")
-
-    # Simulate long-running work with progress updates
-    for i in range(5):
-        await asyncio.sleep(1)
-        progress = (i + 1) / 5
-        await ctx.report_progress(progress, 1.0, f"Step {i + 1}/5 complete")
-
-    await ctx.info(f"Analysis '{operation}' completed successfully!")
-    return f"Analysis '{operation}' completed successfully with detailed results!"
-
-
-@mcp.tool(invocation_modes=["async"], keep_alive=1800)
-async def long_running_task(task_name: str, ctx: Context) -> str:  # type: ignore[type-arg]
-    """A long-running task with custom keep_alive duration."""
-    await ctx.info(f"Starting long-running task: {task_name}")
-
-    # Simulate extended processing
-    await asyncio.sleep(2)
-    await ctx.report_progress(0.5, 1.0, "Halfway through processing")
-    await asyncio.sleep(2)
-
-    await ctx.info(f"Task '{task_name}' completed successfully")
-    return f"Long-running task '{task_name}' finished with 30-minute keep_alive"
+    return f"Processed: {text.upper()}"
 
 
 if __name__ == "__main__":
     mcp.run()
 ```
 
-_Full example: [examples/snippets/servers/async_tools.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/async_tools.py)_
+_Full example: [examples/snippets/servers/async_tool_basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/async_tool_basic.py)_
+<!-- /snippet-source -->
+
+Tools can also provide immediate feedback while continuing to execute asynchronously:
+
+<!-- snippet-source examples/snippets/servers/async_tool_immediate.py -->
+```python
+"""
+Async tool with immediate result example.
+
+cd to the `examples/snippets/clients` directory and run:
+    uv run server async_tool_immediate stdio
+"""
+
+import asyncio
+
+from mcp import types
+from mcp.server.fastmcp import Context, FastMCP
+
+mcp = FastMCP("Async Tool Immediate")
+
+
+async def provide_immediate_feedback(operation: str) -> list[types.ContentBlock]:
+    """Provide immediate feedback while async operation starts."""
+    return [types.TextContent(type="text", text=f"Starting {operation} operation. This will take a moment.")]
+
+
+@mcp.tool(invocation_modes=["async"], immediate_result=provide_immediate_feedback)
+async def long_analysis(operation: str, ctx: Context) -> str:  # type: ignore[type-arg]
+    """Perform long-running analysis with immediate user feedback."""
+    await ctx.info(f"Beginning {operation} analysis")
+
+    # Simulate long-running work
+    for i in range(4):
+        await asyncio.sleep(1)
+        progress = (i + 1) / 4
+        await ctx.report_progress(progress, 1.0, f"Analysis step {i + 1}/4")
+
+    return f"Analysis '{operation}' completed with detailed results"
+
+
+if __name__ == "__main__":
+    mcp.run()
+```
+
+_Full example: [examples/snippets/servers/async_tool_immediate.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/async_tool_immediate.py)_
 <!-- /snippet-source -->
 
 Clients using protocol version `next` can interact with async tools by polling operation status and retrieving results:
 
-<!-- snippet-source examples/snippets/clients/async_tools_client.py -->
+<!-- snippet-source examples/snippets/clients/async_tool_client.py -->
 ```python
 """
-Client example showing how to use async tools, including immediate result functionality.
+Client example for async tools.
 
 cd to the `examples/snippets` directory and run:
-    uv run async-tools-client
-    uv run async-tools-client --protocol=latest  # backwards compatible mode
-    uv run async-tools-client --protocol=next    # async tools mode
+    uv run async-tool-client
 """
 
 import asyncio
 import os
-import sys
 
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
-from mcp.shared.context import RequestContext
 
-# Create server parameters for stdio connection
+# Server parameters for async tool example
 server_params = StdioServerParameters(
-    command="uv",  # Using uv to run the server
-    args=["run", "server", "async_tools", "stdio"],
+    command="uv",
+    args=["run", "server", "async_tool_basic", "stdio"],
     env={"UV_INDEX": os.environ.get("UV_INDEX", "")},
 )
 
 
-async def demonstrate_async_tool(session: ClientSession):
-    """Demonstrate calling an async-only tool."""
-    print("\n=== Asynchronous Tool Demo ===")
+async def call_async_tool(session: ClientSession):
+    """Demonstrate calling an async tool."""
+    print("Calling async tool...")
 
-    # Call the async tool
-    result = await session.call_tool("async_only_tool", arguments={"data": "sample dataset"})
+    result = await session.call_tool("analyze_data", arguments={"dataset": "customer_data.csv"})
 
     if result.operation:
         token = result.operation.token
-        print(f"Async operation started with token: {token}")
+        print(f"Operation started with token: {token}")
 
-        # Poll for status updates
+        # Poll for completion
         while True:
             status = await session.get_operation_status(token)
             print(f"Status: {status.status}")
 
             if status.status == "completed":
-                # Get the final result
                 final_result = await session.get_operation_result(token)
                 for content in final_result.result.content:
                     if isinstance(content, types.TextContent):
-                        print(f"Final result: {content.text}")
+                        print(f"Result: {content.text}")
                 break
             elif status.status == "failed":
                 print(f"Operation failed: {status.error}")
                 break
-            elif status.status in ("canceled", "unknown"):
-                print(f"Operation ended with status: {status.status}")
-                break
 
-            # Wait before polling again
-            await asyncio.sleep(1)
-
-
-async def test_immediate_result_tool(session: ClientSession):
-    """Test calling async tool with immediate result functionality."""
-    print("\n=== Immediate Result Tool Demo ===")
-
-    # Call the async tool with immediate_result functionality
-    result = await session.call_tool("long_running_analysis", arguments={"operation": "data_processing"})
-
-    # Display immediate feedback (should be available immediately)
-    print("Immediate response received:")
-    if result.content:
-        for content in result.content:
-            if isinstance(content, types.TextContent):
-                print(f"  📋 {content.text}")
-
-    # Check if there's an async operation to poll
-    if result.operation:
-        token = result.operation.token
-        print(f"\nAsync operation started with token: {token}")
-        print("Polling for final results...")
-
-        # Poll for status updates and final result
-        while True:
-            status = await session.get_operation_status(token)
-            print(f"  Status: {status.status}")
-
-            if status.status == "completed":
-                # Get the final result
-                final_result = await session.get_operation_result(token)
-                print("\nFinal result received:")
-                for content in final_result.result.content:
-                    if isinstance(content, types.TextContent):
-                        print(f"  ✅ {content.text}")
-                break
-            elif status.status == "failed":
-                print(f"  ❌ Operation failed: {status.error}")
-                break
-
-            # Wait before polling again
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
 
 
 async def run():
-    """Run async tool demonstrations."""
-    protocol_version = "next"  # Required for async tools support
-
+    """Run the async tool client example."""
     async with stdio_client(server_params) as (read, write):
-        async with ClientSession(read, write, protocol_version=protocol_version) as session:
+        async with ClientSession(read, write, protocol_version="next") as session:
             await session.initialize()
-
-            # List available tools to see invocation modes
-            tools = await session.list_tools()
-            print("Available tools:")
-            for tool in tools.tools:
-                invocation_mode = getattr(tool, "invocationMode", "sync")
-                print(f"  - {tool.name}: {tool.description} (mode: {invocation_mode})")
-
-            await demonstrate_async_tool(session)
-            await test_immediate_result_tool(session)
+            await call_async_tool(session)
 
 
 if __name__ == "__main__":
     asyncio.run(run())
 ```
 
-_Full example: [examples/snippets/clients/async_tools_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/async_tools_client.py)_
+_Full example: [examples/snippets/clients/async_tool_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/async_tool_client.py)_
 <!-- /snippet-source -->
 
 The `@mcp.tool()` decorator accepts `invocation_modes` to specify supported execution patterns, `immediate_result` to provide instant feedback for async tools, and `keep_alive` to set how long operation results remain available (default: 300 seconds).
