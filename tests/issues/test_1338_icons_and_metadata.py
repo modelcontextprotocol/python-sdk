@@ -39,6 +39,12 @@ async def test_icons_and_website_url():
         """A test prompt with an icon."""
         return text
 
+    # Create resource template with icon
+    @mcp.resource("test://weather/{city}", icons=[test_icon])
+    def test_resource_template(city: str) -> str:
+        """Get weather for a city."""
+        return f"Weather for {city}"
+
     # Test server metadata includes websiteUrl and icons
     assert mcp.name == "TestServer"
     assert mcp.website_url == "https://example.com"
@@ -74,6 +80,16 @@ async def test_icons_and_website_url():
     assert prompt.icons is not None
     assert len(prompt.icons) == 1
     assert prompt.icons[0].src == test_icon.src
+
+    # Test resource template includes icon
+    templates = await mcp.list_resource_templates()
+    assert len(templates) == 1
+    template = templates[0]
+    assert template.name == "test_resource_template"
+    assert template.uriTemplate == "test://weather/{city}"
+    assert template.icons is not None
+    assert len(template.icons) == 1
+    assert template.icons[0].src == test_icon.src
 
 
 async def test_multiple_icons():
