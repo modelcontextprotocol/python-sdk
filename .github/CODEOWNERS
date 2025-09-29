@@ -1,9 +1,6 @@
 # CODEOWNERS for MCP Python SDK
 # See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
-# Default maintainers for everything
-* @modelcontextprotocol/python-sdk
-
 # Auth-related code requires additional review from auth team
 /src/mcp/client/auth.py @modelcontextprotocol/python-sdk-auth
 /src/mcp/server/auth/ @modelcontextprotocol/python-sdk-auth
