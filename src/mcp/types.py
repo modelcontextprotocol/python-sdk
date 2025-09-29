@@ -222,8 +222,8 @@ class Icon(BaseModel):
     mimeType: str | None = None
     """Optional MIME type for the icon."""
 
-    sizes: str | None = None
-    """Optional string specifying icon dimensions (e.g., "48x48 96x96")."""
+    sizes: list[str] | None = None
+    """Optional list of strings specifying icon dimensions (e.g., ["48x48", "96x96"])."""
 
     model_config = ConfigDict(extra="allow")
 
