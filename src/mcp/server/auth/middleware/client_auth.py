@@ -1,6 +1,9 @@
 import base64
+import binascii
+import hmac
 import time
 from typing import Any
+from urllib.parse import unquote
 
 from starlette.requests import Request
 
@@ -58,7 +61,7 @@ class ClientAuthenticator:
         if not client:
             raise AuthenticationError("Invalid client_id")  # pragma: no cover
 
-        request_client_secret = None
+        request_client_secret: str | None = None
         auth_header = request.headers.get("Authorization", "")
 
         if client.token_endpoint_auth_method == "client_secret_basic":
@@ -72,17 +75,20 @@ class ClientAuthenticator:
                     raise ValueError("Invalid Basic auth format")
                 basic_client_id, request_client_secret = decoded.split(":", 1)
 
+                # URL-decode both parts per RFC 6749 Section 2.3.1
+                basic_client_id = unquote(basic_client_id)
+                request_client_secret = unquote(request_client_secret)
+
                 if basic_client_id != client_id:
                     raise AuthenticationError("Client ID mismatch in Basic auth")
-            except AuthenticationError:
-                raise
-            except Exception:
+            except (ValueError, UnicodeDecodeError, binascii.Error):
                 raise AuthenticationError("Invalid Basic authentication header")
 
         elif client.token_endpoint_auth_method == "client_secret_post":
-            request_client_secret = form_data.get("client_secret")
-            if request_client_secret:
-                request_client_secret = str(request_client_secret)
+            raw_form_data = form_data.get("client_secret")
+            # form_data.get() can return a UploadFile or None, so we need to check if it's a string
+            if isinstance(raw_form_data, str):
+                request_client_secret = str(raw_form_data)
 
         elif client.token_endpoint_auth_method == "none":
             request_client_secret = None
@@ -95,8 +101,13 @@ class ClientAuthenticator:
             if not request_client_secret:
                 raise AuthenticationError("Client secret is required")  # pragma: no cover
 
-            if client.client_secret != request_client_secret:
-                raise AuthenticationError("Invalid client_secret")  # pragma: no cover
+            # hmac.compare_digest requires that both arguments are either bytes or a `str` containing
+            # only ASCII characters. Since we do not control `request_client_secret`, we encode both
+            # arguments to bytes.
+            if not hmac.compare_digest(
+                client.client_secret.encode(), request_client_secret.encode()
+            ):  # pragma: no cover
+                raise AuthenticationError("Invalid client_secret")
 
             if client.client_secret_expires_at and client.client_secret_expires_at < int(time.time()):
                 raise AuthenticationError("Client secret has expired")  # pragma: no cover
