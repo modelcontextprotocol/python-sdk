@@ -45,12 +45,15 @@ class OAuthClientMetadata(BaseModel):
     # supported auth methods for the token endpoint
     token_endpoint_auth_method: Literal["none", "client_secret_post", "private_key_jwt"] = "client_secret_post"
     # supported grant_types of this implementation
-    grant_types: list[Literal["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"]] = [
+    grant_types: list[
+        Literal["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"] | str
+    ] = [
         "authorization_code",
         "refresh_token",
     ]
-    # this implementation only supports code; ie: it does not support implicit grants
-    response_types: list[Literal["code"]] = ["code"]
+    # The MCP spec requires the "code" response type, but OAuth
+    # servers may also return additional types they support
+    response_types: list[str] = ["code"]
     scope: str | None = None
 
     # these fields are currently unused, but we support & store them for potential

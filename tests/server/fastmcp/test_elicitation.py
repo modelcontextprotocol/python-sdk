@@ -213,3 +213,58 @@ async def test_elicitation_with_optional_fields():
         {},
         text_contains=["Validation failed:", "optional_list"],
     )
+
+
+@pytest.mark.anyio
+async def test_elicitation_with_default_values():
+    """Test that default values work correctly in elicitation schemas and are included in JSON."""
+    mcp = FastMCP(name="DefaultValuesServer")
+
+    class DefaultsSchema(BaseModel):
+        name: str = Field(default="Guest", description="User name")
+        age: int = Field(default=18, description="User age")
+        subscribe: bool = Field(default=True, description="Subscribe to newsletter")
+        email: str = Field(description="Email address (required)")
+
+    @mcp.tool(description="Tool with default values")
+    async def defaults_tool(ctx: Context[ServerSession, None]) -> str:
+        result = await ctx.elicit(message="Please provide your information", schema=DefaultsSchema)
+
+        if result.action == "accept" and result.data:
+            return (
+                f"Name: {result.data.name}, Age: {result.data.age}, "
+                f"Subscribe: {result.data.subscribe}, Email: {result.data.email}"
+            )
+        else:
+            return f"User {result.action}"
+
+    # First verify that defaults are present in the JSON schema sent to clients
+    async def callback_schema_verify(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+        # Verify the schema includes defaults
+        schema = params.requestedSchema
+        props = schema["properties"]
+
+        assert props["name"]["default"] == "Guest"
+        assert props["age"]["default"] == 18
+        assert props["subscribe"]["default"] is True
+        assert "default" not in props["email"]  # Required field has no default
+
+        return ElicitResult(action="accept", content={"email": "test@example.com"})
+
+    await call_tool_and_assert(
+        mcp,
+        callback_schema_verify,
+        "defaults_tool",
+        {},
+        "Name: Guest, Age: 18, Subscribe: True, Email: test@example.com",
+    )
+
+    # Test overriding defaults
+    async def callback_override(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+        return ElicitResult(
+            action="accept", content={"email": "john@example.com", "name": "John", "age": 25, "subscribe": False}
+        )
+
+    await call_tool_and_assert(
+        mcp, callback_override, "defaults_tool", {}, "Name: John, Age: 25, Subscribe: False, Email: john@example.com"
+    )
