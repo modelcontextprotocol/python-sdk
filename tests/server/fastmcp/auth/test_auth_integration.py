@@ -1009,7 +1009,7 @@ class TestAuthEndpoints:
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Test Client",
-            "grant_types": ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"],
+            "grant_types": ["authorization_code", "refresh_token", "device_code"],
         }
 
         response = await test_client.post("/register", json=client_metadata)

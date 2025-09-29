@@ -55,7 +55,7 @@ class OAuthClientMetadata(BaseModel):
             "refresh_token",
             "client_credentials",
             "token_exchange",
-            "urn:ietf:params:oauth:grant-type:device_code",
+            "device_code",
         ]
     ] = [
         "authorization_code",
