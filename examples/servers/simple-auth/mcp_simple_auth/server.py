@@ -63,7 +63,7 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
     # Create token verifier for introspection with RFC 8707 resource validation
     token_verifier = IntrospectionTokenVerifier(
         introspection_endpoint=settings.auth_server_introspection_endpoint,
-        server_url=str(settings.server_url),
+        server_url=f"{str(settings.server_url).rstrip('/')}/mcp",
         validate_resource=settings.oauth_strict,  # Only validate when --oauth-strict is set
     )
 
