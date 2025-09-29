@@ -7,7 +7,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools.base import InvocationMode, Tool
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.shared.context import LifespanContextT, RequestT
-from mcp.types import ContentBlock, ToolAnnotations
+from mcp.types import ContentBlock, Icon, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -49,6 +49,7 @@ class ToolManager:
         title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        icons: list[Icon] | None = None,
         structured_output: bool | None = None,
         invocation_modes: list[InvocationMode] | None = None,
         keep_alive: int | None = None,
@@ -62,6 +63,7 @@ class ToolManager:
             title=title,
             description=description,
             annotations=annotations,
+            icons=icons,
             structured_output=structured_output,
             invocation_modes=invocation_modes,
             keep_alive=keep_alive,

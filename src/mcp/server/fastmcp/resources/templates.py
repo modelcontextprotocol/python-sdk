@@ -103,6 +103,7 @@ class ResourceTemplate(BaseModel):
                 title=self.title,
                 description=self.description,
                 mime_type=self.mime_type,
+                icons=None,  # Resource templates don't support icons
                 fn=lambda: result,  # Capture result in closure
             )
         except Exception as e:

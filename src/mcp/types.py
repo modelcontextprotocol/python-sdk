@@ -231,10 +231,32 @@ class BaseMetadata(BaseModel):
     """
 
 
+class Icon(BaseModel):
+    """An icon for display in user interfaces."""
+
+    src: str
+    """URL or data URI for the icon."""
+
+    mimeType: str | None = None
+    """Optional MIME type for the icon."""
+
+    sizes: list[str] | None = None
+    """Optional list of strings specifying icon dimensions (e.g., ["48x48", "96x96"])."""
+
+    model_config = ConfigDict(extra="allow")
+
+
 class Implementation(BaseMetadata):
     """Describes the name and version of an MCP implementation."""
 
     version: str
+
+    websiteUrl: str | None = None
+    """An optional URL of the website for this implementation."""
+
+    icons: list[Icon] | None = None
+    """An optional list of icons for this implementation."""
+
     model_config = ConfigDict(extra="allow")
 
 
@@ -440,6 +462,8 @@ class Resource(BaseMetadata):
 
     This can be used by Hosts to display file sizes and estimate context window usage.
     """
+    icons: list[Icon] | None = None
+    """An optional list of icons for this resource."""
     annotations: Annotations | None = None
     meta: dict[str, Any] | None = Field(alias="_meta", default=None)
     """
@@ -646,6 +670,8 @@ class Prompt(BaseMetadata):
     """An optional description of what this prompt provides."""
     arguments: list[PromptArgument] | None = None
     """A list of arguments to use for templating the prompt."""
+    icons: list[Icon] | None = None
+    """An optional list of icons for this prompt."""
     meta: dict[str, Any] | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -888,6 +914,8 @@ class Tool(BaseMetadata):
     - "sync": Tool supports synchronous execution only
     - "async": Tool supports asynchronous execution only
     """
+    icons: list[Icon] | None = None
+    """An optional list of icons for this tool."""
     annotations: ToolAnnotations | None = None
     """Optional additional tool information."""
     meta: dict[str, Any] | None = Field(alias="_meta", default=None)

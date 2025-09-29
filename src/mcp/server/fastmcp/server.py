@@ -53,6 +53,7 @@ from mcp.types import (
     GetOperationPayloadResult,
     GetOperationStatusResult,
     GetPromptResult,
+    Icon,
     ToolAnnotations,
 )
 from mcp.types import Prompt as MCPPrompt
@@ -133,10 +134,12 @@ def lifespan_wrapper(
 class FastMCP(Generic[LifespanResultT]):
     _tool_manager: ToolManager
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         name: str | None = None,
         instructions: str | None = None,
+        website_url: str | None = None,
+        icons: list[Icon] | None = None,
         auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
         token_verifier: TokenVerifier | None = None,
         event_store: EventStore | None = None,
@@ -186,6 +189,8 @@ class FastMCP(Generic[LifespanResultT]):
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
             instructions=instructions,
+            website_url=website_url,
+            icons=icons,
             async_operations=self._async_operations,
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an FastMCP and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
@@ -227,6 +232,14 @@ class FastMCP(Generic[LifespanResultT]):
     @property
     def instructions(self) -> str | None:
         return self._mcp_server.instructions
+
+    @property
+    def website_url(self) -> str | None:
+        return self._mcp_server.website_url
+
+    @property
+    def icons(self) -> list[Icon] | None:
+        return self._mcp_server.icons
 
     @property
     def session_manager(self) -> StreamableHTTPSessionManager:
@@ -363,6 +376,7 @@ class FastMCP(Generic[LifespanResultT]):
                 inputSchema=info.parameters,
                 outputSchema=info.output_schema,
                 annotations=info.annotations,
+                icons=info.icons,
                 invocationMode=self._get_invocation_mode(info, client_supports_async),
                 _meta=info.meta,
                 internal=types.InternalToolProperties(
@@ -401,6 +415,7 @@ class FastMCP(Generic[LifespanResultT]):
                 title=resource.title,
                 description=resource.description,
                 mimeType=resource.mime_type,
+                icons=resource.icons,
             )
             for resource in resources
         ]
@@ -440,6 +455,7 @@ class FastMCP(Generic[LifespanResultT]):
         title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        icons: list[Icon] | None = None,
         structured_output: bool | None = None,
         invocation_modes: list[InvocationMode] | None = None,
         keep_alive: int | None = None,
@@ -458,7 +474,7 @@ class FastMCP(Generic[LifespanResultT]):
             annotations: Optional ToolAnnotations providing additional tool information
             structured_output: Controls whether the tool's output is structured or unstructured
                 - If None, auto-detects based on the function's return type annotation
-                - If True, unconditionally creates a structured tool (return type annotation permitting)
+                - If True, creates a structured tool (return type annotation permitting)
                 - If False, unconditionally creates an unstructured tool
             invocation_modes: List of supported invocation modes (e.g., ["sync", "async"])
                 - If None, defaults to ["sync"] for backwards compatibility
@@ -473,6 +489,7 @@ class FastMCP(Generic[LifespanResultT]):
             title=title,
             description=description,
             annotations=annotations,
+            icons=icons,
             structured_output=structured_output,
             invocation_modes=invocation_modes,
             keep_alive=keep_alive,
@@ -485,6 +502,7 @@ class FastMCP(Generic[LifespanResultT]):
         title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        icons: list[Icon] | None = None,
         structured_output: bool | None = None,
         invocation_modes: list[InvocationMode] | None = None,
         keep_alive: int | None = None,
@@ -503,7 +521,7 @@ class FastMCP(Generic[LifespanResultT]):
             annotations: Optional ToolAnnotations providing additional tool information
             structured_output: Controls whether the tool's output is structured or unstructured
                 - If None, auto-detects based on the function's return type annotation
-                - If True, unconditionally creates a structured tool (return type annotation permitting)
+                - If True, creates a structured tool (return type annotation permitting)
                 - If False, unconditionally creates an unstructured tool
             invocation_modes: List of supported invocation modes (e.g., ["sync", "async"])
                 - If None, defaults to ["sync"] for backwards compatibility
@@ -562,6 +580,7 @@ class FastMCP(Generic[LifespanResultT]):
                 title=title,
                 description=description,
                 annotations=annotations,
+                icons=icons,
                 structured_output=structured_output,
                 invocation_modes=invocation_modes,
                 keep_alive=keep_alive,
@@ -605,6 +624,7 @@ class FastMCP(Generic[LifespanResultT]):
         title: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
+        icons: list[Icon] | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a function as a resource.
 
@@ -679,6 +699,7 @@ class FastMCP(Generic[LifespanResultT]):
                     title=title,
                     description=description,
                     mime_type=mime_type,
+                    # Note: Resource templates don't support icons
                 )
             else:
                 # Register as regular resource
@@ -689,6 +710,7 @@ class FastMCP(Generic[LifespanResultT]):
                     title=title,
                     description=description,
                     mime_type=mime_type,
+                    icons=icons,
                 )
                 self.add_resource(resource)
             return fn
@@ -704,7 +726,11 @@ class FastMCP(Generic[LifespanResultT]):
         self._prompt_manager.add_prompt(prompt)
 
     def prompt(
-        self, name: str | None = None, title: str | None = None, description: str | None = None
+        self,
+        name: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        icons: list[Icon] | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a prompt.
 
@@ -748,7 +774,7 @@ class FastMCP(Generic[LifespanResultT]):
             )
 
         def decorator(func: AnyFunction) -> AnyFunction:
-            prompt = Prompt.from_function(func, name=name, title=title, description=description)
+            prompt = Prompt.from_function(func, name=name, title=title, description=description, icons=icons)
             self.add_prompt(prompt)
             return func
 
@@ -1119,6 +1145,7 @@ class FastMCP(Generic[LifespanResultT]):
                     )
                     for arg in (prompt.arguments or [])
                 ],
+                icons=prompt.icons,
             )
             for prompt in prompts
         ]
