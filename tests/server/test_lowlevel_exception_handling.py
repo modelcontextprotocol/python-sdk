@@ -20,8 +20,7 @@ async def test_exception_handling_with_raise_exceptions_true():
     with pytest.raises(RuntimeError, match="Test error"):
         await server._handle_message(test_exception, session, {}, raise_exceptions=True)
 
-    # Should not send log message when re-raising
-    session.send_log_message.assert_not_called()
+    session.send_log_message.assert_called_once()
 
 
 @pytest.mark.anyio
