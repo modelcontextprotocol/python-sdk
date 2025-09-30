@@ -98,7 +98,7 @@ async def elicit_with_validation(
         related_request_id=related_request_id,
     )
 
-    if result.action == "accept" and result.content:
+    if result.action == "accept" and result.content is not None:
         # Validate and parse the content using the schema
         validated_data = schema.model_validate(result.content)
         return AcceptedElicitation(data=validated_data)
