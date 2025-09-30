@@ -392,11 +392,17 @@ class BaseSession(
                                     # call it with the progress information
                                     if progress_token in self._progress_callbacks:
                                         callback = self._progress_callbacks[progress_token]
-                                        await callback(
-                                            notification.root.params.progress,
-                                            notification.root.params.total,
-                                            notification.root.params.message,
-                                        )
+                                        try:
+                                            await callback(
+                                                notification.root.params.progress,
+                                                notification.root.params.total,
+                                                notification.root.params.message,
+                                            )
+                                        except Exception as e:
+                                            logging.error(
+                                                "Progress callback raised an exception: %s",
+                                                e,
+                                            )
                                 await self._received_notification(notification)
                                 await self._handle_incoming(notification)
                         except Exception as e:
