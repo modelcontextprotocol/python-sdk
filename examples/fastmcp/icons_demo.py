@@ -14,7 +14,7 @@ icon_path = Path(__file__).parent / "mcp.png"
 icon_data = base64.standard_b64encode(icon_path.read_bytes()).decode()
 icon_data_uri = f"data:image/png;base64,{icon_data}"
 
-icon_data = Icon(src=icon_data_uri, mimeType="image/png", sizes="64x64")
+icon_data = Icon(src=icon_data_uri, mimeType="image/png", sizes=["64x64"])
 
 # Create server with icons in implementation
 mcp = FastMCP("Icons Demo Server", website_url="https://github.com/modelcontextprotocol/python-sdk", icons=[icon_data])
@@ -40,9 +40,9 @@ def prompt_with_icon(text: str) -> str:
 
 @mcp.tool(
     icons=[
-        Icon(src=icon_data_uri, mimeType="image/png", sizes="16x16"),
-        Icon(src=icon_data_uri, mimeType="image/png", sizes="32x32"),
-        Icon(src=icon_data_uri, mimeType="image/png", sizes="64x64"),
+        Icon(src=icon_data_uri, mimeType="image/png", sizes=["16x16"]),
+        Icon(src=icon_data_uri, mimeType="image/png", sizes=["32x32"]),
+        Icon(src=icon_data_uri, mimeType="image/png", sizes=["64x64"]),
     ]
 )
 def multi_icon_tool(action: str) -> str:
