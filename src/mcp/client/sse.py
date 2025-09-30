@@ -107,7 +107,7 @@ async def sse_client(
                                     case _:
                                         logger.warning(f"Unknown SSE event: {sse.event}")
                         except SSEError as sse_exc:
-                            logger.error(f"SSE error: {sse_exc}")
+                            logger.exception("Encountered SSE exception")
                             raise sse_exc
                         except Exception as exc:
                             logger.error(f"Error in sse_reader: {exc}")
