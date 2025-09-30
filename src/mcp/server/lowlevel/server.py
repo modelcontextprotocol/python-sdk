@@ -650,13 +650,13 @@ class Server(Generic[LifespanResultT, RequestT]):
                     await self._handle_notification(notify)
                 case Exception():
                     logger.error(f"Received exception from stream: {message}")
-                    if raise_exceptions:
-                        raise message
                     await session.send_log_message(
                         level="error",
                         data="Internal Server Error",
                         logger="mcp.server.exception_handler",
                     )
+                    if raise_exceptions:
+                        raise message
 
             for warning in w:
                 logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
