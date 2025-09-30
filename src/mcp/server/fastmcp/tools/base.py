@@ -4,13 +4,14 @@ import functools
 import inspect
 from collections.abc import Callable
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, get_origin
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.fastmcp.utilities.context_injection import find_context_parameter
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
-from mcp.types import ToolAnnotations
+from mcp.types import Icon, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -32,6 +33,7 @@ class Tool(BaseModel):
     is_async: bool = Field(description="Whether the tool is async")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
     annotations: ToolAnnotations | None = Field(None, description="Optional annotations for the tool")
+    icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this tool")
 
     @cached_property
     def output_schema(self) -> dict[str, Any] | None:
@@ -46,11 +48,10 @@ class Tool(BaseModel):
         description: str | None = None,
         context_kwarg: str | None = None,
         annotations: ToolAnnotations | None = None,
+        icons: list[Icon] | None = None,
         structured_output: bool | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
-        from mcp.server.fastmcp.server import Context
-
         func_name = name or fn.__name__
 
         if func_name == "<lambda>":
@@ -60,13 +61,7 @@ class Tool(BaseModel):
         is_async = _is_async_callable(fn)
 
         if context_kwarg is None:
-            sig = inspect.signature(fn)
-            for param_name, param in sig.parameters.items():
-                if get_origin(param.annotation) is not None:
-                    continue
-                if issubclass(param.annotation, Context):
-                    context_kwarg = param_name
-                    break
+            context_kwarg = find_context_parameter(fn)
 
         func_arg_metadata = func_metadata(
             fn,
@@ -85,6 +80,7 @@ class Tool(BaseModel):
             is_async=is_async,
             context_kwarg=context_kwarg,
             annotations=annotations,
+            icons=icons,
         )
 
     async def run(
