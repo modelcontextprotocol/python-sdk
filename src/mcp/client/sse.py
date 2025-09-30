@@ -7,13 +7,16 @@ import anyio
 import httpx
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from httpx._config import DEFAULT_TIMEOUT_CONFIG
 from httpx_sse import aconnect_sse
 
 import mcp.types as types
-from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
+
+HTTPX_DEFAULT_TIMEOUT = DEFAULT_TIMEOUT_CONFIG
 
 
 def remove_request_params(url: str) -> str:
@@ -26,8 +29,8 @@ async def sse_client(
     headers: dict[str, Any] | None = None,
     timeout: float = 5,
     sse_read_timeout: float = 60 * 5,
-    httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
+    httpx_client: httpx.AsyncClient | None = None,
 ):
     """
     Client transport for SSE.
@@ -38,9 +41,12 @@ async def sse_client(
     Args:
         url: The SSE endpoint URL.
         headers: Optional headers to include in requests.
-        timeout: HTTP timeout for regular operations.
-        sse_read_timeout: Timeout for SSE read operations.
+        timeout: HTTP timeout for regular operations. Defaults to 5 seconds.
+        sse_read_timeout: Timeout for SSE read operations. Defaults to 300 seconds (5 minutes).
         auth: Optional HTTPX authentication handler.
+        httpx_client: Optional pre-configured httpx.AsyncClient. If provided, the client's
+            existing configuration is preserved. Timeout is only overridden if the provided
+            client uses httpx's default timeout configuration.
     """
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
@@ -51,14 +57,28 @@ async def sse_client(
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
+    if httpx_client is not None:
+        client = httpx_client
+        if not getattr(client, "follow_redirects", False):
+            logger.warning("httpx_client does not have follow_redirects=True, which is recommended for MCP")
+        if headers:
+            existing_headers = dict(client.headers) if client.headers else {}
+            existing_headers.update(headers)
+            client.headers = existing_headers
+        if auth and not client.auth:
+            client.auth = auth
+
+        if client.timeout == HTTPX_DEFAULT_TIMEOUT:
+            client.timeout = httpx.Timeout(timeout, read=sse_read_timeout)
+    else:
+        client = create_mcp_http_client(
+            headers=headers, auth=auth, timeout=httpx.Timeout(timeout, read=sse_read_timeout)
+        )
+
     async with anyio.create_task_group() as tg:
         try:
             logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
-            async with httpx_client_factory(
-                headers=headers,
-                timeout=httpx.Timeout(timeout, read=sse_read_timeout),
-                auth=auth,
-            ) as client:
+            async with client:
                 async with aconnect_sse(
                     client,
                     "GET",

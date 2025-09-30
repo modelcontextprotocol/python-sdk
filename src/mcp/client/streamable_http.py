@@ -16,9 +16,10 @@ import anyio
 import httpx
 from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from httpx._config import DEFAULT_TIMEOUT_CONFIG
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
-from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
     ErrorData,
@@ -33,6 +34,7 @@ from mcp.types import (
 
 logger = logging.getLogger(__name__)
 
+HTTPX_DEFAULT_TIMEOUT = DEFAULT_TIMEOUT_CONFIG
 
 SessionMessageOrError = SessionMessage | Exception
 StreamWriter = MemoryObjectSendStream[SessionMessageOrError]
@@ -448,8 +450,8 @@ async def streamablehttp_client(
     timeout: float | timedelta = 30,
     sse_read_timeout: float | timedelta = 60 * 5,
     terminate_on_close: bool = True,
-    httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
+    httpx_client: httpx.AsyncClient | None = None,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -464,6 +466,19 @@ async def streamablehttp_client(
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
 
+    Args:
+        url: The StreamableHTTP endpoint URL.
+        headers: Optional headers to include in requests.
+        timeout: HTTP timeout for regular operations. Defaults to 30 seconds.
+            Can be specified as float (seconds) or timedelta object.
+        sse_read_timeout: Timeout for SSE read operations. Defaults to 300 seconds (5 minutes).
+            Can be specified as float (seconds) or timedelta object.
+        terminate_on_close: Whether to send a terminate request when closing the connection.
+        auth: Optional HTTPX authentication handler.
+        httpx_client: Optional pre-configured httpx.AsyncClient. If provided, the client's
+            existing configuration is preserved. Timeout is only overridden if the provided
+            client uses httpx's default timeout configuration.
+
     Yields:
         Tuple containing:
             - read_stream: Stream for reading messages from the server
@@ -475,15 +490,30 @@ async def streamablehttp_client(
     read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
+    if httpx_client is not None:
+        client = httpx_client
+        if not getattr(client, "follow_redirects", False):
+            logger.warning("httpx_client does not have follow_redirects=True, which is recommended for MCP")
+        if headers:
+            existing_headers = dict(client.headers) if client.headers else {}
+            existing_headers.update(transport.request_headers)
+            client.headers = existing_headers
+        if auth and not client.auth:
+            client.auth = auth
+        if client.timeout == HTTPX_DEFAULT_TIMEOUT:
+            client.timeout = httpx.Timeout(transport.timeout, read=transport.sse_read_timeout)
+    else:
+        client = create_mcp_http_client(
+            headers=transport.request_headers,
+            timeout=httpx.Timeout(transport.timeout, read=transport.sse_read_timeout),
+            auth=transport.auth,
+        )
+
     async with anyio.create_task_group() as tg:
         try:
             logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 
-            async with httpx_client_factory(
-                headers=transport.request_headers,
-                timeout=httpx.Timeout(transport.timeout, read=transport.sse_read_timeout),
-                auth=transport.auth,
-            ) as client:
+            async with client:
                 # Define callbacks that need access to tg
                 def start_get_stream() -> None:
                     tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
