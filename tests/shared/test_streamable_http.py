@@ -25,7 +25,6 @@ import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
-from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.server.streamable_http import (
     MCP_PROTOCOL_VERSION_HEADER,
     MCP_SESSION_ID_HEADER,
@@ -39,6 +38,7 @@ from mcp.server.streamable_http import (
 )
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import ClientMessageMetadata
@@ -1395,7 +1395,7 @@ async def test_streamablehttp_request_context_propagation(context_aware_server: 
         "X-Trace-Id": "trace-123",
     }
 
-    async with httpx.AsyncClient(headers=custom_headers) as httpx_client:
+    async with create_mcp_http_client(headers=custom_headers) as httpx_client:
         async with streamable_http_client(f"{basic_server_url}/mcp", httpx_client=httpx_client) as (
             read_stream,
             write_stream,
@@ -1433,8 +1433,12 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
             "Authorization": f"Bearer token-{i}",
         }
 
-        async with httpx.AsyncClient(headers=headers) as httpx_client:
-            async with streamable_http_client(f"{basic_server_url}/mcp", httpx_client=httpx_client) as (read_stream, write_stream, _):
+        async with create_mcp_http_client(headers=headers) as httpx_client:
+            async with streamable_http_client(f"{basic_server_url}/mcp", httpx_client=httpx_client) as (
+                read_stream,
+                write_stream,
+                _,
+            ):
                 async with ClientSession(read_stream, write_stream) as session:
                     await session.initialize()
 

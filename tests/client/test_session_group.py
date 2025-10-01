@@ -284,6 +284,20 @@ class TestClientSessionGroup:
     ):
         with mock.patch("mcp.client.session_group.mcp.ClientSession") as mock_ClientSession_class:
             with mock.patch(patch_target_for_client_func) as mock_specific_client_func:
+                # For streamablehttp, also need to mock create_mcp_http_client
+                if client_type_name == "streamablehttp":
+                    mock_create_http_client = mock.patch("mcp.client.session_group.create_mcp_http_client")
+                    mock_create_http_client_func = mock_create_http_client.start()
+                    # Mock httpx_client returned by create_mcp_http_client
+                    mock_httpx_client = mock.AsyncMock(name="MockHttpxClient")
+                    mock_httpx_client.__aenter__.return_value = mock_httpx_client
+                    mock_httpx_client.__aexit__ = mock.AsyncMock(return_value=None)
+                    mock_create_http_client_func.return_value = mock_httpx_client
+                else:
+                    mock_create_http_client = None
+                    mock_create_http_client_func = None
+                    mock_httpx_client = None
+
                 mock_client_cm_instance = mock.AsyncMock(name=f"{client_type_name}ClientCM")
                 mock_read_stream = mock.AsyncMock(name=f"{client_type_name}Read")
                 mock_write_stream = mock.AsyncMock(name=f"{client_type_name}Write")
@@ -346,11 +360,22 @@ class TestClientSessionGroup:
                     )
                 elif client_type_name == "streamablehttp":
                     assert isinstance(server_params_instance, StreamableHttpParameters)
+                    # Verify create_mcp_http_client was called with headers and timeout
+                    import httpx
+
+                    assert mock_create_http_client_func is not None
+                    expected_timeout = httpx.Timeout(
+                        server_params_instance.timeout.total_seconds(),
+                        read=server_params_instance.sse_read_timeout.total_seconds(),
+                    )
+                    mock_create_http_client_func.assert_called_once_with(
+                        headers=server_params_instance.headers,
+                        timeout=expected_timeout,
+                    )
+                    # Verify streamable_http_client was called with url, httpx_client, and terminate_on_close
                     mock_specific_client_func.assert_called_once_with(
                         url=server_params_instance.url,
-                        headers=server_params_instance.headers,
-                        timeout=server_params_instance.timeout,
-                        sse_read_timeout=server_params_instance.sse_read_timeout,
+                        httpx_client=mock_httpx_client,
                         terminate_on_close=server_params_instance.terminate_on_close,
                     )
 
@@ -364,3 +389,7 @@ class TestClientSessionGroup:
                 # 3. Assert returned values
                 assert returned_server_info is mock_initialize_result.serverInfo
                 assert returned_session is mock_entered_session
+
+                # Clean up streamablehttp-specific mock
+                if mock_create_http_client:
+                    mock_create_http_client.stop()
