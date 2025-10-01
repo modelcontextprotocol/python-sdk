@@ -832,7 +832,7 @@ async def initialized_client_session(basic_server: None, basic_server_url: str):
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_basic_connection(basic_server, basic_server_url):
+async def test_streamable_http_client_basic_connection(basic_server: None, basic_server_url: str):
     """Test basic client connection with initialization."""
     async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
@@ -850,7 +850,7 @@ async def test_streamable_http_client_basic_connection(basic_server, basic_serve
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_resource_read(initialized_client_session):
+async def test_streamable_http_client_resource_read(initialized_client_session: ClientSession):
     """Test client resource read functionality."""
     response = await initialized_client_session.read_resource(uri=AnyUrl("foobar://test-resource"))
     assert len(response.contents) == 1
@@ -860,7 +860,7 @@ async def test_streamable_http_client_resource_read(initialized_client_session):
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_tool_invocation(initialized_client_session):
+async def test_streamable_http_client_tool_invocation(initialized_client_session: ClientSession):
     """Test client tool invocation."""
     # First list tools
     tools = await initialized_client_session.list_tools()
@@ -875,7 +875,7 @@ async def test_streamable_http_client_tool_invocation(initialized_client_session
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_error_handling(initialized_client_session):
+async def test_streamable_http_client_error_handling(initialized_client_session: ClientSession):
     """Test error handling in client."""
     with pytest.raises(McpError) as exc_info:
         await initialized_client_session.read_resource(uri=AnyUrl("unknown://test-error"))
@@ -884,7 +884,7 @@ async def test_streamable_http_client_error_handling(initialized_client_session)
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_session_persistence(basic_server, basic_server_url):
+async def test_streamable_http_client_session_persistence(basic_server: None, basic_server_url: str):
     """Test that session ID persists across requests."""
     async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
@@ -912,7 +912,7 @@ async def test_streamable_http_client_session_persistence(basic_server, basic_se
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_json_response(json_response_server, json_server_url):
+async def test_streamable_http_client_json_response(json_response_server: None, json_server_url: str):
     """Test client with JSON response mode."""
     async with streamable_http_client(f"{json_server_url}/mcp") as (
         read_stream,
@@ -940,7 +940,7 @@ async def test_streamable_http_client_json_response(json_response_server, json_s
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_get_stream(basic_server, basic_server_url):
+async def test_streamable_http_client_get_stream(basic_server: None, basic_server_url: str):
     """Test GET stream functionality for server-initiated messages."""
     import mcp.types as types
     from mcp.shared.session import RequestResponder
@@ -981,7 +981,7 @@ async def test_streamable_http_client_get_stream(basic_server, basic_server_url)
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_session_termination(basic_server, basic_server_url):
+async def test_streamable_http_client_session_termination(basic_server: None, basic_server_url: str):
     """Test client session termination functionality."""
 
     captured_session_id = None
@@ -1023,7 +1023,9 @@ async def test_streamable_http_client_session_termination(basic_server, basic_se
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_session_termination_204(basic_server, basic_server_url, monkeypatch):
+async def test_streamable_http_client_session_termination_204(
+    basic_server: None, basic_server_url: str, monkeypatch: pytest.MonkeyPatch
+):
     """Test client session termination functionality with a 204 response.
 
     This test patches the httpx client to return a 204 response for DELETEs.
@@ -1088,7 +1090,7 @@ async def test_streamable_http_client_session_termination_204(basic_server, basi
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_resumption(event_server):
+async def test_streamable_http_client_resumption(event_server: tuple[SimpleEventStore, str]):
     """Test client session resumption using sync primitives for reliable coordination."""
     _, server_url = event_server
 
