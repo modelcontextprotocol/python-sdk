@@ -5,8 +5,9 @@ cd to the `examples/snippets` directory and run:
     uv run async-sampling-client
 """
 
-import asyncio
 import os
+
+import anyio
 
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
@@ -77,7 +78,7 @@ async def test_content_generation(session: ClientSession):
                 print(f"Generation failed: {status.error}")
                 break
 
-            await asyncio.sleep(0.3)
+            await anyio.sleep(0.3)
 
 
 async def test_multi_step_generation(session: ClientSession):
@@ -107,7 +108,7 @@ async def test_multi_step_generation(session: ClientSession):
                 print(f"Multi-step generation failed: {status.error}")
                 break
 
-            await asyncio.sleep(0.3)
+            await anyio.sleep(0.3)
 
 
 async def run():
@@ -123,4 +124,4 @@ async def run():
 
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    anyio.run(run)

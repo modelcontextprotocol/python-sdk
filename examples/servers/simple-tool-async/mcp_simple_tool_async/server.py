@@ -1,5 +1,4 @@
-import asyncio
-
+import anyio
 import click
 import mcp.types as types
 import uvicorn
@@ -15,7 +14,7 @@ async def fetch_website(
 ) -> list[types.ContentBlock]:
     headers = {"User-Agent": "MCP Test Server (github.com/modelcontextprotocol/python-sdk)"}
     async with create_mcp_http_client(headers=headers) as client:
-        await asyncio.sleep(5)
+        await anyio.sleep(5)
         response = await client.get(url)
         response.raise_for_status()
         return [types.TextContent(type="text", text=response.text)]

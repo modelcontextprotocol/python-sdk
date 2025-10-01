@@ -5,11 +5,11 @@ cd to the `examples/snippets/clients` directory and run:
     uv run server async_tool_elicitation stdio
 """
 
-import asyncio
-
+import anyio
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 
 mcp = FastMCP("Async Tool Elicitation")
 
@@ -32,12 +32,12 @@ class FileOperationChoice(BaseModel):
 
 
 @mcp.tool(invocation_modes=["async"])
-async def process_with_confirmation(operation: str, ctx: Context) -> str:  # type: ignore[type-arg]
+async def process_with_confirmation(operation: str, ctx: Context[ServerSession, None]) -> str:
     """Process an operation that requires user confirmation."""
     await ctx.info(f"Starting operation: {operation}")
 
     # Simulate some initial processing
-    await asyncio.sleep(0.5)
+    await anyio.sleep(0.5)
     await ctx.report_progress(0.3, 1.0, "Initial processing complete")
 
     # Ask user for preferences
@@ -51,7 +51,7 @@ async def process_with_confirmation(operation: str, ctx: Context) -> str:  # typ
             await ctx.info(f"Continuing with {result.data.priority_level} priority")
             # Simulate processing based on user choice
             processing_time = {"low": 0.5, "normal": 1.0, "high": 1.5}.get(result.data.priority_level, 1.0)
-            await asyncio.sleep(processing_time)
+            await anyio.sleep(processing_time)
             await ctx.report_progress(1.0, 1.0, "Operation complete")
             return f"Operation '{operation}' completed successfully with {result.data.priority_level} priority"
         else:
@@ -63,12 +63,12 @@ async def process_with_confirmation(operation: str, ctx: Context) -> str:  # typ
 
 
 @mcp.tool(invocation_modes=["async"])
-async def file_operation(file_path: str, operation_type: str, ctx: Context) -> str:  # type: ignore[type-arg]
+async def file_operation(file_path: str, operation_type: str, ctx: Context[ServerSession, None]) -> str:
     """Perform file operation with user confirmation."""
     await ctx.info(f"Analyzing file: {file_path}")
 
     # Simulate initial analysis
-    await asyncio.sleep(1)
+    await anyio.sleep(1)
     await ctx.report_progress(0.3, 1.0, "File analysis complete")
 
     # Simulate finding something that requires user confirmation
@@ -84,11 +84,11 @@ async def file_operation(file_path: str, operation_type: str, ctx: Context) -> s
         if result.data.confirm_operation:
             if result.data.backup_first:
                 await ctx.info("Creating backup first...")
-                await asyncio.sleep(0.5)
+                await anyio.sleep(0.5)
                 await ctx.report_progress(0.7, 1.0, "Backup created")
 
             await ctx.info(f"Performing {operation_type} operation...")
-            await asyncio.sleep(1)
+            await anyio.sleep(1)
             await ctx.report_progress(1.0, 1.0, "Operation complete")
 
             backup_msg = " (with backup)" if result.data.backup_first else " (no backup)"

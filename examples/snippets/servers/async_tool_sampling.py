@@ -5,21 +5,22 @@ cd to the `examples/snippets/clients` directory and run:
     uv run server async_tool_sampling stdio
 """
 
-import asyncio
+import anyio
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 from mcp.types import SamplingMessage, TextContent
 
 mcp = FastMCP("Async Tool Sampling")
 
 
 @mcp.tool(invocation_modes=["async"])
-async def generate_content(topic: str, content_type: str, ctx: Context) -> str:  # type: ignore[type-arg]
+async def generate_content(topic: str, content_type: str, ctx: Context[ServerSession, None]) -> str:
     """Generate content using LLM sampling with progress updates."""
     await ctx.info(f"Starting {content_type} generation for topic: {topic}")
 
     # Simulate preparation
-    await asyncio.sleep(0.5)
+    await anyio.sleep(0.5)
     await ctx.report_progress(0.2, 1.0, "Preparing content generation")
 
     # Create prompt based on content type
@@ -48,7 +49,7 @@ async def generate_content(topic: str, content_type: str, ctx: Context) -> str: 
     await ctx.report_progress(0.8, 1.0, "Content generated")
 
     # Process the result
-    await asyncio.sleep(0.3)
+    await anyio.sleep(0.3)
     await ctx.report_progress(1.0, 1.0, "Processing complete")
 
     if result.content.type == "text":
@@ -60,7 +61,7 @@ async def generate_content(topic: str, content_type: str, ctx: Context) -> str: 
 
 
 @mcp.tool(invocation_modes=["async"])
-async def multi_step_generation(topic: str, steps: list[str], ctx: Context) -> dict[str, str]:  # type: ignore[type-arg]
+async def multi_step_generation(topic: str, steps: list[str], ctx: Context[ServerSession, None]) -> dict[str, str]:
     """Generate multiple pieces of content in sequence."""
     await ctx.info(f"Starting multi-step generation for: {topic}")
 
@@ -95,7 +96,7 @@ async def multi_step_generation(topic: str, steps: list[str], ctx: Context) -> d
         await ctx.report_progress(progress, 1.0, f"Completed step {i + 1}/{total_steps}: {step}")
 
         # Small delay between steps
-        await asyncio.sleep(0.2)
+        await anyio.sleep(0.2)
 
     await ctx.info(f"Multi-step generation complete! Generated {len(results)} pieces of content")
     return results

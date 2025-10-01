@@ -10,7 +10,6 @@ single-feature servers across different transports (SSE and StreamableHTTP).
 # pyright: reportUnknownVariableType=false
 # pyright: reportUnknownArgumentType=false
 
-import asyncio
 import json
 import logging
 import multiprocessing
@@ -18,6 +17,7 @@ import socket
 import time
 from collections.abc import Generator
 
+import anyio
 import pytest
 import uvicorn
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -741,7 +741,7 @@ async def test_async_tool_basic(server_transport: str, server_url: str) -> None:
                     pytest.fail(f"Async operation failed: {status.error}")
 
                 attempt += 1
-                await asyncio.sleep(0.5)
+                await anyio.sleep(0.5)
             else:
                 pytest.fail("Async operation timed out")
 
@@ -883,7 +883,7 @@ async def test_immediate_result_integration(server_transport: str, server_url: s
                     pytest.fail(f"Async operation failed: {status.error}")
 
                 attempt += 1
-                await asyncio.sleep(0.5)
+                await anyio.sleep(0.5)
             else:
                 pytest.fail("Async operation timed out")
 
@@ -937,10 +937,10 @@ async def test_immediate_result_backward_compatibility(server_transport: str, se
                     pytest.fail(f"Async operation failed: {status.error}")
 
                 attempt += 1
-                await asyncio.sleep(0.5)
+                await anyio.sleep(0.5)
             else:
                 pytest.fail("Async operation timed out")
-                await asyncio.sleep(0.01)
+                await anyio.sleep(0.01)
 
 
 # Test async progress notifications
@@ -1010,7 +1010,7 @@ async def test_async_tool_progress(server_transport: str, server_url: str) -> No
                     pytest.fail(f"Batch operation failed: {status.error}")
 
                 attempt += 1
-                await asyncio.sleep(0.3)
+                await anyio.sleep(0.3)
             else:
                 pytest.fail("Batch operation timed out")
 
@@ -1087,7 +1087,7 @@ async def test_async_tool_elicitation(server_transport: str, server_url: str) ->
                     pytest.fail(f"Elicitation operation failed: {status.error}")
 
                 attempt += 1
-                await asyncio.sleep(0.3)
+                await anyio.sleep(0.3)
             else:
                 pytest.fail("Elicitation operation timed out")
 
@@ -1155,6 +1155,6 @@ async def test_async_tool_sampling(server_transport: str, server_url: str) -> No
                     pytest.fail(f"Sampling operation failed: {status.error}")
 
                 attempt += 1
-                await asyncio.sleep(0.3)
+                await anyio.sleep(0.3)
             else:
                 pytest.fail("Sampling operation timed out")

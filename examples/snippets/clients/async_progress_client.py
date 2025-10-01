@@ -5,8 +5,9 @@ cd to the `examples/snippets` directory and run:
     uv run async-progress-client
 """
 
-import asyncio
 import os
+
+import anyio
 
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
@@ -58,7 +59,7 @@ async def test_batch_processing(session: ClientSession):
                 print(f"Operation failed: {status.error}")
                 break
 
-            await asyncio.sleep(0.3)
+            await anyio.sleep(0.3)
 
     print(f"Received {len(progress_updates)} progress updates")
 
@@ -91,7 +92,7 @@ async def test_data_pipeline(session: ClientSession):
                 print(f"Pipeline failed: {status.error}")
                 break
 
-            await asyncio.sleep(0.3)
+            await anyio.sleep(0.3)
 
 
 async def run():
@@ -107,4 +108,4 @@ async def run():
 
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    anyio.run(run)

@@ -1,6 +1,5 @@
 """Test async operations integration in lowlevel Server."""
 
-import asyncio
 import time
 from typing import cast
 
@@ -15,7 +14,8 @@ from mcp.shared.exceptions import McpError
 class TestLowlevelServerAsyncOperations:
     """Test lowlevel Server async operations integration."""
 
-    def test_check_async_status_invalid_token(self):
+    @pytest.mark.anyio
+    async def test_check_async_status_invalid_token(self):
         """Test get_operation_status handler with invalid token."""
         manager = ServerAsyncOperationManager()
         server = Server("Test", async_operations=manager)
@@ -32,16 +32,13 @@ class TestLowlevelServerAsyncOperations:
         handler = server.request_handlers[types.GetOperationStatusRequest]
 
         with pytest.raises(McpError) as exc_info:
-
-            async def run_handler():
-                return await handler(invalid_request)
-
-            asyncio.run(run_handler())
+            await handler(invalid_request)
 
         assert exc_info.value.error.code == -32602
         assert exc_info.value.error.message == "Invalid token"
 
-    def test_check_async_status_expired_token(self):
+    @pytest.mark.anyio
+    async def test_check_async_status_expired_token(self):
         """Test get_operation_status handler with expired token."""
         manager = ServerAsyncOperationManager()
         server = Server("Test", async_operations=manager)
@@ -62,16 +59,13 @@ class TestLowlevelServerAsyncOperations:
         handler = server.request_handlers[types.GetOperationStatusRequest]
 
         with pytest.raises(McpError) as exc_info:
-
-            async def run_handler():
-                return await handler(expired_request)
-
-            asyncio.run(run_handler())
+            await handler(expired_request)
 
         assert exc_info.value.error.code == -32602
         assert exc_info.value.error.message == "Token expired"
 
-    def test_check_async_status_valid_operation(self):
+    @pytest.mark.anyio
+    async def test_check_async_status_valid_operation(self):
         """Test get_operation_status handler with valid operation."""
         manager = ServerAsyncOperationManager()
         server = Server("Test", async_operations=manager)
@@ -88,17 +82,15 @@ class TestLowlevelServerAsyncOperations:
 
         handler = server.request_handlers[types.GetOperationStatusRequest]
 
-        async def run_handler():
-            return await handler(valid_request)
-
-        result = asyncio.run(run_handler())
+        result = await handler(valid_request)
 
         assert isinstance(result, types.ServerResult)
         status_result = cast(types.GetOperationStatusResult, result.root)
         assert status_result.status == "working"
         assert status_result.error is None
 
-    def test_check_async_status_failed_operation(self):
+    @pytest.mark.anyio
+    async def test_check_async_status_failed_operation(self):
         """Test get_operation_status handler with failed operation."""
         manager = ServerAsyncOperationManager()
         server = Server("Test", async_operations=manager)
@@ -115,17 +107,15 @@ class TestLowlevelServerAsyncOperations:
 
         handler = server.request_handlers[types.GetOperationStatusRequest]
 
-        async def run_handler():
-            return await handler(failed_request)
-
-        result = asyncio.run(run_handler())
+        result = await handler(failed_request)
 
         assert isinstance(result, types.ServerResult)
         status_result = cast(types.GetOperationStatusResult, result.root)
         assert status_result.status == "failed"
         assert status_result.error == "Something went wrong"
 
-    def test_get_async_result_invalid_token(self):
+    @pytest.mark.anyio
+    async def test_get_async_result_invalid_token(self):
         """Test get_operation_result handler with invalid token."""
         manager = ServerAsyncOperationManager()
         server = Server("Test", async_operations=manager)
@@ -141,16 +131,13 @@ class TestLowlevelServerAsyncOperations:
         handler = server.request_handlers[types.GetOperationPayloadRequest]
 
         with pytest.raises(McpError) as exc_info:
-
-            async def run_handler():
-                return await handler(invalid_request)
-
-            asyncio.run(run_handler())
+            await handler(invalid_request)
 
         assert exc_info.value.error.code == -32602
         assert exc_info.value.error.message == "Invalid token"
 
-    def test_get_async_result_expired_token(self):
+    @pytest.mark.anyio
+    async def test_get_async_result_expired_token(self):
         """Test get_operation_result handler with expired token."""
         manager = ServerAsyncOperationManager()
         server = Server("Test", async_operations=manager)
@@ -173,16 +160,13 @@ class TestLowlevelServerAsyncOperations:
         handler = server.request_handlers[types.GetOperationPayloadRequest]
 
         with pytest.raises(McpError) as exc_info:
-
-            async def run_handler():
-                return await handler(expired_request)
-
-            asyncio.run(run_handler())
+            await handler(expired_request)
 
         assert exc_info.value.error.code == -32602
         assert exc_info.value.error.message == "Token expired"
 
-    def test_get_async_result_not_completed(self):
+    @pytest.mark.anyio
+    async def test_get_async_result_not_completed(self):
         """Test get_operation_result handler with non-completed operation."""
         manager = ServerAsyncOperationManager()
         server = Server("Test", async_operations=manager)
@@ -202,16 +186,13 @@ class TestLowlevelServerAsyncOperations:
         handler = server.request_handlers[types.GetOperationPayloadRequest]
 
         with pytest.raises(McpError) as exc_info:
-
-            async def run_handler():
-                return await handler(working_request)
-
-            asyncio.run(run_handler())
+            await handler(working_request)
 
         assert exc_info.value.error.code == -32600
         assert exc_info.value.error.message == "Operation not completed (status: working)"
 
-    def test_get_async_result_completed_with_result(self):
+    @pytest.mark.anyio
+    async def test_get_async_result_completed_with_result(self):
         """Test get_operation_result handler with completed operation."""
         manager = ServerAsyncOperationManager()
         server = Server("Test", async_operations=manager)
@@ -231,10 +212,7 @@ class TestLowlevelServerAsyncOperations:
 
         handler = server.request_handlers[types.GetOperationPayloadRequest]
 
-        async def run_handler():
-            return await handler(completed_request)
-
-        response = asyncio.run(run_handler())
+        response = await handler(completed_request)
 
         assert isinstance(response, types.ServerResult)
         payload_result = cast(types.GetOperationPayloadResult, response.root)
@@ -244,7 +222,8 @@ class TestLowlevelServerAsyncOperations:
 class TestCancellationLogic:
     """Test cancellation logic for async operations."""
 
-    def test_handle_cancelled_notification(self):
+    @pytest.mark.anyio
+    async def test_handle_cancelled_notification(self):
         """Test handling of cancelled notifications."""
         manager = ServerAsyncOperationManager()
         server = Server("Test", async_operations=manager)
@@ -267,7 +246,8 @@ class TestCancellationLogic:
         # Verify mapping was cleaned up
         assert request_id not in server._request_to_operation
 
-    def test_cancelled_notification_handler(self):
+    @pytest.mark.anyio
+    async def test_cancelled_notification_handler(self):
         """Test the async cancelled notification handler."""
         manager = ServerAsyncOperationManager()
         server = Server("Test", async_operations=manager)
@@ -282,17 +262,15 @@ class TestCancellationLogic:
         # Create cancelled notification
         notification = types.CancelledNotification(params=types.CancelledNotificationParams(requestId=request_id))
 
-        # Handle the notification
-        import asyncio
-
-        asyncio.run(server._handle_cancelled_notification(notification))
+        await server._handle_cancelled_notification(notification)
 
         # Verify operation was cancelled
         cancelled_op = manager.get_operation(operation.token)
         assert cancelled_op is not None
         assert cancelled_op.status == "canceled"
 
-    def test_validate_operation_token_cancelled(self):
+    @pytest.mark.anyio
+    async def test_validate_operation_token_cancelled(self):
         """Test that cancelled operations are rejected."""
         manager = ServerAsyncOperationManager()
         server = Server("Test", async_operations=manager)
@@ -308,7 +286,8 @@ class TestCancellationLogic:
         assert exc_info.value.error.code == -32602
         assert "cancelled" in exc_info.value.error.message.lower()
 
-    def test_nonexistent_request_id_cancellation(self):
+    @pytest.mark.anyio
+    async def test_nonexistent_request_id_cancellation(self):
         """Test cancellation of non-existent request ID."""
         server = Server("Test")
 
@@ -322,7 +301,8 @@ class TestCancellationLogic:
 class TestInputRequiredBehavior:
     """Test input_required status handling for async operations."""
 
-    def test_mark_input_required(self):
+    @pytest.mark.anyio
+    async def test_mark_input_required(self):
         """Test marking operation as requiring input."""
         manager = ServerAsyncOperationManager()
 
@@ -339,7 +319,8 @@ class TestInputRequiredBehavior:
         assert updated_op is not None
         assert updated_op.status == "input_required"
 
-    def test_mark_input_required_from_working(self):
+    @pytest.mark.anyio
+    async def test_mark_input_required_from_working(self):
         """Test marking working operation as requiring input."""
         manager = ServerAsyncOperationManager()
 
@@ -353,7 +334,8 @@ class TestInputRequiredBehavior:
         assert result is True
         assert operation.status == "input_required"
 
-    def test_mark_input_required_invalid_states(self):
+    @pytest.mark.anyio
+    async def test_mark_input_required_invalid_states(self):
         """Test that input_required can only be set from valid states."""
         manager = ServerAsyncOperationManager()
 
@@ -365,7 +347,8 @@ class TestInputRequiredBehavior:
         assert result is False
         assert operation.status == "completed"
 
-    def test_mark_input_completed(self):
+    @pytest.mark.anyio
+    async def test_mark_input_completed(self):
         """Test marking input as completed."""
         manager = ServerAsyncOperationManager()
 
@@ -379,7 +362,8 @@ class TestInputRequiredBehavior:
         assert result is True
         assert operation.status == "working"
 
-    def test_mark_input_completed_invalid_state(self):
+    @pytest.mark.anyio
+    async def test_mark_input_completed_invalid_state(self):
         """Test that input can only be completed from input_required state."""
         manager = ServerAsyncOperationManager()
 
@@ -392,7 +376,8 @@ class TestInputRequiredBehavior:
         assert result is False
         assert operation.status == "submitted"
 
-    def test_nonexistent_token_operations(self):
+    @pytest.mark.anyio
+    async def test_nonexistent_token_operations(self):
         """Test input_required operations on nonexistent tokens."""
         manager = ServerAsyncOperationManager()
 
@@ -400,7 +385,8 @@ class TestInputRequiredBehavior:
         assert manager.mark_input_required("fake_token") is False
         assert manager.mark_input_completed("fake_token") is False
 
-    def test_server_send_request_for_operation(self):
+    @pytest.mark.anyio
+    async def test_server_send_request_for_operation(self):
         """Test server method for sending requests with operation tokens."""
         manager = ServerAsyncOperationManager()
         server = Server("Test", async_operations=manager)
@@ -427,7 +413,8 @@ class TestInputRequiredBehavior:
         assert updated_op is not None
         assert updated_op.status == "input_required"
 
-    def test_server_complete_request_for_operation(self):
+    @pytest.mark.anyio
+    async def test_server_complete_request_for_operation(self):
         """Test server method for completing requests."""
         manager = ServerAsyncOperationManager()
         server = Server("Test", async_operations=manager)
@@ -444,7 +431,8 @@ class TestInputRequiredBehavior:
         assert updated_op is not None
         assert updated_op.status == "working"
 
-    def test_input_required_is_terminal_check(self):
+    @pytest.mark.anyio
+    async def test_input_required_is_terminal_check(self):
         """Test that input_required is not considered a terminal state."""
         manager = ServerAsyncOperationManager()
 

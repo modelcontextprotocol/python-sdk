@@ -5,15 +5,16 @@ cd to the `examples/snippets/clients` directory and run:
     uv run server async_tool_progress stdio
 """
 
-import asyncio
+import anyio
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 
 mcp = FastMCP("Async Tool Progress")
 
 
 @mcp.tool(invocation_modes=["async"])
-async def batch_process(items: list[str], ctx: Context) -> list[str]:  # type: ignore[type-arg]
+async def batch_process(items: list[str], ctx: Context[ServerSession, None]) -> list[str]:
     """Process a batch of items with detailed progress reporting."""
     await ctx.info(f"Starting batch processing of {len(items)} items")
 
@@ -24,7 +25,7 @@ async def batch_process(items: list[str], ctx: Context) -> list[str]:  # type: i
 
         # Simulate variable processing time
         processing_time = 0.3 + (len(item) * 0.1)
-        await asyncio.sleep(processing_time)
+        await anyio.sleep(processing_time)
 
         # Report progress for this item
         progress = (i + 1) / len(items)
@@ -41,7 +42,7 @@ async def batch_process(items: list[str], ctx: Context) -> list[str]:  # type: i
 
 
 @mcp.tool(invocation_modes=["async"])
-async def data_pipeline(dataset: str, operations: list[str], ctx: Context) -> dict[str, str]:  # type: ignore[type-arg]
+async def data_pipeline(dataset: str, operations: list[str], ctx: Context[ServerSession, None]) -> dict[str, str]:
     """Execute a data processing pipeline with progress updates."""
     await ctx.info(f"Starting data pipeline for {dataset}")
 
@@ -53,7 +54,7 @@ async def data_pipeline(dataset: str, operations: list[str], ctx: Context) -> di
 
         # Simulate processing time that increases with complexity
         processing_time = 0.5 + (i * 0.2)
-        await asyncio.sleep(processing_time)
+        await anyio.sleep(processing_time)
 
         # Report progress
         progress = (i + 1) / total_ops

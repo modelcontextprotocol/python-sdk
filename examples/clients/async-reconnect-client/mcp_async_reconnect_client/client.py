@@ -1,5 +1,4 @@
-import asyncio
-
+import anyio
 import click
 from mcp import ClientSession, types
 from mcp.client.streamable_http import streamablehttp_client
@@ -30,7 +29,7 @@ async def call_async_tool(session: ClientSession, token: str | None):
             print(f"Operation failed: {status.error}")
             break
 
-        await asyncio.sleep(0.5)
+        await anyio.sleep(0.5)
 
 
 async def run_session(endpoint: str, token: str | None):
@@ -44,4 +43,4 @@ async def run_session(endpoint: str, token: str | None):
 @click.option("--endpoint", default="http://127.0.0.1:8000/mcp", help="Endpoint to connect to")
 @click.option("--token", default=None, help="Operation token to resume with")
 def main(endpoint: str, token: str | None):
-    asyncio.run(run_session(endpoint, token))
+    anyio.run(run_session, endpoint, token)

@@ -1,9 +1,9 @@
-import asyncio
 import base64
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
+import anyio
 import pytest
 from pydantic import AnyUrl, BaseModel
 from starlette.routing import Mount, Route
@@ -660,7 +660,7 @@ class TestServerTools:
         @mcp.tool(invocation_modes=["async"])
         async def async_add(a: int, b: int) -> int:
             """Add two numbers asynchronously."""
-            await asyncio.sleep(0.01)  # Simulate async work
+            await anyio.sleep(0.01)  # Simulate async work
             return a + b
 
         async with client_session(mcp._mcp_server, protocol_version="next") as client:
@@ -683,7 +683,7 @@ class TestServerTools:
                     break
                 elif status.status == "failed":
                     pytest.fail(f"Operation failed: {status.error}")
-                await asyncio.sleep(0.01)
+                await anyio.sleep(0.01)
 
     @pytest.mark.anyio
     async def test_async_tool_call_structured_output(self):
@@ -697,7 +697,7 @@ class TestServerTools:
         @mcp.tool(invocation_modes=["async"])
         async def async_structured_tool(x: int) -> AsyncResult:
             """Process data and return structured result."""
-            await asyncio.sleep(0.01)  # Simulate async work
+            await anyio.sleep(0.01)  # Simulate async work
             return AsyncResult(value=x * 2)
 
         async with client_session(mcp._mcp_server, protocol_version="next") as client:
@@ -718,7 +718,7 @@ class TestServerTools:
                     break
                 elif status.status == "failed":
                     pytest.fail(f"Operation failed: {status.error}")
-                await asyncio.sleep(0.01)
+                await anyio.sleep(0.01)
 
     @pytest.mark.anyio
     async def test_async_tool_call_validation_error(self):
@@ -728,7 +728,7 @@ class TestServerTools:
         @mcp.tool(invocation_modes=["async"])
         async def async_invalid_tool() -> list[int]:
             """Tool that returns invalid structured output."""
-            await asyncio.sleep(0.01)  # Simulate async work
+            await anyio.sleep(0.01)  # Simulate async work
             return [1, 2, 3, [4]]  # type: ignore
 
         async with client_session(mcp._mcp_server, protocol_version="next") as client:
@@ -747,7 +747,7 @@ class TestServerTools:
                     break
                 elif status.status == "completed":
                     pytest.fail("Operation should have failed due to validation error")
-                await asyncio.sleep(0.01)
+                await anyio.sleep(0.01)
 
     @pytest.mark.anyio
     async def test_tool_keep_alive_validation_no_sync_only(self):
@@ -814,7 +814,7 @@ class TestServerTools:
             assert operation_result.result is not None
 
             # Wait for keep_alive to expire (1 second + buffer)
-            await asyncio.sleep(1.2)
+            await anyio.sleep(1.2)
 
             # Operation should now be expired/unavailable
             with pytest.raises(Exception):  # Should raise error for expired operation
@@ -862,7 +862,7 @@ class TestServerTools:
             assert structured_data["count"] == 42
 
             # Wait for keep_alive to expire (1 second + buffer)
-            await asyncio.sleep(1.2)
+            await anyio.sleep(1.2)
 
             # Operation should now be expired/unavailable - validation should fail gracefully
             with pytest.raises(Exception):  # Should raise error for expired operation

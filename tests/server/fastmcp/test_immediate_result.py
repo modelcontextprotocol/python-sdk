@@ -1,7 +1,6 @@
 """Test immediate_result functionality in FastMCP."""
 
-import asyncio
-
+import anyio
 import pytest
 
 from mcp.server.fastmcp import FastMCP
@@ -127,7 +126,7 @@ class TestImmediateResultIntegration:
         @mcp.tool(invocation_modes=["async"], immediate_result=immediate_feedback)
         async def long_running_task(operation: str) -> str:
             """Perform a long-running task with immediate feedback."""
-            await asyncio.sleep(0.1)  # Simulate work
+            await anyio.sleep(0.1)  # Simulate work
             return f"Task '{operation}' completed!"
 
         # Test with "next" protocol version to see async tools
@@ -151,7 +150,7 @@ class TestImmediateResultIntegration:
         @mcp.tool(invocation_modes=["async"])
         async def simple_async_tool(message: str) -> str:
             """A simple async tool without immediate result."""
-            await asyncio.sleep(0.1)
+            await anyio.sleep(0.1)
             return f"Processed: {message}"
 
         # Test with "next" protocol version to see async tools
@@ -370,7 +369,7 @@ class TestImmediateResultPerformance:
 
         async def async_tool(message: str) -> str:
             execution_order.append("main")
-            await asyncio.sleep(0.1)
+            await anyio.sleep(0.1)
             return f"Completed: {message}"
 
         manager = ToolManager()
@@ -397,7 +396,7 @@ class TestImmediateResultRuntimeErrors:
             return [TextContent(type="text", text=f"Processing: {message}")]
 
         async def async_tool(message: str) -> str:
-            await asyncio.sleep(0.1)
+            await anyio.sleep(0.1)
             return f"Completed: {message}"
 
         mcp = FastMCP()
@@ -440,7 +439,7 @@ class TestImmediateResultRuntimeErrors:
                     break
                 elif status.status == "failed":
                     pytest.fail(f"Tool execution failed: {status}")
-                await asyncio.sleep(0.01)
+                await anyio.sleep(0.01)
 
     @pytest.mark.anyio
     async def test_immediate_result_exception_handling(self):
@@ -450,7 +449,7 @@ class TestImmediateResultRuntimeErrors:
             raise ValueError(f"Immediate result failed for: {message}")
 
         async def async_tool(message: str) -> str:
-            await asyncio.sleep(0.1)
+            await anyio.sleep(0.1)
             return f"Completed: {message}"
 
         mcp = FastMCP()
@@ -520,11 +519,11 @@ class TestImmediateResultRuntimeErrors:
         """Test that async exceptions in immediate_result are properly handled."""
 
         async def async_failing_immediate_fn(operation: str) -> list[ContentBlock]:
-            await asyncio.sleep(0.01)  # Make it truly async
+            await anyio.sleep(0.01)  # Make it truly async
             raise RuntimeError(f"Async immediate failure: {operation}")
 
         async def async_tool(operation: str) -> str:
-            await asyncio.sleep(0.1)
+            await anyio.sleep(0.1)
             return f"Operation {operation} completed"
 
         mcp = FastMCP()

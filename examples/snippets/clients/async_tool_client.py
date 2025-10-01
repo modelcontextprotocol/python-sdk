@@ -5,8 +5,9 @@ cd to the `examples/snippets` directory and run:
     uv run async-tool-client
 """
 
-import asyncio
 import os
+
+import anyio
 
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
@@ -44,7 +45,7 @@ async def call_async_tool(session: ClientSession):
                 print(f"Operation failed: {status.error}")
                 break
 
-            await asyncio.sleep(0.5)
+            await anyio.sleep(0.5)
 
 
 async def run():
@@ -56,4 +57,4 @@ async def run():
 
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    anyio.run(run)
