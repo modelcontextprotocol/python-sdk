@@ -45,7 +45,7 @@ class OAuthClientMetadata(BaseModel):
     # supported auth methods for the token endpoint
     token_endpoint_auth_method: Literal[
         "none", "client_secret_post", "client_secret_basic", "private_key_jwt"
-    ] = "client_secret_post"
+    ] | None = None
     # supported grant_types of this implementation
     grant_types: list[
         Literal["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"] | str
