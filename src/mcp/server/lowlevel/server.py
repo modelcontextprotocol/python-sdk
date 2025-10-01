@@ -67,7 +67,6 @@ messages from the client.
 
 from __future__ import annotations as _annotations
 
-import asyncio
 import contextvars
 import json
 import logging
@@ -556,19 +555,20 @@ class Server(Generic[LifespanResultT, RequestT]):
                                 logger.exception(f"Async execution failed for {tool_name}")
                                 self.async_operations.fail_operation(operation.token, str(e))
 
-                        asyncio.create_task(execute_async())
+                        async with anyio.create_task_group() as tg:
+                            tg.start_soon(execute_async)
 
-                        # Return operation result with immediate content
-                        logger.info(f"Returning async operation result for {tool_name}")
-                        return types.ServerResult(
-                            types.CallToolResult(
-                                content=immediate_content,
-                                operation=types.AsyncResultProperties(
-                                    token=operation.token,
-                                    keepAlive=operation.keep_alive,
-                                ),
+                            # Return operation result with immediate content
+                            logger.info(f"Returning async operation result for {tool_name}")
+                            return types.ServerResult(
+                                types.CallToolResult(
+                                    content=immediate_content,
+                                    operation=types.AsyncResultProperties(
+                                        token=operation.token,
+                                        keepAlive=operation.keep_alive,
+                                    ),
+                                )
                             )
-                        )
 
                     # tool call
                     results = await func(tool_name, arguments)
