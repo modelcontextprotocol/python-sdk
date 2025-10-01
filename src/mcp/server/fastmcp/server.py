@@ -354,11 +354,24 @@ class FastMCP(Generic[LifespanResultT]):
             return None  # Old clients don't see invocationMode field
 
         # New clients see the invocationMode field
-        if "async" in info.invocation_modes and len(info.invocation_modes) == 1:
+        modes = info.invocation_modes
+        if self._is_async_only(modes):
             return "async"  # Async-only
-        elif len(info.invocation_modes) > 1 or info.invocation_modes == ["sync"]:
+        if self._is_sync_only(modes) or self._is_hybrid(modes):
             return "sync"  # Hybrid or explicit sync
         return None
+
+    def _is_async_only(self, modes: list[InvocationMode]) -> bool:
+        """Return True if invocation_modes is async-only."""
+        return modes == ["async"]
+
+    def _is_sync_only(self, modes: list[InvocationMode]) -> bool:
+        """Return True if invocation_modes is sync-only."""
+        return modes == ["sync"]
+
+    def _is_hybrid(self, modes: list[InvocationMode]) -> bool:
+        """Return True if invocation_modes contains both sync and async."""
+        return "sync" in modes and "async" in modes and len(modes) > 1
 
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""

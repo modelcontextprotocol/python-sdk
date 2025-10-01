@@ -535,7 +535,15 @@ class Server(Generic[LifespanResultT, RequestT]):
                         )
                         logger.debug(f"Created async operation with token: {operation.token}")
 
-                        ctx = self.request_context
+                        # Add the operation token to the request context
+                        ctx = RequestContext(
+                            request_id=self.request_context.request_id,
+                            operation_token=self.request_context.operation_token,
+                            meta=self.request_context.meta,
+                            session=self.request_context.session,
+                            lifespan_context=self.request_context.lifespan_context,
+                            request=self.request_context.request,
+                        )
                         ctx.operation_token = operation.token
                         request_ctx.set(ctx)
 

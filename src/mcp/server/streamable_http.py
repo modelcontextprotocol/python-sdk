@@ -325,7 +325,8 @@ class StreamableHTTPServerTransport:
                     return bool(operation["token"])  # type: ignore
 
             return False
-        except (TypeError, KeyError, AttributeError):
+        except (TypeError, KeyError, AttributeError) as exc:
+            logger.exception("Exception in _is_async_operation_response: %s", exc)
             return False
 
     async def _handle_sse_mode(
