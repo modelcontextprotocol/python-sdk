@@ -1,5 +1,6 @@
 """Tests for StreamableHTTPSessionManager."""
 
+from http import HTTPStatus
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -200,6 +201,59 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
         "Session ID should be removed from _server_instances after an exception"
     )
     assert not manager._server_instances, "No sessions should be tracked after the only session crashes"
+
+
+@pytest.mark.anyio
+async def test_stateful_session_returning_http_not_found_when_not_found(
+    running_manager: tuple[StreamableHTTPSessionManager, Server],
+):
+    """Test that a request with a non-existent session ID returns HTTP 404 Not Found.
+
+    This is in accordance to the specification point 2.5.3 of:
+    https://modelcontextprotocol.io/specification/2025-06-18/basic/transports
+    """
+    manager, app = running_manager
+
+    mock_mcp_run = AsyncMock(return_value=None)
+    app.run = mock_mcp_run
+
+    sent_messages: list[Message] = []
+
+    async def mock_send(message: Message):
+        sent_messages.append(message)
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": [
+            (b"content-type", b"application/json"),
+            # The point of this test -- non-existent session ID:
+            (b"mcp-session-id", b"non-existent-session-id"),
+        ],
+    }
+
+    async def mock_receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    # Send the request with mcp-session-id header set to a non-existent value.
+    await manager.handle_request(scope, mock_receive, mock_send)
+
+    # Extract HTTP status and body from the messages.
+    http_status = None
+    body = None
+    for msg in sent_messages:
+        if msg["type"] == "http.response.start":
+            http_status = msg["status"]
+            break
+    for msg in sent_messages:
+        if msg["type"] == "http.response.body":
+            body = msg["body"]
+            break
+
+    assert http_status == HTTPStatus.NOT_FOUND, "Response status should be 404 Not Found"
+    assert body is not None, "Response body should not be None"
+    assert b"Not Found" in body, "Response body should indicate Not Found"
 
 
 @pytest.mark.anyio
