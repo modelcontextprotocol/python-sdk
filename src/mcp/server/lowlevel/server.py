@@ -544,6 +544,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                         async def execute_async():
                             try:
                                 logger.debug(f"Starting async execution of {tool_name}")
+                                self.async_operations.mark_working(operation.token)
                                 results = await func(tool_name, arguments)
                                 logger.debug(f"Async execution completed for {tool_name}")
 
