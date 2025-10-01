@@ -73,7 +73,7 @@ Result: <html>...</html>
 
 ## Configuration
 
-- `--endpoint` - MCP server endpoint (default: http://127.0.0.1:8000/mcp)
+- `--endpoint` - MCP server endpoint (default: <http://127.0.0.1:8000/mcp>)
 - `--token` - Operation token to resume with (optional)
 
 This example showcases the async tool capabilities introduced in MCP protocol version "next", allowing for long-running operations that can be resumed even if the client disconnects.
