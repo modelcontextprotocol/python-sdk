@@ -470,6 +470,8 @@ class ResourceTemplate(BaseMetadata):
     The MIME type for all resources that match this template. This should only be
     included if all resources matching this template have the same type.
     """
+    icons: list[Icon] | None = None
+    """An optional list of icons for this resource template."""
     annotations: Annotations | None = None
     meta: dict[str, Any] | None = Field(alias="_meta", default=None)
     """
