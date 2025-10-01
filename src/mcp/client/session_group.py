@@ -16,6 +16,7 @@ from types import TracebackType
 from typing import Any, TypeAlias
 
 import anyio
+import httpx
 from pydantic import BaseModel
 from typing_extensions import Self
 
@@ -24,6 +25,7 @@ from mcp import types
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.exceptions import McpError
 
 
@@ -250,11 +252,18 @@ class ClientSessionGroup:
                 )
                 read, write = await session_stack.enter_async_context(client)
             else:
+                httpx_client = create_mcp_http_client(
+                    headers=server_params.headers,
+                    timeout=httpx.Timeout(
+                        server_params.timeout.total_seconds(),
+                        read=server_params.sse_read_timeout.total_seconds(),
+                    ),
+                )
+                await session_stack.enter_async_context(httpx_client)
+
                 client = streamable_http_client(
                     url=server_params.url,
-                    headers=server_params.headers,
-                    timeout=server_params.timeout,
-                    sse_read_timeout=server_params.sse_read_timeout,
+                    httpx_client=httpx_client,
                     terminate_on_close=server_params.terminate_on_close,
                 )
                 read, write, _ = await session_stack.enter_async_context(client)

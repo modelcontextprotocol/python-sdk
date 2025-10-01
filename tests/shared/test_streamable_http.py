@@ -25,6 +25,7 @@ import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.server.streamable_http import (
     MCP_PROTOCOL_VERSION_HEADER,
     MCP_SESSION_ID_HEADER,
@@ -1006,18 +1007,19 @@ async def test_streamable_http_client_session_termination(basic_server, basic_se
     if captured_session_id:
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
 
-    async with streamable_http_client(f"{basic_server_url}/mcp", headers=headers) as (
-        read_stream,
-        write_stream,
-        _,
-    ):
-        async with ClientSession(read_stream, write_stream) as session:
-            # Attempt to make a request after termination
-            with pytest.raises(
-                McpError,
-                match="Session terminated",
-            ):
-                await session.list_tools()
+    async with create_mcp_http_client(headers=headers) as httpx_client:
+        async with streamable_http_client(f"{basic_server_url}/mcp", httpx_client=httpx_client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                # Attempt to make a request after termination
+                with pytest.raises(
+                    McpError,
+                    match="Session terminated",
+                ):
+                    await session.list_tools()
 
 
 @pytest.mark.anyio
@@ -1070,18 +1072,19 @@ async def test_streamable_http_client_session_termination_204(basic_server, basi
     if captured_session_id:
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
 
-    async with streamable_http_client(f"{basic_server_url}/mcp", headers=headers) as (
-        read_stream,
-        write_stream,
-        _,
-    ):
-        async with ClientSession(read_stream, write_stream) as session:
-            # Attempt to make a request after termination
-            with pytest.raises(
-                McpError,
-                match="Session terminated",
-            ):
-                await session.list_tools()
+    async with create_mcp_http_client(headers=headers) as httpx_client:
+        async with streamable_http_client(f"{basic_server_url}/mcp", httpx_client=httpx_client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                # Attempt to make a request after termination
+                with pytest.raises(
+                    McpError,
+                    match="Session terminated",
+                ):
+                    await session.list_tools()
 
 
 @pytest.mark.anyio
@@ -1168,39 +1171,41 @@ async def test_streamable_http_client_resumption(event_server):
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
     if captured_protocol_version:
         headers[MCP_PROTOCOL_VERSION_HEADER] = captured_protocol_version
-    async with streamable_http_client(f"{server_url}/mcp", headers=headers) as (
-        read_stream,
-        write_stream,
-        _,
-    ):
-        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
-            result = await session.send_request(
-                types.ClientRequest(
-                    types.CallToolRequest(
-                        params=types.CallToolRequestParams(name="release_lock", arguments={}),
-                    )
-                ),
-                types.CallToolResult,
-            )
-            metadata = ClientMessageMetadata(
-                resumption_token=captured_resumption_token,
-            )
 
-            result = await session.send_request(
-                types.ClientRequest(
-                    types.CallToolRequest(
-                        params=types.CallToolRequestParams(name="wait_for_lock_with_notification", arguments={}),
-                    )
-                ),
-                types.CallToolResult,
-                metadata=metadata,
-            )
-            assert len(result.content) == 1
-            assert result.content[0].type == "text"
-            assert result.content[0].text == "Completed"
+    async with create_mcp_http_client(headers=headers) as httpx_client:
+        async with streamable_http_client(f"{server_url}/mcp", httpx_client=httpx_client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+                result = await session.send_request(
+                    types.ClientRequest(
+                        types.CallToolRequest(
+                            params=types.CallToolRequestParams(name="release_lock", arguments={}),
+                        )
+                    ),
+                    types.CallToolResult,
+                )
+                metadata = ClientMessageMetadata(
+                    resumption_token=captured_resumption_token,
+                )
 
-            # We should have received the remaining notifications
-            assert len(captured_notifications) == 1
+                result = await session.send_request(
+                    types.ClientRequest(
+                        types.CallToolRequest(
+                            params=types.CallToolRequestParams(name="wait_for_lock_with_notification", arguments={}),
+                        )
+                    ),
+                    types.CallToolResult,
+                    metadata=metadata,
+                )
+                assert len(result.content) == 1
+                assert result.content[0].type == "text"
+                assert result.content[0].text == "Completed"
+
+                # We should have received the remaining notifications
+                assert len(captured_notifications) == 1
 
             assert isinstance(captured_notifications[0].root, types.LoggingMessageNotification)
             assert captured_notifications[0].root.params.data == "Second notification after lock"
@@ -1390,28 +1395,29 @@ async def test_streamablehttp_request_context_propagation(context_aware_server: 
         "X-Trace-Id": "trace-123",
     }
 
-    async with streamable_http_client(f"{basic_server_url}/mcp", headers=custom_headers) as (
-        read_stream,
-        write_stream,
-        _,
-    ):
-        async with ClientSession(read_stream, write_stream) as session:
-            result = await session.initialize()
-            assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "ContextAwareServer"
+    async with httpx.AsyncClient(headers=custom_headers) as httpx_client:
+        async with streamable_http_client(f"{basic_server_url}/mcp", httpx_client=httpx_client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                result = await session.initialize()
+                assert isinstance(result, InitializeResult)
+                assert result.serverInfo.name == "ContextAwareServer"
 
-            # Call the tool that echoes headers back
-            tool_result = await session.call_tool("echo_headers", {})
+                # Call the tool that echoes headers back
+                tool_result = await session.call_tool("echo_headers", {})
 
-            # Parse the JSON response
-            assert len(tool_result.content) == 1
-            assert isinstance(tool_result.content[0], TextContent)
-            headers_data = json.loads(tool_result.content[0].text)
+                # Parse the JSON response
+                assert len(tool_result.content) == 1
+                assert isinstance(tool_result.content[0], TextContent)
+                headers_data = json.loads(tool_result.content[0].text)
 
-            # Verify headers were propagated
-            assert headers_data.get("authorization") == "Bearer test-token"
-            assert headers_data.get("x-custom-header") == "test-value"
-            assert headers_data.get("x-trace-id") == "trace-123"
+                # Verify headers were propagated
+                assert headers_data.get("authorization") == "Bearer test-token"
+                assert headers_data.get("x-custom-header") == "test-value"
+                assert headers_data.get("x-trace-id") == "trace-123"
 
 
 @pytest.mark.anyio
@@ -1427,17 +1433,18 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
             "Authorization": f"Bearer token-{i}",
         }
 
-        async with streamable_http_client(f"{basic_server_url}/mcp", headers=headers) as (read_stream, write_stream, _):
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
+        async with httpx.AsyncClient(headers=headers) as httpx_client:
+            async with streamable_http_client(f"{basic_server_url}/mcp", httpx_client=httpx_client) as (read_stream, write_stream, _):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
 
-                # Call the tool that echoes context
-                tool_result = await session.call_tool("echo_context", {"request_id": f"request-{i}"})
+                    # Call the tool that echoes context
+                    tool_result = await session.call_tool("echo_context", {"request_id": f"request-{i}"})
 
-                assert len(tool_result.content) == 1
-                assert isinstance(tool_result.content[0], TextContent)
-                context_data = json.loads(tool_result.content[0].text)
-                contexts.append(context_data)
+                    assert len(tool_result.content) == 1
+                    assert isinstance(tool_result.content[0], TextContent)
+                    context_data = json.loads(tool_result.content[0].text)
+                    contexts.append(context_data)
 
     # Verify each request had its own context
     assert len(contexts) == 3

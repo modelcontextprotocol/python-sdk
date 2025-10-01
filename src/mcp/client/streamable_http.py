@@ -6,6 +6,7 @@ providing support for HTTP POST requests with optional SSE streaming responses
 and session management.
 """
 
+import contextlib
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -19,7 +20,12 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from typing_extensions import deprecated
 
-from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
+from mcp.shared._httpx_utils import (
+    MCP_DEFAULT_SSE_READ_TIMEOUT,
+    MCP_DEFAULT_TIMEOUT,
+    McpHttpClientFactory,
+    create_mcp_http_client,
+)
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
     ErrorData,
@@ -102,9 +108,9 @@ class StreamableHTTPTransport:
         self.session_id = None
         self.protocol_version = None
         self.request_headers = {
+            **self.headers,
             ACCEPT: f"{JSON}, {SSE}",
             CONTENT_TYPE: JSON,
-            **self.headers,
         }
 
     def _prepare_request_headers(self, base_headers: dict[str, str]) -> dict[str, str]:
@@ -445,12 +451,9 @@ class StreamableHTTPTransport:
 @asynccontextmanager
 async def streamable_http_client(
     url: str,
-    headers: dict[str, str] | None = None,
-    timeout: float | timedelta = 30,
-    sse_read_timeout: float | timedelta = 60 * 5,
+    *,
+    httpx_client: httpx.AsyncClient | None = None,
     terminate_on_close: bool = True,
-    httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
-    auth: httpx.Auth | None = None,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -462,30 +465,57 @@ async def streamable_http_client(
     """
     Client transport for StreamableHTTP.
 
-    `sse_read_timeout` determines how long (in seconds) the client will wait for a new
-    event before disconnecting. All other HTTP operations are controlled by `timeout`.
+    Args:
+        url: The MCP server endpoint URL.
+        httpx_client: Optional pre-configured httpx.AsyncClient. If None, a default
+            client with recommended MCP timeouts will be created. To configure headers,
+            authentication, or other HTTP settings, create an httpx.AsyncClient and pass it here.
+        terminate_on_close: If True, send a DELETE request to terminate the session
+            when the context exits.
 
     Yields:
         Tuple containing:
             - read_stream: Stream for reading messages from the server
             - write_stream: Stream for sending messages to the server
             - get_session_id_callback: Function to retrieve the current session ID
-    """
-    transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout, auth)
 
+    Example:
+        See examples/snippets/clients/ for usage patterns.
+    """
     read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
+
+    # Determine if we need to create and manage the client
+    client_provided = httpx_client is not None
+    client = httpx_client
+
+    if client is None:
+        # Create default client with recommended MCP timeouts
+        client = create_mcp_http_client()
+
+    # Extract configuration from the client to pass to transport
+    headers_dict = dict(client.headers) if client.headers else None
+    timeout = client.timeout.connect if (client.timeout and client.timeout.connect is not None) else MCP_DEFAULT_TIMEOUT
+    sse_read_timeout = (
+        client.timeout.read if (client.timeout and client.timeout.read is not None) else MCP_DEFAULT_SSE_READ_TIMEOUT
+    )
+    auth = client.auth
+
+    # Create transport with extracted configuration
+    transport = StreamableHTTPTransport(url, headers_dict, timeout, sse_read_timeout, auth)
+
+    # Sync client headers with transport's merged headers (includes MCP protocol requirements)
+    client.headers.update(transport.request_headers)
 
     async with anyio.create_task_group() as tg:
         try:
             logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 
-            async with httpx_client_factory(
-                headers=transport.request_headers,
-                timeout=httpx.Timeout(transport.timeout, read=transport.sse_read_timeout),
-                auth=transport.auth,
-            ) as client:
-                # Define callbacks that need access to tg
+            async with contextlib.AsyncExitStack() as stack:
+                # Only manage client lifecycle if we created it
+                if not client_provided:
+                    await stack.enter_async_context(client)
+
                 def start_get_stream() -> None:
                     tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
 
@@ -532,7 +562,24 @@ async def streamablehttp_client(
     ],
     None,
 ]:
-    async with streamable_http_client(
-        url, headers, timeout, sse_read_timeout, terminate_on_close, httpx_client_factory, auth
-    ) as streams:
-        yield streams
+    # Convert timeout parameters
+    timeout_seconds = timeout.total_seconds() if isinstance(timeout, timedelta) else timeout
+    sse_read_timeout_seconds = (
+        sse_read_timeout.total_seconds() if isinstance(sse_read_timeout, timedelta) else sse_read_timeout
+    )
+
+    # Create httpx client using the factory with old-style parameters
+    client = httpx_client_factory(
+        headers=headers,
+        timeout=httpx.Timeout(timeout_seconds, read=sse_read_timeout_seconds),
+        auth=auth,
+    )
+
+    # Manage client lifecycle since we created it
+    async with client:
+        async with streamable_http_client(
+            url,
+            httpx_client=client,
+            terminate_on_close=terminate_on_close,
+        ) as streams:
+            yield streams
