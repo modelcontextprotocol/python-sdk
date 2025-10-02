@@ -335,6 +335,7 @@ class FastMCP(Generic[LifespanResultT]):
                 title=template.title,
                 description=template.description,
                 mimeType=template.mime_type,
+                icons=template.icons,
             )
             for template in templates
         ]
@@ -559,7 +560,7 @@ class FastMCP(Generic[LifespanResultT]):
                     title=title,
                     description=description,
                     mime_type=mime_type,
-                    # Note: Resource templates don't support icons
+                    icons=icons,
                 )
             else:
                 # Register as regular resource

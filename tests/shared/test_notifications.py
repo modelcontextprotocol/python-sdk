@@ -1,5 +1,6 @@
 import asyncio
 from typing import Any, cast
+from unittest.mock import patch
 
 import anyio
 import pytest
@@ -11,6 +12,7 @@ from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
+from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.shared.message import SessionMessage
 from mcp.shared.progress import progress
 from mcp.shared.session import BaseSession, RequestResponder
@@ -328,6 +330,72 @@ async def test_progress_context_manager():
     assert server_progress_updates[3]["progress"] == 100
     assert server_progress_updates[3]["total"] == 100
     assert server_progress_updates[3]["message"] == "Processing results..."
+
+
+@pytest.mark.anyio
+async def test_progress_callback_exception_logging():
+    """Test that exceptions in progress callbacks are logged and \
+        don't crash the session."""
+    # Track logged warnings
+    logged_errors: list[str] = []
+
+    def mock_log_error(msg: str, *args: Any) -> None:
+        logged_errors.append(msg % args if args else msg)
+
+    # Create a progress callback that raises an exception
+    async def failing_progress_callback(progress: float, total: float | None, message: str | None) -> None:
+        raise ValueError("Progress callback failed!")
+
+    # Create a server with a tool that sends progress notifications
+    server = Server(name="TestProgressServer")
+
+    @server.call_tool()
+    async def handle_call_tool(name: str, arguments: Any) -> list[types.TextContent]:
+        if name == "progress_tool":
+            # Send a progress notification
+            await server.request_context.session.send_progress_notification(
+                progress_token=server.request_context.request_id,
+                progress=50.0,
+                total=100.0,
+                message="Halfway done",
+            )
+            return [types.TextContent(type="text", text="progress_result")]
+        raise ValueError(f"Unknown tool: {name}")
+
+    @server.list_tools()
+    async def handle_list_tools() -> list[types.Tool]:
+        return [
+            types.Tool(
+                name="progress_tool",
+                description="A tool that sends progress notifications",
+                inputSchema={},
+            )
+        ]
+
+    # Test with mocked logging
+    with patch("mcp.shared.session.logging.error", side_effect=mock_log_error):
+        async with create_connected_server_and_client_session(server) as client_session:
+            # Send a request with a failing progress callback
+            result = await client_session.send_request(
+                types.ClientRequest(
+                    types.CallToolRequest(
+                        method="tools/call",
+                        params=types.CallToolRequestParams(name="progress_tool", arguments={}),
+                    )
+                ),
+                types.CallToolResult,
+                progress_callback=failing_progress_callback,
+            )
+
+            # Verify the request completed successfully despite the callback failure
+            assert len(result.content) == 1
+            content = result.content[0]
+            assert isinstance(content, types.TextContent)
+            assert content.text == "progress_result"
+
+            # Check that a warning was logged for the progress callback exception
+            assert len(logged_errors) > 0
+            assert any("Progress callback raised an exception" in warning for warning in logged_errors)
 
 
 @pytest.mark.anyio
