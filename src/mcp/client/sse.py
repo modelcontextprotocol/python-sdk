@@ -8,6 +8,7 @@ import httpx
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import aconnect_sse
+from httpx_sse._exceptions import SSEError
 
 import mcp.types as types
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
@@ -106,6 +107,9 @@ async def sse_client(
                                         await read_stream_writer.send(session_message)
                                     case _:
                                         logger.warning(f"Unknown SSE event: {sse.event}")
+                        except SSEError as sse_exc:
+                            logger.exception("Encountered SSE exception")
+                            raise sse_exc
                         except Exception as exc:
                             logger.exception("Error in sse_reader")
                             await read_stream_writer.send(exc)
