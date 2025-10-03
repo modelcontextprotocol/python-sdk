@@ -77,6 +77,7 @@ from typing import Any, Generic, TypeAlias, cast
 
 import anyio
 import jsonschema
+from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 from typing_extensions import TypeVar
@@ -252,7 +253,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             wrapper = create_call_wrapper(func, types.ListPromptsRequest)
 
-            async def handler(req: types.ListPromptsRequest):
+            async def handler(req: types.ListPromptsRequest, _: Any = None):
                 result = await wrapper(req)
                 # Handle both old style (list[Prompt]) and new style (ListPromptsResult)
                 if isinstance(result, types.ListPromptsResult):
@@ -272,7 +273,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         ):
             logger.debug("Registering handler for GetPromptRequest")
 
-            async def handler(req: types.GetPromptRequest):
+            async def handler(req: types.GetPromptRequest, _: Any = None):
                 prompt_get = await func(req.params.name, req.params.arguments)
                 return types.ServerResult(prompt_get)
 
@@ -290,7 +291,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             wrapper = create_call_wrapper(func, types.ListResourcesRequest)
 
-            async def handler(req: types.ListResourcesRequest):
+            async def handler(req: types.ListResourcesRequest, _: Any = None):
                 result = await wrapper(req)
                 # Handle both old style (list[Resource]) and new style (ListResourcesResult)
                 if isinstance(result, types.ListResourcesResult):
@@ -308,7 +309,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(func: Callable[[], Awaitable[list[types.ResourceTemplate]]]):
             logger.debug("Registering handler for ListResourceTemplatesRequest")
 
-            async def handler(_: Any):
+            async def handler(_1: Any, _2: Any = None):
                 templates = await func()
                 return types.ServerResult(types.ListResourceTemplatesResult(resourceTemplates=templates))
 
@@ -323,7 +324,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         ):
             logger.debug("Registering handler for ReadResourceRequest")
 
-            async def handler(req: types.ReadResourceRequest):
+            async def handler(req: types.ReadResourceRequest, _: Any = None):
                 result = await func(req.params.uri)
 
                 def create_content(data: str | bytes, mime_type: str | None):
@@ -379,7 +380,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(func: Callable[[types.LoggingLevel], Awaitable[None]]):
             logger.debug("Registering handler for SetLevelRequest")
 
-            async def handler(req: types.SetLevelRequest):
+            async def handler(req: types.SetLevelRequest, _: Any = None):
                 await func(req.params.level)
                 return types.ServerResult(types.EmptyResult())
 
@@ -392,7 +393,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(func: Callable[[AnyUrl], Awaitable[None]]):
             logger.debug("Registering handler for SubscribeRequest")
 
-            async def handler(req: types.SubscribeRequest):
+            async def handler(req: types.SubscribeRequest, _: Any = None):
                 await func(req.params.uri)
                 return types.ServerResult(types.EmptyResult())
 
@@ -405,7 +406,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(func: Callable[[AnyUrl], Awaitable[None]]):
             logger.debug("Registering handler for UnsubscribeRequest")
 
-            async def handler(req: types.UnsubscribeRequest):
+            async def handler(req: types.UnsubscribeRequest, _: Any = None):
                 await func(req.params.uri)
                 return types.ServerResult(types.EmptyResult())
 
@@ -423,7 +424,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             wrapper = create_call_wrapper(func, types.ListToolsRequest)
 
-            async def handler(req: types.ListToolsRequest):
+            async def handler(req: types.ListToolsRequest, _: Any = None):
                 result = await wrapper(req)
 
                 # Handle both old style (list[Tool]) and new style (ListToolsResult)
@@ -493,7 +494,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         ):
             logger.debug("Registering handler for CallToolRequest")
 
-            async def handler(req: types.CallToolRequest):
+            async def handler(req: types.CallToolRequest, server_scope: TaskGroup):
                 try:
                     tool_name = req.params.name
                     arguments = req.params.arguments or {}
@@ -563,20 +564,20 @@ class Server(Generic[LifespanResultT, RequestT]):
                                 logger.exception(f"Async execution failed for {tool_name}")
                                 self.async_operations.fail_operation(operation.token, str(e))
 
-                        async with anyio.create_task_group() as tg:
-                            tg.start_soon(execute_async)
+                        # Dispatch in concurrency scope of the server to run between requests
+                        server_scope.start_soon(execute_async)
 
-                            # Return operation result with immediate content
-                            logger.info(f"Returning async operation result for {tool_name}")
-                            return types.ServerResult(
-                                types.CallToolResult(
-                                    content=immediate_content,
-                                    operation=types.AsyncResultProperties(
-                                        token=operation.token,
-                                        keepAlive=operation.keep_alive,
-                                    ),
-                                )
+                        # Return operation result with immediate content
+                        logger.info(f"Returning async operation result for {tool_name}")
+                        return types.ServerResult(
+                            types.CallToolResult(
+                                content=immediate_content,
+                                operation=types.AsyncResultProperties(
+                                    token=operation.token,
+                                    keepAlive=operation.keep_alive,
+                                ),
                             )
+                        )
 
                     # tool call
                     results = await func(tool_name, arguments)
@@ -690,7 +691,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         ):
             logger.debug("Registering handler for ProgressNotification")
 
-            async def handler(req: types.ProgressNotification):
+            async def handler(req: types.ProgressNotification, _: Any = None):
                 await func(
                     req.params.progressToken,
                     req.params.progress,
@@ -718,7 +719,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         ):
             logger.debug("Registering handler for CompleteRequest")
 
-            async def handler(req: types.CompleteRequest):
+            async def handler(req: types.CompleteRequest, _: Any = None):
                 completion = await func(req.params.ref, req.params.argument, req.params.context)
                 return types.ServerResult(
                     types.CompleteResult(
@@ -754,7 +755,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(func: Callable[[str], Awaitable[types.GetOperationStatusResult]]):
             logger.debug("Registering handler for GetOperationStatusRequest")
 
-            async def handler(req: types.GetOperationStatusRequest):
+            async def handler(req: types.GetOperationStatusRequest, _: Any = None):
                 # Validate token and get operation
                 operation = self._validate_operation_token(req.params.token)
 
@@ -776,7 +777,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(func: Callable[[str], Awaitable[types.GetOperationPayloadResult]]):
             logger.debug("Registering handler for GetOperationPayloadRequest")
 
-            async def handler(req: types.GetOperationPayloadRequest):
+            async def handler(req: types.GetOperationPayloadRequest, _: Any = None):
                 # Validate token and get operation
                 operation = self._validate_operation_token(req.params.token)
 
@@ -878,6 +879,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                             session,
                             lifespan_context,
                             raise_exceptions,
+                            tg,
                         )
             finally:
                 # Cancel session operations and stop cleanup task
@@ -892,13 +894,16 @@ class Server(Generic[LifespanResultT, RequestT]):
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool = False,
+        server_scope: TaskGroup | None = None,
     ):
         with warnings.catch_warnings(record=True) as w:
             # TODO(Marcelo): We should be checking if message is Exception here.
             match message:  # type: ignore[reportMatchNotExhaustive]
                 case RequestResponder(request=types.ClientRequest(root=req)) as responder:
                     with responder:
-                        await self._handle_request(message, req, session, lifespan_context, raise_exceptions)
+                        await self._handle_request(
+                            message, req, session, lifespan_context, raise_exceptions, server_scope
+                        )
                 case types.ClientNotification(root=notify):
                     await self._handle_notification(notify)
 
@@ -912,6 +917,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool,
+        server_scope: TaskGroup | None = None,
     ):
         logger.info("Processing request of type %s", type(req).__name__)
         if handler := self.request_handlers.get(type(req)):  # type: ignore
@@ -936,7 +942,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                         request=request_data,
                     )
                 )
-                response = await handler(req)
+                response = await handler(req, server_scope)
 
                 # Track async operations for cancellation
                 if isinstance(req, types.CallToolRequest):
@@ -985,5 +991,5 @@ class Server(Generic[LifespanResultT, RequestT]):
                 logger.exception("Uncaught exception in notification handler")
 
 
-async def _ping_handler(request: types.PingRequest) -> types.ServerResult:
+async def _ping_handler(request: types.PingRequest, _: Any = None) -> types.ServerResult:
     return types.ServerResult(types.EmptyResult())
