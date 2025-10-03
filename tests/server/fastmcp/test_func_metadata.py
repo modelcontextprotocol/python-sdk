@@ -14,6 +14,8 @@ from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.utilities.func_metadata import func_metadata
 
+from .test_wrapped import wrapped_function
+
 
 class SomeInputModelA(BaseModel):
     pass
@@ -1094,3 +1096,20 @@ def test_basemodel_reserved_names_with_json_preparsing():
     assert result["json"] == {"nested": "data"}
     assert result["model_dump"] == [1, 2, 3]
     assert result["normal"] == "plain string"
+
+
+@pytest.mark.anyio
+async def test_wrapped_annotations_func() -> None:
+    """Test that func_metadata works with wrapped annotations functions."""
+    meta = func_metadata(wrapped_function)
+
+    result = await meta.call_fn_with_arg_validation(
+        wrapped_function,
+        fn_is_async=False,
+        arguments_to_validate={
+            "literal": "test",
+        },
+        arguments_to_pass_directly=None,
+    )
+
+    assert result == "test"
