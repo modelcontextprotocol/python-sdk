@@ -1,5 +1,5 @@
 import pytest
-from pydantic import FileUrl
+from pydantic import AnyUrl
 
 from mcp.client.session import ClientSession
 from mcp.server.fastmcp.server import Context
@@ -20,11 +20,11 @@ async def test_list_roots_callback():
     callback_return = ListRootsResult(
         roots=[
             Root(
-                uri=FileUrl("file://users/fake/test"),
+                uri=AnyUrl("file://users/fake/test"),
                 name="Test Root 1",
             ),
             Root(
-                uri=FileUrl("file://users/fake/test/2"),
+                uri=AnyUrl("https://github.com/user/repo"),  # Non-file URL also works
                 name="Test Root 2",
             ),
         ]
