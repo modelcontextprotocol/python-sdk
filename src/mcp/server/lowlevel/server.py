@@ -479,7 +479,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         def decorator(
             func: Callable[
-                ...,
+                [str, dict[str, Any], dict[str, str] | None],
                 Awaitable[UnstructuredContent | StructuredContent | CombinationContent],
             ],
         ):
@@ -489,6 +489,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                 try:
                     tool_name = req.params.name
                     arguments = req.params.arguments or {}
+                    tool_requirements = getattr(req.params, 'tool_requirements', None)
                     tool = await self._get_cached_tool_definition(tool_name)
 
                     # input validation
@@ -499,7 +500,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                             return self._make_error_result(f"Input validation error: {e.message}")
 
                     # tool call
-                    results = await func(tool_name, arguments)
+                    results = await func(tool_name, arguments, tool_requirements)
 
                     # output normalization
                     unstructured_content: UnstructuredContent

@@ -305,10 +305,10 @@ class FastMCP(Generic[LifespanResultT]):
             request_context = None
         return Context(request_context=request_context, fastmcp=self)
 
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Sequence[ContentBlock] | dict[str, Any]:
-        """Call a tool by name with arguments."""
+    async def call_tool(self, name: str, arguments: dict[str, Any], tool_requirements: dict[str, str] | None = None) -> Sequence[ContentBlock] | dict[str, Any]:
+        """Call a tool by name with arguments and optional version requirements."""
         context = self.get_context()
-        return await self._tool_manager.call_tool(name, arguments, context=context, convert_result=True)
+        return await self._tool_manager.call_tool(name, arguments, tool_requirements=tool_requirements, context=context, convert_result=True)
 
     async def list_resources(self) -> list[MCPResource]:
         """List all available resources."""
@@ -361,6 +361,7 @@ class FastMCP(Generic[LifespanResultT]):
         name: str | None = None,
         title: str | None = None,
         description: str | None = None,
+        version: str | None = None,
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
         structured_output: bool | None = None,
@@ -386,6 +387,7 @@ class FastMCP(Generic[LifespanResultT]):
             name=name,
             title=title,
             description=description,
+            version=version,
             annotations=annotations,
             icons=icons,
             structured_output=structured_output,
@@ -396,6 +398,7 @@ class FastMCP(Generic[LifespanResultT]):
         name: str | None = None,
         title: str | None = None,
         description: str | None = None,
+        version: str | None = None,
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
         structured_output: bool | None = None,
@@ -443,6 +446,7 @@ class FastMCP(Generic[LifespanResultT]):
                 name=name,
                 title=title,
                 description=description,
+                version=version,
                 annotations=annotations,
                 icons=icons,
                 structured_output=structured_output,

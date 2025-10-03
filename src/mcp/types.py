@@ -157,6 +157,9 @@ METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
 
+# Tool versioning error codes
+UNSATISFIED_TOOL_VERSION = -32602  # Reusing INVALID_PARAMS code for tool version conflicts
+
 
 class ErrorData(BaseModel):
     """Error information for JSON-RPC error responses."""
@@ -873,6 +876,8 @@ class Tool(BaseMetadata):
 
     description: str | None = None
     """A human-readable description of the tool."""
+    version: str | None = None
+    """The semantic version of this tool. Must follow Semantic Versioning 2.0.0 standard (e.g., MAJOR.MINOR.PATCH). Examples: "1.2.3", "2.0.0", "0.1.0-alpha.1"."""
     inputSchema: dict[str, Any]
     """A JSON Schema object defining the expected parameters for the tool."""
     outputSchema: dict[str, Any] | None = None
@@ -903,6 +908,11 @@ class CallToolRequestParams(RequestParams):
 
     name: str
     arguments: dict[str, Any] | None = None
+    tool_requirements: dict[str, str] | None = None
+    """
+    A key-value map where the key is the tool name (string) and the value is a version specifier (string).
+    Version specifiers follow conventions from modern package managers and support operators like ^, ~, >, >=, <, <=, and exact versions.
+    """
     model_config = ConfigDict(extra="allow")
 
 
