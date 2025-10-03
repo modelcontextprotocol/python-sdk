@@ -172,6 +172,8 @@ class StreamableHTTPServerTransport:
             ],
         ] = {}
         self._terminated = False
+        # Track operation tokens to original request IDs for stream resumption
+        self._operation_to_request_id: dict[str, str] = {}
 
     @property
     def is_terminated(self) -> bool:
@@ -306,6 +308,94 @@ class StreamableHTTPServerTransport:
 
         return any(part == CONTENT_TYPE_JSON for part in content_type_parts)
 
+    def _is_async_operation_response(self, response_message: JSONRPCMessage) -> bool:
+        """Check if response is for an async operation that should keep stream open."""
+        try:
+            if not isinstance(response_message.root, JSONRPCResponse):
+                return False
+
+            result = response_message.root.result
+            if not result:
+                return False
+
+            # Check if result has _operation with token
+            if hasattr(result, "__getitem__") and "_operation" in result:
+                operation = result["_operation"]  # type: ignore
+                if hasattr(operation, "__getitem__") and "token" in operation:
+                    return bool(operation["token"])  # type: ignore
+
+            return False
+        except (TypeError, KeyError, AttributeError) as exc:
+            logger.exception("Exception in _is_async_operation_response: %s", exc)
+            return False
+
+    async def _handle_sse_mode(
+        self,
+        message: JSONRPCMessage,
+        request: Request,
+        writer: MemoryObjectSendStream[SessionMessage | Exception],
+        request_id: str,
+        request_stream_reader: MemoryObjectReceiveStream[EventMessage],
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        """Handle SSE response mode."""
+        # Create SSE stream
+        sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
+
+        async def sse_writer():
+            # Get the request ID from the incoming request message
+            try:
+                async with sse_stream_writer, request_stream_reader:
+                    # Process messages from the request-specific stream
+                    async for event_message in request_stream_reader:
+                        # Build the event data
+                        event_data = self._create_event_data(event_message)
+                        await sse_stream_writer.send(event_data)
+
+                        # If response, remove from pending streams and close
+                        if isinstance(
+                            event_message.message.root,
+                            JSONRPCResponse | JSONRPCError,
+                        ):
+                            break
+            except Exception:
+                logger.exception("Error in SSE writer")
+            finally:
+                logger.debug("Closing SSE writer")
+                await self._clean_up_memory_streams(request_id)
+
+        # Create and start EventSourceResponse
+        # SSE stream mode (original behavior)
+        # Set up headers
+        headers = {
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "Content-Type": CONTENT_TYPE_SSE,
+            **({MCP_SESSION_ID_HEADER: self.mcp_session_id} if self.mcp_session_id else {}),
+        }
+        response = EventSourceResponse(
+            content=sse_stream_reader,
+            data_sender_callable=sse_writer,
+            headers=headers,
+        )
+
+        # Start the SSE response (this will send headers immediately)
+        try:
+            # First send the response to establish the SSE connection
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(response, scope, receive, send)
+                # Then send the message to be processed by the server
+                metadata = ServerMessageMetadata(request_context=request)
+                session_message = SessionMessage(message, metadata=metadata)
+                await writer.send(session_message)
+        except Exception:
+            logger.exception("SSE response error")
+            await sse_stream_writer.aclose()
+            await sse_stream_reader.aclose()
+            await self._clean_up_memory_streams(request_id)
+
     async def _handle_post_request(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:
         """Handle POST requests containing JSON-RPC messages."""
         writer = self._read_stream_writer
@@ -399,6 +489,7 @@ class StreamableHTTPServerTransport:
                 metadata = ServerMessageMetadata(request_context=request)
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
+                should_pop_stream = True  # Default to cleaning up stream
                 try:
                     # Process messages from the request-specific stream
                     # We need to collect all messages until we get a response
@@ -416,6 +507,11 @@ class StreamableHTTPServerTransport:
 
                     # At this point we should have a response
                     if response_message:
+                        # Check if this is an async operation response - keep stream open
+                        if self._is_async_operation_response(response_message):
+                            # This is an async operation - keep the stream open for elicitation/sampling
+                            should_pop_stream = False
+
                         # Create JSON response
                         response = self._create_json_response(response_message)
                         await response(scope, receive, send)
@@ -436,62 +532,12 @@ class StreamableHTTPServerTransport:
                     )
                     await response(scope, receive, send)
                 finally:
-                    await self._clean_up_memory_streams(request_id)
-            else:
-                # Create SSE stream
-                sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
-
-                async def sse_writer():
-                    # Get the request ID from the incoming request message
-                    try:
-                        async with sse_stream_writer, request_stream_reader:
-                            # Process messages from the request-specific stream
-                            async for event_message in request_stream_reader:
-                                # Build the event data
-                                event_data = self._create_event_data(event_message)
-                                await sse_stream_writer.send(event_data)
-
-                                # If response, remove from pending streams and close
-                                if isinstance(
-                                    event_message.message.root,
-                                    JSONRPCResponse | JSONRPCError,
-                                ):
-                                    break
-                    except Exception:
-                        logger.exception("Error in SSE writer")
-                    finally:
-                        logger.debug("Closing SSE writer")
+                    if should_pop_stream:
                         await self._clean_up_memory_streams(request_id)
-
-                # Create and start EventSourceResponse
-                # SSE stream mode (original behavior)
-                # Set up headers
-                headers = {
-                    "Cache-Control": "no-cache, no-transform",
-                    "Connection": "keep-alive",
-                    "Content-Type": CONTENT_TYPE_SSE,
-                    **({MCP_SESSION_ID_HEADER: self.mcp_session_id} if self.mcp_session_id else {}),
-                }
-                response = EventSourceResponse(
-                    content=sse_stream_reader,
-                    data_sender_callable=sse_writer,
-                    headers=headers,
+            else:
+                await self._handle_sse_mode(
+                    message, request, writer, request_id, request_stream_reader, scope, receive, send
                 )
-
-                # Start the SSE response (this will send headers immediately)
-                try:
-                    # First send the response to establish the SSE connection
-                    async with anyio.create_task_group() as tg:
-                        tg.start_soon(response, scope, receive, send)
-                        # Then send the message to be processed by the server
-                        metadata = ServerMessageMetadata(request_context=request)
-                        session_message = SessionMessage(message, metadata=metadata)
-                        await writer.send(session_message)
-                except Exception:
-                    logger.exception("SSE response error")
-                    await sse_stream_writer.aclose()
-                    await sse_stream_reader.aclose()
-                    await self._clean_up_memory_streams(request_id)
 
         except Exception as err:
             logger.exception("Error handling POST request")
@@ -838,6 +884,38 @@ class StreamableHTTPServerTransport:
                             # If this response is for an existing request stream,
                             # send it there
                             target_request_id = response_id
+
+                            # Track operation tokens for stream resumption
+                            if (
+                                isinstance(message.root, JSONRPCResponse)
+                                and message.root.result
+                                and "_operation" in message.root.result
+                                and (
+                                    ("token" in message.root.result["_operation"])
+                                    and message.root.result["_operation"]["token"]
+                                )
+                            ):
+                                operation_token = message.root.result["_operation"]["token"]
+                                self._operation_to_request_id[operation_token] = response_id
+                                logger.info(f"Tracking operation token {operation_token} -> request {response_id}")
+                        elif (
+                            message.root.params
+                            and "_operation" in message.root.params
+                            and (
+                                ("token" in message.root.params["_operation"])
+                                and message.root.params["_operation"]["token"]
+                            )
+                        ):
+                            # Route operation-related messages back to the original request stream
+                            operation_token = message.root.params["_operation"]["token"]
+                            if operation_token in self._operation_to_request_id:
+                                target_request_id = self._operation_to_request_id[operation_token]
+                                logging.info(operation_token)
+                            else:
+                                logger.warning(
+                                    f"Operation token {operation_token} not found in mapping, using GET_STREAM_KEY"
+                                )
+                                target_request_id = GET_STREAM_KEY
                         # Extract related_request_id from meta if it exists
                         elif (
                             session_message.metadata is not None

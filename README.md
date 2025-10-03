@@ -487,6 +487,178 @@ def get_temperature(city: str) -> float:
 _Full example: [examples/snippets/servers/structured_output.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/structured_output.py)_
 <!-- /snippet-source -->
 
+#### Async Tools
+
+Tools can be configured to run asynchronously, allowing for long-running operations that execute in the background while clients poll for status and results. Async tools currently require protocol version `next` and support operation tokens for tracking execution state.
+
+Tools can specify their invocation mode: `sync` (default), `async`, or `["sync", "async"]` for hybrid tools that support both patterns. Async tools can provide immediate feedback while continuing to execute, and support configurable keep-alive duration for result availability.
+
+<!-- snippet-source examples/snippets/servers/async_tool_basic.py -->
+```python
+"""
+Basic async tool example.
+
+cd to the `examples/snippets/clients` directory and run:
+    uv run server async_tool_basic stdio
+"""
+
+import anyio
+
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
+
+mcp = FastMCP("Async Tool Basic")
+
+
+@mcp.tool(invocation_modes=["async"])
+async def analyze_data(dataset: str, ctx: Context[ServerSession, None]) -> str:
+    """Analyze a dataset asynchronously with progress updates."""
+    await ctx.info(f"Starting analysis of {dataset}")
+
+    # Simulate analysis with progress updates
+    for i in range(5):
+        await anyio.sleep(0.5)
+        progress = (i + 1) / 5
+        await ctx.report_progress(progress, 1.0, f"Processing step {i + 1}/5")
+
+    await ctx.info("Analysis complete")
+    return f"Analysis results for {dataset}: 95% accuracy achieved"
+
+
+@mcp.tool(invocation_modes=["sync", "async"])
+async def process_text(text: str, ctx: Context[ServerSession, None]) -> str:
+    """Process text in sync or async mode."""
+
+    await ctx.info(f"Processing text asynchronously: {text[:20]}...")
+    await anyio.sleep(0.3)
+
+    return f"Processed: {text.upper()}"
+
+
+if __name__ == "__main__":
+    mcp.run()
+```
+
+_Full example: [examples/snippets/servers/async_tool_basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/async_tool_basic.py)_
+<!-- /snippet-source -->
+
+Tools can also provide immediate feedback while continuing to execute asynchronously:
+
+<!-- snippet-source examples/snippets/servers/async_tool_immediate.py -->
+```python
+"""
+Async tool with immediate result example.
+
+cd to the `examples/snippets/clients` directory and run:
+    uv run server async_tool_immediate stdio
+"""
+
+import anyio
+
+from mcp import types
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
+
+mcp = FastMCP("Async Tool Immediate")
+
+
+async def provide_immediate_feedback(operation: str) -> list[types.ContentBlock]:
+    """Provide immediate feedback while async operation starts."""
+    return [types.TextContent(type="text", text=f"Starting {operation} operation. This will take a moment.")]
+
+
+@mcp.tool(invocation_modes=["async"], immediate_result=provide_immediate_feedback)
+async def long_analysis(operation: str, ctx: Context[ServerSession, None]) -> str:
+    """Perform long-running analysis with immediate user feedback."""
+    await ctx.info(f"Beginning {operation} analysis")
+
+    # Simulate long-running work
+    for i in range(4):
+        await anyio.sleep(1)
+        progress = (i + 1) / 4
+        await ctx.report_progress(progress, 1.0, f"Analysis step {i + 1}/4")
+
+    return f"Analysis '{operation}' completed with detailed results"
+
+
+if __name__ == "__main__":
+    mcp.run()
+```
+
+_Full example: [examples/snippets/servers/async_tool_immediate.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/async_tool_immediate.py)_
+<!-- /snippet-source -->
+
+Clients using protocol version `next` can interact with async tools by polling operation status and retrieving results:
+
+<!-- snippet-source examples/snippets/clients/async_tool_client.py -->
+```python
+"""
+Client example for async tools.
+
+cd to the `examples/snippets` directory and run:
+    uv run async-tool-client
+"""
+
+import os
+
+import anyio
+
+from mcp import ClientSession, StdioServerParameters, types
+from mcp.client.stdio import stdio_client
+
+# Server parameters for async tool example
+server_params = StdioServerParameters(
+    command="uv",
+    args=["run", "server", "async_tool_basic", "stdio"],
+    env={"UV_INDEX": os.environ.get("UV_INDEX", "")},
+)
+
+
+async def call_async_tool(session: ClientSession):
+    """Demonstrate calling an async tool."""
+    print("Calling async tool...")
+
+    result = await session.call_tool("analyze_data", arguments={"dataset": "customer_data.csv"})
+
+    if result.operation:
+        token = result.operation.token
+        print(f"Operation started with token: {token}")
+
+        # Poll for completion
+        while True:
+            status = await session.get_operation_status(token)
+            print(f"Status: {status.status}")
+
+            if status.status == "completed":
+                final_result = await session.get_operation_result(token)
+                for content in final_result.result.content:
+                    if isinstance(content, types.TextContent):
+                        print(f"Result: {content.text}")
+                break
+            elif status.status == "failed":
+                print(f"Operation failed: {status.error}")
+                break
+
+            await anyio.sleep(0.5)
+
+
+async def run():
+    """Run the async tool client example."""
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write, protocol_version="next") as session:
+            await session.initialize()
+            await call_async_tool(session)
+
+
+if __name__ == "__main__":
+    anyio.run(run)
+```
+
+_Full example: [examples/snippets/clients/async_tool_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/async_tool_client.py)_
+<!-- /snippet-source -->
+
+The `@mcp.tool()` decorator accepts `invocation_modes` to specify supported execution patterns, `immediate_result` to provide instant feedback for async tools, and `keep_alive` to set how long operation results remain available (default: 300 seconds).
+
 ### Prompts
 
 Prompts are reusable templates that help LLMs interact with your server effectively:

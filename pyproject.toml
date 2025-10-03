@@ -128,7 +128,7 @@ mccabe.max-complexity = 24  # Default is 10
 
 [tool.ruff.lint.pylint]
 allow-magic-value-types = ["bytes", "float", "int", "str"]
-max-args = 23         # Default is 5
+max-args = 24         # Default is 5
 max-branches = 23     # Default is 12
 max-returns = 13      # Default is 6
 max-statements = 102  # Default is 50

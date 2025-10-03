@@ -77,6 +77,7 @@ from typing import Any, Generic, TypeAlias, cast
 
 import anyio
 import jsonschema
+from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 from typing_extensions import TypeVar
@@ -86,10 +87,12 @@ from mcp.server.lowlevel.func_inspection import create_call_wrapper
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
+from mcp.shared.async_operations import ServerAsyncOperation, ServerAsyncOperationManager
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
+from mcp.types import Operation, RequestId
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +141,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
+        async_operations: ServerAsyncOperationManager | None = None,
         lifespan: Callable[
             [Server[LifespanResultT, RequestT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -149,10 +153,15 @@ class Server(Generic[LifespanResultT, RequestT]):
         self.website_url = website_url
         self.icons = icons
         self.lifespan = lifespan
+        self.async_operations = async_operations or ServerAsyncOperationManager()
+        # Track request ID to operation token mapping for cancellation
+        self._request_to_operation: dict[RequestId, str] = {}
         self.request_handlers: dict[type, Callable[..., Awaitable[types.ServerResult]]] = {
             types.PingRequest: _ping_handler,
         }
-        self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
+        self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {
+            types.CancelledNotification: self._handle_cancelled_notification,
+        }
         self._tool_cache: dict[str, types.Tool] = {}
         logger.debug("Initializing server %r", name)
 
@@ -244,7 +253,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             wrapper = create_call_wrapper(func, types.ListPromptsRequest)
 
-            async def handler(req: types.ListPromptsRequest):
+            async def handler(req: types.ListPromptsRequest, _: Any = None):
                 result = await wrapper(req)
                 # Handle both old style (list[Prompt]) and new style (ListPromptsResult)
                 if isinstance(result, types.ListPromptsResult):
@@ -264,7 +273,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         ):
             logger.debug("Registering handler for GetPromptRequest")
 
-            async def handler(req: types.GetPromptRequest):
+            async def handler(req: types.GetPromptRequest, _: Any = None):
                 prompt_get = await func(req.params.name, req.params.arguments)
                 return types.ServerResult(prompt_get)
 
@@ -282,7 +291,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             wrapper = create_call_wrapper(func, types.ListResourcesRequest)
 
-            async def handler(req: types.ListResourcesRequest):
+            async def handler(req: types.ListResourcesRequest, _: Any = None):
                 result = await wrapper(req)
                 # Handle both old style (list[Resource]) and new style (ListResourcesResult)
                 if isinstance(result, types.ListResourcesResult):
@@ -300,7 +309,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(func: Callable[[], Awaitable[list[types.ResourceTemplate]]]):
             logger.debug("Registering handler for ListResourceTemplatesRequest")
 
-            async def handler(_: Any):
+            async def handler(_1: Any, _2: Any = None):
                 templates = await func()
                 return types.ServerResult(types.ListResourceTemplatesResult(resourceTemplates=templates))
 
@@ -315,7 +324,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         ):
             logger.debug("Registering handler for ReadResourceRequest")
 
-            async def handler(req: types.ReadResourceRequest):
+            async def handler(req: types.ReadResourceRequest, _: Any = None):
                 result = await func(req.params.uri)
 
                 def create_content(data: str | bytes, mime_type: str | None):
@@ -371,7 +380,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(func: Callable[[types.LoggingLevel], Awaitable[None]]):
             logger.debug("Registering handler for SetLevelRequest")
 
-            async def handler(req: types.SetLevelRequest):
+            async def handler(req: types.SetLevelRequest, _: Any = None):
                 await func(req.params.level)
                 return types.ServerResult(types.EmptyResult())
 
@@ -384,7 +393,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(func: Callable[[AnyUrl], Awaitable[None]]):
             logger.debug("Registering handler for SubscribeRequest")
 
-            async def handler(req: types.SubscribeRequest):
+            async def handler(req: types.SubscribeRequest, _: Any = None):
                 await func(req.params.uri)
                 return types.ServerResult(types.EmptyResult())
 
@@ -397,7 +406,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(func: Callable[[AnyUrl], Awaitable[None]]):
             logger.debug("Registering handler for UnsubscribeRequest")
 
-            async def handler(req: types.UnsubscribeRequest):
+            async def handler(req: types.UnsubscribeRequest, _: Any = None):
                 await func(req.params.uri)
                 return types.ServerResult(types.EmptyResult())
 
@@ -415,7 +424,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             wrapper = create_call_wrapper(func, types.ListToolsRequest)
 
-            async def handler(req: types.ListToolsRequest):
+            async def handler(req: types.ListToolsRequest, _: Any = None):
                 result = await wrapper(req)
 
                 # Handle both old style (list[Tool]) and new style (ListToolsResult)
@@ -485,7 +494,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         ):
             logger.debug("Registering handler for CallToolRequest")
 
-            async def handler(req: types.CallToolRequest):
+            async def handler(req: types.CallToolRequest, server_scope: TaskGroup):
                 try:
                     tool_name = req.params.name
                     arguments = req.params.arguments or {}
@@ -498,46 +507,87 @@ class Server(Generic[LifespanResultT, RequestT]):
                         except jsonschema.ValidationError as e:
                             return self._make_error_result(f"Input validation error: {e.message}")
 
+                    # Check for async execution
+                    if tool and self.async_operations and self._should_execute_async(tool):
+                        keep_alive = self._get_tool_keep_alive(tool)
+                        immediate_content: list[types.ContentBlock] = []
+
+                        # Execute immediate result if available
+                        if self._has_immediate_result(tool):
+                            try:
+                                immediate_content = await self._execute_immediate_result(tool, arguments)
+                                logger.debug(f"Executed immediate result for {tool_name}")
+                            except McpError:
+                                # Re-raise McpError as-is
+                                raise
+                            except Exception as e:
+                                raise McpError(
+                                    types.ErrorData(
+                                        code=types.INTERNAL_ERROR,
+                                        message=f"Immediate result execution failed: {str(e)}",
+                                    )
+                                )
+
+                        # Create async operation
+                        operation = self.async_operations.create_operation(
+                            tool_name=tool_name,
+                            arguments=arguments,
+                            keep_alive=keep_alive,
+                        )
+                        logger.debug(f"Created async operation with token: {operation.token}")
+
+                        # Add the operation token to the request context
+                        ctx = RequestContext(
+                            request_id=self.request_context.request_id,
+                            operation_token=self.request_context.operation_token,
+                            meta=self.request_context.meta,
+                            session=self.request_context.session,
+                            lifespan_context=self.request_context.lifespan_context,
+                            request=self.request_context.request,
+                        )
+                        ctx.operation_token = operation.token
+                        request_ctx.set(ctx)
+
+                        # Start async execution in background
+                        async def execute_async():
+                            try:
+                                logger.debug(f"Starting async execution of {tool_name}")
+                                self.async_operations.mark_working(operation.token)
+                                results = await func(tool_name, arguments)
+                                logger.debug(f"Async execution completed for {tool_name}")
+
+                                # Process results using shared logic
+                                result = self._process_tool_result(results, tool)
+                                self.async_operations.complete_operation(operation.token, result)
+                                logger.debug(f"Completed async operation {operation.token}")
+                            except Exception as e:
+                                logger.exception(f"Async execution failed for {tool_name}")
+                                self.async_operations.fail_operation(operation.token, str(e))
+
+                        # Dispatch in concurrency scope of the server to run between requests
+                        server_scope.start_soon(execute_async)
+
+                        # Return operation result with immediate content
+                        logger.info(f"Returning async operation result for {tool_name}")
+                        return types.ServerResult(
+                            types.CallToolResult(
+                                content=immediate_content,
+                                operation=types.AsyncResultProperties(
+                                    token=operation.token,
+                                    keepAlive=operation.keep_alive,
+                                ),
+                            )
+                        )
+
                     # tool call
                     results = await func(tool_name, arguments)
 
-                    # output normalization
-                    unstructured_content: UnstructuredContent
-                    maybe_structured_content: StructuredContent | None
-                    if isinstance(results, tuple) and len(results) == 2:
-                        # tool returned both structured and unstructured content
-                        unstructured_content, maybe_structured_content = cast(CombinationContent, results)
-                    elif isinstance(results, dict):
-                        # tool returned structured content only
-                        maybe_structured_content = cast(StructuredContent, results)
-                        unstructured_content = [types.TextContent(type="text", text=json.dumps(results, indent=2))]
-                    elif hasattr(results, "__iter__"):
-                        # tool returned unstructured content only
-                        unstructured_content = cast(UnstructuredContent, results)
-                        maybe_structured_content = None
-                    else:
-                        return self._make_error_result(f"Unexpected return type from tool: {type(results).__name__}")
-
-                    # output validation
-                    if tool and tool.outputSchema is not None:
-                        if maybe_structured_content is None:
-                            return self._make_error_result(
-                                "Output validation error: outputSchema defined but no structured output returned"
-                            )
-                        else:
-                            try:
-                                jsonschema.validate(instance=maybe_structured_content, schema=tool.outputSchema)
-                            except jsonschema.ValidationError as e:
-                                return self._make_error_result(f"Output validation error: {e.message}")
-
-                    # result
-                    return types.ServerResult(
-                        types.CallToolResult(
-                            content=list(unstructured_content),
-                            structuredContent=maybe_structured_content,
-                            isError=False,
-                        )
-                    )
+                    # Process results using shared logic
+                    try:
+                        result = self._process_tool_result(results, tool)
+                        return types.ServerResult(result)
+                    except ValueError as e:
+                        return self._make_error_result(str(e))
                 except Exception as e:
                     return self._make_error_result(str(e))
 
@@ -546,13 +596,102 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return decorator
 
+    def _process_tool_result(
+        self, results: UnstructuredContent | StructuredContent | CombinationContent, tool: types.Tool | None = None
+    ) -> types.CallToolResult:
+        """Process tool results and create CallToolResult with validation."""
+        # output normalization
+        unstructured_content: UnstructuredContent
+        maybe_structured_content: StructuredContent | None
+        if isinstance(results, tuple) and len(results) == 2:
+            # tool returned both structured and unstructured content
+            unstructured_content, maybe_structured_content = cast(CombinationContent, results)
+        elif isinstance(results, dict):
+            # tool returned structured content only
+            maybe_structured_content = cast(StructuredContent, results)
+            unstructured_content = [types.TextContent(type="text", text=json.dumps(results, indent=2))]
+        elif hasattr(results, "__iter__"):
+            # tool returned unstructured content only
+            unstructured_content = cast(UnstructuredContent, results)
+            maybe_structured_content = None
+        else:
+            raise ValueError(f"Unexpected return type from tool: {type(results).__name__}")
+
+        # output validation
+        if tool and tool.outputSchema is not None:
+            if maybe_structured_content is None:
+                raise ValueError("Output validation error: outputSchema defined but no structured output returned")
+            else:
+                try:
+                    jsonschema.validate(instance=maybe_structured_content, schema=tool.outputSchema)
+                except jsonschema.ValidationError as e:
+                    raise ValueError(f"Output validation error: {e.message}")
+
+        # result
+        return types.CallToolResult(
+            content=list(unstructured_content),
+            structuredContent=maybe_structured_content,
+            isError=False,
+            _operation=Operation(token=self.request_context.operation_token)
+            if self.request_context and self.request_context.operation_token
+            else None,
+        )
+
+    def _should_execute_async(self, tool: types.Tool) -> bool:
+        """Check if a tool should be executed asynchronously."""
+        # Check if client supports async tools (protocol version "next")
+        try:
+            if self.request_context and self.request_context.session.client_params:
+                client_version = str(self.request_context.session.client_params.protocolVersion)
+                if client_version != "next":
+                    return False
+            else:
+                return False
+        except (AttributeError, ValueError):
+            return False
+
+        # Check if tool is async-only
+        invocation_mode = getattr(tool, "invocationMode", None)
+        return invocation_mode == "async"
+
+    def _get_tool_keep_alive(self, tool: types.Tool) -> int:
+        """Get the keepalive value for an async tool."""
+        if tool.internal.keepalive is None:
+            raise ValueError(f"keepalive not defined for tool {tool.name}")
+        return tool.internal.keepalive
+
+    def _has_immediate_result(self, tool: types.Tool) -> bool:
+        """Check if tool has immediate_result function."""
+        return tool.internal.immediate_result is not None and callable(tool.internal.immediate_result)
+
+    async def _execute_immediate_result(self, tool: types.Tool, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        """Execute immediate result function and return content blocks."""
+        immediate_fn = tool.internal.immediate_result
+
+        if immediate_fn is None:
+            raise ValueError(f"No immediate_result function found for tool {tool.name}")
+
+        # Validate function signature and execute
+        try:
+            result = await immediate_fn(**arguments)
+            if not isinstance(result, list):
+                raise ValueError("immediate_result must return list[ContentBlock]")
+            return cast(list[types.ContentBlock], result)
+        except McpError:
+            # Re-raise McpError as-is
+            raise
+        except Exception as e:
+            raise McpError(
+                types.ErrorData(code=types.INTERNAL_ERROR, message=f"Immediate result execution error: {str(e)}")
+            )
+
     def progress_notification(self):
         def decorator(
             func: Callable[[str | int, float, float | None, str | None], Awaitable[None]],
         ):
             logger.debug("Registering handler for ProgressNotification")
 
-            async def handler(req: types.ProgressNotification):
+            async def handler(req: types.ProgressNotification, _: Any = None):
                 await func(
                     req.params.progressToken,
                     req.params.progress,
@@ -580,7 +719,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         ):
             logger.debug("Registering handler for CompleteRequest")
 
-            async def handler(req: types.CompleteRequest):
+            async def handler(req: types.CompleteRequest, _: Any = None):
                 completion = await func(req.params.ref, req.params.argument, req.params.context)
                 return types.ServerResult(
                     types.CompleteResult(
@@ -594,6 +733,110 @@ class Server(Generic[LifespanResultT, RequestT]):
             return func
 
         return decorator
+
+    def _validate_operation_token(self, token: str) -> ServerAsyncOperation:
+        """Validate operation token and return operation if valid."""
+        operation = self.async_operations.get_operation(token)
+        if not operation:
+            raise McpError(types.ErrorData(code=-32602, message="Invalid token"))
+
+        if operation.is_expired:
+            raise McpError(types.ErrorData(code=-32602, message="Token expired"))
+
+        # Check if operation was cancelled - ignore subsequent requests
+        if operation.status == "canceled":
+            raise McpError(types.ErrorData(code=-32602, message="Operation was cancelled"))
+
+        return operation
+
+    def get_operation_status(self):
+        """Register a handler for checking async tool execution status."""
+
+        def decorator(func: Callable[[str], Awaitable[types.GetOperationStatusResult]]):
+            logger.debug("Registering handler for GetOperationStatusRequest")
+
+            async def handler(req: types.GetOperationStatusRequest, _: Any = None):
+                # Validate token and get operation
+                operation = self._validate_operation_token(req.params.token)
+
+                return types.ServerResult(
+                    types.GetOperationStatusResult(
+                        status=operation.status,
+                        error=operation.error,
+                    )
+                )
+
+            self.request_handlers[types.GetOperationStatusRequest] = handler
+            return func
+
+        return decorator
+
+    def get_operation_result(self):
+        """Register a handler for retrieving async tool execution results."""
+
+        def decorator(func: Callable[[str], Awaitable[types.GetOperationPayloadResult]]):
+            logger.debug("Registering handler for GetOperationPayloadRequest")
+
+            async def handler(req: types.GetOperationPayloadRequest, _: Any = None):
+                # Validate token and get operation
+                operation = self._validate_operation_token(req.params.token)
+
+                if operation.status != "completed":
+                    raise McpError(
+                        types.ErrorData(code=-32600, message=f"Operation not completed (status: {operation.status})")
+                    )
+
+                if not operation.result:
+                    raise McpError(types.ErrorData(code=-32600, message="No result available for completed operation"))
+
+                return types.ServerResult(types.GetOperationPayloadResult(result=operation.result))
+
+            self.request_handlers[types.GetOperationPayloadRequest] = handler
+            return func
+
+        return decorator
+
+    def handle_cancelled_notification(self, request_id: RequestId) -> None:
+        """Handle cancellation notification for a request."""
+        # Check if this request ID corresponds to an async operation
+        if request_id in self._request_to_operation:
+            token = self._request_to_operation[request_id]
+            # Cancel the operation
+            if self.async_operations.cancel_operation(token):
+                logger.debug(f"Cancelled async operation {token} for request {request_id}")
+            # Clean up the mapping
+            del self._request_to_operation[request_id]
+
+    async def _handle_cancelled_notification(self, notification: types.CancelledNotification) -> None:
+        """Handle cancelled notification from client."""
+        request_id = notification.params.requestId
+        logger.debug(f"Received cancellation notification for request {request_id}")
+        self.handle_cancelled_notification(request_id)
+
+    def send_request_for_operation(self, token: str, request: types.ServerRequest) -> None:
+        """Send a request associated with an async operation."""
+        # Mark operation as requiring input
+        if self.async_operations.mark_input_required(token):
+            # Add operation token to request
+            if hasattr(request.root, "params") and request.root.params is not None:
+                if not hasattr(request.root.params, "operation") or request.root.params.operation is None:
+                    request.root.params.operation = Operation(token=token)
+            logger.debug(f"Marked operation {token} as input_required and added to request")
+
+    def send_notification_for_operation(self, token: str, notification: types.ServerNotification) -> None:
+        """Send a notification associated with an async operation."""
+        # Mark operation as requiring input
+        if self.async_operations.mark_input_required(token):
+            # Add operation token to notification
+            if hasattr(notification.root, "params") and notification.root.params is not None:
+                if not hasattr(notification.root.params, "operation") or notification.root.params.operation is None:
+                    notification.root.params.operation = Operation(token=token)
+            logger.debug(f"Marked operation {token} as input_required and added to notification")
+
+    def complete_request_for_operation(self, token: str) -> None:
+        """Mark that a request for an operation has been completed."""
+        if self.async_operations.mark_input_completed(token):
+            logger.debug(f"Marked operation {token} as no longer requiring input")
 
     async def run(
         self,
@@ -622,17 +865,25 @@ class Server(Generic[LifespanResultT, RequestT]):
                 )
             )
 
-            async with anyio.create_task_group() as tg:
-                async for message in session.incoming_messages:
-                    logger.debug("Received message: %s", message)
+            # Start async operations cleanup task
+            await self.async_operations.start_cleanup_task()
 
-                    tg.start_soon(
-                        self._handle_message,
-                        message,
-                        session,
-                        lifespan_context,
-                        raise_exceptions,
-                    )
+            try:
+                async with anyio.create_task_group() as tg:
+                    async for message in session.incoming_messages:
+                        logger.debug("Received message: %s", message)
+
+                        tg.start_soon(
+                            self._handle_message,
+                            message,
+                            session,
+                            lifespan_context,
+                            raise_exceptions,
+                            tg,
+                        )
+            finally:
+                # Stop cleanup task
+                await self.async_operations.stop_cleanup_task()
 
     async def _handle_message(
         self,
@@ -640,13 +891,16 @@ class Server(Generic[LifespanResultT, RequestT]):
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool = False,
+        server_scope: TaskGroup | None = None,
     ):
         with warnings.catch_warnings(record=True) as w:
             # TODO(Marcelo): We should be checking if message is Exception here.
             match message:  # type: ignore[reportMatchNotExhaustive]
                 case RequestResponder(request=types.ClientRequest(root=req)) as responder:
                     with responder:
-                        await self._handle_request(message, req, session, lifespan_context, raise_exceptions)
+                        await self._handle_request(
+                            message, req, session, lifespan_context, raise_exceptions, server_scope
+                        )
                 case types.ClientNotification(root=notify):
                     await self._handle_notification(notify)
 
@@ -660,12 +914,13 @@ class Server(Generic[LifespanResultT, RequestT]):
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool,
+        server_scope: TaskGroup | None = None,
     ):
         logger.info("Processing request of type %s", type(req).__name__)
         if handler := self.request_handlers.get(type(req)):  # type: ignore
             logger.debug("Dispatching request of type %s", type(req).__name__)
 
-            token = None
+            context_token = None
             try:
                 # Extract request context from message metadata
                 request_data = None
@@ -674,16 +929,27 @@ class Server(Generic[LifespanResultT, RequestT]):
 
                 # Set our global state that can be retrieved via
                 # app.get_request_context()
-                token = request_ctx.set(
+                context_token = request_ctx.set(
                     RequestContext(
-                        message.request_id,
-                        message.request_meta,
-                        session,
-                        lifespan_context,
+                        request_id=message.request_id,
+                        operation_token=message.operation.token if message.operation else None,
+                        meta=message.request_meta,
+                        session=session,
+                        lifespan_context=lifespan_context,
                         request=request_data,
                     )
                 )
-                response = await handler(req)
+                response = await handler(req, server_scope)
+
+                # Track async operations for cancellation
+                if isinstance(req, types.CallToolRequest):
+                    result = response.root
+                    if isinstance(result, types.CallToolResult) and result.operation is not None:
+                        # This is an async operation, track the request ID to token mapping
+                        operation_token = result.operation.token
+                        self._request_to_operation[message.request_id] = operation_token
+                        logger.debug(f"Tracking async operation {operation_token} for request {message.request_id}")
+
             except McpError as err:
                 response = err.error
             except anyio.get_cancelled_exc_class():
@@ -698,8 +964,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                 response = types.ErrorData(code=0, message=str(err), data=None)
             finally:
                 # Reset the global state after we are done
-                if token is not None:
-                    request_ctx.reset(token)
+                if context_token is not None:
+                    request_ctx.reset(context_token)
 
             await message.respond(response)
         else:
@@ -722,5 +988,5 @@ class Server(Generic[LifespanResultT, RequestT]):
                 logger.exception("Uncaught exception in notification handler")
 
 
-async def _ping_handler(request: types.PingRequest) -> types.ServerResult:
+async def _ping_handler(request: types.PingRequest, _: Any = None) -> types.ServerResult:
     return types.ServerResult(types.EmptyResult())

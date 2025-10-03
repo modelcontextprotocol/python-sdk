@@ -24,6 +24,7 @@ for reference.
 """
 
 LATEST_PROTOCOL_VERSION = "2025-06-18"
+NEXT_PROTOCOL_VERSION = "next"  # Development version with async tool support
 
 """
 The default negotiated version of the Model Context Protocol when no version is specified.
@@ -40,6 +41,12 @@ RequestId = Annotated[int, Field(strict=True)] | str
 AnyFunction: TypeAlias = Callable[..., Any]
 
 
+class Operation(BaseModel):
+    token: str
+    """The token associated with the originating asynchronous tool call."""
+    model_config = ConfigDict(extra="allow")
+
+
 class RequestParams(BaseModel):
     class Meta(BaseModel):
         progressToken: ProgressToken | None = None
@@ -53,6 +60,8 @@ class RequestParams(BaseModel):
         model_config = ConfigDict(extra="allow")
 
     meta: Meta | None = Field(alias="_meta", default=None)
+    operation: Operation | None = Field(alias="_operation", default=None)
+    """Async operation parameters, only used when a request is sent during an asynchronous tool call."""
 
 
 class PaginatedRequestParams(RequestParams):
@@ -72,6 +81,8 @@ class NotificationParams(BaseModel):
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
     """
+    operation: Operation | None = Field(alias="_operation", default=None)
+    """Async operation parameters, only used when a notification is sent during an asynchronous tool call."""
 
 
 RequestParamsT = TypeVar("RequestParamsT", bound=RequestParams | dict[str, Any] | None)
@@ -109,6 +120,10 @@ class Result(BaseModel):
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
+    """
+    operation_props: Operation | None = Field(alias="_operation", default=None)
+    """
+    Async operation parameters, only used when a result is sent in response to a request with operation parameters.
     """
     model_config = ConfigDict(extra="allow")
 
@@ -175,6 +190,9 @@ class ErrorData(BaseModel):
     Additional information about the error. The value of this member is defined by the
     sender (e.g. detailed error information, nested errors etc.).
     """
+
+    operation: Operation | None = Field(alias="_operation", default=None)
+    """Async operation parameters, only used when an error is sent during an asynchronous tool call."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -868,6 +886,18 @@ class ToolAnnotations(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class InternalToolProperties(BaseModel):
+    """
+    Internal properties for tools that are not serialized in the MCP protocol.
+    """
+
+    immediate_result: Any = Field(default=None)
+    """Function to execute for immediate results in async operations."""
+
+    keepalive: int | None = Field(default=None)
+    """Keepalive duration in seconds for async operations."""
+
+
 class Tool(BaseMetadata):
     """Definition for a tool the client can call."""
 
@@ -880,6 +910,12 @@ class Tool(BaseMetadata):
     An optional JSON Schema object defining the structure of the tool's output
     returned in the structuredContent field of a CallToolResult.
     """
+    invocationMode: Literal["sync", "async"] | None = None
+    """
+    Optional invocation mode for the tool. If not specified, defaults to sync-only.
+    - "sync": Tool supports synchronous execution only
+    - "async": Tool supports asynchronous execution only
+    """
     icons: list[Icon] | None = None
     """An optional list of icons for this tool."""
     annotations: ToolAnnotations | None = None
@@ -888,6 +924,10 @@ class Tool(BaseMetadata):
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
+    """
+    internal: InternalToolProperties = Field(default_factory=InternalToolProperties, exclude=True)
+    """
+    Internal properties not serialized in MCP protocol.
     """
     model_config = ConfigDict(extra="allow")
 
@@ -898,11 +938,81 @@ class ListToolsResult(PaginatedResult):
     tools: list[Tool]
 
 
+class AsyncRequestProperties(BaseModel):
+    """Properties for async tool execution requests."""
+
+    keepAlive: int | None = None
+    """Number of seconds the client wants the result to be kept available upon completion."""
+    model_config = ConfigDict(extra="allow")
+
+
+class AsyncResultProperties(BaseModel):
+    """Properties for async tool execution results."""
+
+    token: str
+    """Server-generated token to use for checking status and retrieving results."""
+    keepAlive: int
+    """Number of seconds the result will be kept available upon completion."""
+    model_config = ConfigDict(extra="allow")
+
+
+# Async status checking types
+class GetOperationStatusParams(RequestParams):
+    """Parameters for checking async tool status."""
+
+    token: str
+    """Token from the original async tool call."""
+
+
+class GetOperationStatusRequest(Request[GetOperationStatusParams, Literal["tools/async/status"]]):
+    """Request to check the status of an async tool call."""
+
+    method: Literal["tools/async/status"] = "tools/async/status"
+    params: GetOperationStatusParams
+
+
+"""Status values for async operations."""
+AsyncOperationStatus = Literal["submitted", "working", "input_required", "completed", "canceled", "failed", "unknown"]
+
+
+class GetOperationStatusResult(Result):
+    """Result of checking async tool status."""
+
+    status: AsyncOperationStatus
+    """Current status of the async operation."""
+    error: str | None = None
+    """Error message if status is 'failed'."""
+
+
+# Async payload retrieval types
+class GetOperationPayloadParams(RequestParams):
+    """Parameters for getting async tool payload."""
+
+    token: str
+    """Token from the original async tool call."""
+
+
+class GetOperationPayloadRequest(Request[GetOperationPayloadParams, Literal["tools/async/result"]]):
+    """Request to get the result of a completed async tool call."""
+
+    method: Literal["tools/async/result"] = "tools/async/result"
+    params: GetOperationPayloadParams
+
+
+class GetOperationPayloadResult(Result):
+    """Result containing the final async tool call result."""
+
+    result: "CallToolResult"
+    """The result of the tool call."""
+
+
 class CallToolRequestParams(RequestParams):
     """Parameters for calling a tool."""
 
     name: str
     arguments: dict[str, Any] | None = None
+    operation_params: AsyncRequestProperties | None = Field(serialization_alias="operation", default=None)
+    """Optional async execution parameters."""
     model_config = ConfigDict(extra="allow")
 
 
@@ -920,6 +1030,8 @@ class CallToolResult(Result):
     structuredContent: dict[str, Any] | None = None
     """An optional JSON object that represents the structured result of the tool call."""
     isError: bool = False
+    operation: AsyncResultProperties | None = None
+    """Optional async execution information. Present when tool is executed asynchronously."""
 
 
 class ToolListChangedNotification(Notification[NotificationParams | None, Literal["notifications/tools/list_changed"]]):
@@ -1262,6 +1374,8 @@ class ClientRequest(
         | UnsubscribeRequest
         | CallToolRequest
         | ListToolsRequest
+        | GetOperationStatusRequest
+        | GetOperationPayloadRequest
     ]
 ):
     pass
@@ -1345,6 +1459,8 @@ class ServerResult(
         | ReadResourceResult
         | CallToolResult
         | ListToolsResult
+        | GetOperationStatusResult
+        | GetOperationPayloadResult
     ]
 ):
     pass
