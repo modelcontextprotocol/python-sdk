@@ -84,7 +84,6 @@ async def test_lowlevel_server_lifespan():
             SessionMessage(
                 JSONRPCMessage(
                     root=JSONRPCRequest(
-                        jsonrpc="2.0",
                         id=1,
                         method="initialize",
                         params=TypeAdapter(InitializeRequestParams).dump_python(params),
@@ -100,7 +99,6 @@ async def test_lowlevel_server_lifespan():
             SessionMessage(
                 JSONRPCMessage(
                     root=JSONRPCNotification(
-                        jsonrpc="2.0",
                         method="notifications/initialized",
                     )
                 )
@@ -112,7 +110,6 @@ async def test_lowlevel_server_lifespan():
             SessionMessage(
                 JSONRPCMessage(
                     root=JSONRPCRequest(
-                        jsonrpc="2.0",
                         id=2,
                         method="tools/call",
                         params={"name": "check_lifespan", "arguments": {}},
@@ -190,7 +187,6 @@ async def test_fastmcp_server_lifespan():
             SessionMessage(
                 JSONRPCMessage(
                     root=JSONRPCRequest(
-                        jsonrpc="2.0",
                         id=1,
                         method="initialize",
                         params=TypeAdapter(InitializeRequestParams).dump_python(params),
@@ -206,7 +202,6 @@ async def test_fastmcp_server_lifespan():
             SessionMessage(
                 JSONRPCMessage(
                     root=JSONRPCNotification(
-                        jsonrpc="2.0",
                         method="notifications/initialized",
                     )
                 )
@@ -218,7 +213,6 @@ async def test_fastmcp_server_lifespan():
             SessionMessage(
                 JSONRPCMessage(
                     root=JSONRPCRequest(
-                        jsonrpc="2.0",
                         id=2,
                         method="tools/call",
                         params={"name": "check_lifespan", "arguments": {}},
