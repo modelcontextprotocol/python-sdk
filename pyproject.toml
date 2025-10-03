@@ -165,4 +165,5 @@ MD013=false  # line-length - Line length
 MD029=false  # ol-prefix - Ordered list item prefix
 MD033=false  # no-inline-html Inline HTML
 MD041=false  # first-line-heading/first-line-h1
+MD046=false  # indented-code-blocks
 MD059=false  # descriptive-link-text
