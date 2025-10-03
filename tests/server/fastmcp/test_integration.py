@@ -26,6 +26,7 @@ from examples.snippets.servers import (
     basic_resource,
     basic_tool,
     completion,
+    context_resource,
     elicitation,
     fastmcp_quickstart,
     notifications,
@@ -124,6 +125,8 @@ def run_server_with_transport(module_name: str, port: int, transport: str) -> No
         mcp = fastmcp_quickstart.mcp
     elif module_name == "structured_output":
         mcp = structured_output.mcp
+    elif module_name == "context_resource":
+        mcp = context_resource.mcp
     else:
         raise ImportError(f"Unknown module: {module_name}")
 
@@ -697,3 +700,42 @@ async def test_structured_output(server_transport: str, server_url: str) -> None
             assert "sunny" in result_text  # condition
             assert "45" in result_text  # humidity
             assert "5.2" in result_text  # wind_speed
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "server_transport",
+    [
+        ("context_resource", "sse"),
+        ("context_resource", "streamable-http"),
+    ],
+    indirect=True,
+)
+async def test_context_only_resource(server_transport: str, server_url: str) -> None:
+    """Test that a resource with only a context argument is registered as a regular resource."""
+    transport = server_transport
+    client_cm = create_client_for_transport(transport, server_url)
+
+    async with client_cm as client_streams:
+        read_stream, write_stream = unpack_streams(client_streams)
+        async with ClientSession(read_stream, write_stream) as session:
+            # Test initialization
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "Context Resource Example"
+
+            # Check that it is not in templates
+            templates = await session.list_resource_templates()
+            assert len(templates.resourceTemplates) == 0
+
+            # Check that it is in resources
+            resources = await session.list_resources()
+            assert len(resources.resources) == 1
+            resource = resources.resources[0]
+            assert resource.uri == AnyUrl("resource://only_context")
+
+            # Check that we can read it
+            read_result = await session.read_resource(AnyUrl("resource://only_context"))
+            assert len(read_result.contents) == 1
+            assert isinstance(read_result.contents[0], TextResourceContents)
+            assert read_result.contents[0].text == "Resource with only context injected"
