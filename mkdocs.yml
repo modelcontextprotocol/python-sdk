@@ -17,6 +17,7 @@ nav:
       - Concepts: concepts.md
       - Low-Level Server: low-level-server.md
       - Authorization: authorization.md
+      - Testing: testing.md
   - API Reference: api.md
 
 theme:
