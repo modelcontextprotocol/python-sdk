@@ -19,7 +19,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from mcp import ClientSession, types
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.session import RequestResponder
 from mcp.types import ClientNotification, RootsListChangedNotification
 
@@ -132,7 +132,7 @@ async def test_non_compliant_notification_response(non_sdk_server: None, non_sdk
         if isinstance(message, Exception):
             returned_exception = message
 
-    async with streamablehttp_client(server_url) as (read_stream, write_stream, _):
+    async with streamable_http_client(server_url) as (read_stream, write_stream, _):
         async with ClientSession(
             read_stream,
             write_stream,

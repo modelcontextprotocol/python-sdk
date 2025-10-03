@@ -1993,12 +1993,12 @@ Run from the repository root:
 import asyncio
 
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 
 
 async def main():
     # Connect to a streamable HTTP server
-    async with streamablehttp_client("http://localhost:8000/mcp") as (
+    async with streamable_http_client("http://localhost:8000/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -2126,7 +2126,8 @@ from pydantic import AnyUrl
 
 from mcp import ClientSession
 from mcp.client.auth import OAuthClientProvider, TokenStorage
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 
@@ -2180,15 +2181,16 @@ async def main():
         callback_handler=handle_callback,
     )
 
-    async with streamablehttp_client("http://localhost:8001/mcp", auth=oauth_auth) as (read, write, _):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
+    async with create_mcp_http_client(auth=oauth_auth) as custom_client:
+        async with streamable_http_client("http://localhost:8001/mcp", httpx_client=custom_client) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
 
-            tools = await session.list_tools()
-            print(f"Available tools: {[tool.name for tool in tools.tools]}")
+                tools = await session.list_tools()
+                print(f"Available tools: {[tool.name for tool in tools.tools]}")
 
-            resources = await session.list_resources()
-            print(f"Available resources: {[r.uri for r in resources.resources]}")
+                resources = await session.list_resources()
+                print(f"Available resources: {[r.uri for r in resources.resources]}")
 
 
 def run():
