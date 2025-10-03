@@ -882,10 +882,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                             tg,
                         )
             finally:
-                # Cancel session operations and stop cleanup task
-                session_id = getattr(session, "session_id", None)
-                if session_id is not None:
-                    self.async_operations.cancel_session_operations(session_id)
+                # Stop cleanup task
                 await self.async_operations.stop_cleanup_task()
 
     async def _handle_message(
