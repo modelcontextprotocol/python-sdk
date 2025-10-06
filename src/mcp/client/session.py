@@ -1,12 +1,13 @@
 import logging
 from datetime import timedelta
-from typing import Any, Protocol, Self
+from typing import Any, Protocol
 
 import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from jsonschema import SchemaError, ValidationError, validate
 from pydantic import AnyUrl, TypeAdapter
+from typing_extensions import Self
 
 import mcp.types as types
 from mcp.shared.async_operations import ClientAsyncOperationManager
