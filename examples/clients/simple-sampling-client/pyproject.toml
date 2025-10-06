@@ -1,0 +1,48 @@
+[build-system]
+requires = [
+  "uv-build>=0.8.22,<0.9",
+]
+build-backend = "uv_build"
+
+[project]
+name = "mcp-simple-sampling-client"
+version = "0.1.0"
+description = "Exploring different features of MCP servers and clients"
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.13,<3.14"
+license = "MIT"
+authors = [
+  { name = "Anirban Ray", email = "39331844+yarnabrina@users.noreply.github.com" }
+]
+keywords = [
+  "mcp",
+  "mcp-client",
+  "sampling",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Framework :: Pydantic",
+  "Framework :: Pydantic :: 2",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development",
+  "Topic :: Utilities",
+  "Typing :: Typed",
+]
+dependencies = [
+  "mcp>=1.16.0,<2",
+  "openai>=2.1.0,<3",
+  "pydantic>=2.11.10,<3",
+  "pydantic-settings>=2.11.0,<3",
+]
+
+[project.scripts]
+mcp-simple-sampling-client = "mcp_simple_sampling_client.main:main"
+
+[tool.uv.build-backend]
+module-name = "mcp_simple_sampling_client"
+module-root = ""
