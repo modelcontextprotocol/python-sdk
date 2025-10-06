@@ -214,107 +214,56 @@ async def test_elicitation_with_optional_fields():
         text_contains=["Validation failed:", "optional_list"],
     )
 
-    # Test valid list[str] for multi-select enum
-    class ValidMultiSelectSchema(BaseModel):
-        name: str = Field(description="Name")
-        tags: list[str] = Field(description="Tags")
-
-    @mcp.tool(description="Tool with valid list[str] field")
-    async def valid_multiselect_tool(ctx: Context[ServerSession, None]) -> str:
-        result = await ctx.elicit(message="Please provide tags", schema=ValidMultiSelectSchema)
-        if result.action == "accept" and result.data:
-            return f"Name: {result.data.name}, Tags: {', '.join(result.data.tags)}"
-        return f"User {result.action}"
-
-    async def multiselect_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
-        if "Please provide tags" in params.message:
-            return ElicitResult(action="accept", content={"name": "Test", "tags": ["tag1", "tag2"]})
-        return ElicitResult(action="decline")
-
-    await call_tool_and_assert(mcp, multiselect_callback, "valid_multiselect_tool", {}, "Name: Test, Tags: tag1, tag2")
-
-
 @pytest.mark.anyio
-async def test_elicitation_with_enum_titles():
-    """Test elicitation with enum schemas using oneOf/anyOf for titles."""
-    mcp = FastMCP(name="ColorPreferencesApp")
+async def test_elicitation_with_default_values():
+    """Test that default values work correctly in elicitation schemas and are included in JSON."""
+    mcp = FastMCP(name="DefaultValuesServer")
 
-    # Test single-select with titles using oneOf
-    class FavoriteColorSchema(BaseModel):
-        user_name: str = Field(description="Your name")
-        favorite_color: str = Field(
-            description="Select your favorite color",
-            json_schema_extra={
-                "oneOf": [
-                    {"const": "red", "title": "Red"},
-                    {"const": "green", "title": "Green"},
-                    {"const": "blue", "title": "Blue"},
-                    {"const": "yellow", "title": "Yellow"},
-                ]
-            },
+    class DefaultsSchema(BaseModel):
+        name: str = Field(default="Guest", description="User name")
+        age: int = Field(default=18, description="User age")
+        subscribe: bool = Field(default=True, description="Subscribe to newsletter")
+        email: str = Field(description="Email address (required)")
+
+    @mcp.tool(description="Tool with default values")
+    async def defaults_tool(ctx: Context[ServerSession, None]) -> str:
+        result = await ctx.elicit(message="Please provide your information", schema=DefaultsSchema)
+
+        if result.action == "accept" and result.data:
+            return (
+                f"Name: {result.data.name}, Age: {result.data.age}, "
+                f"Subscribe: {result.data.subscribe}, Email: {result.data.email}"
+            )
+        else:
+            return f"User {result.action}"
+
+    # First verify that defaults are present in the JSON schema sent to clients
+    async def callback_schema_verify(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+        # Verify the schema includes defaults
+        schema = params.requestedSchema
+        props = schema["properties"]
+
+        assert props["name"]["default"] == "Guest"
+        assert props["age"]["default"] == 18
+        assert props["subscribe"]["default"] is True
+        assert "default" not in props["email"]  # Required field has no default
+
+        return ElicitResult(action="accept", content={"email": "test@example.com"})
+
+    await call_tool_and_assert(
+        mcp,
+        callback_schema_verify,
+        "defaults_tool",
+        {},
+        "Name: Guest, Age: 18, Subscribe: True, Email: test@example.com",
+    )
+
+    # Test overriding defaults
+    async def callback_override(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+        return ElicitResult(
+            action="accept", content={"email": "john@example.com", "name": "John", "age": 25, "subscribe": False}
         )
 
-    @mcp.tool(description="Single color selection")
-    async def select_favorite_color(ctx: Context[ServerSession, None]) -> str:
-        result = await ctx.elicit(message="Select your favorite color", schema=FavoriteColorSchema)
-        if result.action == "accept" and result.data:
-            return f"User: {result.data.user_name}, Favorite: {result.data.favorite_color}"
-        return f"User {result.action}"
-
-    # Test multi-select with titles using anyOf
-    class FavoriteColorsSchema(BaseModel):
-        user_name: str = Field(description="Your name")
-        favorite_colors: list[str] = Field(
-            description="Select your favorite colors",
-            json_schema_extra={
-                "items": {
-                    "anyOf": [
-                        {"const": "red", "title": "Red"},
-                        {"const": "green", "title": "Green"},
-                        {"const": "blue", "title": "Blue"},
-                        {"const": "yellow", "title": "Yellow"},
-                    ]
-                }
-            },
-        )
-
-    @mcp.tool(description="Multiple color selection")
-    async def select_favorite_colors(ctx: Context[ServerSession, None]) -> str:
-        result = await ctx.elicit(message="Select your favorite colors", schema=FavoriteColorsSchema)
-        if result.action == "accept" and result.data:
-            return f"User: {result.data.user_name}, Colors: {', '.join(result.data.favorite_colors)}"
-        return f"User {result.action}"
-
-    # Test deprecated enumNames format
-    class DeprecatedColorSchema(BaseModel):
-        user_name: str = Field(description="Your name")
-        color: str = Field(
-            description="Select a color",
-            json_schema_extra={"enum": ["red", "green", "blue"], "enumNames": ["Red", "Green", "Blue"]},
-        )
-
-    @mcp.tool(description="Deprecated enum format")
-    async def select_color_deprecated(ctx: Context[ServerSession, None]) -> str:
-        result = await ctx.elicit(message="Select a color (deprecated format)", schema=DeprecatedColorSchema)
-        if result.action == "accept" and result.data:
-            return f"User: {result.data.user_name}, Color: {result.data.color}"
-        return f"User {result.action}"
-
-    async def enum_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
-        if "colors" in params.message and "deprecated" not in params.message:
-            return ElicitResult(action="accept", content={"user_name": "Bob", "favorite_colors": ["red", "green"]})
-        elif "color" in params.message:
-            if "deprecated" in params.message:
-                return ElicitResult(action="accept", content={"user_name": "Charlie", "color": "green"})
-            else:
-                return ElicitResult(action="accept", content={"user_name": "Alice", "favorite_color": "blue"})
-        return ElicitResult(action="decline")
-
-    # Test single-select with titles
-    await call_tool_and_assert(mcp, enum_callback, "select_favorite_color", {}, "User: Alice, Favorite: blue")
-
-    # Test multi-select with titles
-    await call_tool_and_assert(mcp, enum_callback, "select_favorite_colors", {}, "User: Bob, Colors: red, green")
-
-    # Test deprecated enumNames format
-    await call_tool_and_assert(mcp, enum_callback, "select_color_deprecated", {}, "User: Charlie, Color: green")
+    await call_tool_and_assert(
+        mcp, callback_override, "defaults_tool", {}, "Name: John, Age: 25, Subscribe: False, Email: john@example.com"
+    )

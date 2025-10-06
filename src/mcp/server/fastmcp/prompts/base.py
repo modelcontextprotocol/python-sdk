@@ -1,13 +1,22 @@
 """Base classes for FastMCP prompts."""
 
+from __future__ import annotations
+
 import inspect
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import pydantic_core
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
-from mcp.types import ContentBlock, TextContent
+from mcp.server.fastmcp.utilities.context_injection import find_context_parameter, inject_context
+from mcp.server.fastmcp.utilities.func_metadata import func_metadata
+from mcp.types import ContentBlock, Icon, TextContent
+
+if TYPE_CHECKING:
+    from mcp.server.fastmcp.server import Context
+    from mcp.server.session import ServerSessionT
+    from mcp.shared.context import LifespanContextT, RequestT
 
 
 class Message(BaseModel):
@@ -62,6 +71,8 @@ class Prompt(BaseModel):
     description: str | None = Field(None, description="Description of what the prompt does")
     arguments: list[PromptArgument] | None = Field(None, description="Arguments that can be passed to the prompt")
     fn: Callable[..., PromptResult | Awaitable[PromptResult]] = Field(exclude=True)
+    icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this prompt")
+    context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context", exclude=True)
 
     @classmethod
     def from_function(
@@ -70,7 +81,9 @@ class Prompt(BaseModel):
         name: str | None = None,
         title: str | None = None,
         description: str | None = None,
-    ) -> "Prompt":
+        icons: list[Icon] | None = None,
+        context_kwarg: str | None = None,
+    ) -> Prompt:
         """Create a Prompt from a function.
 
         The function can return:
@@ -84,8 +97,16 @@ class Prompt(BaseModel):
         if func_name == "<lambda>":
             raise ValueError("You must provide a name for lambda functions")
 
-        # Get schema from TypeAdapter - will fail if function isn't properly typed
-        parameters = TypeAdapter(fn).json_schema()
+        # Find context parameter if it exists
+        if context_kwarg is None:
+            context_kwarg = find_context_parameter(fn)
+
+        # Get schema from func_metadata, excluding context parameter
+        func_arg_metadata = func_metadata(
+            fn,
+            skip_names=[context_kwarg] if context_kwarg is not None else [],
+        )
+        parameters = func_arg_metadata.arg_model.model_json_schema()
 
         # Convert parameters to PromptArguments
         arguments: list[PromptArgument] = []
@@ -109,9 +130,15 @@ class Prompt(BaseModel):
             description=description or fn.__doc__ or "",
             arguments=arguments,
             fn=fn,
+            icons=icons,
+            context_kwarg=context_kwarg,
         )
 
-    async def render(self, arguments: dict[str, Any] | None = None) -> list[Message]:
+    async def render(
+        self,
+        arguments: dict[str, Any] | None = None,
+        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
+    ) -> list[Message]:
         """Render the prompt with arguments."""
         # Validate required arguments
         if self.arguments:
@@ -122,8 +149,11 @@ class Prompt(BaseModel):
                 raise ValueError(f"Missing required arguments: {missing}")
 
         try:
+            # Add context to arguments if needed
+            call_args = inject_context(self.fn, arguments or {}, context, self.context_kwarg)
+
             # Call function and check if result is a coroutine
-            result = self.fn(**(arguments or {}))
+            result = self.fn(**call_args)
             if inspect.iscoroutine(result):
                 result = await result
 

@@ -14,6 +14,7 @@ import pydantic_core
 from pydantic import AnyUrl, Field, ValidationInfo, validate_call
 
 from mcp.server.fastmcp.resources.base import Resource
+from mcp.types import Icon
 
 
 class TextResource(Resource):
@@ -80,6 +81,7 @@ class FunctionResource(Resource):
         title: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
+        icons: list[Icon] | None = None,
     ) -> "FunctionResource":
         """Create a FunctionResource from a function."""
         func_name = name or fn.__name__
@@ -96,6 +98,7 @@ class FunctionResource(Resource):
             description=description or fn.__doc__ or "",
             mime_type=mime_type or "text/plain",
             fn=fn,
+            icons=icons,
         )
 
 

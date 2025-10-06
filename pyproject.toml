@@ -102,18 +102,36 @@ executionEnvironments = [
   { root = "examples/servers", reportUnusedFunction = false },
 ]
 
-[tool.ruff.lint]
-select = ["C4", "E", "F", "I", "PERF", "UP"]
-ignore = ["PERF203"]
-
 [tool.ruff]
 line-length = 120
 target-version = "py310"
 extend-exclude = ["README.md"]
 
+[tool.ruff.lint]
+select = [
+    "C4",    # flake8-comprehensions
+    "C90",   # mccabe
+    "E",     # pycodestyle
+    "F",     # pyflakes
+    "I",     # isort
+    "PERF",  # Perflint
+    "PL",    # Pylint
+    "UP",    # pyupgrade
+]
+ignore = ["PERF203", "PLC0415", "PLR0402"]
+mccabe.max-complexity = 24  # Default is 10
+
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 "tests/server/fastmcp/test_func_metadata.py" = ["E501"]
+"tests/shared/test_progress_notifications.py" = ["PLW0603"]
+
+[tool.ruff.lint.pylint]
+allow-magic-value-types = ["bytes", "float", "int", "str"]
+max-args = 23         # Default is 5
+max-branches = 23     # Default is 12
+max-returns = 13      # Default is 6
+max-statements = 102  # Default is 50
 
 [tool.uv.workspace]
 members = ["examples/servers/*", "examples/snippets"]
@@ -147,4 +165,5 @@ MD013=false  # line-length - Line length
 MD029=false  # ol-prefix - Ordered list item prefix
 MD033=false  # no-inline-html Inline HTML
 MD041=false  # first-line-heading/first-line-h1
+MD046=false  # indented-code-blocks
 MD059=false  # descriptive-link-text

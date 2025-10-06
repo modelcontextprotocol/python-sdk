@@ -603,6 +603,80 @@ class TestServerTools:
             assert result.isError is False
             assert result.structuredContent == {"theme": "dark", "language": "en", "timezone": "UTC"}
 
+    @pytest.mark.anyio
+    async def test_remove_tool(self):
+        """Test removing a tool from the server."""
+        mcp = FastMCP()
+        mcp.add_tool(tool_fn)
+
+        # Verify tool exists
+        assert len(mcp._tool_manager.list_tools()) == 1
+
+        # Remove the tool
+        mcp.remove_tool("tool_fn")
+
+        # Verify tool is removed
+        assert len(mcp._tool_manager.list_tools()) == 0
+
+    @pytest.mark.anyio
+    async def test_remove_nonexistent_tool(self):
+        """Test that removing a non-existent tool raises ToolError."""
+        from mcp.server.fastmcp.exceptions import ToolError
+
+        mcp = FastMCP()
+
+        with pytest.raises(ToolError, match="Unknown tool: nonexistent"):
+            mcp.remove_tool("nonexistent")
+
+    @pytest.mark.anyio
+    async def test_remove_tool_and_list(self):
+        """Test that a removed tool doesn't appear in list_tools."""
+        mcp = FastMCP()
+        mcp.add_tool(tool_fn)
+        mcp.add_tool(error_tool_fn)
+
+        # Verify both tools exist
+        async with client_session(mcp._mcp_server) as client:
+            tools = await client.list_tools()
+            assert len(tools.tools) == 2
+            tool_names = [t.name for t in tools.tools]
+            assert "tool_fn" in tool_names
+            assert "error_tool_fn" in tool_names
+
+        # Remove one tool
+        mcp.remove_tool("tool_fn")
+
+        # Verify only one tool remains
+        async with client_session(mcp._mcp_server) as client:
+            tools = await client.list_tools()
+            assert len(tools.tools) == 1
+            assert tools.tools[0].name == "error_tool_fn"
+
+    @pytest.mark.anyio
+    async def test_remove_tool_and_call(self):
+        """Test that calling a removed tool fails appropriately."""
+        mcp = FastMCP()
+        mcp.add_tool(tool_fn)
+
+        # Verify tool works before removal
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
+            assert not result.isError
+            content = result.content[0]
+            assert isinstance(content, TextContent)
+            assert content.text == "3"
+
+        # Remove the tool
+        mcp.remove_tool("tool_fn")
+
+        # Verify calling removed tool returns an error
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
+            assert result.isError
+            content = result.content[0]
+            assert isinstance(content, TextContent)
+            assert "Unknown tool" in content.text
+
 
 class TestServerResources:
     @pytest.mark.anyio
@@ -810,9 +884,30 @@ class TestServerResourceTemplates:
         result = await resource.read()
         assert result == "Data for test"
 
+    @pytest.mark.anyio
+    async def test_resource_template_includes_mime_type(self):
+        """Test that list resource templates includes the correct mimeType."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://{user}/csv", mime_type="text/csv")
+        def get_csv(user: str) -> str:
+            return f"csv for {user}"
+
+        templates = await mcp.list_resource_templates()
+        assert len(templates) == 1
+        template = templates[0]
+
+        assert hasattr(template, "mimeType")
+        assert template.mimeType == "text/csv"
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.read_resource(AnyUrl("resource://bob/csv"))
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert result.contents[0].text == "csv for bob"
+
 
 class TestContextInjection:
-    """Test context injection in tools."""
+    """Test context injection in tools, resources, and prompts."""
 
     @pytest.mark.anyio
     async def test_context_detection(self):
@@ -948,6 +1043,126 @@ class TestContextInjection:
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert "Read resource: resource data" in content.text
+
+    @pytest.mark.anyio
+    async def test_resource_with_context(self):
+        """Test that resources can receive context parameter."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://context/{name}")
+        def resource_with_context(name: str, ctx: Context[ServerSession, None]) -> str:
+            """Resource that receives context."""
+            assert ctx is not None
+            return f"Resource {name} - context injected"
+
+        # Verify template has context_kwarg set
+        templates = mcp._resource_manager.list_templates()
+        assert len(templates) == 1
+        template = templates[0]
+        assert hasattr(template, "context_kwarg")
+        assert template.context_kwarg == "ctx"
+
+        # Test via client
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.read_resource(AnyUrl("resource://context/test"))
+            assert len(result.contents) == 1
+            content = result.contents[0]
+            assert isinstance(content, TextResourceContents)
+            # Should have either request_id or indication that context was injected
+            assert "Resource test - context injected" == content.text
+
+    @pytest.mark.anyio
+    async def test_resource_without_context(self):
+        """Test that resources without context work normally."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://nocontext/{name}")
+        def resource_no_context(name: str) -> str:
+            """Resource without context."""
+            return f"Resource {name} works"
+
+        # Verify template has no context_kwarg
+        templates = mcp._resource_manager.list_templates()
+        assert len(templates) == 1
+        template = templates[0]
+        assert template.context_kwarg is None
+
+        # Test via client
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.read_resource(AnyUrl("resource://nocontext/test"))
+            assert len(result.contents) == 1
+            content = result.contents[0]
+            assert isinstance(content, TextResourceContents)
+            assert content.text == "Resource test works"
+
+    @pytest.mark.anyio
+    async def test_resource_context_custom_name(self):
+        """Test resource context with custom parameter name."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://custom/{id}")
+        def resource_custom_ctx(id: str, my_ctx: Context[ServerSession, None]) -> str:
+            """Resource with custom context parameter name."""
+            assert my_ctx is not None
+            return f"Resource {id} with context"
+
+        # Verify template detects custom context parameter
+        templates = mcp._resource_manager.list_templates()
+        assert len(templates) == 1
+        template = templates[0]
+        assert template.context_kwarg == "my_ctx"
+
+        # Test via client
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.read_resource(AnyUrl("resource://custom/123"))
+            assert len(result.contents) == 1
+            content = result.contents[0]
+            assert isinstance(content, TextResourceContents)
+            assert "Resource 123 with context" in content.text
+
+    @pytest.mark.anyio
+    async def test_prompt_with_context(self):
+        """Test that prompts can receive context parameter."""
+        mcp = FastMCP()
+
+        @mcp.prompt("prompt_with_ctx")
+        def prompt_with_context(text: str, ctx: Context[ServerSession, None]) -> str:
+            """Prompt that expects context."""
+            assert ctx is not None
+            return f"Prompt '{text}' - context injected"
+
+        # Check if prompt has context parameter detection
+        prompts = mcp._prompt_manager.list_prompts()
+        assert len(prompts) == 1
+
+        # Test via client
+        async with client_session(mcp._mcp_server) as client:
+            # Try calling without passing ctx explicitly
+            result = await client.get_prompt("prompt_with_ctx", {"text": "test"})
+            # If this succeeds, check if context was injected
+            assert len(result.messages) == 1
+            content = result.messages[0].content
+            assert isinstance(content, TextContent)
+            assert "Prompt 'test' - context injected" in content.text
+
+    @pytest.mark.anyio
+    async def test_prompt_without_context(self):
+        """Test that prompts without context work normally."""
+        mcp = FastMCP()
+
+        @mcp.prompt("prompt_no_ctx")
+        def prompt_no_context(text: str) -> str:
+            """Prompt without context."""
+            return f"Prompt '{text}' works"
+
+        # Test via client
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.get_prompt("prompt_no_ctx", {"text": "test"})
+            assert len(result.messages) == 1
+            message = result.messages[0]
+            content = message.content
+            assert isinstance(content, TextContent)
+            assert content.text == "Prompt 'test' works"
 
 
 class TestServerPrompts:
