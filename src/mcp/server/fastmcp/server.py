@@ -510,6 +510,17 @@ class FastMCP(Generic[LifespanResultT]):
             immediate_result=immediate_result,
         )
 
+    def remove_tool(self, name: str) -> None:
+        """Remove a tool from the server by name.
+
+        Args:
+            name: The name of the tool to remove
+
+        Raises:
+            ToolError: If the tool does not exist
+        """
+        self._tool_manager.remove_tool(name)
+
     def tool(
         self,
         name: str | None = None,
@@ -978,11 +989,10 @@ class FastMCP(Generic[LifespanResultT]):
             # Determine resource metadata URL
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
-                from pydantic import AnyHttpUrl
+                from mcp.server.auth.routes import build_resource_metadata_url
 
-                resource_metadata_url = AnyHttpUrl(
-                    str(self.settings.auth.resource_server_url).rstrip("/") + "/.well-known/oauth-protected-resource"
-                )
+                # Build compliant metadata URL for WWW-Authenticate header
+                resource_metadata_url = build_resource_metadata_url(self.settings.auth.resource_server_url)
 
             # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
             routes.append(
@@ -1091,11 +1101,10 @@ class FastMCP(Generic[LifespanResultT]):
             # Determine resource metadata URL
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
-                from pydantic import AnyHttpUrl
+                from mcp.server.auth.routes import build_resource_metadata_url
 
-                resource_metadata_url = AnyHttpUrl(
-                    str(self.settings.auth.resource_server_url).rstrip("/") + "/.well-known/oauth-protected-resource"
-                )
+                # Build compliant metadata URL for WWW-Authenticate header
+                resource_metadata_url = build_resource_metadata_url(self.settings.auth.resource_server_url)
 
             routes.append(
                 Route(
@@ -1114,23 +1123,13 @@ class FastMCP(Generic[LifespanResultT]):
 
         # Add protected resource metadata endpoint if configured as RS
         if self.settings.auth and self.settings.auth.resource_server_url:
-            from mcp.server.auth.handlers.metadata import ProtectedResourceMetadataHandler
-            from mcp.server.auth.routes import cors_middleware
-            from mcp.shared.auth import ProtectedResourceMetadata
+            from mcp.server.auth.routes import create_protected_resource_routes
 
-            protected_resource_metadata = ProtectedResourceMetadata(
-                resource=self.settings.auth.resource_server_url,
-                authorization_servers=[self.settings.auth.issuer_url],
-                scopes_supported=self.settings.auth.required_scopes,
-            )
-            routes.append(
-                Route(
-                    "/.well-known/oauth-protected-resource",
-                    endpoint=cors_middleware(
-                        ProtectedResourceMetadataHandler(protected_resource_metadata).handle,
-                        ["GET", "OPTIONS"],
-                    ),
-                    methods=["GET", "OPTIONS"],
+            routes.extend(
+                create_protected_resource_routes(
+                    resource_url=self.settings.auth.resource_server_url,
+                    authorization_servers=[self.settings.auth.issuer_url],
+                    scopes_supported=self.settings.auth.required_scopes,
                 )
             )
 

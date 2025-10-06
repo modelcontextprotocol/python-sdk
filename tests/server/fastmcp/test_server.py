@@ -605,6 +605,80 @@ class TestServerTools:
             assert result.structuredContent == {"theme": "dark", "language": "en", "timezone": "UTC"}
 
     @pytest.mark.anyio
+    async def test_remove_tool(self):
+        """Test removing a tool from the server."""
+        mcp = FastMCP()
+        mcp.add_tool(tool_fn)
+
+        # Verify tool exists
+        assert len(mcp._tool_manager.list_tools()) == 1
+
+        # Remove the tool
+        mcp.remove_tool("tool_fn")
+
+        # Verify tool is removed
+        assert len(mcp._tool_manager.list_tools()) == 0
+
+    @pytest.mark.anyio
+    async def test_remove_nonexistent_tool(self):
+        """Test that removing a non-existent tool raises ToolError."""
+        from mcp.server.fastmcp.exceptions import ToolError
+
+        mcp = FastMCP()
+
+        with pytest.raises(ToolError, match="Unknown tool: nonexistent"):
+            mcp.remove_tool("nonexistent")
+
+    @pytest.mark.anyio
+    async def test_remove_tool_and_list(self):
+        """Test that a removed tool doesn't appear in list_tools."""
+        mcp = FastMCP()
+        mcp.add_tool(tool_fn)
+        mcp.add_tool(error_tool_fn)
+
+        # Verify both tools exist
+        async with client_session(mcp._mcp_server) as client:
+            tools = await client.list_tools()
+            assert len(tools.tools) == 2
+            tool_names = [t.name for t in tools.tools]
+            assert "tool_fn" in tool_names
+            assert "error_tool_fn" in tool_names
+
+        # Remove one tool
+        mcp.remove_tool("tool_fn")
+
+        # Verify only one tool remains
+        async with client_session(mcp._mcp_server) as client:
+            tools = await client.list_tools()
+            assert len(tools.tools) == 1
+            assert tools.tools[0].name == "error_tool_fn"
+
+    @pytest.mark.anyio
+    async def test_remove_tool_and_call(self):
+        """Test that calling a removed tool fails appropriately."""
+        mcp = FastMCP()
+        mcp.add_tool(tool_fn)
+
+        # Verify tool works before removal
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
+            assert not result.isError
+            content = result.content[0]
+            assert isinstance(content, TextContent)
+            assert content.text == "3"
+
+        # Remove the tool
+        mcp.remove_tool("tool_fn")
+
+        # Verify calling removed tool returns an error
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
+            assert result.isError
+            content = result.content[0]
+            assert isinstance(content, TextContent)
+            assert "Unknown tool" in content.text
+
+    @pytest.mark.anyio
     async def test_list_tools_invocation_mode_sync(self):
         """Test that sync tools have proper invocationMode field."""
         mcp = FastMCP()

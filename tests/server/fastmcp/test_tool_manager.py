@@ -763,6 +763,119 @@ class TestStructuredOutput:
         assert result == expected
 
 
+class TestRemoveTools:
+    """Test tool removal functionality in the tool manager."""
+
+    def test_remove_existing_tool(self):
+        """Test removing an existing tool."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        manager = ToolManager()
+        manager.add_tool(add)
+
+        # Verify tool exists
+        assert manager.get_tool("add") is not None
+        assert len(manager.list_tools()) == 1
+
+        # Remove the tool - should not raise any exception
+        manager.remove_tool("add")
+
+        # Verify tool is removed
+        assert manager.get_tool("add") is None
+        assert len(manager.list_tools()) == 0
+
+    def test_remove_nonexistent_tool(self):
+        """Test removing a non-existent tool raises ToolError."""
+        manager = ToolManager()
+
+        with pytest.raises(ToolError, match="Unknown tool: nonexistent"):
+            manager.remove_tool("nonexistent")
+
+    def test_remove_tool_from_multiple_tools(self):
+        """Test removing one tool when multiple tools exist."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        def multiply(a: int, b: int) -> int:
+            """Multiply two numbers."""
+            return a * b
+
+        def divide(a: int, b: int) -> float:
+            """Divide two numbers."""
+            return a / b
+
+        manager = ToolManager()
+        manager.add_tool(add)
+        manager.add_tool(multiply)
+        manager.add_tool(divide)
+
+        # Verify all tools exist
+        assert len(manager.list_tools()) == 3
+        assert manager.get_tool("add") is not None
+        assert manager.get_tool("multiply") is not None
+        assert manager.get_tool("divide") is not None
+
+        # Remove middle tool
+        manager.remove_tool("multiply")
+
+        # Verify only multiply is removed
+        assert len(manager.list_tools()) == 2
+        assert manager.get_tool("add") is not None
+        assert manager.get_tool("multiply") is None
+        assert manager.get_tool("divide") is not None
+
+    @pytest.mark.anyio
+    async def test_call_removed_tool_raises_error(self):
+        """Test that calling a removed tool raises ToolError."""
+
+        def greet(name: str) -> str:
+            """Greet someone."""
+            return f"Hello, {name}!"
+
+        manager = ToolManager()
+        manager.add_tool(greet)
+
+        # Verify tool works before removal
+        result = await manager.call_tool("greet", {"name": "World"})
+        assert result == "Hello, World!"
+
+        # Remove the tool
+        manager.remove_tool("greet")
+
+        # Verify calling removed tool raises error
+        with pytest.raises(ToolError, match="Unknown tool: greet"):
+            await manager.call_tool("greet", {"name": "World"})
+
+    def test_remove_tool_case_sensitive(self):
+        """Test that tool removal is case-sensitive."""
+
+        def test_func() -> str:
+            """Test function."""
+            return "test"
+
+        manager = ToolManager()
+        manager.add_tool(test_func)
+
+        # Verify tool exists
+        assert manager.get_tool("test_func") is not None
+
+        # Try to remove with different case - should raise ToolError
+        with pytest.raises(ToolError, match="Unknown tool: Test_Func"):
+            manager.remove_tool("Test_Func")
+
+        # Verify original tool still exists
+        assert manager.get_tool("test_func") is not None
+
+        # Remove with correct case
+        manager.remove_tool("test_func")
+        assert manager.get_tool("test_func") is None
+
+
 class TestInvocationModes:
     """Test invocation modes functionality."""
 
