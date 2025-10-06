@@ -374,6 +374,17 @@ class FastMCP(Generic[LifespanResultT]):
             structured_output=structured_output,
         )
 
+    def remove_tool(self, name: str) -> None:
+        """Remove a tool from the server by name.
+
+        Args:
+            name: The name of the tool to remove
+
+        Raises:
+            ToolError: If the tool does not exist
+        """
+        self._tool_manager.remove_tool(name)
+
     def tool(
         self,
         name: str | None = None,
