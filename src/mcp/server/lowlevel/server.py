@@ -865,11 +865,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                 )
             )
 
-            # Start async operations cleanup task
-            await self.async_operations.start_cleanup_task()
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(self.async_operations.cleanup_loop)
 
-            try:
-                async with anyio.create_task_group() as tg:
+                try:
                     async for message in session.incoming_messages:
                         logger.debug("Received message: %s", message)
 
@@ -881,9 +880,12 @@ class Server(Generic[LifespanResultT, RequestT]):
                             raise_exceptions,
                             tg,
                         )
-            finally:
-                # Stop cleanup task
-                await self.async_operations.stop_cleanup_task()
+                finally:
+                    # Stop cleanup loop before task group exits
+                    await self.async_operations.stop_cleanup_loop()
+
+                    # Cancel all remaining tasks in the task group (cleanup loop and potentially LROs)
+                    tg.cancel_scope.cancel()
 
     async def _handle_message(
         self,

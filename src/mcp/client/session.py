@@ -1,6 +1,6 @@
 import logging
 from datetime import timedelta
-from typing import Any, Protocol
+from typing import Any, Protocol, Self
 
 import anyio
 import anyio.lowlevel
@@ -139,6 +139,12 @@ class ClientSession(
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._operation_manager = ClientAsyncOperationManager()
 
+    async def __aenter__(self) -> Self:
+        await super().__aenter__()
+        self._task_group.start_soon(self._operation_manager.cleanup_loop)
+        self._exit_stack.push_async_callback(lambda: self._operation_manager.stop_cleanup_loop())
+        return self
+
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
         elicitation = (
@@ -176,14 +182,7 @@ class ClientSession(
 
         await self.send_notification(types.ClientNotification(types.InitializedNotification()))
 
-        # Start cleanup task for operations
-        await self._operation_manager.start_cleanup_task()
-
         return result
-
-    async def close(self) -> None:
-        """Clean up resources."""
-        await self._operation_manager.stop_cleanup_task()
 
     async def send_ping(self) -> types.EmptyResult:
         """Send a ping request."""

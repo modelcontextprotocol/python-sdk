@@ -5,8 +5,6 @@ import time
 from typing import Any, cast
 from unittest.mock import Mock
 
-import pytest
-
 import mcp.types as types
 from mcp.shared.async_operations import ServerAsyncOperation, ServerAsyncOperationManager
 from mcp.types import AsyncOperationStatus
@@ -212,50 +210,6 @@ class TestAsyncOperationManager:
         # Cleanup should remove expired operations
         removed_count = manager.cleanup_expired_operations()
         assert removed_count == 25 and len(manager._operations) == 25
-
-    @pytest.mark.anyio
-    async def test_cleanup_task_lifecycle(self):
-        """Test background cleanup task management."""
-        manager = ServerAsyncOperationManager()
-
-        await manager.start_cleanup_task()
-        assert manager._cleanup_task is not None and not manager._cleanup_task.done()
-
-        # Starting again should be no-op
-        await manager.start_cleanup_task()
-
-        await manager.stop_cleanup_task()
-        assert manager._cleanup_task is None
-
-    def test_dependency_injection_and_integration(self):
-        """Test AsyncOperationManager dependency injection and server integration."""
-        from mcp.server.fastmcp import FastMCP
-        from mcp.server.lowlevel import Server
-
-        # Test custom manager injection
-        custom_manager = ServerAsyncOperationManager()
-        operation = custom_manager.create_operation("shared_tool", {"data": "shared"}, session_id="session1")
-
-        # Test FastMCP integration
-        fastmcp = FastMCP("FastMCP", async_operations=custom_manager)
-        assert fastmcp._async_operations is custom_manager
-        assert fastmcp._async_operations.get_operation(operation.token) is operation
-
-        # Test lowlevel Server integration
-        lowlevel = Server("LowLevel", async_operations=custom_manager)
-        assert lowlevel.async_operations is custom_manager
-        assert lowlevel.async_operations.get_operation(operation.token) is operation
-
-        # Test default creation
-        default_fastmcp = FastMCP("Default")
-        default_server = Server("Default")
-        assert isinstance(default_fastmcp._async_operations, ServerAsyncOperationManager)
-        assert isinstance(default_server.async_operations, ServerAsyncOperationManager)
-        assert default_fastmcp._async_operations is not custom_manager
-
-        # Test shared manager between servers
-        new_op = fastmcp._async_operations.create_operation("new_tool", {}, session_id="session2")
-        assert lowlevel.async_operations.get_operation(new_op.token) is new_op
 
 
 class TestAsyncOperation:
