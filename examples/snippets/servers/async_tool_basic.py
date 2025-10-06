@@ -38,5 +38,15 @@ async def process_text(text: str, ctx: Context[ServerSession, None]) -> str:
     return f"Processed: {text.upper()}"
 
 
+@mcp.tool()
+async def process_text_sync(text: str, ctx: Context[ServerSession, None]) -> str:
+    """Process text in sync mode only."""
+
+    await ctx.info(f"Processing text: {text[:20]}...")
+    await anyio.sleep(0.3)
+
+    return f"Processed: {text.upper()}"
+
+
 if __name__ == "__main__":
     mcp.run()

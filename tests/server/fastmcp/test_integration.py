@@ -714,7 +714,7 @@ async def test_async_tool_basic(server_transport: str, server_url: str) -> None:
             assert result.serverInfo.name == "Async Tool Basic"
 
             # Test sync tool (should work normally)
-            sync_result = await session.call_tool("process_text", {"text": "hello"})
+            sync_result = await session.call_tool("process_text_sync", {"text": "hello"})
             assert len(sync_result.content) == 1
             assert isinstance(sync_result.content[0], TextContent)
             assert sync_result.content[0].text == "Processed: HELLO"
@@ -745,11 +745,30 @@ async def test_async_tool_basic(server_transport: str, server_url: str) -> None:
             else:
                 pytest.fail("Async operation timed out")
 
-            # Test hybrid tool (process_text can work in sync or async mode)
+            # Test hybrid tool (process_text should only run in async mode in this version)
             hybrid_result = await session.call_tool("process_text", {"text": "world"})
-            assert len(hybrid_result.content) == 1
-            assert isinstance(hybrid_result.content[0], TextContent)
-            assert "Processed: WORLD" in hybrid_result.content[0].text
+            assert hybrid_result.operation is not None
+            token = hybrid_result.operation.token
+
+            # Poll for completion with timeout
+            max_attempts = 20
+            attempt = 0
+            while attempt < max_attempts:
+                status = await session.get_operation_status(token)
+                if status.status == "completed":
+                    final_hybrid_result = await session.get_operation_result(token)
+                    assert not final_hybrid_result.result.isError
+                    assert len(final_hybrid_result.result.content) == 1
+                    assert isinstance(final_hybrid_result.result.content[0], TextContent)
+                    assert "Processed: WORLD" in final_hybrid_result.result.content[0].text
+                    break
+                elif status.status == "failed":
+                    pytest.fail(f"Async operation failed: {status.error}")
+
+                attempt += 1
+                await anyio.sleep(0.5)
+            else:
+                pytest.fail("Async operation timed out")
 
 
 # Test async tools example with legacy protocol
