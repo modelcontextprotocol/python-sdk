@@ -757,6 +757,7 @@ async def test_async_tool_basic(server_transport: str, server_url: str) -> None:
 @pytest.mark.parametrize(
     "server_transport",
     [
+        # ("async_tool_basic", "sse"),
         ("async_tool_basic", "streamable-http"),
     ],
     indirect=True,
@@ -793,6 +794,59 @@ async def test_async_tool_basic_legacy_protocol(server_transport: str, server_ur
             assert len(hybrid_result.content) == 1
             assert isinstance(hybrid_result.content[0], TextContent)
             assert "Processed: HELLO" in hybrid_result.content[0].text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "server_transport",
+    [
+        # ("async_tool_basic", "sse"),
+        ("async_tool_basic", "streamable-http"),
+    ],
+    indirect=True,
+)
+async def test_async_tool_reconnection(server_transport: str, server_url: str) -> None:
+    """Test that async operations can be retrieved after reconnecting with a new session."""
+    transport = server_transport
+    client_cm1 = create_client_for_transport(transport, server_url)
+
+    # Start async operation in first session
+    async with client_cm1 as client_streams:
+        read_stream, write_stream = unpack_streams(client_streams)
+        async with ClientSession(read_stream, write_stream, protocol_version="next") as session1:
+            await session1.initialize()
+
+            # Start async operation
+            result = await session1.call_tool("process_text", {"text": "test data"})
+            assert result.operation is not None
+            token = result.operation.token
+
+    # Reconnect with new session and retrieve result
+    client_cm2 = create_client_for_transport(transport, server_url)
+    async with client_cm2 as client_streams:
+        read_stream, write_stream = unpack_streams(client_streams)
+        async with ClientSession(read_stream, write_stream, protocol_version="next") as session2:
+            await session2.initialize()
+
+            # Poll for completion in new session
+            max_attempts = 20
+            attempt = 0
+            while attempt < max_attempts:
+                status = await session2.get_operation_status(token)
+                if status.status == "completed":
+                    final_result = await session2.get_operation_result(token)
+                    assert not final_result.result.isError
+                    assert len(final_result.result.content) == 1
+                    content = final_result.result.content[0]
+                    assert isinstance(content, TextContent)
+                    break
+                elif status.status == "failed":
+                    pytest.fail(f"Operation failed: {status.error}")
+
+                attempt += 1
+                await anyio.sleep(0.5)
+            else:
+                pytest.fail("Async operation timed out")
 
 
 # Test structured output example
