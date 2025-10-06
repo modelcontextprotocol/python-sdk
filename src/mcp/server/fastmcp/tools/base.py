@@ -26,6 +26,7 @@ class Tool(BaseModel):
     name: str = Field(description="Name of the tool")
     title: str | None = Field(None, description="Human-readable title of the tool")
     description: str = Field(description="Description of what the tool does")
+    version: str | None = Field(None, description="Semantic version of the tool")
     parameters: dict[str, Any] = Field(description="JSON schema for tool parameters")
     fn_metadata: FuncMetadata = Field(
         description="Metadata about the function including a pydantic model for tool arguments"
@@ -46,6 +47,7 @@ class Tool(BaseModel):
         name: str | None = None,
         title: str | None = None,
         description: str | None = None,
+        version: str | None = None,
         context_kwarg: str | None = None,
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
@@ -75,6 +77,7 @@ class Tool(BaseModel):
             name=func_name,
             title=title,
             description=func_doc,
+            version=version,
             parameters=parameters,
             fn_metadata=func_arg_metadata,
             is_async=is_async,
