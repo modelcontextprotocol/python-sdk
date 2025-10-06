@@ -10,7 +10,6 @@
 [![Documentation][docs-badge]][docs-url]
 [![Protocol][protocol-badge]][protocol-url]
 [![Specification][spec-badge]][spec-url]
-[![GitHub Discussions][discussions-badge]][discussions-url]
 
 </div>
 
@@ -81,8 +80,6 @@
 [protocol-url]: https://modelcontextprotocol.io
 [spec-badge]: https://img.shields.io/badge/spec-spec.modelcontextprotocol.io-blue.svg
 [spec-url]: https://spec.modelcontextprotocol.io
-[discussions-badge]: https://img.shields.io/github/discussions/modelcontextprotocol/python-sdk
-[discussions-url]: https://github.com/modelcontextprotocol/python-sdk/discussions
 
 ## Overview
 
