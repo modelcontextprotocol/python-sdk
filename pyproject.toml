@@ -33,6 +33,7 @@ dependencies = [
     "uvicorn>=0.31.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",
     "pywin32>=310; sys_platform == 'win32'",
+    "pyjwt[crypto]>=2.10.1",
 ]
 
 [project.optional-dependencies]
@@ -134,7 +135,7 @@ max-returns = 13      # Default is 6
 max-statements = 102  # Default is 50
 
 [tool.uv.workspace]
-members = ["examples/servers/*", "examples/snippets"]
+members = ["examples/clients/*", "examples/servers/*", "examples/snippets"]
 
 [tool.uv.sources]
 mcp = { workspace = true }
