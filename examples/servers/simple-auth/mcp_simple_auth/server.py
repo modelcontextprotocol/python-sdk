@@ -32,7 +32,7 @@ class ResourceServerSettings(BaseSettings):
     # Server settings
     host: str = "localhost"
     port: int = 8001
-    server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8001")
+    server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8001/mcp")
 
     # Authorization Server settings
     auth_server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:9000")
@@ -63,7 +63,7 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
     # Create token verifier for introspection with RFC 8707 resource validation
     token_verifier = IntrospectionTokenVerifier(
         introspection_endpoint=settings.auth_server_introspection_endpoint,
-        server_url=f"{str(settings.server_url).rstrip('/')}/mcp",
+        server_url=str(settings.server_url),
         validate_resource=settings.oauth_strict,  # Only validate when --oauth-strict is set
     )
 
@@ -79,7 +79,7 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
         auth=AuthSettings(
             issuer_url=settings.auth_server_url,
             required_scopes=[settings.mcp_scope],
-            resource_server_url=AnyHttpUrl(f"{str(settings.server_url).rstrip('/')}/mcp"),
+            resource_server_url=settings.server_url,
         ),
     )
 
@@ -137,7 +137,7 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
 
         # Create settings
         host = "localhost"
-        server_url = f"http://{host}:{port}"
+        server_url = f"http://{host}:{port}/mcp"
         settings = ResourceServerSettings(
             host=host,
             port=port,
