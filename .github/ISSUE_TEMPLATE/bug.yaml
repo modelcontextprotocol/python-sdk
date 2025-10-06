@@ -39,9 +39,50 @@ body:
         demonstrating the bug.
 
       placeholder: |
+        #!/usr/bin/env uv run
+        # /// script
+        # requires-python = ">=3.11"
+        # dependencies = [
+        #     "anyio",
+        #     "mcp",
+        # ]
+        # ///
+        import threading
+
+        import anyio
+
+        from mcp.client.session import ClientSession
+        from mcp.client.streamable_http import streamablehttp_client
         from mcp.server.fastmcp import FastMCP
 
-        ...
+
+        async def run_server():
+            mcp = FastMCP()
+
+            @mcp.tool()
+            def add(a: int, b: int) -> int:
+                """Add two numbers."""
+                return a + b
+            
+            # ...
+
+            await mcp.run_streamable_http_async()
+
+        async def run_client():
+            async with streamablehttp_client("http://localhost:8000/mcp") as (read_stream, write_stream, _):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+
+                    print(f'\nTool result: {await session.call_tool("add", {"a": 1, "b": 2})}\n')
+            
+                    # ...
+
+
+        if __name__ == "__main__":
+            # Run the server in a background thread
+            threading.Thread(target=lambda: anyio.run(run_server), daemon=True).start()
+
+            anyio.run(run_client)
       render: Python
 
   - type: textarea
