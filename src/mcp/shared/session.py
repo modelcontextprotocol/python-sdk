@@ -253,7 +253,6 @@ class BaseSession(
 
         try:
             jsonrpc_request = JSONRPCRequest(
-                jsonrpc="2.0",
                 id=request_id,
                 **request_data,
             )
@@ -305,7 +304,6 @@ class BaseSession(
         # Some transport implementations may need to set the related_request_id
         # to attribute to the notifications to the request that triggered them.
         jsonrpc_notification = JSONRPCNotification(
-            jsonrpc="2.0",
             **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
         )
         session_message = SessionMessage(
@@ -316,12 +314,11 @@ class BaseSession(
 
     async def _send_response(self, request_id: RequestId, response: SendResultT | ErrorData) -> None:
         if isinstance(response, ErrorData):
-            jsonrpc_error = JSONRPCError(jsonrpc="2.0", id=request_id, error=response)
+            jsonrpc_error = JSONRPCError(id=request_id, error=response)
             session_message = SessionMessage(message=JSONRPCMessage(jsonrpc_error))
             await self._write_stream.send(session_message)
         else:
             jsonrpc_response = JSONRPCResponse(
-                jsonrpc="2.0",
                 id=request_id,
                 result=response.model_dump(by_alias=True, mode="json", exclude_none=True),
             )
@@ -363,7 +360,6 @@ class BaseSession(
                             logging.warning(f"Failed to validate request: {e}")
                             logging.debug(f"Message that failed validation: {message.message.root}")
                             error_response = JSONRPCError(
-                                jsonrpc="2.0",
                                 id=message.message.root.id,
                                 error=ErrorData(
                                     code=INVALID_PARAMS,
@@ -434,7 +430,7 @@ class BaseSession(
                 for id, stream in self._response_streams.items():
                     error = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
                     try:
-                        await stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))
+                        await stream.send(JSONRPCError(id=id, error=error))
                         await stream.aclose()
                     except Exception:
                         # Stream might already be closed
