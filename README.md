@@ -8,8 +8,8 @@
 [![MIT licensed][mit-badge]][mit-url]
 [![Python Version][python-badge]][python-url]
 [![Documentation][docs-badge]][docs-url]
+[![Protocol][protocol-badge]][protocol-url]
 [![Specification][spec-badge]][spec-url]
-[![GitHub Discussions][discussions-badge]][discussions-url]
 
 </div>
 
@@ -31,22 +31,33 @@
     - [Prompts](#prompts)
     - [Images](#images)
     - [Context](#context)
+      - [Getting Context in Functions](#getting-context-in-functions)
+      - [Context Properties and Methods](#context-properties-and-methods)
     - [Completions](#completions)
     - [Elicitation](#elicitation)
     - [Sampling](#sampling)
     - [Logging and Notifications](#logging-and-notifications)
     - [Authentication](#authentication)
     - [FastMCP Properties](#fastmcp-properties)
-    - [Session Properties](#session-properties-and-methods)
+    - [Session Properties and Methods](#session-properties-and-methods)
     - [Request Context Properties](#request-context-properties)
   - [Running Your Server](#running-your-server)
     - [Development Mode](#development-mode)
     - [Claude Desktop Integration](#claude-desktop-integration)
     - [Direct Execution](#direct-execution)
     - [Streamable HTTP Transport](#streamable-http-transport)
+      - [CORS Configuration for Browser-Based Clients](#cors-configuration-for-browser-based-clients)
     - [Mounting to an Existing ASGI Server](#mounting-to-an-existing-asgi-server)
+      - [StreamableHTTP servers](#streamablehttp-servers)
+        - [Basic mounting](#basic-mounting)
+        - [Host-based routing](#host-based-routing)
+        - [Multiple servers with path configuration](#multiple-servers-with-path-configuration)
+        - [Path configuration at initialization](#path-configuration-at-initialization)
+      - [SSE servers](#sse-servers)
   - [Advanced Usage](#advanced-usage)
     - [Low-Level Server](#low-level-server)
+      - [Structured Output Support](#structured-output-support)
+    - [Pagination (Advanced)](#pagination-advanced)
     - [Writing MCP Clients](#writing-mcp-clients)
     - [Client Display Utilities](#client-display-utilities)
     - [OAuth Authentication for Clients](#oauth-authentication-for-clients)
@@ -63,12 +74,12 @@
 [mit-url]: https://github.com/modelcontextprotocol/python-sdk/blob/main/LICENSE
 [python-badge]: https://img.shields.io/pypi/pyversions/mcp.svg
 [python-url]: https://www.python.org/downloads/
-[docs-badge]: https://img.shields.io/badge/docs-modelcontextprotocol.io-blue.svg
-[docs-url]: https://modelcontextprotocol.io
+[docs-badge]: https://img.shields.io/badge/docs-python--sdk-blue.svg
+[docs-url]: https://modelcontextprotocol.github.io/python-sdk/
+[protocol-badge]: https://img.shields.io/badge/protocol-modelcontextprotocol.io-blue.svg
+[protocol-url]: https://modelcontextprotocol.io
 [spec-badge]: https://img.shields.io/badge/spec-spec.modelcontextprotocol.io-blue.svg
 [spec-url]: https://spec.modelcontextprotocol.io
-[discussions-badge]: https://img.shields.io/github/discussions/modelcontextprotocol/python-sdk
-[discussions-url]: https://github.com/modelcontextprotocol/python-sdk/discussions
 
 ## Overview
 
@@ -400,7 +411,7 @@ def get_weather(city: str) -> WeatherData:
     """Get weather for a city - returns structured data."""
     # Simulated weather data
     return WeatherData(
-        temperature=72.5,
+        temperature=22.5,
         humidity=45.0,
         condition="sunny",
         wind_speed=5.2,
@@ -504,6 +515,41 @@ def debug_error(error: str) -> list[base.Message]:
 
 _Full example: [examples/snippets/servers/basic_prompt.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_prompt.py)_
 <!-- /snippet-source -->
+
+### Icons
+
+MCP servers can provide icons for UI display. Icons can be added to the server implementation, tools, resources, and prompts:
+
+```python
+from mcp.server.fastmcp import FastMCP, Icon
+
+# Create an icon from a file path or URL
+icon = Icon(
+    src="icon.png",
+    mimeType="image/png",
+    sizes="64x64"
+)
+
+# Add icons to server
+mcp = FastMCP(
+    "My Server",
+    website_url="https://example.com",
+    icons=[icon]
+)
+
+# Add icons to tools, resources, and prompts
+@mcp.tool(icons=[icon])
+def my_tool():
+    """Tool with an icon."""
+    return "result"
+
+@mcp.resource("demo://resource", icons=[icon])
+def my_resource():
+    """Resource with an icon."""
+    return "content"
+```
+
+_Full example: [examples/fastmcp/icons_demo.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/fastmcp/icons_demo.py)_
 
 ### Images
 
@@ -736,6 +782,8 @@ async def book_table(date: str, time: str, party_size: int, ctx: Context[ServerS
 _Full example: [examples/snippets/servers/elicitation.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/elicitation.py)_
 <!-- /snippet-source -->
 
+Elicitation schemas support default values for all field types. Default values are automatically included in the JSON schema sent to clients, allowing them to pre-populate forms.
+
 The `elicit()` method returns an `ElicitationResult` with:
 
 - `action`: "accept", "decline", or "cancel"
@@ -885,6 +933,8 @@ The FastMCP server instance accessible via `ctx.fastmcp` provides access to serv
 
 - `ctx.fastmcp.name` - The server's name as defined during initialization
 - `ctx.fastmcp.instructions` - Server instructions/description provided to clients
+- `ctx.fastmcp.website_url` - Optional website URL for the server
+- `ctx.fastmcp.icons` - Optional list of icons for UI display
 - `ctx.fastmcp.settings` - Complete server configuration object containing:
   - `debug` - Debug mode flag
   - `log_level` - Current logging level
@@ -1727,6 +1777,116 @@ Tools can return data in three ways:
 
 When an `outputSchema` is defined, the server automatically validates the structured output against the schema. This ensures type safety and helps catch errors early.
 
+### Pagination (Advanced)
+
+For servers that need to handle large datasets, the low-level server provides paginated versions of list operations. This is an optional optimization - most servers won't need pagination unless they're dealing with hundreds or thousands of items.
+
+#### Server-side Implementation
+
+<!-- snippet-source examples/snippets/servers/pagination_example.py -->
+```python
+"""
+Example of implementing pagination with MCP server decorators.
+"""
+
+from pydantic import AnyUrl
+
+import mcp.types as types
+from mcp.server.lowlevel import Server
+
+# Initialize the server
+server = Server("paginated-server")
+
+# Sample data to paginate
+ITEMS = [f"Item {i}" for i in range(1, 101)]  # 100 items
+
+
+@server.list_resources()
+async def list_resources_paginated(request: types.ListResourcesRequest) -> types.ListResourcesResult:
+    """List resources with pagination support."""
+    page_size = 10
+
+    # Extract cursor from request params
+    cursor = request.params.cursor if request.params is not None else None
+
+    # Parse cursor to get offset
+    start = 0 if cursor is None else int(cursor)
+    end = start + page_size
+
+    # Get page of resources
+    page_items = [
+        types.Resource(uri=AnyUrl(f"resource://items/{item}"), name=item, description=f"Description for {item}")
+        for item in ITEMS[start:end]
+    ]
+
+    # Determine next cursor
+    next_cursor = str(end) if end < len(ITEMS) else None
+
+    return types.ListResourcesResult(resources=page_items, nextCursor=next_cursor)
+```
+
+_Full example: [examples/snippets/servers/pagination_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/pagination_example.py)_
+<!-- /snippet-source -->
+
+#### Client-side Consumption
+
+<!-- snippet-source examples/snippets/clients/pagination_client.py -->
+```python
+"""
+Example of consuming paginated MCP endpoints from a client.
+"""
+
+import asyncio
+
+from mcp.client.session import ClientSession
+from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.types import Resource
+
+
+async def list_all_resources() -> None:
+    """Fetch all resources using pagination."""
+    async with stdio_client(StdioServerParameters(command="uv", args=["run", "mcp-simple-pagination"])) as (
+        read,
+        write,
+    ):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+
+            all_resources: list[Resource] = []
+            cursor = None
+
+            while True:
+                # Fetch a page of resources
+                result = await session.list_resources(cursor=cursor)
+                all_resources.extend(result.resources)
+
+                print(f"Fetched {len(result.resources)} resources")
+
+                # Check if there are more pages
+                if result.nextCursor:
+                    cursor = result.nextCursor
+                else:
+                    break
+
+            print(f"Total resources: {len(all_resources)}")
+
+
+if __name__ == "__main__":
+    asyncio.run(list_all_resources())
+```
+
+_Full example: [examples/snippets/clients/pagination_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/pagination_client.py)_
+<!-- /snippet-source -->
+
+#### Key Points
+
+- **Cursors are opaque strings** - the server defines the format (numeric offsets, timestamps, etc.)
+- **Return `nextCursor=None`** when there are no more pages
+- **Backward compatible** - clients that don't support pagination will still work (they'll just get the first page)
+- **Flexible page sizes** - Each endpoint can define its own page size based on data characteristics
+
+See the [simple-pagination example](examples/servers/simple-pagination) for a complete implementation.
+
 ### Writing MCP Clients
 
 The SDK provides a high-level client interface for connecting to MCP servers using various [transports](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports):
@@ -2137,6 +2297,7 @@ MCP servers declare capabilities during initialization:
 
 ## Documentation
 
+- [API Reference](https://modelcontextprotocol.github.io/python-sdk/api/)
 - [Model Context Protocol documentation](https://modelcontextprotocol.io)
 - [Model Context Protocol specification](https://spec.modelcontextprotocol.io)
 - [Officially supported servers](https://github.com/modelcontextprotocol/servers)

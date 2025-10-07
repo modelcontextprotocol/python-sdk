@@ -155,7 +155,7 @@ async def test_streamable_http_security_invalid_origin_header(server_port: int):
                 json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
                 headers=headers,
             )
-            assert response.status_code == 400
+            assert response.status_code == 403
             assert response.text == "Invalid Origin header"
 
     finally:

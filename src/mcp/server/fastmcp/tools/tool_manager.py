@@ -7,7 +7,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools.base import Tool
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.shared.context import LifespanContextT, RequestT
-from mcp.types import ToolAnnotations
+from mcp.types import Icon, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -49,6 +49,7 @@ class ToolManager:
         title: str | None = None,
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
+        icons: list[Icon] | None = None,
         structured_output: bool | None = None,
     ) -> Tool:
         """Add a tool to the server."""
@@ -58,6 +59,7 @@ class ToolManager:
             title=title,
             description=description,
             annotations=annotations,
+            icons=icons,
             structured_output=structured_output,
         )
         existing = self._tools.get(tool.name)
@@ -67,6 +69,12 @@ class ToolManager:
             return existing
         self._tools[tool.name] = tool
         return tool
+
+    def remove_tool(self, name: str) -> None:
+        """Remove a tool by name."""
+        if name not in self._tools:
+            raise ToolError(f"Unknown tool: {name}")
+        del self._tools[name]
 
     async def call_tool(
         self,

@@ -71,4 +71,4 @@ mcp> quit
 ## Configuration
 
 - `MCP_SERVER_PORT` - Server URL (default: 8000)
-- `MCP_TRANSPORT_TYPE` - Transport type: `streamable_http` (default) or `sse`
+- `MCP_TRANSPORT_TYPE` - Transport type: `streamable-http` (default) or `sse`
