@@ -1013,7 +1013,6 @@ async def test_immediate_result_backward_compatibility(server_transport: str, se
                 await anyio.sleep(0.5)
             else:
                 pytest.fail("Async operation timed out")
-                await anyio.sleep(0.01)
 
 
 # Test async progress notifications

@@ -2,6 +2,7 @@
 
 from __future__ import annotations as _annotations
 
+import contextlib
 import inspect
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Iterable, Sequence
@@ -845,14 +846,21 @@ class FastMCP(Generic[LifespanResultT]):
 
         return decorator
 
+    @contextlib.asynccontextmanager
+    async def _stdio_lifespan(self) -> AsyncIterator[None]:
+        """Lifespan that manages stdio operations."""
+        async with self._async_operations.run():
+            yield
+
     async def run_stdio_async(self) -> None:
         """Run the server using stdio transport."""
         async with stdio_server() as (read_stream, write_stream):
-            await self._mcp_server.run(
-                read_stream,
-                write_stream,
-                self._mcp_server.create_initialization_options(),
-            )
+            async with self._stdio_lifespan():
+                await self._mcp_server.run(
+                    read_stream,
+                    write_stream,
+                    self._mcp_server.create_initialization_options(),
+                )
 
     async def run_sse_async(self, mount_path: str | None = None) -> None:
         """Run the server using SSE transport."""
@@ -909,6 +917,12 @@ class FastMCP(Generic[LifespanResultT]):
 
         # Combine paths
         return mount_path + endpoint
+
+    @contextlib.asynccontextmanager
+    async def _sse_lifespan(self) -> AsyncIterator[None]:
+        """Lifespan that manages SSE operations."""
+        async with self._async_operations.run():
+            yield
 
     def sse_app(self, mount_path: str | None = None) -> Starlette:
         """Return an instance of the SSE server app."""
@@ -1040,7 +1054,16 @@ class FastMCP(Generic[LifespanResultT]):
         routes.extend(self._custom_starlette_routes)
 
         # Create Starlette app with routes and middleware
-        return Starlette(debug=self.settings.debug, routes=routes, middleware=middleware)
+        return Starlette(
+            debug=self.settings.debug, routes=routes, middleware=middleware, lifespan=lambda app: self._sse_lifespan()
+        )
+
+    @contextlib.asynccontextmanager
+    async def _streamable_http_lifespan(self) -> AsyncIterator[None]:
+        """Lifespan that manages Streamable HTTP operations."""
+        async with self.session_manager.run():
+            async with self._async_operations.run():
+                yield
 
     def streamable_http_app(self) -> Starlette:
         """Return an instance of the StreamableHTTP server app."""
@@ -1135,7 +1158,7 @@ class FastMCP(Generic[LifespanResultT]):
             debug=self.settings.debug,
             routes=routes,
             middleware=middleware,
-            lifespan=lambda app: self.session_manager.run(),
+            lifespan=lambda app: self._streamable_http_lifespan(),
         )
 
     async def list_prompts(self) -> list[MCPPrompt]:
@@ -1337,12 +1360,17 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             logger_name: Optional logger name
             **extra: Additional structured data to include
         """
-        await self.request_context.session.send_log_message(
-            level=level,
-            data=message,
-            logger=logger_name,
-            related_request_id=self.request_id,
-        )
+        try:
+            await self.request_context.session.send_log_message(
+                level=level,
+                data=message,
+                logger=logger_name,
+                related_request_id=self.request_id,
+            )
+        except Exception:
+            # Session might be closed (e.g., client disconnected)
+            logger.warning(f"Failed to send log message to client (session closed?): {message}")
+            pass
 
     @property
     def client_id(self) -> str | None:

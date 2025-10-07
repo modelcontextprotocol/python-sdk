@@ -95,6 +95,7 @@ from mcp.shared.session import RequestResponder
 from mcp.types import Operation, RequestId
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
 RequestT = TypeVar("RequestT", default=Any)
@@ -564,8 +565,11 @@ class Server(Generic[LifespanResultT, RequestT]):
                                 logger.exception(f"Async execution failed for {tool_name}")
                                 self.async_operations.fail_operation(operation.token, str(e))
 
-                        # Dispatch in concurrency scope of the server to run between requests
-                        server_scope.start_soon(execute_async)
+                        # Start task directly in independent task group
+                        current_request_context = request_ctx.get()
+                        self.async_operations.start_task(
+                            operation.token, execute_async, current_request_context, request_ctx
+                        )
 
                         # Return operation result with immediate content
                         logger.info(f"Returning async operation result for {tool_name}")
@@ -866,26 +870,17 @@ class Server(Generic[LifespanResultT, RequestT]):
             )
 
             async with anyio.create_task_group() as tg:
-                tg.start_soon(self.async_operations.cleanup_loop)
+                async for message in session.incoming_messages:
+                    logger.debug("Received message: %s", message)
 
-                try:
-                    async for message in session.incoming_messages:
-                        logger.debug("Received message: %s", message)
-
-                        tg.start_soon(
-                            self._handle_message,
-                            message,
-                            session,
-                            lifespan_context,
-                            raise_exceptions,
-                            tg,
-                        )
-                finally:
-                    # Stop cleanup loop before task group exits
-                    await self.async_operations.stop_cleanup_loop()
-
-                    # Cancel all remaining tasks in the task group (cleanup loop and potentially LROs)
-                    tg.cancel_scope.cancel()
+                    tg.start_soon(
+                        self._handle_message,
+                        message,
+                        session,
+                        lifespan_context,
+                        raise_exceptions,
+                        tg,
+                    )
 
     async def _handle_message(
         self,

@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import secrets
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
 
 import anyio
+from anyio.abc import TaskGroup
 
 import mcp.types as types
 from mcp.types import AsyncOperationStatus
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -120,7 +124,7 @@ class BaseOperationManager(Generic[OperationT]):
             await anyio.sleep(self._cleanup_interval)
             count = self.cleanup_expired()
             if count > 0:
-                logging.debug(f"Cleaned up {count} expired operations")
+                logger.debug(f"Cleaned up {count} expired operations")
 
 
 class ClientAsyncOperationManager(BaseOperationManager[ClientAsyncOperation]):
@@ -144,6 +148,63 @@ class ClientAsyncOperationManager(BaseOperationManager[ClientAsyncOperation]):
 
 class ServerAsyncOperationManager(BaseOperationManager[ServerAsyncOperation]):
     """Manages async tool operations with token-based tracking."""
+
+    def __init__(self, *, token_generator: Callable[[str | None], str] | None = None):
+        super().__init__(token_generator=token_generator)
+        self._task_group: TaskGroup | None = None
+        self._run_lock = anyio.Lock()
+        self._running = False
+
+    @contextlib.asynccontextmanager
+    async def run(self) -> AsyncIterator[None]:
+        """Run the async operations manager with its own task group."""
+        # Thread-safe check to ensure run() is only called once
+        async with self._run_lock:
+            if self._running:
+                raise RuntimeError("ServerAsyncOperationManager.run() is already running.")
+            self._running = True
+
+        async with anyio.create_task_group() as tg:
+            self._task_group = tg
+            logger.info("ServerAsyncOperationManager started")
+            # Start cleanup loop
+            tg.start_soon(self.cleanup_loop)
+            try:
+                yield
+            finally:
+                logger.info("ServerAsyncOperationManager shutting down")
+                # Stop cleanup loop gracefully
+                await self.stop_cleanup_loop()
+                # Cancel task group to stop all spawned tasks
+                tg.cancel_scope.cancel()
+                self._task_group = None
+                self._running = False
+
+    def start_task(
+        self,
+        token: str,
+        task_func: Callable[[], Awaitable[None]],
+        request_context: Any = None,
+        request_ctx_var: Any = None,
+    ) -> None:
+        """Start an async task immediately in the independent task group."""
+        if self._task_group is None:
+            raise RuntimeError("Task group not started. Call run() first.")
+
+        async def run_task_with_context():
+            context_token = None
+            try:
+                if request_context and request_ctx_var:
+                    context_token = request_ctx_var.set(request_context)
+                await task_func()
+            except Exception:
+                # Handle task failures gracefully
+                pass
+            finally:
+                if context_token and request_ctx_var:
+                    request_ctx_var.reset(context_token)
+
+        self._task_group.start_soon(run_task_with_context, name=f"lro_{token}")
 
     def create_operation(
         self,

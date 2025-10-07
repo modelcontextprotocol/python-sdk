@@ -71,30 +71,31 @@ async def create_connected_server_and_client_session(
         server_read, server_write = server_streams
 
         # Create a cancel scope for the server task
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(
-                lambda: server.run(
-                    server_read,
-                    server_write,
-                    server.create_initialization_options(),
-                    raise_exceptions=raise_exceptions,
+        async with server.async_operations.run():
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(
+                    lambda: server.run(
+                        server_read,
+                        server_write,
+                        server.create_initialization_options(),
+                        raise_exceptions=raise_exceptions,
+                    )
                 )
-            )
 
-            try:
-                async with ClientSession(
-                    read_stream=client_read,
-                    write_stream=client_write,
-                    read_timeout_seconds=read_timeout_seconds,
-                    sampling_callback=sampling_callback,
-                    list_roots_callback=list_roots_callback,
-                    logging_callback=logging_callback,
-                    message_handler=message_handler,
-                    client_info=client_info,
-                    elicitation_callback=elicitation_callback,
-                    protocol_version=protocol_version,
-                ) as client_session:
-                    await client_session.initialize()
-                    yield client_session
-            finally:
-                tg.cancel_scope.cancel()
+                try:
+                    async with ClientSession(
+                        read_stream=client_read,
+                        write_stream=client_write,
+                        read_timeout_seconds=read_timeout_seconds,
+                        sampling_callback=sampling_callback,
+                        list_roots_callback=list_roots_callback,
+                        logging_callback=logging_callback,
+                        message_handler=message_handler,
+                        client_info=client_info,
+                        elicitation_callback=elicitation_callback,
+                        protocol_version=protocol_version,
+                    ) as client_session:
+                        await client_session.initialize()
+                        yield client_session
+                finally:
+                    tg.cancel_scope.cancel()
