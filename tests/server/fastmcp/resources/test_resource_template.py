@@ -46,6 +46,41 @@ class TestResourceTemplate:
         assert template.matches("test://foo") is None
         assert template.matches("other://foo/123") is None
 
+    def test_template_matches_with_types(self):
+        """Test matching URIs with typed placeholders."""
+
+        def my_func(a: int, b: float, name: str) -> dict[str, Any]:
+            return {"a": a, "b": b, "name": name}
+
+        template = ResourceTemplate.from_function(
+            fn=my_func,
+            uri_template="calc://{a:int}/{b:float}/{name:str}",
+            name="calc",
+        )
+
+        params = template.matches("calc://10/3.14/foo")
+        
+        assert params == {"a": 10, "b": 3.14, "name": "foo"}
+        assert template.matches("calc://x/3.14/foo") is None
+        assert template.matches("calc://10/bar/foo") is None
+
+    
+    def test_template_matches_with_path(self):
+        """Test matching URIs with {path:path} placeholder."""
+
+        def my_func(path: str) -> str:
+            return path
+
+        template = ResourceTemplate.from_function(
+            fn=my_func,
+            uri_template="files://{path:path}",
+            name="file",
+        )
+
+        params = template.matches("files://foo/bar/baz.txt")
+        assert params == {"path": "foo/bar/baz.txt"}
+        assert template.matches("wrong://foo/bar") is None
+
     @pytest.mark.anyio
     async def test_create_resource(self):
         """Test creating a resource from a template."""

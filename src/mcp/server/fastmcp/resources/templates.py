@@ -5,12 +5,13 @@ from __future__ import annotations
 import inspect
 import re
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Dict, List
 
 from pydantic import BaseModel, Field, validate_call
 
 from mcp.server.fastmcp.resources.types import FunctionResource, Resource
 from mcp.server.fastmcp.utilities.context_injection import find_context_parameter, inject_context
+from mcp.server.fastmcp.utilities.convertors import Convertor,CONVERTOR_TYPES
 from mcp.server.fastmcp.utilities.func_metadata import func_metadata
 from mcp.types import Icon
 
@@ -78,12 +79,51 @@ class ResourceTemplate(BaseModel):
 
     def matches(self, uri: str) -> dict[str, Any] | None:
         """Check if URI matches template and extract parameters."""
-        # Convert template to regex pattern
-        pattern = self.uri_template.replace("{", "(?P<").replace("}", ">[^/]+)")
-        match = re.match(f"^{pattern}$", uri)
-        if match:
-            return match.groupdict()
-        return None
+        uriTemplate = str(self.uri_template)
+        uri = str(uri)
+
+        parts = uriTemplate.strip("/").split("/")
+        pattern_parts: List[str] = []
+        converters: Dict[str, Convertor[Any]] = {}
+        # generate the regex pattern
+        for i, part in enumerate(parts):
+            match = re.fullmatch(r"\{(\w+)(?::(\w+))?\}", part)
+            if match:
+                name, type_ = match.groups()
+                type_ = type_ or "str"
+
+                if type_ not in CONVERTOR_TYPES:
+                    raise ValueError(f"Unknown convertor type '{type_}'")
+
+                conv = CONVERTOR_TYPES[type_]
+                converters[name] = conv
+
+                # path type must be last
+                if type_ == "path" and i != len(parts) - 1:
+                    raise ValueError("Path parameters must appear last in the template")
+
+                pattern_parts.append(f"(?P<{name}>{conv.regex})")
+            else:
+                pattern_parts.append(re.escape(part))
+
+        pattern = "^" + "/".join(pattern_parts) + "$"
+        # check if the pattern matches
+        regex = re.compile(pattern)
+        match = regex.match(uri.strip("/"))
+        if not match:
+            return None
+        
+        # try to convert them into respective types
+        result: Dict[str, Any] = {}
+        for name, conv in converters.items():
+            raw_value = match.group(name)
+            try:
+                result[name] = conv.convert(raw_value)
+            except Exception:
+                return None
+
+        return result       
+
 
     async def create_resource(
         self,
