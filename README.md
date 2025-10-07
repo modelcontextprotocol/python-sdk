@@ -1661,6 +1661,40 @@ For more information on mounting applications in Starlette, see the [Starlette d
 
 ## Advanced Usage
 
+### Persistent Async Operations
+
+For production deployments, you may want async operations to survive server restarts. The `ServerAsyncOperationManager` uses pluggable `AsyncOperationStore` and `AsyncOperationBroker` components to handle operation persistence and task queuing.
+
+#### Operation Lifecycle
+
+Async operations follow this lifecycle:
+
+1. **Submitted** - Operation token generated and stored
+2. **Working** - Task begins execution  
+3. **Completed/Failed/Cancelled** - Operation reaches terminal state with results
+
+#### Custom Store and Broker
+
+```python
+from mcp.server.fastmcp import FastMCP
+from mcp.shared.async_operations import ServerAsyncOperationManager
+
+# Create custom store and broker implementations
+custom_store = MyAsyncOperationStore()
+custom_broker = MyAsyncOperationBroker()
+
+# Create operation manager with custom components
+operation_manager = ServerAsyncOperationManager(
+    store=custom_store,
+    broker=custom_broker
+)
+
+# Use with FastMCP
+mcp = FastMCP("My Server", async_operations=operation_manager)
+```
+
+For a complete SQLite-based implementation example, see [`examples/servers/sqlite-async-operations/`](examples/servers/sqlite-async-operations/).
+
 ### Low-Level Server
 
 For more control, you can use the low-level server implementation directly. This gives you full access to the protocol and allows you to customize every aspect of your server, including lifecycle management through the lifespan API:

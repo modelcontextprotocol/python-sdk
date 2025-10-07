@@ -48,8 +48,8 @@ class TestLowlevelServerAsyncOperations:
             return types.GetOperationStatusResult(status="unknown")
 
         # Create and complete operation with short keepAlive
-        operation = manager.create_operation("test_tool", {}, keep_alive=1, session_id="session1")
-        manager.complete_operation(operation.token, types.CallToolResult(content=[]))
+        operation = await manager.create_operation("test_tool", {}, keep_alive=1, session_id="session1")
+        await manager.complete_operation(operation.token, types.CallToolResult(content=[]))
 
         # Make it expired
         operation.resolved_at = time.time() - 2
@@ -75,8 +75,8 @@ class TestLowlevelServerAsyncOperations:
             return types.GetOperationStatusResult(status="unknown")
 
         # Create valid operation
-        operation = manager.create_operation("test_tool", {}, session_id="session1")
-        manager.mark_working(operation.token)
+        operation = await manager.create_operation("test_tool", {}, session_id="session1")
+        await manager.mark_working(operation.token)
 
         valid_request = types.GetOperationStatusRequest(params=types.GetOperationStatusParams(token=operation.token))
 
@@ -100,8 +100,8 @@ class TestLowlevelServerAsyncOperations:
             return types.GetOperationStatusResult(status="unknown")
 
         # Create and fail operation
-        operation = manager.create_operation("test_tool", {}, session_id="session1")
-        manager.fail_operation(operation.token, "Something went wrong")
+        operation = await manager.create_operation("test_tool", {}, session_id="session1")
+        await manager.fail_operation(operation.token, "Something went wrong")
 
         failed_request = types.GetOperationStatusRequest(params=types.GetOperationStatusParams(token=operation.token))
 
@@ -147,8 +147,8 @@ class TestLowlevelServerAsyncOperations:
             return types.GetOperationPayloadResult(result=types.CallToolResult(content=[]))
 
         # Create and complete operation with short keepAlive
-        operation = manager.create_operation("test_tool", {}, keep_alive=1, session_id="session1")
-        manager.complete_operation(operation.token, types.CallToolResult(content=[]))
+        operation = await manager.create_operation("test_tool", {}, keep_alive=1, session_id="session1")
+        await manager.complete_operation(operation.token, types.CallToolResult(content=[]))
 
         # Make it expired
         operation.resolved_at = time.time() - 2
@@ -176,8 +176,8 @@ class TestLowlevelServerAsyncOperations:
             return types.GetOperationPayloadResult(result=types.CallToolResult(content=[]))
 
         # Create operation that's still working
-        operation = manager.create_operation("test_tool", {}, session_id="session1")
-        manager.mark_working(operation.token)
+        operation = await manager.create_operation("test_tool", {}, session_id="session1")
+        await manager.mark_working(operation.token)
 
         working_request = types.GetOperationPayloadRequest(
             params=types.GetOperationPayloadParams(token=operation.token)
@@ -202,9 +202,9 @@ class TestLowlevelServerAsyncOperations:
             return types.GetOperationPayloadResult(result=types.CallToolResult(content=[]))
 
         # Create and complete operation with result
-        operation = manager.create_operation("test_tool", {}, session_id="session1")
+        operation = await manager.create_operation("test_tool", {}, session_id="session1")
         result = types.CallToolResult(content=[types.TextContent(type="text", text="success")])
-        manager.complete_operation(operation.token, result)
+        await manager.complete_operation(operation.token, result)
 
         completed_request = types.GetOperationPayloadRequest(
             params=types.GetOperationPayloadParams(token=operation.token)
@@ -229,17 +229,17 @@ class TestCancellationLogic:
         server = Server("Test", async_operations=manager)
 
         # Create an operation
-        operation = manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
+        operation = await manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
 
         # Track the operation with a request ID
         request_id = "req_123"
         server._request_to_operation[request_id] = operation.token
 
         # Handle cancellation
-        server.handle_cancelled_notification(request_id)
+        await server.handle_cancelled_notification(request_id)
 
         # Verify operation was cancelled
-        cancelled_op = manager.get_operation(operation.token)
+        cancelled_op = await manager.get_operation(operation.token)
         assert cancelled_op is not None
         assert cancelled_op.status == "canceled"
 
@@ -253,7 +253,7 @@ class TestCancellationLogic:
         server = Server("Test", async_operations=manager)
 
         # Create an operation
-        operation = manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
+        operation = await manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
 
         # Track the operation with a request ID
         request_id = "req_456"
@@ -265,7 +265,7 @@ class TestCancellationLogic:
         await server._handle_cancelled_notification(notification)
 
         # Verify operation was cancelled
-        cancelled_op = manager.get_operation(operation.token)
+        cancelled_op = await manager.get_operation(operation.token)
         assert cancelled_op is not None
         assert cancelled_op.status == "canceled"
 
@@ -276,12 +276,12 @@ class TestCancellationLogic:
         server = Server("Test", async_operations=manager)
 
         # Create and cancel an operation
-        operation = manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
-        manager.cancel_operation(operation.token)
+        operation = await manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
+        await manager.cancel_operation(operation.token)
 
         # Verify that accessing cancelled operation raises error
         with pytest.raises(McpError) as exc_info:
-            server._validate_operation_token(operation.token)
+            await server._validate_operation_token(operation.token)
 
         assert exc_info.value.error.code == -32602
         assert "cancelled" in exc_info.value.error.message.lower()
@@ -292,7 +292,7 @@ class TestCancellationLogic:
         server = Server("Test")
 
         # Should not raise error for non-existent request ID
-        server.handle_cancelled_notification("nonexistent_request")
+        await server.handle_cancelled_notification("nonexistent_request")
 
         # Verify no operations were affected
         assert len(server._request_to_operation) == 0
@@ -307,15 +307,15 @@ class TestInputRequiredBehavior:
         manager = ServerAsyncOperationManager()
 
         # Create operation in submitted state
-        operation = manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
+        operation = await manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
         assert operation.status == "submitted"
 
         # Mark as input required
-        result = manager.mark_input_required(operation.token)
+        result = await manager.mark_input_required(operation.token)
         assert result is True
 
         # Verify status changed
-        updated_op = manager.get_operation(operation.token)
+        updated_op = await manager.get_operation(operation.token)
         assert updated_op is not None
         assert updated_op.status == "input_required"
 
@@ -325,12 +325,12 @@ class TestInputRequiredBehavior:
         manager = ServerAsyncOperationManager()
 
         # Create and mark as working
-        operation = manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
-        manager.mark_working(operation.token)
+        operation = await manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
+        await manager.mark_working(operation.token)
         assert operation.status == "working"
 
         # Mark as input required
-        result = manager.mark_input_required(operation.token)
+        result = await manager.mark_input_required(operation.token)
         assert result is True
         assert operation.status == "input_required"
 
@@ -340,10 +340,10 @@ class TestInputRequiredBehavior:
         manager = ServerAsyncOperationManager()
 
         # Test from completed state
-        operation = manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
-        manager.complete_operation(operation.token, types.CallToolResult(content=[]))
+        operation = await manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
+        await manager.complete_operation(operation.token, types.CallToolResult(content=[]))
 
-        result = manager.mark_input_required(operation.token)
+        result = await manager.mark_input_required(operation.token)
         assert result is False
         assert operation.status == "completed"
 
@@ -353,12 +353,12 @@ class TestInputRequiredBehavior:
         manager = ServerAsyncOperationManager()
 
         # Create operation and mark as input required
-        operation = manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
-        manager.mark_input_required(operation.token)
+        operation = await manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
+        await manager.mark_input_required(operation.token)
         assert operation.status == "input_required"
 
         # Mark input as completed
-        result = manager.mark_input_completed(operation.token)
+        result = await manager.mark_input_completed(operation.token)
         assert result is True
         assert operation.status == "working"
 
@@ -368,11 +368,11 @@ class TestInputRequiredBehavior:
         manager = ServerAsyncOperationManager()
 
         # Create operation in submitted state
-        operation = manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
+        operation = await manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
         assert operation.status == "submitted"
 
         # Try to mark input completed from wrong state
-        result = manager.mark_input_completed(operation.token)
+        result = await manager.mark_input_completed(operation.token)
         assert result is False
         assert operation.status == "submitted"
 
@@ -382,8 +382,8 @@ class TestInputRequiredBehavior:
         manager = ServerAsyncOperationManager()
 
         # Test with fake token
-        assert manager.mark_input_required("fake_token") is False
-        assert manager.mark_input_completed("fake_token") is False
+        assert await manager.mark_input_required("fake_token") is False
+        assert await manager.mark_input_completed("fake_token") is False
 
     @pytest.mark.anyio
     async def test_server_send_request_for_operation(self):
@@ -392,8 +392,8 @@ class TestInputRequiredBehavior:
         server = Server("Test", async_operations=manager)
 
         # Create operation
-        operation = manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
-        manager.mark_working(operation.token)
+        operation = await manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
+        await manager.mark_working(operation.token)
 
         # Create a mock request
         request = types.ServerRequest(
@@ -406,10 +406,10 @@ class TestInputRequiredBehavior:
         )
 
         # Send request for operation
-        server.send_request_for_operation(operation.token, request)
+        await server.send_request_for_operation(operation.token, request)
 
         # Verify operation status changed
-        updated_op = manager.get_operation(operation.token)
+        updated_op = await manager.get_operation(operation.token)
         assert updated_op is not None
         assert updated_op.status == "input_required"
 
@@ -420,14 +420,14 @@ class TestInputRequiredBehavior:
         server = Server("Test", async_operations=manager)
 
         # Create operation and mark as input required
-        operation = manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
-        manager.mark_input_required(operation.token)
+        operation = await manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
+        await manager.mark_input_required(operation.token)
 
         # Complete request for operation
-        server.complete_request_for_operation(operation.token)
+        await server.complete_request_for_operation(operation.token)
 
         # Verify operation status changed back to working
-        updated_op = manager.get_operation(operation.token)
+        updated_op = await manager.get_operation(operation.token)
         assert updated_op is not None
         assert updated_op.status == "working"
 
@@ -437,8 +437,8 @@ class TestInputRequiredBehavior:
         manager = ServerAsyncOperationManager()
 
         # Create operation and mark as input required
-        operation = manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
-        manager.mark_input_required(operation.token)
+        operation = await manager.create_operation("test_tool", {"arg": "value"}, session_id="session1")
+        await manager.mark_input_required(operation.token)
 
         # Verify it's not terminal
         assert not operation.is_terminal

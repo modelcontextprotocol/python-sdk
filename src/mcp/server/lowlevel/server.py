@@ -92,7 +92,7 @@ from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
-from mcp.types import Operation, RequestId
+from mcp.types import NEXT_PROTOCOL_VERSION, Operation, RequestId
 
 logger = logging.getLogger(__name__)
 
@@ -154,8 +154,13 @@ class Server(Generic[LifespanResultT, RequestT]):
         self.icons = icons
         self.lifespan = lifespan
         self.async_operations = async_operations or ServerAsyncOperationManager()
+        self.async_operations.set_handler(self._execute_tool_async)
         # Track request ID to operation token mapping for cancellation
         self._request_to_operation: dict[RequestId, str] = {}
+        # Store tool functions for async execution
+        self._tool_function: (
+            Callable[..., Awaitable[UnstructuredContent | StructuredContent | CombinationContent]] | None
+        ) = None
         self.request_handlers: dict[type, Callable[..., Awaitable[types.ServerResult]]] = {
             types.PingRequest: _ping_handler,
         }
@@ -494,6 +499,9 @@ class Server(Generic[LifespanResultT, RequestT]):
         ):
             logger.debug("Registering handler for CallToolRequest")
 
+            # Store the tool function for async execution
+            self._tool_function = func
+
             async def handler(req: types.CallToolRequest, server_scope: TaskGroup):
                 try:
                     tool_name = req.params.name
@@ -529,7 +537,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                                 )
 
                         # Create async operation
-                        operation = self.async_operations.create_operation(
+                        operation = await self.async_operations.create_operation(
                             tool_name=tool_name,
                             arguments=arguments,
                             keep_alive=keep_alive,
@@ -542,32 +550,17 @@ class Server(Generic[LifespanResultT, RequestT]):
                             operation_token=self.request_context.operation_token,
                             meta=self.request_context.meta,
                             session=self.request_context.session,
+                            supports_async=self._client_supports_async(self.request_context.session),
                             lifespan_context=self.request_context.lifespan_context,
                             request=self.request_context.request,
                         )
                         ctx.operation_token = operation.token
                         request_ctx.set(ctx)
 
-                        # Start async execution in background
-                        async def execute_async():
-                            try:
-                                logger.debug(f"Starting async execution of {tool_name}")
-                                self.async_operations.mark_working(operation.token)
-                                results = await func(tool_name, arguments)
-                                logger.debug(f"Async execution completed for {tool_name}")
-
-                                # Process results using shared logic
-                                result = self._process_tool_result(results, tool)
-                                self.async_operations.complete_operation(operation.token, result)
-                                logger.debug(f"Completed async operation {operation.token}")
-                            except Exception as e:
-                                logger.exception(f"Async execution failed for {tool_name}")
-                                self.async_operations.fail_operation(operation.token, str(e))
-
-                        # Start task directly in independent task group
+                        # Start task with tool name and arguments
                         current_request_context = request_ctx.get()
-                        self.async_operations.start_task(
-                            operation.token, execute_async, current_request_context, request_ctx
+                        await self.async_operations.start_task(
+                            operation.token, tool_name, arguments, current_request_context
                         )
 
                         # Return operation result with immediate content
@@ -598,6 +591,14 @@ class Server(Generic[LifespanResultT, RequestT]):
             return func
 
         return decorator
+
+    def _client_supports_async(self, session: ServerSession) -> bool:
+        """Check if the provided session supports async tools based on protocol version."""
+        if session.client_params:
+            client_version = str(session.client_params.protocolVersion)
+            # Only "next" version supports async tools for now
+            return client_version == NEXT_PROTOCOL_VERSION
+        return False
 
     def _process_tool_result(
         self, results: UnstructuredContent | StructuredContent | CombinationContent, tool: types.Tool | None = None
@@ -688,6 +689,37 @@ class Server(Generic[LifespanResultT, RequestT]):
                 types.ErrorData(code=types.INTERNAL_ERROR, message=f"Immediate result execution error: {str(e)}")
             )
 
+    async def _execute_tool_async(
+        self, tool_name: str, arguments: dict[str, Any], request_context: Any
+    ) -> types.CallToolResult:
+        """Execute a tool asynchronously and return the result."""
+        context_token = None
+
+        try:
+            # Restore the request context for this task
+            if request_context:
+                context_token = request_ctx.set(request_context)
+
+            logger.info(f"Starting async execution of tool '{tool_name}'")
+
+            if not self._tool_function:
+                raise ValueError("No tool function registered")
+
+            # Execute the tool function
+            results = await self._tool_function(tool_name, arguments)
+
+            # Get tool definition for validation
+            tool = await self._get_cached_tool_definition(tool_name)
+
+            # Process results using shared logic
+            result = self._process_tool_result(results, tool)
+            logger.info(f"Async execution of tool '{tool_name}' completed")
+            return result
+
+        finally:
+            if context_token:
+                request_ctx.reset(context_token)
+
     def progress_notification(self):
         def decorator(
             func: Callable[[str | int, float, float | None, str | None], Awaitable[None]],
@@ -737,9 +769,9 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return decorator
 
-    def _validate_operation_token(self, token: str) -> ServerAsyncOperation:
+    async def _validate_operation_token(self, token: str) -> ServerAsyncOperation:
         """Validate operation token and return operation if valid."""
-        operation = self.async_operations.get_operation(token)
+        operation = await self.async_operations.get_operation(token)
         if not operation:
             raise McpError(types.ErrorData(code=-32602, message="Invalid token"))
 
@@ -760,7 +792,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(req: types.GetOperationStatusRequest, _: Any = None):
                 # Validate token and get operation
-                operation = self._validate_operation_token(req.params.token)
+                operation = await self._validate_operation_token(req.params.token)
 
                 return types.ServerResult(
                     types.GetOperationStatusResult(
@@ -782,7 +814,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(req: types.GetOperationPayloadRequest, _: Any = None):
                 # Validate token and get operation
-                operation = self._validate_operation_token(req.params.token)
+                operation = await self._validate_operation_token(req.params.token)
 
                 if operation.status != "completed":
                     raise McpError(
@@ -799,13 +831,13 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return decorator
 
-    def handle_cancelled_notification(self, request_id: RequestId) -> None:
+    async def handle_cancelled_notification(self, request_id: RequestId) -> None:
         """Handle cancellation notification for a request."""
         # Check if this request ID corresponds to an async operation
         if request_id in self._request_to_operation:
             token = self._request_to_operation[request_id]
             # Cancel the operation
-            if self.async_operations.cancel_operation(token):
+            if await self.async_operations.cancel_operation(token):
                 logger.debug(f"Cancelled async operation {token} for request {request_id}")
             # Clean up the mapping
             del self._request_to_operation[request_id]
@@ -814,31 +846,31 @@ class Server(Generic[LifespanResultT, RequestT]):
         """Handle cancelled notification from client."""
         request_id = notification.params.requestId
         logger.debug(f"Received cancellation notification for request {request_id}")
-        self.handle_cancelled_notification(request_id)
+        await self.handle_cancelled_notification(request_id)
 
-    def send_request_for_operation(self, token: str, request: types.ServerRequest) -> None:
+    async def send_request_for_operation(self, token: str, request: types.ServerRequest) -> None:
         """Send a request associated with an async operation."""
         # Mark operation as requiring input
-        if self.async_operations.mark_input_required(token):
+        if await self.async_operations.mark_input_required(token):
             # Add operation token to request
             if hasattr(request.root, "params") and request.root.params is not None:
                 if not hasattr(request.root.params, "operation") or request.root.params.operation is None:
                     request.root.params.operation = Operation(token=token)
             logger.debug(f"Marked operation {token} as input_required and added to request")
 
-    def send_notification_for_operation(self, token: str, notification: types.ServerNotification) -> None:
+    async def send_notification_for_operation(self, token: str, notification: types.ServerNotification) -> None:
         """Send a notification associated with an async operation."""
         # Mark operation as requiring input
-        if self.async_operations.mark_input_required(token):
+        if await self.async_operations.mark_input_required(token):
             # Add operation token to notification
             if hasattr(notification.root, "params") and notification.root.params is not None:
                 if not hasattr(notification.root.params, "operation") or notification.root.params.operation is None:
                     notification.root.params.operation = Operation(token=token)
             logger.debug(f"Marked operation {token} as input_required and added to notification")
 
-    def complete_request_for_operation(self, token: str) -> None:
+    async def complete_request_for_operation(self, token: str) -> None:
         """Mark that a request for an operation has been completed."""
-        if self.async_operations.mark_input_completed(token):
+        if await self.async_operations.mark_input_completed(token):
             logger.debug(f"Marked operation {token} as no longer requiring input")
 
     async def run(
@@ -931,6 +963,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                         operation_token=message.operation.token if message.operation else None,
                         meta=message.request_meta,
                         session=session,
+                        supports_async=self._client_supports_async(session),
                         lifespan_context=lifespan_context,
                         request=request_data,
                     )

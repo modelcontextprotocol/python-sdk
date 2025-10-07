@@ -14,6 +14,7 @@ members = [
     "mcp-simple-tool",
     "mcp-simple-tool-async",
     "mcp-snippets",
+    "mcp-sqlite-async-operations",
 ]
 
 [[package]]
@@ -981,6 +982,39 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "mcp", editable = "." }]
+
+[[package]]
+name = "mcp-sqlite-async-operations"
+version = "0.1.0"
+source = { editable = "examples/servers/sqlite-async-operations" }
+dependencies = [
+    { name = "anyio" },
+    { name = "click" },
+    { name = "httpx" },
+    { name = "mcp" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", specifier = ">=4.5" },
+    { name = "click", specifier = ">=8.2.0" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "mcp", editable = "." },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.378" },
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "ruff", specifier = ">=0.6.9" },
+]
 
 [[package]]
 name = "mdurl"

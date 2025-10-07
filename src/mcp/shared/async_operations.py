@@ -6,9 +6,10 @@ import contextlib
 import logging
 import secrets
 import time
+from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
 import anyio
 from anyio.abc import TaskGroup
@@ -16,7 +17,22 @@ from anyio.abc import TaskGroup
 import mcp.types as types
 from mcp.types import AsyncOperationStatus
 
+if TYPE_CHECKING:
+    # Avoid circular import with mcp.server.lowlevel.Server
+    from mcp.server.session import ServerSession
+    from mcp.shared.context import RequestContext
+
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PendingAsyncTask:
+    """Represents a task waiting to be dispatched."""
+
+    token: str
+    tool_name: str
+    arguments: dict[str, Any]
+    request_context: Any  # The RequestContext object to restore
 
 
 @dataclass
@@ -127,6 +143,60 @@ class BaseOperationManager(Generic[OperationT]):
                 logger.debug(f"Cleaned up {count} expired operations")
 
 
+class AsyncOperationStore(Protocol):
+    """Protocol for async operation storage implementations."""
+
+    async def get_operation(self, token: str) -> ServerAsyncOperation | None:
+        """Get operation by token."""
+        ...
+
+    async def store_operation(self, operation: ServerAsyncOperation) -> None:
+        """Store an operation."""
+        ...
+
+    async def update_status(self, token: str, status: AsyncOperationStatus) -> bool:
+        """Update operation status."""
+        ...
+
+    async def complete_operation_with_result(self, token: str, result: types.CallToolResult) -> bool:
+        """Complete operation with result."""
+        ...
+
+    async def fail_operation_with_error(self, token: str, error: str) -> bool:
+        """Fail operation with error."""
+        ...
+
+    async def cleanup_expired(self) -> int:
+        """Remove expired operations and return count."""
+        ...
+
+
+class AsyncOperationBroker(Protocol):
+    """Protocol for async operation queueing and scheduling."""
+
+    async def enqueue_task(
+        self,
+        token: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        request_context: RequestContext[ServerSession, Any, Any],
+    ) -> None:
+        """Enqueue a task for execution."""
+        ...
+
+    async def get_pending_tasks(self) -> list[PendingAsyncTask]:
+        """Get all pending tasks."""
+        ...
+
+    async def acknowledge_task(self, token: str) -> None:
+        """Acknowledge that a task has been dispatched."""
+        ...
+
+    async def complete_task(self, token: str) -> None:
+        """Remove a completed task from persistent storage."""
+        ...
+
+
 class ClientAsyncOperationManager(BaseOperationManager[ClientAsyncOperation]):
     """Manages client-side operation tracking."""
 
@@ -146,14 +216,36 @@ class ClientAsyncOperationManager(BaseOperationManager[ClientAsyncOperation]):
         return operation.tool_name if operation else None
 
 
-class ServerAsyncOperationManager(BaseOperationManager[ServerAsyncOperation]):
-    """Manages async tool operations with token-based tracking."""
+class ServerAsyncOperationManager:
+    """Manages async tool operations using Store and Broker components."""
 
-    def __init__(self, *, token_generator: Callable[[str | None], str] | None = None):
-        super().__init__(token_generator=token_generator)
+    def __init__(
+        self,
+        store: AsyncOperationStore | None = None,
+        broker: AsyncOperationBroker | None = None,
+        *,
+        token_generator: Callable[[str | None], str] | None = None,
+    ):
+        # Use provided implementations or default to InMemory
+        self.store = store or InMemoryAsyncOperationStore()
+        self.broker = broker or InMemoryAsyncOperationBroker()
+        self._token_generator = token_generator or self._default_token_generator
+        self._tool_executor: Callable[[str, dict[str, Any], Any], Awaitable[types.CallToolResult]] | None = None
         self._task_group: TaskGroup | None = None
         self._run_lock = anyio.Lock()
         self._running = False
+
+    def set_handler(self, tool_executor: Callable[[str, dict[str, Any], Any], Awaitable[types.CallToolResult]]) -> None:
+        """Set the tool executor handler for late binding."""
+        self._tool_executor = tool_executor
+
+    def _default_token_generator(self, session_id: str | None = None) -> str:
+        """Default token generation using random tokens."""
+        return secrets.token_urlsafe(32)
+
+    def generate_token(self, session_id: str | None = None) -> str:
+        """Generate a token."""
+        return self._token_generator(session_id)
 
     @contextlib.asynccontextmanager
     async def run(self) -> AsyncIterator[None]:
@@ -167,46 +259,69 @@ class ServerAsyncOperationManager(BaseOperationManager[ServerAsyncOperation]):
         async with anyio.create_task_group() as tg:
             self._task_group = tg
             logger.info("ServerAsyncOperationManager started")
-            # Start cleanup loop
-            tg.start_soon(self.cleanup_loop)
+            # Start cleanup loop and task dispatcher
+            tg.start_soon(self._cleanup_loop)
+            tg.start_soon(self._task_dispatcher)
             try:
                 yield
             finally:
                 logger.info("ServerAsyncOperationManager shutting down")
                 # Stop cleanup loop gracefully
-                await self.stop_cleanup_loop()
+                await self._stop_cleanup_loop()
                 # Cancel task group to stop all spawned tasks
                 tg.cancel_scope.cancel()
                 self._task_group = None
                 self._running = False
 
-    def start_task(
+    async def _cleanup_loop(self) -> None:
+        """Background cleanup loop for expired operations."""
+        while self._running:
+            await anyio.sleep(60)  # Cleanup every 60 seconds
+            count = await self.store.cleanup_expired()
+            if count > 0:
+                logger.debug(f"Cleaned up {count} expired operations")
+
+    async def _stop_cleanup_loop(self) -> None:
+        """Stop the cleanup loop."""
+        self._running = False
+
+    async def _task_dispatcher(self) -> None:
+        """Background task dispatcher that processes queued tasks."""
+        while self._running:
+            await anyio.sleep(0.1)  # Check for tasks frequently
+            pending_tasks = await self.broker.get_pending_tasks()
+            for task in pending_tasks:
+                if self._task_group and self._tool_executor:
+                    logger.debug(f"Dispatching queued async task {task.token}")
+                    self._task_group.start_soon(self._execute_tool_task, task, name=f"lro_{task.token}")
+                    # Acknowledge that we've dispatched this task
+                    await self.broker.acknowledge_task(task.token)
+
+    async def _execute_tool_task(self, task: PendingAsyncTask) -> None:
+        """Execute a tool task."""
+        try:
+            if not self._tool_executor:
+                raise ValueError("No tool executor configured")
+
+            await self.mark_working(task.token)
+            result = await self._tool_executor(task.tool_name, task.arguments, task.request_context)
+            await self.complete_operation(task.token, result)
+
+        except Exception as e:
+            logger.exception(f"Tool task {task.token} failed: {e}")
+            await self.fail_operation(task.token, str(e))
+
+    async def start_task(
         self,
         token: str,
-        task_func: Callable[[], Awaitable[None]],
-        request_context: Any = None,
-        request_ctx_var: Any = None,
+        tool_name: str,
+        arguments: dict[str, Any],
+        request_context: RequestContext[ServerSession, Any, Any],
     ) -> None:
-        """Start an async task immediately in the independent task group."""
-        if self._task_group is None:
-            raise RuntimeError("Task group not started. Call run() first.")
+        """Enqueue an async task for execution."""
+        await self.broker.enqueue_task(token, tool_name, arguments, request_context)
 
-        async def run_task_with_context():
-            context_token = None
-            try:
-                if request_context and request_ctx_var:
-                    context_token = request_ctx_var.set(request_context)
-                await task_func()
-            except Exception:
-                # Handle task failures gracefully
-                pass
-            finally:
-                if context_token and request_ctx_var:
-                    request_ctx_var.reset(context_token)
-
-        self._task_group.start_soon(run_task_with_context, name=f"lro_{token}")
-
-    def create_operation(
+    async def create_operation(
         self,
         tool_name: str,
         arguments: dict[str, Any],
@@ -224,30 +339,121 @@ class ServerAsyncOperationManager(BaseOperationManager[ServerAsyncOperation]):
             keep_alive=keep_alive,
             session_id=session_id,
         )
-        self._set_operation(token, operation)
+        await self.store.store_operation(operation)
+        logger.info(f"Created async operation {token} for tool '{tool_name}'")
         return operation
 
-    def mark_working(self, token: str) -> bool:
+    async def get_operation(self, token: str) -> ServerAsyncOperation | None:
+        """Get operation by token."""
+        return await self.store.get_operation(token)
+
+    async def mark_working(self, token: str) -> bool:
         """Mark operation as working."""
-        operation = self._get_operation(token)
-        if not operation:
+        return await self.store.update_status(token, "working")
+
+    async def complete_operation(self, token: str, result: types.CallToolResult) -> bool:
+        """Complete operation with result."""
+        success = await self.store.complete_operation_with_result(token, result)
+        if success:
+            await self.broker.complete_task(token)
+            logger.info(f"Async operation {token} completed successfully")
+        return success
+
+    async def fail_operation(self, token: str, error: str) -> bool:
+        """Fail operation with error."""
+        success = await self.store.fail_operation_with_error(token, error)
+        if success:
+            await self.broker.complete_task(token)
+            logger.info(f"Async operation {token} failed: {error}")
+        return success
+
+    async def cancel_operation(self, token: str) -> bool:
+        """Cancel operation."""
+        operation = await self.store.get_operation(token)
+        if not operation or operation.status in ("completed", "failed", "canceled"):
             return False
 
-        # Can only transition to working from submitted
-        if operation.status != "submitted":
-            return False
-
-        operation.status = "working"
+        # Create new operation with updated fields instead of mutating
+        cancelled_operation = ServerAsyncOperation(
+            token=operation.token,
+            tool_name=operation.tool_name,
+            arguments=operation.arguments,
+            status="canceled",
+            created_at=operation.created_at,
+            keep_alive=operation.keep_alive,
+            resolved_at=time.time(),
+            session_id=operation.session_id,
+            result=operation.result,
+            error=operation.error,
+        )
+        await self.store.store_operation(cancelled_operation)
+        await self.broker.complete_task(token)  # Clean up from broker
+        logger.info(f"Async operation {token} was cancelled")
         return True
 
-    def complete_operation(self, token: str, result: types.CallToolResult) -> bool:
-        """Complete operation with result."""
-        operation = self._get_operation(token)
+    async def mark_input_required(self, token: str) -> bool:
+        """Mark operation as requiring input."""
+        operation = await self.store.get_operation(token)
+        if not operation or operation.status not in ("submitted", "working"):
+            return False
+
+        await self.store.update_status(token, "input_required")
+        return True
+
+    async def mark_input_completed(self, token: str) -> bool:
+        """Mark input as completed, transitioning back to working."""
+        operation = await self.store.get_operation(token)
+        if not operation or operation.status != "input_required":
+            return False
+
+        await self.store.update_status(token, "working")
+        return True
+
+    async def get_operation_result(self, token: str) -> types.CallToolResult | None:
+        """Get result for completed operation."""
+        operation = await self.store.get_operation(token)
+        if not operation or operation.status != "completed":
+            return None
+        return operation.result
+
+    async def cleanup_expired(self) -> int:
+        """Remove expired operations and return count."""
+        return await self.store.cleanup_expired()
+
+
+class InMemoryAsyncOperationStore(AsyncOperationStore):
+    """In-memory implementation of AsyncOperationStore."""
+
+    def __init__(self):
+        self._operations: dict[str, ServerAsyncOperation] = {}
+
+    async def get_operation(self, token: str) -> ServerAsyncOperation | None:
+        """Get operation by token."""
+        return self._operations.get(token)
+
+    async def store_operation(self, operation: ServerAsyncOperation) -> None:
+        """Store an operation."""
+        self._operations[operation.token] = operation
+
+    async def update_status(self, token: str, status: AsyncOperationStatus) -> bool:
+        """Update operation status."""
+        operation = self._operations.get(token)
         if not operation:
             return False
 
-        # Can only complete from submitted or working states
-        if operation.status not in ("submitted", "working"):
+        # Don't allow transitions from terminal states
+        if operation.is_terminal:
+            return False
+
+        operation.status = status
+        if status in ("completed", "failed", "canceled"):
+            operation.resolved_at = time.time()
+        return True
+
+    async def complete_operation_with_result(self, token: str, result: types.CallToolResult) -> bool:
+        """Complete operation with result."""
+        operation = self._operations.get(token)
+        if not operation or operation.is_terminal:
             return False
 
         operation.status = "completed"
@@ -255,14 +461,10 @@ class ServerAsyncOperationManager(BaseOperationManager[ServerAsyncOperation]):
         operation.resolved_at = time.time()
         return True
 
-    def fail_operation(self, token: str, error: str) -> bool:
+    async def fail_operation_with_error(self, token: str, error: str) -> bool:
         """Fail operation with error."""
-        operation = self._get_operation(token)
-        if not operation:
-            return False
-
-        # Can only fail from submitted or working states
-        if operation.status not in ("submitted", "working"):
+        operation = self._operations.get(token)
+        if not operation or operation.is_terminal:
             return False
 
         operation.status = "failed"
@@ -270,77 +472,41 @@ class ServerAsyncOperationManager(BaseOperationManager[ServerAsyncOperation]):
         operation.resolved_at = time.time()
         return True
 
-    def get_operation_result(self, token: str) -> types.CallToolResult | None:
-        """Get result for completed operation."""
-        operation = self._get_operation(token)
-        if not operation or operation.status != "completed":
-            return None
-        return operation.result
-
-    def cancel_operation(self, token: str) -> bool:
-        """Cancel operation."""
-        operation = self._get_operation(token)
-        if not operation:
-            return False
-
-        # Can only cancel from submitted or working states
-        if operation.status not in ("submitted", "working"):
-            return False
-
-        operation.status = "canceled"
-        return True
-
-    def remove_operation(self, token: str) -> bool:
-        """Remove operation by token."""
-        return self._operations.pop(token, None) is not None
-
-    def cleanup_expired_operations(self) -> int:
-        """Remove expired operations and return count removed."""
+    async def cleanup_expired(self) -> int:
+        """Remove expired operations and return count."""
         expired_tokens = [token for token, op in self._operations.items() if op.is_expired]
-
         for token in expired_tokens:
             del self._operations[token]
-
         return len(expired_tokens)
 
-    def get_session_operations(self, session_id: str) -> list[ServerAsyncOperation]:
-        """Get all operations for a session."""
-        return [op for op in self._operations.values() if op.session_id == session_id]
 
-    def cancel_session_operations(self, session_id: str) -> int:
-        """Cancel all operations for a session."""
-        session_ops = self.get_session_operations(session_id)
-        canceled_count = 0
+class InMemoryAsyncOperationBroker(AsyncOperationBroker):
+    """In-memory implementation of AsyncOperationBroker."""
 
-        for op in session_ops:
-            if not op.is_terminal:
-                op.status = "canceled"
-                canceled_count += 1
+    def __init__(self):
+        self._task_queue: deque[PendingAsyncTask] = deque()
 
-        return canceled_count
+    async def enqueue_task(
+        self,
+        token: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        request_context: RequestContext[ServerSession, Any, Any],
+    ) -> None:
+        """Enqueue a task for execution."""
+        task = PendingAsyncTask(token=token, tool_name=tool_name, arguments=arguments, request_context=request_context)
+        self._task_queue.append(task)
 
-    def mark_input_required(self, token: str) -> bool:
-        """Mark operation as requiring input from client."""
-        operation = self._get_operation(token)
-        if not operation:
-            return False
+    async def get_pending_tasks(self) -> list[PendingAsyncTask]:
+        """Get all pending tasks without clearing them."""
+        return list(self._task_queue)
 
-        # Can only move to input_required from submitted or working states
-        if operation.status not in ("submitted", "working"):
-            return False
+    async def acknowledge_task(self, token: str) -> None:
+        """Acknowledge that a task has been dispatched."""
+        # Remove the task from the queue
+        self._task_queue = deque(task for task in self._task_queue if task.token != token)
 
-        operation.status = "input_required"
-        return True
-
-    def mark_input_completed(self, token: str) -> bool:
-        """Mark operation as no longer requiring input, return to working state."""
-        operation = self._get_operation(token)
-        if not operation:
-            return False
-
-        # Can only move from input_required back to working
-        if operation.status != "input_required":
-            return False
-
-        operation.status = "working"
-        return True
+    async def complete_task(self, token: str) -> None:
+        """Remove a completed task from persistent storage."""
+        # For in-memory broker, this is the same as acknowledge
+        self._task_queue = deque(task for task in self._task_queue if task.token != token)

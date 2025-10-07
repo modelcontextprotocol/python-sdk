@@ -279,6 +279,7 @@ async def test_progress_context_manager():
             request_id="test-request",
             operation_token=None,
             session=client_session,
+            supports_async=False,
             meta=meta,
             lifespan_context=None,
         )

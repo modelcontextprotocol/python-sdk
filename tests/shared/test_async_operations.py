@@ -5,6 +5,8 @@ import time
 from typing import Any, cast
 from unittest.mock import Mock
 
+import pytest
+
 import mcp.types as types
 from mcp.shared.async_operations import ServerAsyncOperation, ServerAsyncOperationManager
 from mcp.types import AsyncOperationStatus
@@ -13,12 +15,12 @@ from mcp.types import AsyncOperationStatus
 class TestAsyncOperationManager:
     """Test AsyncOperationManager functionality."""
 
-    def _create_manager_with_operation(
+    async def _create_manager_with_operation(
         self, session_id: str = "session1", **kwargs: Any
     ) -> tuple[ServerAsyncOperationManager, ServerAsyncOperation]:
         """Helper to create manager with a test operation."""
         manager = ServerAsyncOperationManager()
-        operation = manager.create_operation("test_tool", {"arg": "value"}, session_id=session_id, **kwargs)
+        operation = await manager.create_operation("test_tool", {"arg": "value"}, session_id=session_id, **kwargs)
         return manager, operation
 
     def test_token_generation(self):
@@ -38,93 +40,97 @@ class TestAsyncOperationManager:
         token1, token2 = scoped_manager.generate_token("s1"), scoped_manager.generate_token("s2")
         assert token1.startswith("s1_") and token2.startswith("s2_") and token1 != token2
 
-    def test_operation_lifecycle(self):
+    @pytest.mark.anyio
+    async def test_operation_lifecycle(self):
         """Test complete operation lifecycle including direct transitions."""
-        manager, operation = self._create_manager_with_operation()
+        manager, operation = await self._create_manager_with_operation()
         token = operation.token
 
         # Test creation
         assert operation.status == "submitted" and operation.result is None
 
         # Test working transition
-        assert manager.mark_working(token)
-        working_op = manager.get_operation(token)
+        assert await manager.mark_working(token)
+        working_op = await manager.get_operation(token)
         assert working_op is not None and working_op.status == "working"
 
         # Test completion
         result = types.CallToolResult(content=[types.TextContent(type="text", text="success")])
-        assert manager.complete_operation(token, result)
-        completed_op = manager.get_operation(token)
+        assert await manager.complete_operation(token, result)
+        completed_op = await manager.get_operation(token)
         assert completed_op is not None
         assert completed_op.status == "completed" and completed_op.result == result
-        assert manager.get_operation_result(token) == result
+        assert await manager.get_operation_result(token) == result
 
         # Test direct completion from submitted (new manager to avoid interference)
-        direct_manager, direct_op = self._create_manager_with_operation()
-        assert direct_manager.complete_operation(direct_op.token, result)
-        direct_completed = direct_manager.get_operation(direct_op.token)
+        direct_manager, direct_op = await self._create_manager_with_operation()
+        assert await direct_manager.complete_operation(direct_op.token, result)
+        direct_completed = await direct_manager.get_operation(direct_op.token)
         assert direct_completed is not None and direct_completed.status == "completed"
 
         # Test direct failure from submitted (new manager to avoid interference)
-        fail_manager, fail_op = self._create_manager_with_operation()
-        assert fail_manager.fail_operation(fail_op.token, "immediate error")
-        failed = fail_manager.get_operation(fail_op.token)
+        fail_manager, fail_op = await self._create_manager_with_operation()
+        assert await fail_manager.fail_operation(fail_op.token, "immediate error")
+        failed = await fail_manager.get_operation(fail_op.token)
         assert failed is not None
         assert failed.status == "failed" and failed.error == "immediate error"
 
-    def test_operation_failure_and_cancellation(self):
+    @pytest.mark.anyio
+    async def test_operation_failure_and_cancellation(self):
         """Test operation failure and cancellation."""
-        manager, operation = self._create_manager_with_operation()
+        manager, operation = await self._create_manager_with_operation()
 
         # Test failure
-        manager.mark_working(operation.token)
-        assert manager.fail_operation(operation.token, "Something went wrong")
-        failed_op = manager.get_operation(operation.token)
+        await manager.mark_working(operation.token)
+        assert await manager.fail_operation(operation.token, "Something went wrong")
+        failed_op = await manager.get_operation(operation.token)
         assert failed_op is not None
         assert failed_op.status == "failed" and failed_op.error == "Something went wrong"
-        assert manager.get_operation_result(operation.token) is None
+        assert await manager.get_operation_result(operation.token) is None
 
         # Test cancellation (new manager to avoid interference)
-        cancel_manager, cancel_op = self._create_manager_with_operation()
-        assert cancel_manager.cancel_operation(cancel_op.token)
-        canceled_op = cancel_manager.get_operation(cancel_op.token)
+        cancel_manager, cancel_op = await self._create_manager_with_operation()
+        assert await cancel_manager.cancel_operation(cancel_op.token)
+        canceled_op = await cancel_manager.get_operation(cancel_op.token)
         assert canceled_op is not None and canceled_op.status == "canceled"
 
-    def test_state_transitions_and_terminal_states(self):
+    @pytest.mark.anyio
+    async def test_state_transitions_and_terminal_states(self):
         """Test state transition validation and terminal state immutability."""
-        manager, operation = self._create_manager_with_operation()
+        manager, operation = await self._create_manager_with_operation()
         token = operation.token
         result = Mock()
 
         # Valid transitions
-        assert manager.mark_working(token)
-        assert manager.complete_operation(token, result)
+        assert await manager.mark_working(token)
+        assert await manager.complete_operation(token, result)
 
         # Invalid transitions from terminal state
-        assert not manager.mark_working(token)
-        assert not manager.fail_operation(token, "error")
-        assert not manager.cancel_operation(token)
-        completed_check = manager.get_operation(token)
+        assert not await manager.mark_working(token)
+        assert not await manager.fail_operation(token, "error")
+        assert not await manager.cancel_operation(token)
+        completed_check = await manager.get_operation(token)
         assert completed_check is not None and completed_check.status == "completed"
 
         # Test other terminal states (use separate managers since previous operation is already completed)
-        def fail_action(m: ServerAsyncOperationManager, t: str) -> bool:
-            return m.fail_operation(t, "err")
+        async def fail_action(m: ServerAsyncOperationManager, t: str) -> bool:
+            return await m.fail_operation(t, "err")
 
-        def cancel_action(m: ServerAsyncOperationManager, t: str) -> bool:
-            return m.cancel_operation(t)
+        async def cancel_action(m: ServerAsyncOperationManager, t: str) -> bool:
+            return await m.cancel_operation(t)
 
         for status, action in [
             ("failed", fail_action),
             ("canceled", cancel_action),
         ]:
-            test_manager, test_op = self._create_manager_with_operation()
-            action(test_manager, test_op.token)
-            terminal_op = test_manager.get_operation(test_op.token)
+            test_manager, test_op = await self._create_manager_with_operation()
+            await action(test_manager, test_op.token)
+            terminal_op = await test_manager.get_operation(test_op.token)
             assert terminal_op is not None
             assert terminal_op.status == status and terminal_op.is_terminal
 
-    def test_nonexistent_token_operations(self):
+    @pytest.mark.anyio
+    async def test_nonexistent_token_operations(self):
         """Test operations on nonexistent tokens."""
         manager = ServerAsyncOperationManager()
         fake_token = "fake_token"
@@ -136,64 +142,42 @@ class TestAsyncOperationManager:
             ("fail_operation", ("error",)),
             ("cancel_operation", ()),
             ("get_operation_result", ()),
-            ("remove_operation", ()),
         ]:
-            assert getattr(manager, method)(fake_token, *args) in (None, False)
+            result = await getattr(manager, method)(fake_token, *args)
+            assert result in (None, False)
 
-    def test_session_management(self):
-        """Test session-based operation management and termination."""
-        manager = ServerAsyncOperationManager()
-
-        # Create operations for different sessions
-        ops = [manager.create_operation(f"tool{i}", {}, session_id=f"session{i % 2}") for i in range(4)]
-
-        # Test session filtering
-        s0_ops = manager.get_session_operations("session0")
-        s1_ops = manager.get_session_operations("session1")
-        assert len(s0_ops) == 2 and len(s1_ops) == 2
-
-        # Test session termination - ops[0] and ops[2] are in session0
-        manager.mark_working(ops[0].token)  # session0 - should be canceled
-        manager.complete_operation(ops[2].token, Mock())  # session0 - should NOT be canceled (completed)
-
-        canceled_count = manager.cancel_session_operations("session0")
-        assert canceled_count == 1  # Only working operation canceled, not completed
-
-        s0_after = manager.get_session_operations("session0")
-        # Find the operations by status since order might vary
-        working_op = next(op for op in s0_after if op.token == ops[0].token)
-        completed_op = next(op for op in s0_after if op.token == ops[2].token)
-        assert working_op.status == "canceled" and completed_op.status == "completed"
-
-    def test_expiration_and_cleanup(self):
+    @pytest.mark.anyio
+    async def test_expiration_and_cleanup(self):
         """Test operation expiration and cleanup."""
         manager = ServerAsyncOperationManager()
 
         # Create operations with different expiration times
-        short_op = manager.create_operation("tool1", {}, keep_alive=1, session_id="session1")
-        long_op = manager.create_operation("tool2", {}, keep_alive=10, session_id="session1")
+        short_op = await manager.create_operation("tool1", {}, keep_alive=1, session_id="session1")
+        long_op = await manager.create_operation("tool2", {}, keep_alive=10, session_id="session1")
 
         # Complete both and make first expired
         for op in [short_op, long_op]:
-            manager.complete_operation(op.token, Mock())
+            await manager.complete_operation(op.token, Mock())
         short_op.resolved_at = time.time() - 2
 
         # Test expiration detection
         assert short_op.is_expired and not long_op.is_expired
 
         # Test cleanup
-        removed_count = manager.cleanup_expired_operations()
+        removed_count = await manager.cleanup_expired()
         assert removed_count == 1
-        assert manager.get_operation(short_op.token) is None
-        assert manager.get_operation(long_op.token) is not None
+        assert await manager.get_operation(short_op.token) is None
+        assert await manager.get_operation(long_op.token) is not None
 
-    def test_concurrent_operations(self):
+    @pytest.mark.anyio
+    async def test_concurrent_operations(self):
         """Test concurrent operation handling and memory management."""
         manager = ServerAsyncOperationManager()
 
         # Create many operations
         operations = [
-            manager.create_operation(f"tool_{i}", {"data": "x" * 100}, session_id=f"session_{i % 3}") for i in range(50)
+            await manager.create_operation(f"tool_{i}", {"data": "x" * 100}, session_id=f"session_{i % 3}")
+            for i in range(50)
         ]
 
         # All should be created successfully with unique tokens
@@ -203,13 +187,13 @@ class TestAsyncOperationManager:
 
         # Complete half with short keepAlive and make them expired
         for i in range(25):
-            manager.complete_operation(operations[i].token, Mock())
+            await manager.complete_operation(operations[i].token, Mock())
             operations[i].keep_alive = 1
             operations[i].resolved_at = time.time() - 2
 
         # Cleanup should remove expired operations
-        removed_count = manager.cleanup_expired_operations()
-        assert removed_count == 25 and len(manager._operations) == 25
+        removed_count = await manager.cleanup_expired()
+        assert removed_count == 25
 
 
 class TestAsyncOperation:

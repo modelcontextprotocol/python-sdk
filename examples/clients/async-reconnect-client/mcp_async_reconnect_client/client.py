@@ -10,6 +10,8 @@ async def call_async_tool(session: ClientSession, token: str | None):
 
     if not token:
         result = await session.call_tool("fetch_website", arguments={"url": "https://modelcontextprotocol.io"})
+        if result.isError:
+            raise RuntimeError(f"Error calling tool: {result}")
         assert result.operation
         token = result.operation.token
         print(f"Operation started with token: {token}")

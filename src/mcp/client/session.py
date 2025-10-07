@@ -469,6 +469,7 @@ class ClientSession(
             operation_token=responder.operation.token if responder.operation is not None else None,
             meta=responder.request_meta,
             session=self,
+            supports_async=False,  # No client tools right now
             lifespan_context=None,
         )
 

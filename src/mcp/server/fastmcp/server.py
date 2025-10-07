@@ -48,7 +48,6 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.async_operations import ServerAsyncOperationManager
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
 from mcp.types import (
-    NEXT_PROTOCOL_VERSION,
     AnyFunction,
     ContentBlock,
     GetOperationPayloadResult,
@@ -306,7 +305,7 @@ class FastMCP(Generic[LifespanResultT]):
     async def get_operation_status(self, token: str) -> GetOperationStatusResult:
         """Get the status of an async operation."""
         try:
-            operation = self._async_operations.get_operation(token)
+            operation = await self._async_operations.get_operation(token)
             if not operation:
                 raise ValueError(f"Operation not found: {token}")
 
@@ -321,7 +320,7 @@ class FastMCP(Generic[LifespanResultT]):
     async def get_operation_result(self, token: str) -> GetOperationPayloadResult:
         """Get the result of a completed async operation."""
         try:
-            operation = self._async_operations.get_operation(token)
+            operation = await self._async_operations.get_operation(token)
             if not operation:
                 raise ValueError(f"Operation not found: {token}")
 
@@ -337,13 +336,10 @@ class FastMCP(Generic[LifespanResultT]):
             raise
 
     def _client_supports_async(self) -> bool:
-        """Check if the current client supports async tools based on protocol version."""
+        """Check if the current client supports async tools."""
         try:
             context = self.get_context()
-            if context.request_context and context.request_context.session.client_params:
-                client_version = str(context.request_context.session.client_params.protocolVersion)
-                # Only "next" version supports async tools for now
-                return client_version == NEXT_PROTOCOL_VERSION
+            return context.supports_async
         except ValueError:
             # Context not available (outside of request), assume no async support
             pass
@@ -1386,6 +1382,11 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     def session(self):
         """Access to the underlying session for advanced usage."""
         return self.request_context.session
+
+    @property
+    def supports_async(self):
+        """If async tools are supported in the current context."""
+        return self.request_context.supports_async
 
     # Convenience methods for common log levels
     async def debug(self, message: str, **extra: Any) -> None:

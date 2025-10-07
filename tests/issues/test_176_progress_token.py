@@ -23,6 +23,7 @@ async def test_progress_token_zero_first_call():
         request_id="test-request",
         operation_token=None,
         session=mock_session,
+        supports_async=False,
         meta=mock_meta,
         lifespan_context=None,
     )
