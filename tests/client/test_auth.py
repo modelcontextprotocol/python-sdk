@@ -102,22 +102,28 @@ def oauth_metadata_response():
 
 
 @pytest.fixture
-def prm_metadata():
-    """PRM metadata with scopes."""
-    return ProtectedResourceMetadata(
-        resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
-        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
-        scopes_supported=["resource:read", "resource:write"],
+def prm_metadata_response():
+    """PRM metadata response with scopes."""
+    return httpx.Response(
+        200,
+        content=(
+            b'{"resource": "https://api.example.com/v1/mcp", '
+            b'"authorization_servers": ["https://auth.example.com"], '
+            b'"scopes_supported": ["resource:read", "resource:write"]}'
+        ),
     )
 
 
 @pytest.fixture
-def prm_metadata_without_scopes():
-    """PRM metadata without scopes."""
-    return ProtectedResourceMetadata(
-        resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
-        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
-        scopes_supported=None,
+def prm_metadata_without_scopes_response():
+    """PRM metadata response without scopes."""
+    return httpx.Response(
+        200,
+        content=(
+            b'{"resource": "https://api.example.com/v1/mcp", '
+            b'"authorization_servers": ["https://auth.example.com"], '
+            b'"scopes_supported": null}'
+        ),
     )
 
 
@@ -437,20 +443,16 @@ class TestOAuthFallback:
     async def test_prioritize_www_auth_scope_over_prm(
         self,
         oauth_provider_without_scope: OAuthClientProvider,
-        oauth_metadata_response: httpx.Response,
-        prm_metadata: ProtectedResourceMetadata,
+        prm_metadata_response: httpx.Response,
     ):
         """Test that WWW-Authenticate scope is prioritized over PRM scopes."""
         provider = oauth_provider_without_scope
 
-        # Set up PRM metadata with scopes
-        provider.context.protected_resource_metadata = prm_metadata
-
         # Set WWW-Authenticate scope (priority 1)
         provider.context.www_authenticate_scope = "special:scope from:www-authenticate"
 
-        # Process the OAuth metadata
-        await provider._handle_oauth_metadata_response(oauth_metadata_response)
+        # Process the PRM metadata
+        await provider._handle_protected_resource_response(prm_metadata_response)
 
         # Verify that WWW-Authenticate scope is used (not PRM scopes)
         assert provider.context.client_metadata.scope == "special:scope from:www-authenticate"
@@ -459,17 +461,13 @@ class TestOAuthFallback:
     async def test_prioritize_prm_scopes_when_no_www_auth_scope(
         self,
         oauth_provider_without_scope: OAuthClientProvider,
-        oauth_metadata_response: httpx.Response,
-        prm_metadata: ProtectedResourceMetadata,
+        prm_metadata_response: httpx.Response,
     ):
         """Test that PRM scopes are prioritized when WWW-Authenticate header has no scopes."""
         provider = oauth_provider_without_scope
 
-        # Set up PRM metadata with specific scopes
-        provider.context.protected_resource_metadata = prm_metadata
-
-        # Process the OAuth metadata (no WWW-Authenticate scope)
-        await provider._handle_oauth_metadata_response(oauth_metadata_response)
+        # Process the PRM metadata (no WWW-Authenticate scope)
+        await provider._handle_protected_resource_response(prm_metadata_response)
 
         # Verify that PRM scopes are used
         assert provider.context.client_metadata.scope == "resource:read resource:write"
@@ -478,17 +476,13 @@ class TestOAuthFallback:
     async def test_omit_scope_when_no_prm_scopes_or_www_auth(
         self,
         oauth_provider_without_scope: OAuthClientProvider,
-        oauth_metadata_response: httpx.Response,
-        prm_metadata_without_scopes: ProtectedResourceMetadata,
+        prm_metadata_without_scopes_response: httpx.Response,
     ):
         """Test that scope is omitted when PRM has no scopes and WWW-Authenticate doesn't specify scope."""
         provider = oauth_provider_without_scope
 
-        # Set up PRM metadata without scopes
-        provider.context.protected_resource_metadata = prm_metadata_without_scopes
-
-        # Process the OAuth metadata (no WWW-Authenticate scope set)
-        await provider._handle_oauth_metadata_response(oauth_metadata_response)
+        # Process the PRM metadata (no WWW-Authenticate scope set)
+        await provider._handle_protected_resource_response(prm_metadata_without_scopes_response)
 
         # Verify that scope is omitted
         assert provider.context.client_metadata.scope is None
@@ -497,8 +491,7 @@ class TestOAuthFallback:
     async def test_preserve_existing_client_scope(
         self,
         oauth_provider: OAuthClientProvider,
-        oauth_metadata_response: httpx.Response,
-        prm_metadata: ProtectedResourceMetadata,
+        prm_metadata_response: httpx.Response,
     ):
         """Test that existing client scope is preserved regardless of metadata."""
         provider = oauth_provider
@@ -506,11 +499,8 @@ class TestOAuthFallback:
         # Set WWW-Authenticate scope
         provider.context.www_authenticate_scope = "special:scope from:www-authenticate"
 
-        # Set up PRM metadata with scopes
-        provider.context.protected_resource_metadata = prm_metadata
-
         # Process the OAuth metadata
-        await provider._handle_oauth_metadata_response(oauth_metadata_response)
+        await provider._handle_protected_resource_response(prm_metadata_response)
 
         # Verify that predefined scope is preserved
         assert provider.context.client_metadata.scope == "read write"

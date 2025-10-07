@@ -273,6 +273,23 @@ class OAuthClientProvider(httpx.Auth):
                 self.context.protected_resource_metadata = metadata
                 if metadata.authorization_servers:
                     self.context.auth_server_url = str(metadata.authorization_servers[0])
+
+                # Only set scope if client_metadata.scope is None
+                # Per MCP spec, priority order:
+                # 1. Use scope from WWW-Authenticate header (if provided)
+                # 2. Use all scopes from PRM scopes_supported (if available)
+                # 3. Omit scope parameter if neither is available
+                if self.context.client_metadata.scope is None:
+                    if self.context.www_authenticate_scope is not None:
+                        # Priority 1: WWW-Authenticate header scope
+                        self.context.client_metadata.scope = self.context.www_authenticate_scope
+                    elif self.context.protected_resource_metadata.scopes_supported is not None:
+                        # Priority 2: PRM scopes_supported
+                        self.context.client_metadata.scope = " ".join(
+                            self.context.protected_resource_metadata.scopes_supported
+                        )
+                    # Priority 3: Omit scope parameter
+
             except ValidationError:
                 pass
 
@@ -503,23 +520,6 @@ class OAuthClientProvider(httpx.Auth):
         content = await response.aread()
         metadata = OAuthMetadata.model_validate_json(content)
         self.context.oauth_metadata = metadata
-
-        # Only set scope if client_metadata.scope is None
-        # Per MCP spec, priority order:
-        # 1. Use scope from WWW-Authenticate header (if provided)
-        # 2. Use all scopes from PRM scopes_supported (if available)
-        # 3. Omit scope parameter if neither is available
-        if self.context.client_metadata.scope is None:
-            if self.context.www_authenticate_scope is not None:
-                # Priority 1: WWW-Authenticate header scope
-                self.context.client_metadata.scope = self.context.www_authenticate_scope
-            elif (
-                self.context.protected_resource_metadata is not None
-                and self.context.protected_resource_metadata.scopes_supported is not None
-            ):
-                # Priority 2: PRM scopes_supported
-                self.context.client_metadata.scope = " ".join(self.context.protected_resource_metadata.scopes_supported)
-            # Priority 3: Omit scope parameter
 
     async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
         """HTTPX auth flow integration."""
