@@ -268,8 +268,7 @@ class OAuthClientProvider(httpx.Auth):
                 if metadata.authorization_servers:
                     self.context.auth_server_url = str(metadata.authorization_servers[0])
 
-                # Only set scope if client_metadata.scope is None
-                # Per MCP spec, priority order:
+                # Per MCP spec, scope selection priority order:
                 # 1. Keep client scope if configured
                 # 2. Use scope from WWW-Authenticate header (if provided)
                 # 3. Use all scopes from PRM scopes_supported (if available)
