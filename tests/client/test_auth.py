@@ -80,13 +80,6 @@ def oauth_provider(client_metadata: OAuthClientMetadata, mock_storage: MockToken
 
 
 @pytest.fixture
-def oauth_provider_without_scope(oauth_provider: OAuthClientProvider) -> OAuthClientProvider:
-    """Create OAuth provider without predefined scope."""
-    oauth_provider.context.client_metadata.scope = None
-    return oauth_provider
-
-
-@pytest.fixture
 def prm_metadata_response():
     """PRM metadata response with scopes."""
     return httpx.Response(
@@ -109,6 +102,26 @@ def prm_metadata_without_scopes_response():
             b'"authorization_servers": ["https://auth.example.com"], '
             b'"scopes_supported": null}'
         ),
+    )
+
+
+@pytest.fixture
+def init_response_with_www_auth_scope():
+    """Initial 401 response with WWW-Authenticate header containing scope."""
+    return httpx.Response(
+        401,
+        headers={"WWW-Authenticate": 'Bearer scope="special:scope from:www-authenticate"'},
+        request=httpx.Request("GET", "https://api.example.com/test"),
+    )
+
+
+@pytest.fixture
+def init_response_without_www_auth_scope():
+    """Initial 401 response without WWW-Authenticate scope."""
+    return httpx.Response(
+        401,
+        headers={},
+        request=httpx.Request("GET", "https://api.example.com/test"),
     )
 
 
@@ -427,68 +440,53 @@ class TestOAuthFallback:
     @pytest.mark.anyio
     async def test_prioritize_www_auth_scope_over_prm(
         self,
-        oauth_provider_without_scope: OAuthClientProvider,
+        oauth_provider: OAuthClientProvider,
         prm_metadata_response: httpx.Response,
+        init_response_with_www_auth_scope: httpx.Response,
     ):
         """Test that WWW-Authenticate scope is prioritized over PRM scopes."""
-        provider = oauth_provider_without_scope
+        # First, process PRM metadata to set protected_resource_metadata with scopes
+        await oauth_provider._handle_protected_resource_response(prm_metadata_response)
 
-        # Set WWW-Authenticate scope (priority 1)
-        provider.context.www_authenticate_scope = "special:scope from:www-authenticate"
-
-        # Process the PRM metadata
-        await provider._handle_protected_resource_response(prm_metadata_response)
+        # Process the scope selection with WWW-Authenticate header
+        oauth_provider._configure_scope_selection(init_response_with_www_auth_scope)
 
         # Verify that WWW-Authenticate scope is used (not PRM scopes)
-        assert provider.context.client_metadata.scope == "special:scope from:www-authenticate"
+        assert oauth_provider.context.client_metadata.scope == "special:scope from:www-authenticate"
 
     @pytest.mark.anyio
     async def test_prioritize_prm_scopes_when_no_www_auth_scope(
         self,
-        oauth_provider_without_scope: OAuthClientProvider,
+        oauth_provider: OAuthClientProvider,
         prm_metadata_response: httpx.Response,
+        init_response_without_www_auth_scope: httpx.Response,
     ):
         """Test that PRM scopes are prioritized when WWW-Authenticate header has no scopes."""
-        provider = oauth_provider_without_scope
+        # Process the PRM metadata to set protected_resource_metadata with scopes
+        await oauth_provider._handle_protected_resource_response(prm_metadata_response)
 
-        # Process the PRM metadata (no WWW-Authenticate scope)
-        await provider._handle_protected_resource_response(prm_metadata_response)
+        # Process the scope selection without WWW-Authenticate scope
+        oauth_provider._configure_scope_selection(init_response_without_www_auth_scope)
 
         # Verify that PRM scopes are used
-        assert provider.context.client_metadata.scope == "resource:read resource:write"
+        assert oauth_provider.context.client_metadata.scope == "resource:read resource:write"
 
     @pytest.mark.anyio
     async def test_omit_scope_when_no_prm_scopes_or_www_auth(
         self,
-        oauth_provider_without_scope: OAuthClientProvider,
+        oauth_provider: OAuthClientProvider,
         prm_metadata_without_scopes_response: httpx.Response,
+        init_response_without_www_auth_scope: httpx.Response,
     ):
         """Test that scope is omitted when PRM has no scopes and WWW-Authenticate doesn't specify scope."""
-        provider = oauth_provider_without_scope
+        # Process the PRM metadata without scopes
+        await oauth_provider._handle_protected_resource_response(prm_metadata_without_scopes_response)
 
-        # Process the PRM metadata (no WWW-Authenticate scope set)
-        await provider._handle_protected_resource_response(prm_metadata_without_scopes_response)
+        # Process the scope selection without WWW-Authenticate scope
+        oauth_provider._configure_scope_selection(init_response_without_www_auth_scope)
 
         # Verify that scope is omitted
-        assert provider.context.client_metadata.scope is None
-
-    @pytest.mark.anyio
-    async def test_preserve_existing_client_scope(
-        self,
-        oauth_provider: OAuthClientProvider,
-        prm_metadata_response: httpx.Response,
-    ):
-        """Test that existing client scope is preserved regardless of metadata."""
-        provider = oauth_provider
-
-        # Set WWW-Authenticate scope
-        provider.context.www_authenticate_scope = "special:scope from:www-authenticate"
-
-        # Process the OAuth metadata
-        await provider._handle_protected_resource_response(prm_metadata_response)
-
-        # Verify that predefined scope is preserved
-        assert provider.context.client_metadata.scope == "read write"
+        assert oauth_provider.context.client_metadata.scope is None
 
     @pytest.mark.anyio
     async def test_register_client_request(self, oauth_provider: OAuthClientProvider):
@@ -944,41 +942,60 @@ class TestWWWAuthenticate:
     """Test WWW-Authenticate header parsing functionality."""
 
     @pytest.mark.parametrize(
-        "www_auth_header,expected_url",
+        "www_auth_header,field_name,expected_value",
         [
-            # Quoted URL
+            # Quoted values
+            ('Bearer scope="read write"', "scope", "read write"),
             (
                 'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"',
+                "resource_metadata",
                 "https://api.example.com/.well-known/oauth-protected-resource",
             ),
-            # Unquoted URL
+            ('Bearer error="insufficient_scope"', "error", "insufficient_scope"),
+            # Unquoted values
+            ("Bearer scope=read", "scope", "read"),
             (
                 "Bearer resource_metadata=https://api.example.com/.well-known/oauth-protected-resource",
+                "resource_metadata",
                 "https://api.example.com/.well-known/oauth-protected-resource",
             ),
-            # Complex header with multiple parameters
+            ("Bearer error=invalid_token", "error", "invalid_token"),
+            # Multiple parameters with quoted value
+            (
+                'Bearer realm="api", scope="admin:write resource:read", error="insufficient_scope"',
+                "scope",
+                "admin:write resource:read",
+            ),
             (
                 'Bearer realm="api", resource_metadata="https://api.example.com/.well-known/oauth-protected-resource", '
                 'error="insufficient_scope"',
+                "resource_metadata",
                 "https://api.example.com/.well-known/oauth-protected-resource",
             ),
-            # Different URL format
-            ('Bearer resource_metadata="https://custom.domain.com/metadata"', "https://custom.domain.com/metadata"),
-            # With path and query params
+            # Multiple parameters with unquoted value
+            ('Bearer realm="api", scope=basic', "scope", "basic"),
+            # Values with special characters
+            (
+                'Bearer scope="resource:read resource:write user_profile"',
+                "scope",
+                "resource:read resource:write user_profile",
+            ),
             (
                 'Bearer resource_metadata="https://api.example.com/auth/metadata?version=1"',
+                "resource_metadata",
                 "https://api.example.com/auth/metadata?version=1",
             ),
         ],
     )
-    def test_extract_resource_metadata_from_www_auth_valid_cases(
+    def test_extract_field_from_www_auth_valid_cases(
         self,
         client_metadata: OAuthClientMetadata,
         mock_storage: MockTokenStorage,
         www_auth_header: str,
-        expected_url: str,
+        field_name: str,
+        expected_value: str,
     ):
-        """Test extraction of resource_metadata URL from various valid WWW-Authenticate headers."""
+        """Test extraction of various fields from valid WWW-Authenticate headers."""
 
         async def redirect_handler(url: str) -> None:
             pass
@@ -1000,39 +1017,30 @@ class TestWWWAuthenticate:
             request=httpx.Request("GET", "https://api.example.com/test"),
         )
 
-        result = provider._extract_resource_metadata_from_www_auth(init_response)
-        assert result == expected_url
+        result = provider._extract_field_from_www_auth(init_response, field_name)
+        assert result == expected_value
 
     @pytest.mark.parametrize(
-        "status_code,www_auth_header,description",
+        "www_auth_header,field_name,description",
         [
             # No header
-            (401, None, "no WWW-Authenticate header"),
+            (None, "scope", "no WWW-Authenticate header"),
             # Empty header
-            (401, "", "empty WWW-Authenticate header"),
-            # Header without resource_metadata
-            (401, 'Bearer realm="api", error="insufficient_scope"', "no resource_metadata parameter"),
-            # Malformed header
-            (401, "Bearer resource_metadata=", "malformed resource_metadata parameter"),
-            # Non-401 status code
-            (
-                200,
-                'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"',
-                "200 OK response",
-            ),
-            (
-                500,
-                'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"',
-                "500 error response",
-            ),
+            ("", "scope", "empty WWW-Authenticate header"),
+            # Header without requested field
+            ('Bearer realm="api", error="insufficient_scope"', "scope", "no scope parameter"),
+            ('Bearer realm="api", scope="read write"', "resource_metadata", "no resource_metadata parameter"),
+            # Malformed field (empty value)
+            ("Bearer scope=", "scope", "malformed scope parameter"),
+            ("Bearer resource_metadata=", "resource_metadata", "malformed resource_metadata parameter"),
         ],
     )
-    def test_extract_resource_metadata_from_www_auth_invalid_cases(
+    def test_extract_field_from_www_auth_invalid_cases(
         self,
         client_metadata: OAuthClientMetadata,
         mock_storage: MockTokenStorage,
-        status_code: int,
         www_auth_header: str | None,
+        field_name: str,
         description: str,
     ):
         """Test extraction returns None for invalid cases."""
@@ -1053,103 +1061,8 @@ class TestWWWAuthenticate:
 
         headers = {"WWW-Authenticate": www_auth_header} if www_auth_header is not None else {}
         init_response = httpx.Response(
-            status_code=status_code, headers=headers, request=httpx.Request("GET", "https://api.example.com/test")
+            status_code=401, headers=headers, request=httpx.Request("GET", "https://api.example.com/test")
         )
 
-        result = provider._extract_resource_metadata_from_www_auth(init_response)
-        assert result is None, f"Should return None for {description}"
-
-    @pytest.mark.parametrize(
-        "www_auth_header,expected_scope",
-        [
-            # Quoted scope
-            ('Bearer scope="read write"', "read write"),
-            # Unquoted scope
-            ("Bearer scope=read", "read"),
-            # Multiple parameters with quoted scope
-            ('Bearer realm="api", scope="admin:write resource:read"', "admin:write resource:read"),
-            # Multiple parameters with unquoted scope
-            ('Bearer realm="api", scope=basic', "basic"),
-            # Scope with special characters (colons, underscores)
-            ('Bearer scope="resource:read resource:write user_profile"', "resource:read resource:write user_profile"),
-        ],
-    )
-    def test_extract_scope_from_www_auth_valid_cases(
-        self,
-        client_metadata: OAuthClientMetadata,
-        mock_storage: MockTokenStorage,
-        www_auth_header: str,
-        expected_scope: str,
-    ):
-        """Test extraction of scope from various valid WWW-Authenticate headers."""
-
-        async def redirect_handler(url: str) -> None:
-            pass
-
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
-
-        provider = OAuthClientProvider(
-            server_url="https://api.example.com/v1/mcp",
-            client_metadata=client_metadata,
-            storage=mock_storage,
-            redirect_handler=redirect_handler,
-            callback_handler=callback_handler,
-        )
-
-        init_response = httpx.Response(
-            status_code=401,
-            headers={"WWW-Authenticate": www_auth_header},
-            request=httpx.Request("GET", "https://api.example.com/test"),
-        )
-
-        result = provider._extract_scope_from_www_auth(init_response)
-        assert result == expected_scope
-
-    @pytest.mark.parametrize(
-        "status_code,www_auth_header,description",
-        [
-            # No header
-            (401, None, "no WWW-Authenticate header"),
-            # Empty header
-            (401, "", "empty WWW-Authenticate header"),
-            # Header without scope
-            (401, 'Bearer realm="api", error="insufficient_scope"', "no scope parameter"),
-            # Malformed header
-            (401, "Bearer scope=", "malformed scope parameter"),
-            # Non-401 status code
-            (200, 'Bearer scope="read write"', "200 OK response"),
-            (500, 'Bearer scope="read write"', "500 error response"),
-        ],
-    )
-    def test_extract_scope_from_www_auth_invalid_cases(
-        self,
-        client_metadata: OAuthClientMetadata,
-        mock_storage: MockTokenStorage,
-        status_code: int,
-        www_auth_header: str | None,
-        description: str,
-    ):
-        """Test extraction returns None for invalid cases."""
-
-        async def redirect_handler(url: str) -> None:
-            pass
-
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
-
-        provider = OAuthClientProvider(
-            server_url="https://api.example.com/v1/mcp",
-            client_metadata=client_metadata,
-            storage=mock_storage,
-            redirect_handler=redirect_handler,
-            callback_handler=callback_handler,
-        )
-
-        headers = {"WWW-Authenticate": www_auth_header} if www_auth_header is not None else {}
-        init_response = httpx.Response(
-            status_code=status_code, headers=headers, request=httpx.Request("GET", "https://api.example.com/test")
-        )
-
-        result = provider._extract_scope_from_www_auth(init_response)
+        result = provider._extract_field_from_www_auth(init_response, field_name)
         assert result is None, f"Should return None for {description}"
