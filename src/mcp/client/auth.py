@@ -97,6 +97,7 @@ class OAuthContext:
     oauth_metadata: OAuthMetadata | None = None
     auth_server_url: str | None = None
     protocol_version: str | None = None
+    www_authenticate_scope: str | None = None
 
     # Client registration
     client_info: OAuthClientInformationFull | None = None
@@ -220,6 +221,30 @@ class OAuthClientProvider(httpx.Auth):
 
         # Pattern matches: resource_metadata="url" or resource_metadata=url (unquoted)
         pattern = r'resource_metadata=(?:"([^"]+)"|([^\s,]+))'
+        match = re.search(pattern, www_auth_header)
+
+        if match:
+            # Return quoted value if present, otherwise unquoted value
+            return match.group(1) or match.group(2)
+
+        return None
+
+    def _extract_scope_from_www_auth(self, init_response: httpx.Response) -> str | None:
+        """
+        Extract scope parameter from WWW-Authenticate header as per RFC6750.
+
+        Returns:
+            Scope string if found in WWW-Authenticate header, None otherwise
+        """
+        if not init_response or init_response.status_code != 401:
+            return None
+
+        www_auth_header = init_response.headers.get("WWW-Authenticate")
+        if not www_auth_header:
+            return None
+
+        # Pattern matches: scope="value" or scope=value (unquoted)
+        pattern = r'scope=(?:"([^"]+)"|([^\s,]+))'
         match = re.search(pattern, www_auth_header)
 
         if match:
@@ -480,16 +505,21 @@ class OAuthClientProvider(httpx.Auth):
         self.context.oauth_metadata = metadata
 
         # Only set scope if client_metadata.scope is None
+        # Per MCP spec, priority order:
+        # 1. Use scope from WWW-Authenticate header (if provided)
+        # 2. Use all scopes from PRM scopes_supported (if available)
+        # 3. Omit scope parameter if neither is available
         if self.context.client_metadata.scope is None:
-            # Priority 1: Use PRM's scopes_supported if available
-            if (
+            if self.context.www_authenticate_scope is not None:
+                # Priority 1: WWW-Authenticate header scope
+                self.context.client_metadata.scope = self.context.www_authenticate_scope
+            elif (
                 self.context.protected_resource_metadata is not None
                 and self.context.protected_resource_metadata.scopes_supported is not None
             ):
+                # Priority 2: PRM scopes_supported
                 self.context.client_metadata.scope = " ".join(self.context.protected_resource_metadata.scopes_supported)
-            # Priority 2: Fall back to OAuth metadata scopes if available
-            elif metadata.scopes_supported is not None:
-                self.context.client_metadata.scope = " ".join(metadata.scopes_supported)
+            # Priority 3: Omit scope parameter
 
     async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
         """HTTPX auth flow integration."""
@@ -518,12 +548,15 @@ class OAuthClientProvider(httpx.Auth):
                 # Perform full OAuth flow
                 try:
                     # OAuth flow must be inline due to generator constraints
-                    # Step 1: Discover protected resource metadata (RFC9728 with WWW-Authenticate support)
+                    # Step 1: Extract scope from WWW-Authenticate header
+                    self.context.www_authenticate_scope = self._extract_scope_from_www_auth(response)
+
+                    # Step 2: Discover protected resource metadata (RFC9728 with WWW-Authenticate support)
                     discovery_request = await self._discover_protected_resource(response)
                     discovery_response = yield discovery_request
                     await self._handle_protected_resource_response(discovery_response)
 
-                    # Step 2: Discover OAuth metadata (with fallback for legacy servers)
+                    # Step 3: Discover OAuth metadata (with fallback for legacy servers)
                     discovery_urls = self._get_discovery_urls()
                     for url in discovery_urls:
                         oauth_metadata_request = self._create_oauth_metadata_request(url)
@@ -538,16 +571,16 @@ class OAuthClientProvider(httpx.Auth):
                         elif oauth_metadata_response.status_code < 400 or oauth_metadata_response.status_code >= 500:
                             break  # Non-4XX error, stop trying
 
-                    # Step 3: Register client if needed
+                    # Step 4: Register client if needed
                     registration_request = await self._register_client()
                     if registration_request:
                         registration_response = yield registration_request
                         await self._handle_registration_response(registration_response)
 
-                    # Step 4: Perform authorization
+                    # Step 5: Perform authorization
                     auth_code, code_verifier = await self._perform_authorization()
 
-                    # Step 5: Exchange authorization code for tokens
+                    # Step 6: Exchange authorization code for tokens
                     token_request = await self._exchange_token(auth_code, code_verifier)
                     token_response = yield token_request
                     await self._handle_token_response(token_response)
