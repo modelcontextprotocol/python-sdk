@@ -276,19 +276,22 @@ class OAuthClientProvider(httpx.Auth):
 
                 # Only set scope if client_metadata.scope is None
                 # Per MCP spec, priority order:
-                # 1. Use scope from WWW-Authenticate header (if provided)
-                # 2. Use all scopes from PRM scopes_supported (if available)
-                # 3. Omit scope parameter if neither is available
+                # 1. Keep client scope if configured
+                # 2. Use scope from WWW-Authenticate header (if provided)
+                # 3. Use all scopes from PRM scopes_supported (if available)
+                # 4. Omit scope parameter if neither is available
+                #
+                # Priority 1: Don't touch if client scope is already configured
                 if self.context.client_metadata.scope is None:
                     if self.context.www_authenticate_scope is not None:
-                        # Priority 1: WWW-Authenticate header scope
+                        # Priority 2: WWW-Authenticate header scope
                         self.context.client_metadata.scope = self.context.www_authenticate_scope
                     elif self.context.protected_resource_metadata.scopes_supported is not None:
-                        # Priority 2: PRM scopes_supported
+                        # Priority 3: PRM scopes_supported
                         self.context.client_metadata.scope = " ".join(
                             self.context.protected_resource_metadata.scopes_supported
                         )
-                    # Priority 3: Omit scope parameter
+                    # Priority 4: Omit scope parameter
 
             except ValidationError:
                 pass
