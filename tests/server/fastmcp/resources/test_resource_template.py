@@ -59,12 +59,11 @@ class TestResourceTemplate:
         )
 
         params = template.matches("calc://10/3.14/foo")
-        
+
         assert params == {"a": 10, "b": 3.14, "name": "foo"}
         assert template.matches("calc://x/3.14/foo") is None
         assert template.matches("calc://10/bar/foo") is None
 
-    
     def test_template_matches_with_path(self):
         """Test matching URIs with {path:path} placeholder."""
 

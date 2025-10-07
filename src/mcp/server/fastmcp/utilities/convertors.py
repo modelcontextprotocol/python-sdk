@@ -3,14 +3,14 @@ from __future__ import annotations
 import math
 import uuid
 from typing import (
-    Any, 
-    ClassVar, 
-    Dict,
-    Generic, 
-    TypeVar, 
+    Any,
+    ClassVar,
+    Generic,
+    TypeVar,
 )
 
 T = TypeVar("T")
+
 
 class Convertor(Generic[T]):
     regex: ClassVar[str] = ""
@@ -74,7 +74,7 @@ class FloatConvertor(Convertor[float]):
         assert value >= 0.0, "Negative floats are not supported"
         assert not math.isnan(value), "NaN values are not supported"
         assert not math.isinf(value), "Infinite values are not supported"
-        return ("%0.20f" % value).rstrip("0").rstrip(".")
+        return f"{value:.20f}".rstrip("0").rstrip(".")
 
 
 class UUIDConvertor(Convertor[uuid.UUID]):
@@ -89,7 +89,8 @@ class UUIDConvertor(Convertor[uuid.UUID]):
     def to_string(self, value: uuid.UUID) -> str:
         return str(value)
 
-CONVERTOR_TYPES: Dict[str, Convertor[Any]] = {
+
+CONVERTOR_TYPES: dict[str, Convertor[Any]] = {
     "str": StringConvertor(),
     "path": PathConvertor(),
     "int": IntegerConvertor(),
