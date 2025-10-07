@@ -205,12 +205,12 @@ class OAuthClientProvider(httpx.Auth):
         )
         self._initialized = False
 
-    def _extract_resource_metadata_from_www_auth(self, init_response: httpx.Response) -> str | None:
+    def _extract_field_from_www_auth(self, init_response: httpx.Response, field_name: str) -> str | None:
         """
-        Extract protected resource metadata URL from WWW-Authenticate header as per RFC9728.
+        Extract field from WWW-Authenticate header.
 
         Returns:
-            Resource metadata URL if found in WWW-Authenticate header, None otherwise
+            Field value if found in WWW-Authenticate header, None otherwise
         """
         if not init_response or init_response.status_code != 401:
             return None
@@ -219,8 +219,8 @@ class OAuthClientProvider(httpx.Auth):
         if not www_auth_header:
             return None
 
-        # Pattern matches: resource_metadata="url" or resource_metadata=url (unquoted)
-        pattern = r'resource_metadata=(?:"([^"]+)"|([^\s,]+))'
+        # Pattern matches: field_name="value" or field_name=value (unquoted)
+        pattern = rf'{field_name}=(?:"([^"]+)"|([^\s,]+))'
         match = re.search(pattern, www_auth_header)
 
         if match:
@@ -228,6 +228,15 @@ class OAuthClientProvider(httpx.Auth):
             return match.group(1) or match.group(2)
 
         return None
+
+    def _extract_resource_metadata_from_www_auth(self, init_response: httpx.Response) -> str | None:
+        """
+        Extract protected resource metadata URL from WWW-Authenticate header as per RFC9728.
+
+        Returns:
+            Resource metadata URL if found in WWW-Authenticate header, None otherwise
+        """
+        return self._extract_field_from_www_auth(init_response, "resource_metadata")
 
     def _extract_scope_from_www_auth(self, init_response: httpx.Response) -> str | None:
         """
@@ -236,22 +245,7 @@ class OAuthClientProvider(httpx.Auth):
         Returns:
             Scope string if found in WWW-Authenticate header, None otherwise
         """
-        if not init_response or init_response.status_code != 401:
-            return None
-
-        www_auth_header = init_response.headers.get("WWW-Authenticate")
-        if not www_auth_header:
-            return None
-
-        # Pattern matches: scope="value" or scope=value (unquoted)
-        pattern = r'scope=(?:"([^"]+)"|([^\s,]+))'
-        match = re.search(pattern, www_auth_header)
-
-        if match:
-            # Return quoted value if present, otherwise unquoted value
-            return match.group(1) or match.group(2)
-
-        return None
+        return self._extract_field_from_www_auth(init_response, "scope")
 
     async def _discover_protected_resource(self, init_response: httpx.Response) -> httpx.Request:
         # RFC9728: Try to extract resource_metadata URL from WWW-Authenticate header of the initial response
