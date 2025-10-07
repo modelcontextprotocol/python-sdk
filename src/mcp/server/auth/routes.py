@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import urlparse
 
 from pydantic import AnyHttpUrl
 from starlette.middleware.cors import CORSMiddleware
@@ -191,6 +192,25 @@ def build_metadata(
     return metadata
 
 
+def build_resource_metadata_url(resource_server_url: AnyHttpUrl) -> AnyHttpUrl:
+    """
+    Build RFC 9728 compliant protected resource metadata URL.
+
+    Inserts /.well-known/oauth-protected-resource between host and resource path
+    as specified in RFC 9728 §3.1.
+
+    Args:
+        resource_server_url: The resource server URL (e.g., https://example.com/mcp)
+
+    Returns:
+        The metadata URL (e.g., https://example.com/.well-known/oauth-protected-resource/mcp)
+    """
+    parsed = urlparse(str(resource_server_url))
+    # Handle trailing slash: if path is just "/", treat as empty
+    resource_path = parsed.path if parsed.path != "/" else ""
+    return AnyHttpUrl(f"{parsed.scheme}://{parsed.netloc}/.well-known/oauth-protected-resource{resource_path}")
+
+
 def create_protected_resource_routes(
     resource_url: AnyHttpUrl,
     authorization_servers: list[AnyHttpUrl],
@@ -223,9 +243,15 @@ def create_protected_resource_routes(
 
     handler = ProtectedResourceMetadataHandler(metadata)
 
+    # RFC 9728 §3.1: Register route at /.well-known/oauth-protected-resource + resource path
+    metadata_url = build_resource_metadata_url(resource_url)
+    # Extract just the path part for route registration
+    parsed = urlparse(str(metadata_url))
+    well_known_path = parsed.path
+
     return [
         Route(
-            "/.well-known/oauth-protected-resource",
+            well_known_path,
             endpoint=cors_middleware(handler.handle, ["GET", "OPTIONS"]),
             methods=["GET", "OPTIONS"],
         )
