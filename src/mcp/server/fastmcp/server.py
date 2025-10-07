@@ -1367,9 +1367,9 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
                 logger=logger_name,
                 related_request_id=self.request_id,
             )
-        except Exception:
+        except Exception as e:
             # Session might be closed (e.g., client disconnected)
-            logger.warning(f"Failed to send log message to client (session closed?): {message}")
+            logger.warning(f"Failed to send log message to client (session closed?): {e}")
             pass
 
     @property

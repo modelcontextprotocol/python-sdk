@@ -95,7 +95,6 @@ from mcp.shared.session import RequestResponder
 from mcp.types import Operation, RequestId
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
 RequestT = TypeVar("RequestT", default=Any)
