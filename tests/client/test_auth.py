@@ -940,8 +940,8 @@ def test_build_metadata(
     )
 
 
-class TestProtectedResourceWWWAuthenticate:
-    """Test RFC9728 WWW-Authenticate header parsing functionality for protected resource."""
+class TestWWWAuthenticate:
+    """Test RFC9728 WWW-Authenticate header parsing functionality."""
 
     @pytest.mark.parametrize(
         "www_auth_header,expected_url",
