@@ -87,21 +87,6 @@ def oauth_provider_without_scope(oauth_provider: OAuthClientProvider) -> OAuthCl
 
 
 @pytest.fixture
-def oauth_metadata_response():
-    """Common OAuth metadata response with scopes."""
-    return httpx.Response(
-        200,
-        content=(
-            b'{"issuer": "https://auth.example.com", '
-            b'"authorization_endpoint": "https://auth.example.com/authorize", '
-            b'"token_endpoint": "https://auth.example.com/token", '
-            b'"registration_endpoint": "https://auth.example.com/register", '
-            b'"scopes_supported": ["read", "write", "admin"]}'
-        ),
-    )
-
-
-@pytest.fixture
 def prm_metadata_response():
     """PRM metadata response with scopes."""
     return httpx.Response(
