@@ -858,6 +858,98 @@ class TestAuthFlow:
         # Verify exactly one request was yielded (no double-sending)
         assert request_yields == 1, f"Expected 1 request yield, got {request_yields}"
 
+    @pytest.mark.anyio
+    async def test_403_insufficient_scope_updates_scope_from_header(
+        self,
+        oauth_provider: OAuthClientProvider,
+        mock_storage: MockTokenStorage,
+        valid_tokens: OAuthToken,
+    ):
+        """Test that 403 response correctly updates scope from WWW-Authenticate header."""
+        # Pre-store valid tokens and client info
+        client_info = OAuthClientInformationFull(
+            client_id="test_client_id",
+            client_secret="test_client_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+        await mock_storage.set_tokens(valid_tokens)
+        await mock_storage.set_client_info(client_info)
+        oauth_provider.context.current_tokens = valid_tokens
+        oauth_provider.context.token_expiry_time = time.time() + 1800
+        oauth_provider.context.client_info = client_info
+        oauth_provider._initialized = True
+
+        # Original scope
+        assert oauth_provider.context.client_metadata.scope == "read write"
+
+        redirect_captured = False
+        captured_state = None
+
+        async def capture_redirect(url: str) -> None:
+            nonlocal redirect_captured, captured_state
+            redirect_captured = True
+            # Verify the new scope is included in authorization URL
+            assert "scope=admin%3Awrite+admin%3Adelete" in url or "scope=admin:write+admin:delete" in url.replace(
+                "%3A", ":"
+            ).replace("+", " ")
+            # Extract state from redirect URL
+            from urllib.parse import parse_qs, urlparse
+
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            captured_state = params.get("state", [None])[0]
+
+        oauth_provider.context.redirect_handler = capture_redirect
+
+        # Mock callback
+        async def mock_callback() -> tuple[str, str | None]:
+            return "auth_code", captured_state
+
+        oauth_provider.context.callback_handler = mock_callback
+
+        test_request = httpx.Request("GET", "https://api.example.com/mcp")
+        auth_flow = oauth_provider.async_auth_flow(test_request)
+
+        # First request
+        request = await auth_flow.__anext__()
+
+        # Send 403 with new scope requirement
+        response_403 = httpx.Response(
+            403,
+            headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="admin:write admin:delete"'},
+            request=request,
+        )
+
+        # Trigger step-up - should get token exchange request
+        token_exchange_request = await auth_flow.asend(response_403)
+
+        # Verify scope was updated
+        assert oauth_provider.context.client_metadata.scope == "admin:write admin:delete"
+        assert redirect_captured
+
+        # Complete the flow with successful token response
+        token_response = httpx.Response(
+            200,
+            json={
+                "access_token": "new_token_with_new_scope",
+                "token_type": "Bearer",
+                "expires_in": 3600,
+                "scope": "admin:write admin:delete",
+            },
+            request=token_exchange_request,
+        )
+
+        # Should get final retry request
+        final_request = await auth_flow.asend(token_response)
+
+        # Send success response - flow should complete
+        success_response = httpx.Response(200, request=final_request)
+        try:
+            await auth_flow.asend(success_response)
+            pytest.fail("Should have stopped after successful response")
+        except StopAsyncIteration:
+            pass  # Expected
+
 
 @pytest.mark.parametrize(
     (

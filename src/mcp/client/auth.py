@@ -284,11 +284,12 @@ class OAuthClientProvider(httpx.Auth):
         if www_authenticate_scope is not None:
             # Priority 1: WWW-Authenticate header scope
             self.context.client_metadata.scope = www_authenticate_scope
-        elif self.context.protected_resource_metadata is not None and self.context.protected_resource_metadata.scopes_supported is not None:
+        elif (
+            self.context.protected_resource_metadata is not None
+            and self.context.protected_resource_metadata.scopes_supported is not None
+        ):
             # Priority 2: PRM scopes_supported
-            self.context.client_metadata.scope = " ".join(
-                self.context.protected_resource_metadata.scopes_supported
-            )
+            self.context.client_metadata.scope = " ".join(self.context.protected_resource_metadata.scopes_supported)
         else:
             # Priority 3: Omit scope parameter
             self.context.client_metadata.scope = None
@@ -592,12 +593,12 @@ class OAuthClientProvider(httpx.Auth):
                 self._add_auth_header(request)
                 yield request
             elif response.status_code == 403:
-                try:
-                    # Step 1: Extract error field from WWW-Authenticate header
-                    error = self._extract_field_from_www_auth(response, "error")
+                # Step 1: Extract error field from WWW-Authenticate header
+                error = self._extract_field_from_www_auth(response, "error")
 
-                    # Step 2: Check if we need to step-up authorization
-                    if error == "insufficient_scope":
+                # Step 2: Check if we need to step-up authorization
+                if error == "insufficient_scope":
+                    try:
                         # Step 2a: Update the required scopes
                         self._configure_scope_selection(response)
 
@@ -608,10 +609,10 @@ class OAuthClientProvider(httpx.Auth):
                         token_request = await self._exchange_token(auth_code, code_verifier)
                         token_response = yield token_request
                         await self._handle_token_response(token_response)
-                except Exception:
-                    logger.exception("OAuth flow error")
-                    raise
+                    except Exception:
+                        logger.exception("OAuth flow error")
+                        raise
 
-                # Retry with new tokens
-                self._add_auth_header(request)
-                yield request
+                    # Retry with new tokens
+                    self._add_auth_header(request)
+                    yield request
