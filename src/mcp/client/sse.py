@@ -1,5 +1,4 @@
 import logging
-from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -8,8 +7,7 @@ import anyio
 import httpx
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
-from httpx_sse._decoders import SSEDecoder
+from httpx_sse import aconnect_sse
 
 import mcp.types as types
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
@@ -20,68 +18,6 @@ logger = logging.getLogger(__name__)
 
 def remove_request_params(url: str) -> str:
     return urljoin(url, urlparse(url).path)
-
-
-async def compliant_aiter_sse(event_source: EventSource) -> AsyncIterator[ServerSentEvent]:
-    """
-    Safely iterate over SSE events, working around httpx issue where U+2028 and U+2029
-    are incorrectly treated as newlines, breaking SSE stream parsing.
-
-    This function replaces event_source.aiter_sse() to handle these Unicode characters
-    correctly by processing the raw byte stream and only splitting on actual newlines.
-
-    Args:
-        event_source: The EventSource to iterate over
-
-    Yields:
-        ServerSentEvent objects parsed from the stream
-    """
-    decoder = SSEDecoder()
-    buffer = b""
-
-    # Split on "\r\n", "\r", or "\n" only, no other new line characters.
-    # https://html.spec.whatwg.org/multipage/server-sent-events.html#parsing-an-event-stream
-
-    # Note: this is tricky, because we could have a "\r" at the end of a chunk and not yet
-    # know if the next chunk starts with a "\n" or not.
-    skip_leading_lf = False
-
-    async for chunk in event_source.response.aiter_bytes():
-        buffer += chunk
-
-        while len(buffer) != 0:
-            if skip_leading_lf and buffer.startswith(b"\n"):
-                buffer = buffer[1:]
-            skip_leading_lf = False
-
-            # Find first "\r" or "\n"
-            cr = buffer.find(b"\r")
-            lf = buffer.find(b"\n")
-            pos = cr if lf == -1 else lf if cr == -1 else min(cr, lf)
-
-            if pos == -1:
-                # No lines, need another chunk
-                break
-
-            line_bytes = buffer[:pos]
-            buffer = buffer[pos + 1 :]
-
-            # If we have a CR first, skip any LF immediately after (may be in next chunk)
-            skip_leading_lf = pos == cr
-
-            line = line_bytes.decode("utf-8", errors="replace")
-            sse = decoder.decode(line)
-            if sse is not None:
-                yield sse
-
-    # Process any remaining data in buffer
-    if buffer:
-        assert b"\n" not in buffer
-        assert b"\r" not in buffer
-        line = buffer.decode("utf-8", errors="replace")
-        sse = decoder.decode(line)
-        if sse is not None:
-            yield sse
 
 
 @asynccontextmanager
@@ -133,8 +69,7 @@ async def sse_client(
                         task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED,
                     ):
                         try:
-                            # Use our compliant SSE iterator to handle Unicode correctly (issue #1356)
-                            async for sse in compliant_aiter_sse(event_source):
+                            async for sse in event_source.aiter_sse():
                                 logger.debug(f"Received SSE event: {sse.event}")
                                 match sse.event:
                                     case "endpoint":
