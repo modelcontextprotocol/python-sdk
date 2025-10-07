@@ -316,7 +316,7 @@ async def test_elicitation_with_enum_titles():
         )
 
     @mcp.tool(description="Single color selection")
-    async def select_favorite_color(ctx: Context) -> str:
+    async def select_favorite_color(ctx: Context[ServerSession, None]) -> str:
         result = await ctx.elicit(message="Select your favorite color", schema=FavoriteColorSchema)
         if result.action == "accept" and result.data:
             return f"User: {result.data.user_name}, Favorite: {result.data.favorite_color}"
@@ -340,7 +340,7 @@ async def test_elicitation_with_enum_titles():
         )
 
     @mcp.tool(description="Multiple color selection")
-    async def select_favorite_colors(ctx: Context) -> str:
+    async def select_favorite_colors(ctx: Context[ServerSession, None]) -> str:
         result = await ctx.elicit(message="Select your favorite colors", schema=FavoriteColorsSchema)
         if result.action == "accept" and result.data:
             return f"User: {result.data.user_name}, Colors: {', '.join(result.data.favorite_colors)}"
@@ -355,7 +355,7 @@ async def test_elicitation_with_enum_titles():
         )
 
     @mcp.tool(description="Deprecated enum format")
-    async def select_color_deprecated(ctx: Context) -> str:
+    async def select_color_deprecated(ctx: Context[ServerSession, None]) -> str:
         result = await ctx.elicit(message="Select a color (deprecated format)", schema=DeprecatedColorSchema)
         if result.action == "accept" and result.data:
             return f"User: {result.data.user_name}, Color: {result.data.color}"
