@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 
 [manifest]
@@ -444,9 +444,9 @@ wheels = [
 name = "httpx-sse"
 version = "0.4.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/63/7a/280d644f906f077e4f4a6d327e9b6e5a936624395ad1bf6ee9165a9d9959/httpx_sse-0.4.2.tar.gz", hash = "sha256:5bb6a2771a51e6c7a5f5c645e40b8a5f57d8de708f46cb5f3868043c3c18124e", size = 13103, upload-time = "2025-10-07T14:15:23.000Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/63/7a/280d644f906f077e4f4a6d327e9b6e5a936624395ad1bf6ee9165a9d9959/httpx_sse-0.4.2.tar.gz", hash = "sha256:5bb6a2771a51e6c7a5f5c645e40b8a5f57d8de708f46cb5f3868043c3c18124e", size = 16000, upload-time = "2025-10-07T08:10:05.219Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4f/e5/ec31165492ecc52426370b9005e0637d6da02f9579283298affcb1ab614d/httpx_sse-0.4.2-py3-none-any.whl", hash = "sha256:a9fa4afacb293fa50ef9bacb6cae8287ba5fd1f4b1c2d10a35bb981c41da31ab", size = 8149, upload-time = "2025-10-07T14:15:23.000Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/e5/ec31165492ecc52426370b9005e0637d6da02f9579283298affcb1ab614d/httpx_sse-0.4.2-py3-none-any.whl", hash = "sha256:a9fa4afacb293fa50ef9bacb6cae8287ba5fd1f4b1c2d10a35bb981c41da31ab", size = 9018, upload-time = "2025-10-07T08:10:04.257Z" },
 ]
 
 [[package]]
@@ -654,7 +654,7 @@ docs = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "httpx", specifier = ">=0.27.1" },
-    { name = "httpx-sse", specifier = ">=0.4" },
+    { name = "httpx-sse", specifier = ">=0.4.2" },
     { name = "jsonschema", specifier = ">=4.20.0" },
     { name = "pydantic", specifier = ">=2.11.0,<3.0.0" },
     { name = "pydantic-settings", specifier = ">=2.5.2" },
