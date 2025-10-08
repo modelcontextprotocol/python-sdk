@@ -449,7 +449,7 @@ class TestOAuthFallback:
         await oauth_provider._handle_protected_resource_response(prm_metadata_response)
 
         # Process the scope selection with WWW-Authenticate header
-        oauth_provider._configure_scope_selection(init_response_with_www_auth_scope)
+        oauth_provider._select_scopes(init_response_with_www_auth_scope)
 
         # Verify that WWW-Authenticate scope is used (not PRM scopes)
         assert oauth_provider.context.client_metadata.scope == "special:scope from:www-authenticate"
@@ -466,7 +466,7 @@ class TestOAuthFallback:
         await oauth_provider._handle_protected_resource_response(prm_metadata_response)
 
         # Process the scope selection without WWW-Authenticate scope
-        oauth_provider._configure_scope_selection(init_response_without_www_auth_scope)
+        oauth_provider._select_scopes(init_response_without_www_auth_scope)
 
         # Verify that PRM scopes are used
         assert oauth_provider.context.client_metadata.scope == "resource:read resource:write"
@@ -483,7 +483,7 @@ class TestOAuthFallback:
         await oauth_provider._handle_protected_resource_response(prm_metadata_without_scopes_response)
 
         # Process the scope selection without WWW-Authenticate scope
-        oauth_provider._configure_scope_selection(init_response_without_www_auth_scope)
+        oauth_provider._select_scopes(init_response_without_www_auth_scope)
 
         # Verify that scope is omitted
         assert oauth_provider.context.client_metadata.scope is None

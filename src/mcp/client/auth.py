@@ -272,14 +272,13 @@ class OAuthClientProvider(httpx.Auth):
         else:
             raise OAuthFlowError(f"Protected Resource Metadata request failed: {response.status_code}")
 
-    def _configure_scope_selection(self, init_response: httpx.Response) -> None:
+    def _select_scopes(self, init_response: httpx.Response) -> None:
         """Select scopes as outlined in the 'Scope Selection Strategy in the MCP spec."""
         # Per MCP spec, scope selection priority order:
         # 1. Use scope from WWW-Authenticate header (if provided)
         # 2. Use all scopes from PRM scopes_supported (if available)
         # 3. Omit scope parameter if neither is available
         #
-        # Step 1: Extract scope from WWW-Authenticate header
         www_authenticate_scope = self._extract_scope_from_www_auth(init_response)
         if www_authenticate_scope is not None:
             # Priority 1: WWW-Authenticate header scope
@@ -555,7 +554,7 @@ class OAuthClientProvider(httpx.Auth):
                     await self._handle_protected_resource_response(discovery_response)
 
                     # Step 2: Apply scope selection strategy
-                    self._configure_scope_selection(response)
+                    self._select_scopes(response)
 
                     # Step 3: Discover OAuth metadata (with fallback for legacy servers)
                     discovery_urls = self._get_discovery_urls()
@@ -600,7 +599,7 @@ class OAuthClientProvider(httpx.Auth):
                 if error == "insufficient_scope":
                     try:
                         # Step 2a: Update the required scopes
-                        self._configure_scope_selection(response)
+                        self._select_scopes(response)
 
                         # Step 2b: Perform (re-)authorization
                         auth_code, code_verifier = await self._perform_authorization()
