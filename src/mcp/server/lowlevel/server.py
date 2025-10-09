@@ -505,7 +505,6 @@ class Server(Generic[LifespanResultT, RequestT]):
                     unstructured_content: UnstructuredContent
                     maybe_structured_content: StructuredContent | None
                     if isinstance(results, types.CallToolResult):
-                        # tool returned a CallToolResult so we'll skip further validation and return it directly
                         return types.ServerResult(results)
                     elif isinstance(results, tuple) and len(results) == 2:
                         # tool returned both structured and unstructured content

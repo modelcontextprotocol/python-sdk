@@ -271,7 +271,7 @@ def func_metadata(
     output_info = FieldInfo.from_annotation(_get_typed_annotation(sig.return_annotation, globalns))
     annotation = output_info.annotation
 
-    # if the typehint is CallToolResult, the user intends to return it directly
+    # if the typehint is CallToolResult, the user intends to return it directly without validation
     if isinstance(annotation, type) and issubclass(annotation, CallToolResult):
         return FuncMetadata(arg_model=arguments_model)
 
