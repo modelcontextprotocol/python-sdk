@@ -33,6 +33,8 @@ class ResourceTemplate(BaseModel):
     fn: Callable[..., Any] = Field(exclude=True)
     parameters: dict[str, Any] = Field(description="JSON schema for function parameters")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
+    _compiled_pattern: re.Pattern[str] | None = None
+    _convertors: dict[str, Convertor[Any]] | None = None
 
     @classmethod
     def from_function(
@@ -77,12 +79,9 @@ class ResourceTemplate(BaseModel):
             context_kwarg=context_kwarg,
         )
 
-    def matches(self, uri: str) -> dict[str, Any] | None:
-        """Check if URI matches template and extract parameters."""
-        uriTemplate = str(self.uri_template)
-        uri = str(uri)
-
-        parts = uriTemplate.strip("/").split("/")
+    def _generate_pattern(self) -> tuple[re.Pattern[str], dict[str, Convertor[Any]]]:
+        """Compile the URI template into a regex pattern and associated converters."""
+        parts = self.uri_template.strip("/").split("/")
         pattern_parts: list[str] = []
         converters: dict[str, Convertor[Any]] = {}
         # generate the regex pattern
@@ -106,21 +105,26 @@ class ResourceTemplate(BaseModel):
             else:
                 pattern_parts.append(re.escape(part))
 
-        pattern = "^" + "/".join(pattern_parts) + "$"
-        # check if the pattern matches
-        regex = re.compile(pattern)
-        match = regex.match(uri.strip("/"))
+        return re.compile("^" + "/".join(pattern_parts) + "$"),converters
+
+    def matches(self, uri: str) -> dict[str, Any] | None:
+        """Check if URI matches template and extract parameters."""
+        if not self._compiled_pattern or not self._convertors:
+            self._compiled_pattern,self._convertors = self._generate_pattern()
+
+        uri = str(uri)
+        match = self._compiled_pattern.match(uri.strip("/"))
         if not match:
             return None
 
         # try to convert them into respective types
         result: dict[str, Any] = {}
-        for name, conv in converters.items():
+        for name, conv in self._convertors.items():
             raw_value = match.group(name)
             try:
                 result[name] = conv.convert(raw_value)
-            except Exception:
-                return None
+            except Exception as e:
+                raise ValueError(f"Failed to convert '{raw_value}' for '{name}': {e}")
 
         return result
 
