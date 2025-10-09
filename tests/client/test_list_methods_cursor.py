@@ -2,8 +2,10 @@ from collections.abc import Callable
 
 import pytest
 
+from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session as create_session
+from mcp.types import ListToolsRequest, ListToolsResult
 
 from .conftest import StreamSpyCollection
 
@@ -36,7 +38,7 @@ async def test_list_tools_cursor_parameter(stream_spy: Callable[[], StreamSpyCol
         _ = await client_session.list_tools()
         list_tools_requests = spies.get_client_requests(method="tools/list")
         assert len(list_tools_requests) == 1
-        assert list_tools_requests[0].params is None
+        assert list_tools_requests[0].params == {}
 
         spies.clear()
 
@@ -44,7 +46,7 @@ async def test_list_tools_cursor_parameter(stream_spy: Callable[[], StreamSpyCol
         _ = await client_session.list_tools(cursor=None)
         list_tools_requests = spies.get_client_requests(method="tools/list")
         assert len(list_tools_requests) == 1
-        assert list_tools_requests[0].params is None
+        assert list_tools_requests[0].params == {}
 
         spies.clear()
 
@@ -86,7 +88,7 @@ async def test_list_resources_cursor_parameter(stream_spy: Callable[[], StreamSp
         _ = await client_session.list_resources()
         list_resources_requests = spies.get_client_requests(method="resources/list")
         assert len(list_resources_requests) == 1
-        assert list_resources_requests[0].params is None
+        assert list_resources_requests[0].params == {}
 
         spies.clear()
 
@@ -94,7 +96,7 @@ async def test_list_resources_cursor_parameter(stream_spy: Callable[[], StreamSp
         _ = await client_session.list_resources(cursor=None)
         list_resources_requests = spies.get_client_requests(method="resources/list")
         assert len(list_resources_requests) == 1
-        assert list_resources_requests[0].params is None
+        assert list_resources_requests[0].params == {}
 
         spies.clear()
 
@@ -135,7 +137,7 @@ async def test_list_prompts_cursor_parameter(stream_spy: Callable[[], StreamSpyC
         _ = await client_session.list_prompts()
         list_prompts_requests = spies.get_client_requests(method="prompts/list")
         assert len(list_prompts_requests) == 1
-        assert list_prompts_requests[0].params is None
+        assert list_prompts_requests[0].params == {}
 
         spies.clear()
 
@@ -143,7 +145,7 @@ async def test_list_prompts_cursor_parameter(stream_spy: Callable[[], StreamSpyC
         _ = await client_session.list_prompts(cursor=None)
         list_prompts_requests = spies.get_client_requests(method="prompts/list")
         assert len(list_prompts_requests) == 1
-        assert list_prompts_requests[0].params is None
+        assert list_prompts_requests[0].params == {}
 
         spies.clear()
 
@@ -185,7 +187,7 @@ async def test_list_resource_templates_cursor_parameter(stream_spy: Callable[[],
         _ = await client_session.list_resource_templates()
         list_templates_requests = spies.get_client_requests(method="resources/templates/list")
         assert len(list_templates_requests) == 1
-        assert list_templates_requests[0].params is None
+        assert list_templates_requests[0].params == {}
 
         spies.clear()
 
@@ -193,7 +195,7 @@ async def test_list_resource_templates_cursor_parameter(stream_spy: Callable[[],
         _ = await client_session.list_resource_templates(cursor=None)
         list_templates_requests = spies.get_client_requests(method="resources/templates/list")
         assert len(list_templates_requests) == 1
-        assert list_templates_requests[0].params is None
+        assert list_templates_requests[0].params == {}
 
         spies.clear()
 
@@ -212,3 +214,35 @@ async def test_list_resource_templates_cursor_parameter(stream_spy: Callable[[],
         assert len(list_templates_requests) == 1
         assert list_templates_requests[0].params is not None
         assert list_templates_requests[0].params["cursor"] == ""
+
+
+async def test_list_tools_with_strict_server_validation():
+    """Test that list_tools works with strict servers require a params field,
+    even if it is empty.
+
+    Some MCP servers may implement strict JSON-RPC validation that requires
+    the params field to always be present in requests, even if empty {}.
+
+    This test ensures such servers are supported by the client SDK for list_resources
+    requests without a cursor.
+    """
+
+    server = Server("strict_server")
+
+    @server.list_tools()
+    async def handle_list_tools(request: ListToolsRequest) -> ListToolsResult:
+        """Strict handler that validates params field exists"""
+
+        # Simulate strict server validation
+        if request.params is None:
+            raise ValueError(
+                "Strict server validation failed: params field must be present. "
+                "Expected params: {} for requests without cursor."
+            )
+
+        # Return empty tools list
+        return ListToolsResult(tools=[])
+
+    async with create_session(server) as client_session:
+        result = await client_session.list_tools()
+        assert result is not None

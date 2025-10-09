@@ -217,7 +217,7 @@ class ClientSession(
         return await self.send_request(
             types.ClientRequest(
                 types.ListResourcesRequest(
-                    params=types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None,
+                    params=types.PaginatedRequestParams(cursor=cursor),
                 )
             ),
             types.ListResourcesResult,
@@ -228,7 +228,7 @@ class ClientSession(
         return await self.send_request(
             types.ClientRequest(
                 types.ListResourceTemplatesRequest(
-                    params=types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None,
+                    params=types.PaginatedRequestParams(cursor=cursor),
                 )
             ),
             types.ListResourceTemplatesResult,
@@ -322,7 +322,7 @@ class ClientSession(
         return await self.send_request(
             types.ClientRequest(
                 types.ListPromptsRequest(
-                    params=types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None,
+                    params=types.PaginatedRequestParams(cursor=cursor),
                 )
             ),
             types.ListPromptsResult,
@@ -368,7 +368,7 @@ class ClientSession(
         result = await self.send_request(
             types.ClientRequest(
                 types.ListToolsRequest(
-                    params=types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None,
+                    params=types.PaginatedRequestParams(cursor=cursor),
                 )
             ),
             types.ListToolsResult,
