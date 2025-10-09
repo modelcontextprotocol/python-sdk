@@ -480,7 +480,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(
             func: Callable[
                 ...,
-                Awaitable[UnstructuredContent | StructuredContent | CombinationContent],
+                Awaitable[UnstructuredContent | StructuredContent | CombinationContent | types.CallToolResult],
             ],
         ):
             logger.debug("Registering handler for CallToolRequest")
@@ -502,42 +502,46 @@ class Server(Generic[LifespanResultT, RequestT]):
                     results = await func(tool_name, arguments)
 
                     # output normalization
+                    casted_results: types.CallToolResult
                     unstructured_content: UnstructuredContent
                     maybe_structured_content: StructuredContent | None
-                    if isinstance(results, tuple) and len(results) == 2:
+                    if isinstance(results, types.CallToolResult):
+                        casted_results = results
+                    elif isinstance(results, tuple) and len(results) == 2:
                         # tool returned both structured and unstructured content
                         unstructured_content, maybe_structured_content = cast(CombinationContent, results)
+                        casted_results = types.CallToolResult(
+                            content=list(unstructured_content),
+                            structuredContent=maybe_structured_content,
+                        )
                     elif isinstance(results, dict):
                         # tool returned structured content only
-                        maybe_structured_content = cast(StructuredContent, results)
-                        unstructured_content = [types.TextContent(type="text", text=json.dumps(results, indent=2))]
+                        casted_results = types.CallToolResult(
+                            content=[types.TextContent(type="text", text=json.dumps(results, indent=2))],
+                            structuredContent=cast(StructuredContent, results),
+                        )
                     elif hasattr(results, "__iter__"):
                         # tool returned unstructured content only
-                        unstructured_content = cast(UnstructuredContent, results)
-                        maybe_structured_content = None
+                        casted_results = types.CallToolResult(
+                            content=list(cast(UnstructuredContent, results)),
+                        )
                     else:
                         return self._make_error_result(f"Unexpected return type from tool: {type(results).__name__}")
 
                     # output validation
                     if tool and tool.outputSchema is not None:
-                        if maybe_structured_content is None:
+                        if casted_results.structuredContent is None:
                             return self._make_error_result(
                                 "Output validation error: outputSchema defined but no structured output returned"
                             )
                         else:
                             try:
-                                jsonschema.validate(instance=maybe_structured_content, schema=tool.outputSchema)
+                                jsonschema.validate(instance=casted_results.structuredContent, schema=tool.outputSchema)
                             except jsonschema.ValidationError as e:
                                 return self._make_error_result(f"Output validation error: {e.message}")
 
                     # result
-                    return types.ServerResult(
-                        types.CallToolResult(
-                            content=list(unstructured_content),
-                            structuredContent=maybe_structured_content,
-                            isError=False,
-                        )
-                    )
+                    return types.ServerResult(casted_results)
                 except Exception as e:
                     return self._make_error_result(str(e))
 
