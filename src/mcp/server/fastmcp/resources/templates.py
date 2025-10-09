@@ -105,12 +105,12 @@ class ResourceTemplate(BaseModel):
             else:
                 pattern_parts.append(re.escape(part))
 
-        return re.compile("^" + "/".join(pattern_parts) + "$"),converters
+        return re.compile("^" + "/".join(pattern_parts) + "$"), converters
 
     def matches(self, uri: str) -> dict[str, Any] | None:
         """Check if URI matches template and extract parameters."""
         if not self._compiled_pattern or not self._convertors:
-            self._compiled_pattern,self._convertors = self._generate_pattern()
+            self._compiled_pattern, self._convertors = self._generate_pattern()
 
         uri = str(uri)
         match = self._compiled_pattern.match(uri.strip("/"))
