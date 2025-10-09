@@ -4,17 +4,7 @@ version = "0.1.0"
 description = "A client for the MCP simple-tool-async server that supports reconnection"
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "Anthropic" }]
-keywords = ["mcp", "client", "async"]
-license = { text = "MIT" }
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-]
-dependencies = ["click>=8.2.0", "mcp>=1.0.0"]
+dependencies = ["anyio>=4.5", "click>=8.2.0", "mcp"]
 
 [project.scripts]
 mcp-async-reconnect-client = "mcp_async_reconnect_client.client:main"
@@ -40,10 +30,4 @@ line-length = 120
 target-version = "py310"
 
 [tool.uv]
-dev-dependencies = ["pyright>=1.1.379", "pytest>=8.3.3", "ruff>=0.6.9"]
-
-[tool.uv.sources]
-mcp = { path = "../../../" }
-
-[[tool.uv.index]]
-url = "https://pypi.org/simple"
+dev-dependencies = ["pyright>=1.1.378", "pytest>=8.3.3", "ruff>=0.6.9"]

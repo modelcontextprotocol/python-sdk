@@ -364,7 +364,7 @@ class ClientSession(
         # Validate using the stored tool name
         if hasattr(result, "result") and result.result:
             # Clean up expired operations first
-            self._operation_manager.cleanup_expired()
+            await self._operation_manager.cleanup_expired()
 
             tool_name = self._operation_manager.get_tool_name(token)
             await self._validate_tool_result(tool_name, result.result)

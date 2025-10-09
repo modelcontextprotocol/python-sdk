@@ -7,7 +7,7 @@ import inspect
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Generic, Literal
+from typing import TYPE_CHECKING, Any, Generic, Literal
 
 import anyio
 import pydantic_core
@@ -45,7 +45,7 @@ from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.async_operations import ServerAsyncOperationManager
+from mcp.shared.async_operations import OperationEventQueue
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
 from mcp.types import (
     AnyFunction,
@@ -61,6 +61,9 @@ from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
 from mcp.types import ResourceTemplate as MCPResourceTemplate
 from mcp.types import Tool as MCPTool
+
+if TYPE_CHECKING:
+    from mcp.shared.async_operations import ServerAsyncOperationManager
 
 logger = get_logger(__name__)
 
@@ -145,6 +148,7 @@ class FastMCP(Generic[LifespanResultT]):
         event_store: EventStore | None = None,
         *,
         async_operations: ServerAsyncOperationManager | None = None,
+        operation_event_queue: OperationEventQueue | None = None,
         tools: list[Tool] | None = None,
         debug: bool = False,
         log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
@@ -164,6 +168,8 @@ class FastMCP(Generic[LifespanResultT]):
         auth: AuthSettings | None = None,
         transport_security: TransportSecuritySettings | None = None,
     ):
+        from mcp.shared.async_operations import InMemoryOperationEventQueue, ServerAsyncOperationManager
+
         self.settings = Settings(
             debug=debug,
             log_level=log_level,
@@ -184,7 +190,12 @@ class FastMCP(Generic[LifespanResultT]):
             transport_security=transport_security,
         )
 
-        self._async_operations = async_operations or ServerAsyncOperationManager()
+        self._operation_event_queue = operation_event_queue or InMemoryOperationEventQueue()
+        self._operation_response_queue = InMemoryOperationEventQueue()
+        self._async_operations = async_operations or ServerAsyncOperationManager(
+            operation_request_queue=self._operation_event_queue,
+            operation_response_queue=self._operation_response_queue,
+        )
 
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
@@ -192,6 +203,8 @@ class FastMCP(Generic[LifespanResultT]):
             website_url=website_url,
             icons=icons,
             async_operations=self._async_operations,
+            operation_request_queue=self._operation_event_queue,
+            operation_response_queue=self._operation_response_queue,
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an FastMCP and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
@@ -215,6 +228,7 @@ class FastMCP(Generic[LifespanResultT]):
         if auth_server_provider and not token_verifier:
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._event_store = event_store
+        self._operation_event_queue = operation_event_queue
         self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
         self._session_manager: StreamableHTTPSessionManager | None = None

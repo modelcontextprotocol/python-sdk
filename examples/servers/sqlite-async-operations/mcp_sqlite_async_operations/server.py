@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import time
 from collections import deque
@@ -13,17 +14,22 @@ import click
 import uvicorn
 from mcp import types
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.server import Context
 from mcp.server.session import ServerSession
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.async_operations import (
     AsyncOperationBroker,
     AsyncOperationStore,
+    OperationEventQueue,
     PendingAsyncTask,
     ServerAsyncOperation,
     ServerAsyncOperationManager,
 )
-from mcp.shared.context import RequestContext
+from mcp.shared.context import RequestContext, SerializableRequestContext
 from mcp.types import AsyncOperationStatus, CallToolResult
+from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class SQLiteAsyncOperationStore(AsyncOperationStore):
@@ -207,6 +213,78 @@ class SQLiteAsyncOperationStore(AsyncOperationStore):
             return cursor.rowcount
 
 
+class SQLiteOperationEventQueue(OperationEventQueue):
+    """SQLite-based implementation of OperationEventQueue for operation-specific event delivery."""
+
+    def __init__(self, db_path: str = "async_operations.db"):
+        self.db_path = db_path
+        self._init_db()
+
+    def _init_db(self):
+        """Initialize the SQLite database for operation event queuing."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS operation_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    operation_token TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_operation_events_token_created 
+                ON operation_events(operation_token, created_at)
+            """)
+            conn.commit()
+
+    async def enqueue_event(self, operation_token: str, message: types.JSONRPCMessage) -> None:
+        """Enqueue an event for a specific operation token."""
+        message_json = json.dumps(message.model_dump())
+        created_at = time.time()
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO operation_events (operation_token, message, created_at)
+                VALUES (?, ?, ?)
+            """,
+                (operation_token, message_json, created_at),
+            )
+            conn.commit()
+
+    async def dequeue_events(self, operation_token: str) -> list[types.JSONRPCMessage]:
+        """Dequeue all pending events for a specific operation token."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get all events for this operation token
+            cursor = conn.execute(
+                """
+                SELECT id, message FROM operation_events 
+                WHERE operation_token = ?
+                ORDER BY created_at
+            """,
+                (operation_token,),
+            )
+
+            events: list[types.JSONRPCMessage] = []
+            event_ids: list[int] = []
+
+            for row in cursor:
+                event_ids.append(row["id"])
+                message_data = json.loads(row["message"])
+                message = types.JSONRPCMessage.model_validate(message_data)
+                events.append(message)
+
+            # Delete the dequeued events
+            if event_ids:
+                placeholders = ",".join("?" * len(event_ids))
+                conn.execute(f"DELETE FROM operation_events WHERE id IN ({placeholders})", event_ids)
+                conn.commit()
+
+            return events
+
+
 class SQLiteAsyncOperationBroker(AsyncOperationBroker):
     """SQLite-based implementation of AsyncOperationBroker for persistent task queuing."""
 
@@ -234,23 +312,19 @@ class SQLiteAsyncOperationBroker(AsyncOperationBroker):
                     if op_row and op_row["status"] in ("completed", "failed", "canceled"):
                         continue
 
-                # Reconstruct serializable parts of RequestContext
-                from mcp.shared.context import SerializableRequestContext
-
-                serializable_context = None
-                if row["request_id"]:
-                    serializable_context = SerializableRequestContext(
-                        request_id=row["request_id"],
-                        operation_token=row["operation_token"],
-                        meta=json.loads(row["meta"]) if row["meta"] else None,
-                        supports_async=bool(row["supports_async"]),
-                    )
+                # Reconstruct context - the server will hydrate the session
+                request_context = SerializableRequestContext(
+                    request_id=row["request_id"],
+                    operation_token=row["operation_token"],
+                    meta=json.loads(row["meta"]) if row["meta"] else None,
+                    supports_async=bool(row["supports_async"]),
+                )
 
                 task = PendingAsyncTask(
                     token=row["token"],
                     tool_name=row["tool_name"],
                     arguments=json.loads(row["arguments"]),
-                    request_context=serializable_context,
+                    request_context=request_context,
                 )
                 self._task_queue.append(task)
 
@@ -329,6 +403,10 @@ class SQLiteAsyncOperationBroker(AsyncOperationBroker):
             conn.commit()
 
 
+class UserPreferences(BaseModel):
+    continue_processing: bool = Field(description="Should we continue with the operation?")
+
+
 @click.command()
 @click.option("--port", default=8000, help="Port to listen on for HTTP")
 @click.option(
@@ -341,31 +419,54 @@ class SQLiteAsyncOperationBroker(AsyncOperationBroker):
 def main(port: int, transport: str, db_path: str):
     """Run the SQLite async operations example server."""
     # Create components with specified database path
+    operation_event_queue = SQLiteOperationEventQueue(db_path)
     broker = SQLiteAsyncOperationBroker(db_path)
-    store = SQLiteAsyncOperationStore(db_path)  # No broker reference needed
-    manager = ServerAsyncOperationManager(store=store, broker=broker)
-    mcp = FastMCP("SQLite Async Operations Demo", async_operations=manager)
+    store = SQLiteAsyncOperationStore(db_path)
+    manager = ServerAsyncOperationManager(store=store, broker=broker, operation_request_queue=operation_event_queue)
+    mcp = FastMCP(
+        "SQLite Async Operations Demo",
+        operation_event_queue=operation_event_queue,
+        async_operations=manager,
+    )
 
     @mcp.tool(invocation_modes=["async"])
     async def fetch_website(
         url: str,
+        ctx: Context[ServerSession, None],
     ) -> list[types.ContentBlock]:
         headers = {"User-Agent": "MCP Test Server (github.com/modelcontextprotocol/python-sdk)"}
         async with create_mcp_http_client(headers=headers) as client:
+            logger.info("Entered fetch_website")
+
+            # Simulate delay
             await anyio.sleep(10)
+
+            # Request approval from user
+            logger.info("Sending elicitation to confirm")
+            result = await ctx.elicit(
+                message=f"Please confirm that you would like to fetch from {url}.",
+                schema=UserPreferences,
+            )
+            logger.info(f"Elicitation result: {result}")
+
+            if result.action != "accept" or not result.data.continue_processing:
+                return [types.TextContent(type="text", text="Operation cancelled by user")]
+
+            logger.info(f"Fetching {url}")
             response = await client.get(url)
             response.raise_for_status()
+            logger.info("Returning fetch result")
             return [types.TextContent(type="text", text=response.text)]
 
-    print(f"Starting server with SQLite database: {db_path}")
-    print("Pending tasks will be automatically restarted on server restart!")
+    logger.info(f"Starting server with SQLite database: {db_path}")
+    logger.info("Pending tasks will be automatically restarted on server restart!")
 
     if transport == "stdio":
         mcp.run(transport="stdio")
     elif transport == "streamable-http":
         app = mcp.streamable_http_app()
         server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=port, log_level="error"))
-        print(f"Starting {transport} server on port {port}")
+        logger.info(f"Starting {transport} server on port {port}")
         server.run()
     else:
         raise ValueError(f"Invalid transport for test server: {transport}")

@@ -6,6 +6,7 @@ import contextlib
 import logging
 import secrets
 import time
+from abc import abstractmethod
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
@@ -13,16 +14,49 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
 import anyio
 from anyio.abc import TaskGroup
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 import mcp.types as types
+from mcp.shared.async_operations_utils import ClientAsyncOperation, ServerAsyncOperation, ToolExecutorParameters
+from mcp.shared.message import SessionMessage
 from mcp.types import AsyncOperationStatus
 
 if TYPE_CHECKING:
     # Avoid circular import with mcp.server.lowlevel.Server
     from mcp.server.session import ServerSession
-    from mcp.shared.context import RequestContext
+    from mcp.shared.context import RequestContext, SerializableRequestContext
 
 logger = logging.getLogger(__name__)
+
+
+class OperationEventQueue(Protocol):
+    """
+    Interface for queuing events by operation token for async operation delivery.
+    """
+
+    @abstractmethod
+    async def enqueue_event(self, operation_token: str, message: types.JSONRPCMessage) -> None:
+        """
+        Enqueue an event for a specific operation token.
+
+        Args:
+            operation_token: The operation token to queue the event for
+            message: The server request or notification to queue
+        """
+        ...
+
+    @abstractmethod
+    async def dequeue_events(self, operation_token: str) -> list[types.JSONRPCMessage]:
+        """
+        Dequeue all pending events for a specific operation token.
+
+        Args:
+            operation_token: The operation token to dequeue events for
+
+        Returns:
+            List of queued server requests/notifications for the operation
+        """
+        ...
 
 
 @dataclass
@@ -32,52 +66,7 @@ class PendingAsyncTask:
     token: str
     tool_name: str
     arguments: dict[str, Any]
-    request_context: Any  # The RequestContext object to restore
-
-
-@dataclass
-class ClientAsyncOperation:
-    """Minimal operation tracking for client-side use."""
-
-    token: str
-    tool_name: str
-    created_at: float
-    keep_alive: int
-
-    @property
-    def is_expired(self) -> bool:
-        """Check if operation has expired based on keepAlive."""
-        return time.time() > (self.created_at + self.keep_alive * 2)  # Give some buffer before expiration
-
-
-@dataclass
-class ServerAsyncOperation:
-    """Represents an async tool operation."""
-
-    token: str
-    tool_name: str
-    arguments: dict[str, Any]
-    status: AsyncOperationStatus
-    created_at: float
-    keep_alive: int
-    resolved_at: float | None = None
-    session_id: str | None = None
-    result: types.CallToolResult | None = None
-    error: str | None = None
-
-    @property
-    def is_expired(self) -> bool:
-        """Check if operation has expired based on keepAlive."""
-        if not self.resolved_at:
-            return False
-        if self.status in ("completed", "failed", "canceled"):
-            return time.time() > (self.resolved_at + self.keep_alive)
-        return False
-
-    @property
-    def is_terminal(self) -> bool:
-        """Check if operation is in a terminal state."""
-        return self.status in ("completed", "failed", "canceled", "unknown")
+    request_context: SerializableRequestContext
 
 
 OperationT = TypeVar("OperationT", ClientAsyncOperation, ServerAsyncOperation)
@@ -112,7 +101,7 @@ class BaseOperationManager(Generic[OperationT]):
         """Internal method to remove and return an operation."""
         return self._operations.pop(token, None)
 
-    def get_operation(self, token: str) -> OperationT | None:
+    async def get_operation(self, token: str) -> OperationT | None:
         """Get operation by token."""
         return self._get_operation(token)
 
@@ -120,7 +109,7 @@ class BaseOperationManager(Generic[OperationT]):
         """Remove an operation by token."""
         return self._remove_operation(token) is not None
 
-    def cleanup_expired(self) -> int:
+    async def cleanup_expired(self) -> int:
         """Remove expired operations and return count of removed operations."""
         expired_tokens = [token for token, operation in self._operations.items() if operation.is_expired]
         for token in expired_tokens:
@@ -138,7 +127,7 @@ class BaseOperationManager(Generic[OperationT]):
 
         while self._running:
             await anyio.sleep(self._cleanup_interval)
-            count = self.cleanup_expired()
+            count = await self.cleanup_expired()
             if count > 0:
                 logger.debug(f"Cleaned up {count} expired operations")
 
@@ -216,27 +205,34 @@ class ClientAsyncOperationManager(BaseOperationManager[ClientAsyncOperation]):
         return operation.tool_name if operation else None
 
 
-class ServerAsyncOperationManager:
+class ServerAsyncOperationManager(BaseOperationManager[ServerAsyncOperation]):
     """Manages async tool operations using Store and Broker components."""
+
+    operation_request_queue: OperationEventQueue
+    operation_response_queue: OperationEventQueue
 
     def __init__(
         self,
+        *,
         store: AsyncOperationStore | None = None,
         broker: AsyncOperationBroker | None = None,
-        *,
+        operation_request_queue: OperationEventQueue | None = None,
+        operation_response_queue: OperationEventQueue | None = None,
         token_generator: Callable[[str | None], str] | None = None,
     ):
         # Use provided implementations or default to InMemory
         self.store = store or InMemoryAsyncOperationStore()
         self.broker = broker or InMemoryAsyncOperationBroker()
+        self.operation_request_queue = operation_request_queue or InMemoryOperationEventQueue()
+        self.operation_response_queue = operation_response_queue or InMemoryOperationEventQueue()
         self._token_generator = token_generator or self._default_token_generator
-        self._tool_executor: Callable[[str, dict[str, Any], Any], Awaitable[types.CallToolResult]] | None = None
+        self._tool_executor: Callable[[ToolExecutorParameters], Awaitable[types.CallToolResult]] | None = None
         self._task_group: TaskGroup | None = None
         self._run_lock = anyio.Lock()
         self._running = False
 
-    def set_handler(self, tool_executor: Callable[[str, dict[str, Any], Any], Awaitable[types.CallToolResult]]) -> None:
-        """Set the tool executor handler for late binding."""
+    def set_handler(self, tool_executor: Callable[[ToolExecutorParameters], Awaitable[types.CallToolResult]]) -> None:
+        """Set the tool executor handler via late binding."""
         self._tool_executor = tool_executor
 
     def _default_token_generator(self, session_id: str | None = None) -> str:
@@ -299,17 +295,95 @@ class ServerAsyncOperationManager:
 
     async def _execute_tool_task(self, task: PendingAsyncTask) -> None:
         """Execute a tool task."""
+        if not self._tool_executor:
+            raise ValueError("No tool executor configured")
+
+        logger.debug(f"Starting async tool task {task.token} for tool '{task.tool_name}'")
+        logger.debug(f"Operation event queue configured: {type(self.operation_request_queue)}")
+        logger.debug(
+            f"Event store configured: {hasattr(self, 'event_store') and getattr(self, 'event_store', None) is not None}"
+        )
+
+        # Create dummy streams to simulate a client
+        server_write, client_read = anyio.create_memory_object_stream[SessionMessage](1)
+        client_write, server_read = anyio.create_memory_object_stream[SessionMessage](1)
+
         try:
-            if not self._tool_executor:
-                raise ValueError("No tool executor configured")
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(self._execute_tool_task_client_loop, client_read, client_write, task.request_context)
 
-            await self.mark_working(task.token)
-            result = await self._tool_executor(task.tool_name, task.arguments, task.request_context)
-            await self.complete_operation(task.token, result)
-
+                await self.mark_working(task.token)
+                result = await self._tool_executor(
+                    ToolExecutorParameters(
+                        tool_name=task.tool_name,
+                        arguments=task.arguments,
+                        request_context=task.request_context,
+                        server_read=server_read,
+                        server_write=server_write,
+                    )
+                )
+                await self.complete_operation(task.token, result)
         except Exception as e:
             logger.exception(f"Tool task {task.token} failed: {e}")
             await self.fail_operation(task.token, str(e))
+
+    async def _execute_tool_task_client_loop(
+        self,
+        read_stream: MemoryObjectReceiveStream[SessionMessage],
+        write_stream: MemoryObjectSendStream[SessionMessage],
+        request_context: SerializableRequestContext,
+    ):
+        """Simulated client loop that enqueues messages for operation event delivery."""
+        async with (
+            read_stream,
+            write_stream,
+        ):
+            try:
+                async with anyio.create_task_group() as tg:
+                    # Handle incoming messages from server
+                    tg.start_soon(self._handle_incoming_messages, read_stream, request_context)
+                    # Handle outgoing responses to server
+                    tg.start_soon(self._handle_outgoing_responses, write_stream, request_context)
+            except Exception as e:
+                logger.exception(f"Unhandled exception in client loop: {e}")
+
+    async def _handle_incoming_messages(
+        self,
+        read_stream: MemoryObjectReceiveStream[SessionMessage],
+        request_context: SerializableRequestContext,
+    ):
+        """Handle incoming messages from server and enqueue them as events."""
+        try:
+            async for session_message in read_stream:
+                message = session_message.message
+
+                if request_context.operation_token:
+                    await self.operation_request_queue.enqueue_event(request_context.operation_token, message)
+                else:
+                    logger.warning("No operation token in request context!")
+        except Exception as e:
+            logger.exception(f"Unhandled exception in incoming message handler: {e}")
+
+    async def _handle_outgoing_responses(
+        self,
+        write_stream: MemoryObjectSendStream[SessionMessage],
+        request_context: SerializableRequestContext,
+    ):
+        """Handle outgoing responses by dequeueing from response queue and sending to server."""
+        if not request_context.operation_token:
+            return
+
+        try:
+            while True:
+                # Poll for responses from the response queue
+                responses = await self.operation_response_queue.dequeue_events(request_context.operation_token)
+                for response in responses:
+                    await write_stream.send(SessionMessage(message=response))
+
+                # Small delay to avoid busy waiting
+                await anyio.sleep(0.1)
+        except Exception as e:
+            logger.exception(f"Unhandled exception in outgoing response handler: {e}")
 
     async def start_task(
         self,
@@ -478,6 +552,26 @@ class InMemoryAsyncOperationStore(AsyncOperationStore):
         for token in expired_tokens:
             del self._operations[token]
         return len(expired_tokens)
+
+
+class InMemoryOperationEventQueue(OperationEventQueue):
+    """In-memory implementation of OperationEventQueue."""
+
+    def __init__(self):
+        self._queued_events: dict[str, list[types.JSONRPCMessage]] = {}
+
+    async def enqueue_event(self, operation_token: str, message: types.JSONRPCMessage) -> None:
+        """Enqueue an event for a specific operation token."""
+        if operation_token not in self._queued_events:
+            self._queued_events[operation_token] = []
+        self._queued_events[operation_token].append(message)
+
+    async def dequeue_events(self, operation_token: str) -> list[types.JSONRPCMessage]:
+        """Dequeue all pending events for a specific operation token."""
+        events = self._queued_events.get(operation_token, [])
+        if operation_token in self._queued_events:
+            del self._queued_events[operation_token]
+        return events
 
 
 class InMemoryAsyncOperationBroker(AsyncOperationBroker):

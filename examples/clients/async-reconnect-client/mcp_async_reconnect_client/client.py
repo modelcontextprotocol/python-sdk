@@ -1,34 +1,51 @@
+import logging
+
 import anyio
 import click
 from mcp import ClientSession, types
 from mcp.client.streamable_http import streamablehttp_client
+from mcp.shared.context import RequestContext
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+logger = logging.getLogger(__name__)
+
+
+async def elicitation_callback(context: RequestContext[ClientSession, None], params: types.ElicitRequestParams):
+    """Handle elicitation requests from the server."""
+    logger.info(f"Server is asking: {params.message}")
+    return types.ElicitResult(
+        action="accept",
+        content={"continue_processing": True},
+    )
 
 
 async def call_async_tool(session: ClientSession, token: str | None):
     """Demonstrate calling an async tool."""
-    print("Calling async tool...")
-
     if not token:
-        result = await session.call_tool("fetch_website", arguments={"url": "https://modelcontextprotocol.io"})
+        logger.info("Calling async tool...")
+        result = await session.call_tool(
+            "fetch_website",
+            arguments={"url": "https://modelcontextprotocol.io"},
+        )
         if result.isError:
             raise RuntimeError(f"Error calling tool: {result}")
         assert result.operation
         token = result.operation.token
-        print(f"Operation started with token: {token}")
+        logger.info(f"Operation started with token: {token}")
 
     # Poll for completion
     while True:
         status = await session.get_operation_status(token)
-        print(f"Status: {status.status}")
+        logger.info(f"Status: {status.status}")
 
         if status.status == "completed":
             final_result = await session.get_operation_result(token)
             for content in final_result.result.content:
                 if isinstance(content, types.TextContent):
-                    print(f"Result: {content.text}")
+                    logger.info(f"Result: {content.text}")
             break
         elif status.status == "failed":
-            print(f"Operation failed: {status.error}")
+            logger.error(f"Operation failed: {status.error}")
             break
 
         await anyio.sleep(0.5)
@@ -36,7 +53,9 @@ async def call_async_tool(session: ClientSession, token: str | None):
 
 async def run_session(endpoint: str, token: str | None):
     async with streamablehttp_client(endpoint) as (read, write, _):
-        async with ClientSession(read, write, protocol_version="next") as session:
+        async with ClientSession(
+            read, write, protocol_version="next", elicitation_callback=elicitation_callback
+        ) as session:
             await session.initialize()
             await call_async_tool(session, token)
 

@@ -693,9 +693,7 @@ async def test_fastmcp_quickstart(server_transport: str, server_url: str) -> Non
 @pytest.mark.parametrize(
     "server_transport",
     [
-        # Skip SSE for async tools - SSE client has issues with long polling in test environment
-        # causing BrokenResourceError during async operation status polling
-        # ("async_tool_basic", "sse"),
+        ("async_tool_basic", "sse"),
         ("async_tool_basic", "streamable-http"),
     ],
     indirect=True,
@@ -776,7 +774,7 @@ async def test_async_tool_basic(server_transport: str, server_url: str) -> None:
 @pytest.mark.parametrize(
     "server_transport",
     [
-        # ("async_tool_basic", "sse"),
+        ("async_tool_basic", "sse"),
         ("async_tool_basic", "streamable-http"),
     ],
     indirect=True,
@@ -819,7 +817,7 @@ async def test_async_tool_basic_legacy_protocol(server_transport: str, server_ur
 @pytest.mark.parametrize(
     "server_transport",
     [
-        # ("async_tool_basic", "sse"),
+        ("async_tool_basic", "sse"),
         ("async_tool_basic", "streamable-http"),
     ],
     indirect=True,

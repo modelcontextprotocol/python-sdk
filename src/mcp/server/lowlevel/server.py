@@ -73,7 +73,7 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from typing import Any, Generic, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, Generic, TypeAlias, cast
 
 import anyio
 import jsonschema
@@ -87,12 +87,15 @@ from mcp.server.lowlevel.func_inspection import create_call_wrapper
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared.async_operations import ServerAsyncOperation, ServerAsyncOperationManager
+from mcp.shared.async_operations_utils import ServerAsyncOperation, ToolExecutorParameters
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import NEXT_PROTOCOL_VERSION, Operation, RequestId
+
+if TYPE_CHECKING:
+    from mcp.shared.async_operations import OperationEventQueue, ServerAsyncOperationManager
 
 logger = logging.getLogger(__name__)
 
@@ -142,18 +145,25 @@ class Server(Generic[LifespanResultT, RequestT]):
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
         async_operations: ServerAsyncOperationManager | None = None,
+        operation_request_queue: OperationEventQueue | None = None,
+        operation_response_queue: OperationEventQueue | None = None,
         lifespan: Callable[
             [Server[LifespanResultT, RequestT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
     ):
+        from mcp.shared.async_operations import ServerAsyncOperationManager
+
         self.name = name
         self.version = version
         self.instructions = instructions
         self.website_url = website_url
         self.icons = icons
         self.lifespan = lifespan
-        self.async_operations = async_operations or ServerAsyncOperationManager()
+        self.async_operations = async_operations or ServerAsyncOperationManager(
+            operation_request_queue=operation_request_queue,
+            operation_response_queue=operation_response_queue,
+        )
         self.async_operations.set_handler(self._execute_tool_async)
         # Track request ID to operation token mapping for cancellation
         self._request_to_operation: dict[RequestId, str] = {}
@@ -689,36 +699,53 @@ class Server(Generic[LifespanResultT, RequestT]):
                 types.ErrorData(code=types.INTERNAL_ERROR, message=f"Immediate result execution error: {str(e)}")
             )
 
-    async def _execute_tool_async(
-        self, tool_name: str, arguments: dict[str, Any], request_context: Any
-    ) -> types.CallToolResult:
+    async def _execute_tool_async(self, params: ToolExecutorParameters) -> types.CallToolResult:
         """Execute a tool asynchronously and return the result."""
-        context_token = None
+        async with AsyncExitStack() as stack:
+            lifespan_context = await stack.enter_async_context(self.lifespan(self))
+            session = await stack.enter_async_context(
+                ServerSession(
+                    params.server_read,
+                    params.server_write,
+                    self.create_initialization_options(),
+                    stateless=True,  # Treat as initialized
+                )
+            )
 
-        try:
-            # Restore the request context for this task
-            if request_context:
-                context_token = request_ctx.set(request_context)
+            # Hydrate the request context
+            context_token = None
+            request_context = RequestContext(
+                request_id=params.request_context.request_id,
+                operation_token=params.request_context.operation_token,
+                meta=params.request_context.meta,
+                supports_async=params.request_context.supports_async,
+                lifespan_context=lifespan_context,
+                session=session,
+            )
 
-            logger.info(f"Starting async execution of tool '{tool_name}'")
+            try:
+                # Restore the request context for this task
+                if request_context:
+                    context_token = request_ctx.set(request_context)
 
-            if not self._tool_function:
-                raise ValueError("No tool function registered")
+                logger.info(f"Starting async execution of tool '{params.tool_name}'")
 
-            # Execute the tool function
-            results = await self._tool_function(tool_name, arguments)
+                if not self._tool_function:
+                    raise ValueError("No tool function registered")
 
-            # Get tool definition for validation
-            tool = await self._get_cached_tool_definition(tool_name)
+                # Execute the tool function
+                results = await self._tool_function(params.tool_name, params.arguments)
 
-            # Process results using shared logic
-            result = self._process_tool_result(results, tool)
-            logger.info(f"Async execution of tool '{tool_name}' completed")
-            return result
+                # Get tool definition for validation
+                tool = await self._get_cached_tool_definition(params.tool_name)
 
-        finally:
-            if context_token:
-                request_ctx.reset(context_token)
+                # Process results using shared logic
+                result = self._process_tool_result(results, tool)
+                logger.info(f"Async execution of tool '{params.tool_name}' completed")
+                return result
+            finally:
+                if context_token:
+                    request_ctx.reset(context_token)
 
     def progress_notification(self):
         def decorator(
@@ -793,6 +820,54 @@ class Server(Generic[LifespanResultT, RequestT]):
             async def handler(req: types.GetOperationStatusRequest, _: Any = None):
                 # Validate token and get operation
                 operation = await self._validate_operation_token(req.params.token)
+
+                # Dequeue and send any pending events for this operation
+                operation_request_queue = self.async_operations.operation_request_queue
+                operation_response_queue = self.async_operations.operation_response_queue
+                queued_messages = await operation_request_queue.dequeue_events(req.params.token)
+                if queued_messages:
+                    logger.debug(f"Dequeued {len(queued_messages)} events for operation {req.params.token}")
+                    # Send queued messages to client using session methods
+                    current_context = request_ctx.get()
+                    if current_context and current_context.session:
+                        for message in queued_messages:
+                            try:
+                                if isinstance(message.root, types.JSONRPCRequest):
+                                    logger.debug(f"Received detached request: {message}")
+                                    request_id = message.root.id
+                                    validated_request = types.ServerRequest.model_validate(
+                                        message.root.model_dump(by_alias=True, mode="json", exclude_none=True)
+                                    )
+                                    response = await current_context.session.send_request(
+                                        validated_request, types.ClientResult
+                                    )
+
+                                    # Enqueue response back to response queue for detached session
+                                    await operation_response_queue.enqueue_event(
+                                        req.params.token,
+                                        types.JSONRPCMessage(
+                                            types.JSONRPCResponse(
+                                                jsonrpc="2.0",
+                                                id=request_id,
+                                                result=response.model_dump(
+                                                    by_alias=True, mode="json", exclude_none=True
+                                                ),
+                                            )
+                                        ),
+                                    )
+                                elif isinstance(message.root, types.JSONRPCNotification):
+                                    logger.debug(f"Received detached notification: {message}")
+                                    validated_notification = types.ServerNotification.model_validate(
+                                        message.root.model_dump(by_alias=True, mode="json", exclude_none=True)
+                                    )
+                                    await current_context.session.send_notification(validated_notification)
+                                else:
+                                    logger.debug(f"Invalid message in request queue: {message}")
+                                    raise McpError(
+                                        types.ErrorData(code=-32600, message="Invalid message type in event queue")
+                                    )
+                            except Exception:
+                                logger.exception(f"Failed to process message: {message}")
 
                 return types.ServerResult(
                     types.GetOperationStatusResult(

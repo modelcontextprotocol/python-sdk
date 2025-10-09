@@ -98,8 +98,8 @@ venv = ".venv"
 # those private functions instead of testing the private functions directly. It makes it easier to maintain the code source
 # and refactor code that is not public.
 executionEnvironments = [
-  { root = "tests", reportUnusedFunction = false, reportPrivateUsage = false },
-  { root = "examples/servers", reportUnusedFunction = false },
+    { root = "tests", reportUnusedFunction = false, reportPrivateUsage = false },
+    { root = "examples/servers", reportUnusedFunction = false },
 ]
 
 [tool.ruff]
@@ -109,17 +109,17 @@ extend-exclude = ["README.md"]
 
 [tool.ruff.lint]
 select = [
-    "C4",    # flake8-comprehensions
-    "C90",   # mccabe
-    "E",     # pycodestyle
-    "F",     # pyflakes
-    "I",     # isort
-    "PERF",  # Perflint
-    "PL",    # Pylint
-    "UP",    # pyupgrade
+    "C4",   # flake8-comprehensions
+    "C90",  # mccabe
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "PERF", # Perflint
+    "PL",   # Pylint
+    "UP",   # pyupgrade
 ]
 ignore = ["PERF203", "PLC0415", "PLR0402"]
-mccabe.max-complexity = 24  # Default is 10
+mccabe.max-complexity = 24 # Default is 10
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
@@ -128,13 +128,13 @@ mccabe.max-complexity = 24  # Default is 10
 
 [tool.ruff.lint.pylint]
 allow-magic-value-types = ["bytes", "float", "int", "str"]
-max-args = 24         # Default is 5
-max-branches = 23     # Default is 12
-max-returns = 13      # Default is 6
-max-statements = 102  # Default is 50
+max-args = 24                                              # Default is 5
+max-branches = 23                                          # Default is 12
+max-returns = 13                                           # Default is 6
+max-statements = 102                                       # Default is 50
 
 [tool.uv.workspace]
-members = ["examples/servers/*", "examples/snippets"]
+members = ["examples/clients/*", "examples/servers/*", "examples/snippets"]
 
 [tool.uv.sources]
 mcp = { workspace = true }
@@ -154,16 +154,16 @@ filterwarnings = [
     "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
     "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel",
     # pywin32 internal deprecation warning
-    "ignore:getargs.*The 'u' format is deprecated:DeprecationWarning"
+    "ignore:getargs.*The 'u' format is deprecated:DeprecationWarning",
 ]
 
 [tool.markdown.lint]
-default=true
-MD004=false  # ul-style - Unordered list style
-MD007.indent=2  # ul-indent - Unordered list indentation
-MD013=false  # line-length - Line length
-MD029=false  # ol-prefix - Ordered list item prefix
-MD033=false  # no-inline-html Inline HTML
-MD041=false  # first-line-heading/first-line-h1
-MD046=false  # indented-code-blocks
-MD059=false  # descriptive-link-text
+default = true
+MD004 = false    # ul-style - Unordered list style
+MD007.indent = 2 # ul-indent - Unordered list indentation
+MD013 = false    # line-length - Line length
+MD029 = false    # ol-prefix - Ordered list item prefix
+MD033 = false    # no-inline-html Inline HTML
+MD041 = false    # first-line-heading/first-line-h1
+MD046 = false    # indented-code-blocks
+MD059 = false    # descriptive-link-text
