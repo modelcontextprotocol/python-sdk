@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 import pytest
 
+import mcp.types as types
 from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session as create_session
@@ -12,6 +13,7 @@ from .conftest import StreamSpyCollection
 pytestmark = pytest.mark.anyio
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 async def test_list_tools_cursor_parameter(stream_spy: Callable[[], StreamSpyCollection]):
     """Test that the cursor parameter is accepted for list_tools
     and that it is correctly passed to the server.
@@ -38,7 +40,7 @@ async def test_list_tools_cursor_parameter(stream_spy: Callable[[], StreamSpyCol
         _ = await client_session.list_tools()
         list_tools_requests = spies.get_client_requests(method="tools/list")
         assert len(list_tools_requests) == 1
-        assert list_tools_requests[0].params == {}
+        assert list_tools_requests[0].params is None
 
         spies.clear()
 
@@ -46,7 +48,7 @@ async def test_list_tools_cursor_parameter(stream_spy: Callable[[], StreamSpyCol
         _ = await client_session.list_tools(cursor=None)
         list_tools_requests = spies.get_client_requests(method="tools/list")
         assert len(list_tools_requests) == 1
-        assert list_tools_requests[0].params == {}
+        assert list_tools_requests[0].params is None
 
         spies.clear()
 
@@ -67,6 +69,7 @@ async def test_list_tools_cursor_parameter(stream_spy: Callable[[], StreamSpyCol
         assert list_tools_requests[0].params["cursor"] == ""
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 async def test_list_resources_cursor_parameter(stream_spy: Callable[[], StreamSpyCollection]):
     """Test that the cursor parameter is accepted for list_resources
     and that it is correctly passed to the server.
@@ -88,7 +91,7 @@ async def test_list_resources_cursor_parameter(stream_spy: Callable[[], StreamSp
         _ = await client_session.list_resources()
         list_resources_requests = spies.get_client_requests(method="resources/list")
         assert len(list_resources_requests) == 1
-        assert list_resources_requests[0].params == {}
+        assert list_resources_requests[0].params is None
 
         spies.clear()
 
@@ -96,7 +99,7 @@ async def test_list_resources_cursor_parameter(stream_spy: Callable[[], StreamSp
         _ = await client_session.list_resources(cursor=None)
         list_resources_requests = spies.get_client_requests(method="resources/list")
         assert len(list_resources_requests) == 1
-        assert list_resources_requests[0].params == {}
+        assert list_resources_requests[0].params is None
 
         spies.clear()
 
@@ -117,6 +120,7 @@ async def test_list_resources_cursor_parameter(stream_spy: Callable[[], StreamSp
         assert list_resources_requests[0].params["cursor"] == ""
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 async def test_list_prompts_cursor_parameter(stream_spy: Callable[[], StreamSpyCollection]):
     """Test that the cursor parameter is accepted for list_prompts
     and that it is correctly passed to the server.
@@ -137,7 +141,7 @@ async def test_list_prompts_cursor_parameter(stream_spy: Callable[[], StreamSpyC
         _ = await client_session.list_prompts()
         list_prompts_requests = spies.get_client_requests(method="prompts/list")
         assert len(list_prompts_requests) == 1
-        assert list_prompts_requests[0].params == {}
+        assert list_prompts_requests[0].params is None
 
         spies.clear()
 
@@ -145,7 +149,7 @@ async def test_list_prompts_cursor_parameter(stream_spy: Callable[[], StreamSpyC
         _ = await client_session.list_prompts(cursor=None)
         list_prompts_requests = spies.get_client_requests(method="prompts/list")
         assert len(list_prompts_requests) == 1
-        assert list_prompts_requests[0].params == {}
+        assert list_prompts_requests[0].params is None
 
         spies.clear()
 
@@ -166,6 +170,7 @@ async def test_list_prompts_cursor_parameter(stream_spy: Callable[[], StreamSpyC
         assert list_prompts_requests[0].params["cursor"] == ""
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 async def test_list_resource_templates_cursor_parameter(stream_spy: Callable[[], StreamSpyCollection]):
     """Test that the cursor parameter is accepted for list_resource_templates
     and that it is correctly passed to the server.
@@ -187,7 +192,7 @@ async def test_list_resource_templates_cursor_parameter(stream_spy: Callable[[],
         _ = await client_session.list_resource_templates()
         list_templates_requests = spies.get_client_requests(method="resources/templates/list")
         assert len(list_templates_requests) == 1
-        assert list_templates_requests[0].params == {}
+        assert list_templates_requests[0].params is None
 
         spies.clear()
 
@@ -195,7 +200,7 @@ async def test_list_resource_templates_cursor_parameter(stream_spy: Callable[[],
         _ = await client_session.list_resource_templates(cursor=None)
         list_templates_requests = spies.get_client_requests(method="resources/templates/list")
         assert len(list_templates_requests) == 1
-        assert list_templates_requests[0].params == {}
+        assert list_templates_requests[0].params is None
 
         spies.clear()
 
@@ -244,5 +249,6 @@ async def test_list_tools_with_strict_server_validation():
         return ListToolsResult(tools=[])
 
     async with create_session(server) as client_session:
-        result = await client_session.list_tools()
+        # Use params to explicitly send params: {} for strict server compatibility
+        result = await client_session.list_tools(params=types.PaginatedRequestParams())
         assert result is not None

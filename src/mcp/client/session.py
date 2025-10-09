@@ -1,4 +1,5 @@
 import logging
+import warnings
 from datetime import timedelta
 from typing import Any, Protocol
 
@@ -212,25 +213,55 @@ class ClientSession(
             types.EmptyResult,
         )
 
-    async def list_resources(self, cursor: str | None = None) -> types.ListResourcesResult:
-        """Send a resources/list request."""
+    async def list_resources(
+        self,
+        cursor: str | None = None,
+        *,
+        params: types.PaginatedRequestParams | None = None,
+    ) -> types.ListResourcesResult:
+        """Send a resources/list request.
+
+        Args:
+            cursor: (Deprecated) Pagination cursor. Use params parameter instead.
+            params: Pagination parameters. Defaults to None (omits params field).
+        """
+        if cursor is not None:
+            warnings.warn(
+                "cursor parameter is deprecated, use params=PaginatedRequestParams(cursor=...) instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if params is None:
+                params = types.PaginatedRequestParams(cursor=cursor)
+
         return await self.send_request(
-            types.ClientRequest(
-                types.ListResourcesRequest(
-                    params=types.PaginatedRequestParams(cursor=cursor),
-                )
-            ),
+            types.ClientRequest(types.ListResourcesRequest(params=params)),
             types.ListResourcesResult,
         )
 
-    async def list_resource_templates(self, cursor: str | None = None) -> types.ListResourceTemplatesResult:
-        """Send a resources/templates/list request."""
+    async def list_resource_templates(
+        self,
+        cursor: str | None = None,
+        *,
+        params: types.PaginatedRequestParams | None = None,
+    ) -> types.ListResourceTemplatesResult:
+        """Send a resources/templates/list request.
+
+        Args:
+            cursor: (Deprecated) Pagination cursor. Use params parameter instead.
+            params: Pagination parameters. Defaults to None (omits params field).
+        """
+        if cursor is not None:
+            warnings.warn(
+                "cursor parameter is deprecated, use params=PaginatedRequestParams(cursor=...) instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if params is None:
+                params = types.PaginatedRequestParams(cursor=cursor)
+
         return await self.send_request(
-            types.ClientRequest(
-                types.ListResourceTemplatesRequest(
-                    params=types.PaginatedRequestParams(cursor=cursor),
-                )
-            ),
+            types.ClientRequest(types.ListResourceTemplatesRequest(params=params)),
             types.ListResourceTemplatesResult,
         )
 
@@ -317,14 +348,29 @@ class ClientSession(
             except SchemaError as e:
                 raise RuntimeError(f"Invalid schema for tool {name}: {e}")
 
-    async def list_prompts(self, cursor: str | None = None) -> types.ListPromptsResult:
-        """Send a prompts/list request."""
+    async def list_prompts(
+        self,
+        cursor: str | None = None,
+        *,
+        params: types.PaginatedRequestParams | None = None,
+    ) -> types.ListPromptsResult:
+        """Send a prompts/list request.
+
+        Args:
+            cursor: (Deprecated) Pagination cursor. Use params parameter instead.
+            params: Pagination parameters. Defaults to None (omits params field).
+        """
+        if cursor is not None:
+            warnings.warn(
+                "cursor parameter is deprecated, use params=PaginatedRequestParams(cursor=...) instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if params is None:
+                params = types.PaginatedRequestParams(cursor=cursor)
+
         return await self.send_request(
-            types.ClientRequest(
-                types.ListPromptsRequest(
-                    params=types.PaginatedRequestParams(cursor=cursor),
-                )
-            ),
+            types.ClientRequest(types.ListPromptsRequest(params=params)),
             types.ListPromptsResult,
         )
 
@@ -363,14 +409,29 @@ class ClientSession(
             types.CompleteResult,
         )
 
-    async def list_tools(self, cursor: str | None = None) -> types.ListToolsResult:
-        """Send a tools/list request."""
+    async def list_tools(
+        self,
+        cursor: str | None = None,
+        *,
+        params: types.PaginatedRequestParams | None = None,
+    ) -> types.ListToolsResult:
+        """Send a tools/list request.
+
+        Args:
+            cursor: (Deprecated) Pagination cursor. Use params parameter instead.
+            params: Pagination parameters. Defaults to None (omits params field).
+        """
+        if cursor is not None:
+            warnings.warn(
+                "cursor parameter is deprecated, use params=PaginatedRequestParams(cursor=...) instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if params is None:
+                params = types.PaginatedRequestParams(cursor=cursor)
+
         result = await self.send_request(
-            types.ClientRequest(
-                types.ListToolsRequest(
-                    params=types.PaginatedRequestParams(cursor=cursor),
-                )
-            ),
+            types.ClientRequest(types.ListToolsRequest(params=params)),
             types.ListToolsResult,
         )
 
