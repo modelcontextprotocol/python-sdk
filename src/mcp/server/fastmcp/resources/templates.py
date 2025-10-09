@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, validate_call
 
 from mcp.server.fastmcp.resources.types import FunctionResource, Resource
 from mcp.server.fastmcp.utilities.context_injection import find_context_parameter, inject_context
+from mcp.server.fastmcp.utilities.convertors import CONVERTOR_TYPES, Convertor
 from mcp.server.fastmcp.utilities.func_metadata import func_metadata
 from mcp.types import Icon
 
@@ -32,6 +33,8 @@ class ResourceTemplate(BaseModel):
     fn: Callable[..., Any] = Field(exclude=True)
     parameters: dict[str, Any] = Field(description="JSON schema for function parameters")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
+    _compiled_pattern: re.Pattern[str] | None = None
+    _convertors: dict[str, Convertor[Any]] | None = None
 
     @classmethod
     def from_function(
@@ -76,14 +79,54 @@ class ResourceTemplate(BaseModel):
             context_kwarg=context_kwarg,
         )
 
+    def _generate_pattern(self) -> tuple[re.Pattern[str], dict[str, Convertor[Any]]]:
+        """Compile the URI template into a regex pattern and associated converters."""
+        parts = self.uri_template.strip("/").split("/")
+        pattern_parts: list[str] = []
+        converters: dict[str, Convertor[Any]] = {}
+        # generate the regex pattern
+        for i, part in enumerate(parts):
+            match = re.fullmatch(r"\{(\w+)(?::(\w+))?\}", part)
+            if match:
+                name, type_ = match.groups()
+                type_ = type_ or "str"
+
+                if type_ not in CONVERTOR_TYPES:
+                    raise ValueError(f"Unknown convertor type '{type_}'")
+
+                conv = CONVERTOR_TYPES[type_]
+                converters[name] = conv
+
+                # path type must be last
+                if type_ == "path" and i != len(parts) - 1:
+                    raise ValueError("Path parameters must appear last in the template")
+
+                pattern_parts.append(f"(?P<{name}>{conv.regex})")
+            else:
+                pattern_parts.append(re.escape(part))
+
+        return re.compile("^" + "/".join(pattern_parts) + "$"), converters
+
     def matches(self, uri: str) -> dict[str, Any] | None:
         """Check if URI matches template and extract parameters."""
-        # Convert template to regex pattern
-        pattern = self.uri_template.replace("{", "(?P<").replace("}", ">[^/]+)")
-        match = re.match(f"^{pattern}$", uri)
-        if match:
-            return match.groupdict()
-        return None
+        if not self._compiled_pattern or not self._convertors:
+            self._compiled_pattern, self._convertors = self._generate_pattern()
+
+        uri = str(uri)
+        match = self._compiled_pattern.match(uri.strip("/"))
+        if not match:
+            return None
+
+        # try to convert them into respective types
+        result: dict[str, Any] = {}
+        for name, conv in self._convertors.items():
+            raw_value = match.group(name)
+            try:
+                result[name] = conv.convert(raw_value)
+            except Exception as e:
+                raise ValueError(f"Failed to convert '{raw_value}' for '{name}': {e}")
+
+        return result
 
     async def create_resource(
         self,
