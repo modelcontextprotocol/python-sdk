@@ -13,16 +13,11 @@ from .conftest import StreamSpyCollection
 pytestmark = pytest.mark.anyio
 
 
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-async def test_list_tools_cursor_parameter(stream_spy: Callable[[], StreamSpyCollection]):
-    """Test that the cursor parameter is accepted for list_tools
-    and that it is correctly passed to the server.
-
-    See: https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/pagination#request-format
-    """
+@pytest.fixture
+async def full_featured_server():
+    """Create a server with tools, resources, prompts, and templates."""
     server = FastMCP("test")
 
-    # Create a couple of test tools
     @server.tool(name="test_tool_1")
     async def test_tool_1() -> str:
         """First test tool"""
@@ -33,523 +28,179 @@ async def test_list_tools_cursor_parameter(stream_spy: Callable[[], StreamSpyCol
         """Second test tool"""
         return "Result 2"
 
-    async with create_session(server._mcp_server) as client_session:
-        spies = stream_spy()
-
-        # Test without cursor parameter (omitted)
-        _ = await client_session.list_tools()
-        list_tools_requests = spies.get_client_requests(method="tools/list")
-        assert len(list_tools_requests) == 1
-        assert list_tools_requests[0].params is None
-
-        spies.clear()
-
-        # Test with cursor=None
-        _ = await client_session.list_tools(cursor=None)
-        list_tools_requests = spies.get_client_requests(method="tools/list")
-        assert len(list_tools_requests) == 1
-        assert list_tools_requests[0].params is None
-
-        spies.clear()
-
-        # Test with cursor as string
-        _ = await client_session.list_tools(cursor="some_cursor_value")
-        list_tools_requests = spies.get_client_requests(method="tools/list")
-        assert len(list_tools_requests) == 1
-        assert list_tools_requests[0].params is not None
-        assert list_tools_requests[0].params["cursor"] == "some_cursor_value"
-
-        spies.clear()
-
-        # Test with empty string cursor
-        _ = await client_session.list_tools(cursor="")
-        list_tools_requests = spies.get_client_requests(method="tools/list")
-        assert len(list_tools_requests) == 1
-        assert list_tools_requests[0].params is not None
-        assert list_tools_requests[0].params["cursor"] == ""
-
-
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-async def test_list_resources_cursor_parameter(stream_spy: Callable[[], StreamSpyCollection]):
-    """Test that the cursor parameter is accepted for list_resources
-    and that it is correctly passed to the server.
-
-    See: https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/pagination#request-format
-    """
-    server = FastMCP("test")
-
-    # Create a test resource
     @server.resource("resource://test/data")
     async def test_resource() -> str:
         """Test resource"""
         return "Test data"
-
-    async with create_session(server._mcp_server) as client_session:
-        spies = stream_spy()
-
-        # Test without cursor parameter (omitted)
-        _ = await client_session.list_resources()
-        list_resources_requests = spies.get_client_requests(method="resources/list")
-        assert len(list_resources_requests) == 1
-        assert list_resources_requests[0].params is None
-
-        spies.clear()
-
-        # Test with cursor=None
-        _ = await client_session.list_resources(cursor=None)
-        list_resources_requests = spies.get_client_requests(method="resources/list")
-        assert len(list_resources_requests) == 1
-        assert list_resources_requests[0].params is None
-
-        spies.clear()
-
-        # Test with cursor as string
-        _ = await client_session.list_resources(cursor="some_cursor")
-        list_resources_requests = spies.get_client_requests(method="resources/list")
-        assert len(list_resources_requests) == 1
-        assert list_resources_requests[0].params is not None
-        assert list_resources_requests[0].params["cursor"] == "some_cursor"
-
-        spies.clear()
-
-        # Test with empty string cursor
-        _ = await client_session.list_resources(cursor="")
-        list_resources_requests = spies.get_client_requests(method="resources/list")
-        assert len(list_resources_requests) == 1
-        assert list_resources_requests[0].params is not None
-        assert list_resources_requests[0].params["cursor"] == ""
-
-
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-async def test_list_prompts_cursor_parameter(stream_spy: Callable[[], StreamSpyCollection]):
-    """Test that the cursor parameter is accepted for list_prompts
-    and that it is correctly passed to the server.
-    See: https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/pagination#request-format
-    """
-    server = FastMCP("test")
-
-    # Create a test prompt
-    @server.prompt()
-    async def test_prompt(name: str) -> str:
-        """Test prompt"""
-        return f"Hello, {name}!"
-
-    async with create_session(server._mcp_server) as client_session:
-        spies = stream_spy()
-
-        # Test without cursor parameter (omitted)
-        _ = await client_session.list_prompts()
-        list_prompts_requests = spies.get_client_requests(method="prompts/list")
-        assert len(list_prompts_requests) == 1
-        assert list_prompts_requests[0].params is None
-
-        spies.clear()
-
-        # Test with cursor=None
-        _ = await client_session.list_prompts(cursor=None)
-        list_prompts_requests = spies.get_client_requests(method="prompts/list")
-        assert len(list_prompts_requests) == 1
-        assert list_prompts_requests[0].params is None
-
-        spies.clear()
-
-        # Test with cursor as string
-        _ = await client_session.list_prompts(cursor="some_cursor")
-        list_prompts_requests = spies.get_client_requests(method="prompts/list")
-        assert len(list_prompts_requests) == 1
-        assert list_prompts_requests[0].params is not None
-        assert list_prompts_requests[0].params["cursor"] == "some_cursor"
-
-        spies.clear()
-
-        # Test with empty string cursor
-        _ = await client_session.list_prompts(cursor="")
-        list_prompts_requests = spies.get_client_requests(method="prompts/list")
-        assert len(list_prompts_requests) == 1
-        assert list_prompts_requests[0].params is not None
-        assert list_prompts_requests[0].params["cursor"] == ""
-
-
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-async def test_list_resource_templates_cursor_parameter(stream_spy: Callable[[], StreamSpyCollection]):
-    """Test that the cursor parameter is accepted for list_resource_templates
-    and that it is correctly passed to the server.
-
-    See: https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/pagination#request-format
-    """
-    server = FastMCP("test")
-
-    # Create a test resource template
-    @server.resource("resource://test/{name}")
-    async def test_template(name: str) -> str:
-        """Test resource template"""
-        return f"Data for {name}"
-
-    async with create_session(server._mcp_server) as client_session:
-        spies = stream_spy()
-
-        # Test without cursor parameter (omitted)
-        _ = await client_session.list_resource_templates()
-        list_templates_requests = spies.get_client_requests(method="resources/templates/list")
-        assert len(list_templates_requests) == 1
-        assert list_templates_requests[0].params is None
-
-        spies.clear()
-
-        # Test with cursor=None
-        _ = await client_session.list_resource_templates(cursor=None)
-        list_templates_requests = spies.get_client_requests(method="resources/templates/list")
-        assert len(list_templates_requests) == 1
-        assert list_templates_requests[0].params is None
-
-        spies.clear()
-
-        # Test with cursor as string
-        _ = await client_session.list_resource_templates(cursor="some_cursor")
-        list_templates_requests = spies.get_client_requests(method="resources/templates/list")
-        assert len(list_templates_requests) == 1
-        assert list_templates_requests[0].params is not None
-        assert list_templates_requests[0].params["cursor"] == "some_cursor"
-
-        spies.clear()
-
-        # Test with empty string cursor
-        _ = await client_session.list_resource_templates(cursor="")
-        list_templates_requests = spies.get_client_requests(method="resources/templates/list")
-        assert len(list_templates_requests) == 1
-        assert list_templates_requests[0].params is not None
-        assert list_templates_requests[0].params["cursor"] == ""
-
-
-async def test_list_tools_params_parameter(stream_spy: Callable[[], StreamSpyCollection]):
-    """Test that the params parameter works correctly for list_tools.
-
-    This tests the new params parameter API (non-deprecated) to ensure
-    it correctly handles all parameter combinations.
-    """
-    server = FastMCP("test")
-
-    # Create a couple of test tools
-    @server.tool(name="test_tool_1")
-    async def test_tool_1() -> str:
-        """First test tool"""
-        return "Result 1"
-
-    @server.tool(name="test_tool_2")
-    async def test_tool_2() -> str:
-        """Second test tool"""
-        return "Result 2"
-
-    async with create_session(server._mcp_server) as client_session:
-        spies = stream_spy()
-
-        # Test without params parameter (omitted)
-        _ = await client_session.list_tools()
-        list_tools_requests = spies.get_client_requests(method="tools/list")
-        assert len(list_tools_requests) == 1
-        assert list_tools_requests[0].params is None
-
-        spies.clear()
-
-        # Test with params=None
-        _ = await client_session.list_tools(params=None)
-        list_tools_requests = spies.get_client_requests(method="tools/list")
-        assert len(list_tools_requests) == 1
-        assert list_tools_requests[0].params is None
-
-        spies.clear()
-
-        # Test with empty params (for strict servers)
-        _ = await client_session.list_tools(params=types.PaginatedRequestParams())
-        list_tools_requests = spies.get_client_requests(method="tools/list")
-        assert len(list_tools_requests) == 1
-        assert list_tools_requests[0].params is not None
-        assert list_tools_requests[0].params.get("cursor") is None
-
-        spies.clear()
-
-        # Test with params containing cursor
-        _ = await client_session.list_tools(params=types.PaginatedRequestParams(cursor="some_cursor_value"))
-        list_tools_requests = spies.get_client_requests(method="tools/list")
-        assert len(list_tools_requests) == 1
-        assert list_tools_requests[0].params is not None
-        assert list_tools_requests[0].params["cursor"] == "some_cursor_value"
-
-
-async def test_list_resources_params_parameter(stream_spy: Callable[[], StreamSpyCollection]):
-    """Test that the params parameter works correctly for list_resources.
-
-    This tests the new params parameter API (non-deprecated) to ensure
-    it correctly handles all parameter combinations.
-    """
-    server = FastMCP("test")
-
-    # Create a test resource
-    @server.resource("resource://test/data")
-    async def test_resource() -> str:
-        """Test resource"""
-        return "Test data"
-
-    async with create_session(server._mcp_server) as client_session:
-        spies = stream_spy()
-
-        # Test without params parameter (omitted)
-        _ = await client_session.list_resources()
-        list_resources_requests = spies.get_client_requests(method="resources/list")
-        assert len(list_resources_requests) == 1
-        assert list_resources_requests[0].params is None
-
-        spies.clear()
-
-        # Test with params=None
-        _ = await client_session.list_resources(params=None)
-        list_resources_requests = spies.get_client_requests(method="resources/list")
-        assert len(list_resources_requests) == 1
-        assert list_resources_requests[0].params is None
-
-        spies.clear()
-
-        # Test with empty params (for strict servers)
-        _ = await client_session.list_resources(params=types.PaginatedRequestParams())
-        list_resources_requests = spies.get_client_requests(method="resources/list")
-        assert len(list_resources_requests) == 1
-        assert list_resources_requests[0].params is not None
-        assert list_resources_requests[0].params.get("cursor") is None
-
-        spies.clear()
-
-        # Test with params containing cursor
-        _ = await client_session.list_resources(params=types.PaginatedRequestParams(cursor="some_cursor"))
-        list_resources_requests = spies.get_client_requests(method="resources/list")
-        assert len(list_resources_requests) == 1
-        assert list_resources_requests[0].params is not None
-        assert list_resources_requests[0].params["cursor"] == "some_cursor"
-
-
-async def test_list_prompts_params_parameter(stream_spy: Callable[[], StreamSpyCollection]):
-    """Test that the params parameter works correctly for list_prompts.
-
-    This tests the new params parameter API (non-deprecated) to ensure
-    it correctly handles all parameter combinations.
-    """
-    server = FastMCP("test")
-
-    # Create a test prompt
-    @server.prompt()
-    async def test_prompt(name: str) -> str:
-        """Test prompt"""
-        return f"Hello, {name}!"
-
-    async with create_session(server._mcp_server) as client_session:
-        spies = stream_spy()
-
-        # Test without params parameter (omitted)
-        _ = await client_session.list_prompts()
-        list_prompts_requests = spies.get_client_requests(method="prompts/list")
-        assert len(list_prompts_requests) == 1
-        assert list_prompts_requests[0].params is None
-
-        spies.clear()
-
-        # Test with params=None
-        _ = await client_session.list_prompts(params=None)
-        list_prompts_requests = spies.get_client_requests(method="prompts/list")
-        assert len(list_prompts_requests) == 1
-        assert list_prompts_requests[0].params is None
-
-        spies.clear()
-
-        # Test with empty params (for strict servers)
-        _ = await client_session.list_prompts(params=types.PaginatedRequestParams())
-        list_prompts_requests = spies.get_client_requests(method="prompts/list")
-        assert len(list_prompts_requests) == 1
-        assert list_prompts_requests[0].params is not None
-        assert list_prompts_requests[0].params.get("cursor") is None
-
-        spies.clear()
-
-        # Test with params containing cursor
-        _ = await client_session.list_prompts(params=types.PaginatedRequestParams(cursor="some_cursor"))
-        list_prompts_requests = spies.get_client_requests(method="prompts/list")
-        assert len(list_prompts_requests) == 1
-        assert list_prompts_requests[0].params is not None
-        assert list_prompts_requests[0].params["cursor"] == "some_cursor"
-
-
-async def test_list_resource_templates_params_parameter(stream_spy: Callable[[], StreamSpyCollection]):
-    """Test that the params parameter works correctly for list_resource_templates.
-
-    This tests the new params parameter API (non-deprecated) to ensure
-    it correctly handles all parameter combinations.
-    """
-    server = FastMCP("test")
-
-    # Create a test resource template
-    @server.resource("resource://test/{name}")
-    async def test_template(name: str) -> str:
-        """Test resource template"""
-        return f"Data for {name}"
-
-    async with create_session(server._mcp_server) as client_session:
-        spies = stream_spy()
-
-        # Test without params parameter (omitted)
-        _ = await client_session.list_resource_templates()
-        list_templates_requests = spies.get_client_requests(method="resources/templates/list")
-        assert len(list_templates_requests) == 1
-        assert list_templates_requests[0].params is None
-
-        spies.clear()
-
-        # Test with params=None
-        _ = await client_session.list_resource_templates(params=None)
-        list_templates_requests = spies.get_client_requests(method="resources/templates/list")
-        assert len(list_templates_requests) == 1
-        assert list_templates_requests[0].params is None
-
-        spies.clear()
-
-        # Test with empty params (for strict servers)
-        _ = await client_session.list_resource_templates(params=types.PaginatedRequestParams())
-        list_templates_requests = spies.get_client_requests(method="resources/templates/list")
-        assert len(list_templates_requests) == 1
-        assert list_templates_requests[0].params is not None
-        assert list_templates_requests[0].params.get("cursor") is None
-
-        spies.clear()
-
-        # Test with params containing cursor
-        _ = await client_session.list_resource_templates(params=types.PaginatedRequestParams(cursor="some_cursor"))
-        list_templates_requests = spies.get_client_requests(method="resources/templates/list")
-        assert len(list_templates_requests) == 1
-        assert list_templates_requests[0].params is not None
-        assert list_templates_requests[0].params["cursor"] == "some_cursor"
-
-
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-async def test_list_tools_params_takes_precedence_over_cursor(
-    stream_spy: Callable[[], StreamSpyCollection],
-):
-    """Test that params parameter takes precedence over cursor parameter.
-
-    When both cursor and params are provided, params should be used and
-    cursor should be ignored, ensuring safe migration path.
-    """
-    server = FastMCP("test")
-
-    @server.tool(name="test_tool")
-    async def test_tool() -> str:
-        """Test tool"""
-        return "Result"
-
-    async with create_session(server._mcp_server) as client_session:
-        spies = stream_spy()
-
-        # Call with both cursor and params - params should take precedence
-        _ = await client_session.list_tools(
-            cursor="old_cursor",
-            params=types.PaginatedRequestParams(cursor="new_cursor"),
-        )
-        list_tools_requests = spies.get_client_requests(method="tools/list")
-        assert len(list_tools_requests) == 1
-        # Verify params takes precedence (new_cursor should be used, not old_cursor)
-        assert list_tools_requests[0].params is not None
-        assert list_tools_requests[0].params["cursor"] == "new_cursor"
-
-
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-async def test_list_resources_params_takes_precedence_over_cursor(
-    stream_spy: Callable[[], StreamSpyCollection],
-):
-    """Test that params parameter takes precedence over cursor parameter.
-
-    When both cursor and params are provided, params should be used and
-    cursor should be ignored, ensuring safe migration path.
-    """
-    server = FastMCP("test")
-
-    @server.resource("resource://test/data")
-    async def test_resource() -> str:
-        """Test resource"""
-        return "Test data"
-
-    async with create_session(server._mcp_server) as client_session:
-        spies = stream_spy()
-
-        # Call with both cursor and params - params should take precedence
-        _ = await client_session.list_resources(
-            cursor="old_cursor",
-            params=types.PaginatedRequestParams(cursor="new_cursor"),
-        )
-        list_resources_requests = spies.get_client_requests(method="resources/list")
-        assert len(list_resources_requests) == 1
-        # Verify params takes precedence (new_cursor should be used, not old_cursor)
-        assert list_resources_requests[0].params is not None
-        assert list_resources_requests[0].params["cursor"] == "new_cursor"
-
-
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-async def test_list_prompts_params_takes_precedence_over_cursor(
-    stream_spy: Callable[[], StreamSpyCollection],
-):
-    """Test that params parameter takes precedence over cursor parameter.
-
-    When both cursor and params are provided, params should be used and
-    cursor should be ignored, ensuring safe migration path.
-    """
-    server = FastMCP("test")
 
     @server.prompt()
     async def test_prompt(name: str) -> str:
         """Test prompt"""
         return f"Hello, {name}!"
 
-    async with create_session(server._mcp_server) as client_session:
-        spies = stream_spy()
-
-        # Call with both cursor and params - params should take precedence
-        _ = await client_session.list_prompts(
-            cursor="old_cursor",
-            params=types.PaginatedRequestParams(cursor="new_cursor"),
-        )
-        list_prompts_requests = spies.get_client_requests(method="prompts/list")
-        assert len(list_prompts_requests) == 1
-        # Verify params takes precedence (new_cursor should be used, not old_cursor)
-        assert list_prompts_requests[0].params is not None
-        assert list_prompts_requests[0].params["cursor"] == "new_cursor"
-
-
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-async def test_list_resource_templates_params_takes_precedence_over_cursor(
-    stream_spy: Callable[[], StreamSpyCollection],
-):
-    """Test that params parameter takes precedence over cursor parameter.
-
-    When both cursor and params are provided, params should be used and
-    cursor should be ignored, ensuring safe migration path.
-    """
-    server = FastMCP("test")
-
     @server.resource("resource://test/{name}")
     async def test_template(name: str) -> str:
         """Test resource template"""
         return f"Data for {name}"
 
-    async with create_session(server._mcp_server) as client_session:
+    return server
+
+
+@pytest.mark.parametrize(
+    "method_name,request_method",
+    [
+        ("list_tools", "tools/list"),
+        ("list_resources", "resources/list"),
+        ("list_prompts", "prompts/list"),
+        ("list_resource_templates", "resources/templates/list"),
+    ],
+)
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_list_methods_cursor_parameter(
+    stream_spy: Callable[[], StreamSpyCollection],
+    full_featured_server: FastMCP,
+    method_name: str,
+    request_method: str,
+):
+    """Test that the cursor parameter is accepted and correctly passed to the server.
+
+    Covers: list_tools, list_resources, list_prompts, list_resource_templates
+
+    See: https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/pagination#request-format
+    """
+    async with create_session(full_featured_server._mcp_server) as client_session:
         spies = stream_spy()
 
+        # Test without cursor parameter (omitted)
+        method = getattr(client_session, method_name)
+        _ = await method()
+        requests = spies.get_client_requests(method=request_method)
+        assert len(requests) == 1
+        assert requests[0].params is None
+
+        spies.clear()
+
+        # Test with cursor=None
+        _ = await method(cursor=None)
+        requests = spies.get_client_requests(method=request_method)
+        assert len(requests) == 1
+        assert requests[0].params is None
+
+        spies.clear()
+
+        # Test with cursor as string
+        _ = await method(cursor="some_cursor_value")
+        requests = spies.get_client_requests(method=request_method)
+        assert len(requests) == 1
+        assert requests[0].params is not None
+        assert requests[0].params["cursor"] == "some_cursor_value"
+
+        spies.clear()
+
+        # Test with empty string cursor
+        _ = await method(cursor="")
+        requests = spies.get_client_requests(method=request_method)
+        assert len(requests) == 1
+        assert requests[0].params is not None
+        assert requests[0].params["cursor"] == ""
+
+
+@pytest.mark.parametrize(
+    "method_name,request_method",
+    [
+        ("list_tools", "tools/list"),
+        ("list_resources", "resources/list"),
+        ("list_prompts", "prompts/list"),
+        ("list_resource_templates", "resources/templates/list"),
+    ],
+)
+async def test_list_methods_params_parameter(
+    stream_spy: Callable[[], StreamSpyCollection],
+    full_featured_server: FastMCP,
+    method_name: str,
+    request_method: str,
+):
+    """Test that the params parameter works correctly for list methods.
+
+    Covers: list_tools, list_resources, list_prompts, list_resource_templates
+
+    This tests the new params parameter API (non-deprecated) to ensure
+    it correctly handles all parameter combinations.
+    """
+    async with create_session(full_featured_server._mcp_server) as client_session:
+        spies = stream_spy()
+        method = getattr(client_session, method_name)
+
+        # Test without params parameter (omitted)
+        _ = await method()
+        requests = spies.get_client_requests(method=request_method)
+        assert len(requests) == 1
+        assert requests[0].params is None
+
+        spies.clear()
+
+        # Test with params=None
+        _ = await method(params=None)
+        requests = spies.get_client_requests(method=request_method)
+        assert len(requests) == 1
+        assert requests[0].params is None
+
+        spies.clear()
+
+        # Test with empty params (for strict servers)
+        _ = await method(params=types.PaginatedRequestParams())
+        requests = spies.get_client_requests(method=request_method)
+        assert len(requests) == 1
+        assert requests[0].params is not None
+        assert requests[0].params.get("cursor") is None
+
+        spies.clear()
+
+        # Test with params containing cursor
+        _ = await method(params=types.PaginatedRequestParams(cursor="some_cursor_value"))
+        requests = spies.get_client_requests(method=request_method)
+        assert len(requests) == 1
+        assert requests[0].params is not None
+        assert requests[0].params["cursor"] == "some_cursor_value"
+
+
+@pytest.mark.parametrize(
+    "method_name,request_method",
+    [
+        ("list_tools", "tools/list"),
+        ("list_resources", "resources/list"),
+        ("list_prompts", "prompts/list"),
+        ("list_resource_templates", "resources/templates/list"),
+    ],
+)
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+async def test_list_methods_params_takes_precedence_over_cursor(
+    stream_spy: Callable[[], StreamSpyCollection],
+    full_featured_server: FastMCP,
+    method_name: str,
+    request_method: str,
+):
+    """Test that params parameter takes precedence over cursor parameter.
+
+    Covers: list_tools, list_resources, list_prompts, list_resource_templates
+
+    When both cursor and params are provided, params should be used and
+    cursor should be ignored, ensuring safe migration path.
+    """
+    async with create_session(full_featured_server._mcp_server) as client_session:
+        spies = stream_spy()
+        method = getattr(client_session, method_name)
+
         # Call with both cursor and params - params should take precedence
-        _ = await client_session.list_resource_templates(
+        _ = await method(
             cursor="old_cursor",
             params=types.PaginatedRequestParams(cursor="new_cursor"),
         )
-        list_templates_requests = spies.get_client_requests(
-            method="resources/templates/list"
-        )
-        assert len(list_templates_requests) == 1
+        requests = spies.get_client_requests(method=request_method)
+        assert len(requests) == 1
         # Verify params takes precedence (new_cursor should be used, not old_cursor)
-        assert list_templates_requests[0].params is not None
-        assert list_templates_requests[0].params["cursor"] == "new_cursor"
+        assert requests[0].params is not None
+        assert requests[0].params["cursor"] == "new_cursor"
 
 
 async def test_list_tools_with_strict_server_validation():
