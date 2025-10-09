@@ -392,7 +392,7 @@ async def test_both_content_and_valid_dict_with_output_schema():
 
 
 @pytest.mark.anyio
-async def test_tool_call_result_without_output_schema():
+async def test_tool_call_result():
     """Test returning ToolCallResult when no outputSchema is defined."""
     tools = [
         Tool(
@@ -402,7 +402,7 @@ async def test_tool_call_result_without_output_schema():
                 "type": "object",
                 "properties": {},
             },
-            # No outputSchema defined
+            # No outputSchema for direct return of tool call result
         )
     ]
 
@@ -430,100 +430,6 @@ async def test_tool_call_result_without_output_schema():
     assert isinstance(result.content[0], TextContent)
     assert result.structuredContent == {"status": "ok", "data": {"value": 42}}
     assert result.meta == {"some": "metadata"}
-
-
-@pytest.mark.anyio
-async def test_valid_tool_call_result_with_output_schema():
-    """Test returning ToolCallResult when no outputSchema is defined."""
-    tools = [
-        Tool(
-            name="get_info",
-            description="Get structured information",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-            },
-            outputSchema={
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "number": {"type": "integer"},
-                },
-                "required": ["name", "number"],
-            },
-        )
-    ]
-
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> CallToolResult:
-        if name == "get_info":
-            return CallToolResult(
-                content=[TextContent(type="text", text="Results calculated")],
-                structuredContent={"name": "Brandon", "number": 29},
-                _meta={"some": "metadata"},
-            )
-        else:
-            raise ValueError(f"Unknown tool: {name}")
-
-    async def test_callback(client_session: ClientSession) -> CallToolResult:
-        return await client_session.call_tool("get_info", {})
-
-    result = await run_tool_test(tools, call_tool_handler, test_callback)
-
-    # Verify results
-    assert result is not None
-    assert not result.isError
-    assert len(result.content) == 1
-    assert result.content[0].type == "text"
-    assert result.content[0].text == "Results calculated"
-    assert isinstance(result.content[0], TextContent)
-    assert result.structuredContent == {"name": "Brandon", "number": 29}
-    assert result.meta == {"some": "metadata"}
-
-
-@pytest.mark.anyio
-async def test_invalid_tool_call_result_with_output_schema():
-    """Test returning ToolCallResult when no outputSchema is defined."""
-    tools = [
-        Tool(
-            name="get_info",
-            description="Get structured information",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-            },
-            outputSchema={
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "number": {"type": "integer"},
-                },
-                "required": ["name", "number"],
-            },
-        )
-    ]
-
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> CallToolResult:
-        if name == "get_info":
-            return CallToolResult(
-                content=[TextContent(type="text", text="Results calculated")],
-                structuredContent={"name": "Brandon"},
-                _meta={"some": "metadata"},
-            )
-        else:
-            raise ValueError(f"Unknown tool: {name}")
-
-    async def test_callback(client_session: ClientSession) -> CallToolResult:
-        return await client_session.call_tool("get_info", {})
-
-    result = await run_tool_test(tools, call_tool_handler, test_callback)
-
-    assert result is not None
-    assert result.isError
-    assert len(result.content) == 1
-    assert result.content[0].type == "text"
-    assert isinstance(result.content[0], TextContent)
-    assert "Output validation error:" in result.content[0].text
-    assert "'number' is a required property" in result.content[0].text
 
 
 @pytest.mark.anyio

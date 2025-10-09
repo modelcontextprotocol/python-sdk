@@ -22,7 +22,7 @@ from pydantic_core import PydanticUndefined
 from mcp.server.fastmcp.exceptions import InvalidSignature
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.server.fastmcp.utilities.types import Audio, Image
-from mcp.types import ContentBlock, TextContent
+from mcp.types import CallToolResult, ContentBlock, TextContent
 
 logger = get_logger(__name__)
 
@@ -104,6 +104,9 @@ class FuncMetadata(BaseModel):
         from function return values, whereas the lowlevel server simply serializes
         the structured output.
         """
+        if isinstance(result, CallToolResult):
+            return result
+
         unstructured_content = _convert_to_content(result)
 
         if self.output_schema is None:
@@ -267,6 +270,10 @@ def func_metadata(
 
     output_info = FieldInfo.from_annotation(_get_typed_annotation(sig.return_annotation, globalns))
     annotation = output_info.annotation
+
+    # if the typehint is CallToolResult, the user intends to return it directly
+    if isinstance(annotation, type) and issubclass(annotation, CallToolResult):
+        return FuncMetadata(arg_model=arguments_model)
 
     output_model, output_schema, wrap_output = _try_create_model_and_schema(annotation, func.__name__, output_info)
 

@@ -502,46 +502,45 @@ class Server(Generic[LifespanResultT, RequestT]):
                     results = await func(tool_name, arguments)
 
                     # output normalization
-                    casted_results: types.CallToolResult
                     unstructured_content: UnstructuredContent
                     maybe_structured_content: StructuredContent | None
                     if isinstance(results, types.CallToolResult):
-                        casted_results = results
+                        # tool returned a CallToolResult so we'll skip further validation and return it directly
+                        return types.ServerResult(results)
                     elif isinstance(results, tuple) and len(results) == 2:
                         # tool returned both structured and unstructured content
                         unstructured_content, maybe_structured_content = cast(CombinationContent, results)
-                        casted_results = types.CallToolResult(
-                            content=list(unstructured_content),
-                            structuredContent=maybe_structured_content,
-                        )
                     elif isinstance(results, dict):
                         # tool returned structured content only
-                        casted_results = types.CallToolResult(
-                            content=[types.TextContent(type="text", text=json.dumps(results, indent=2))],
-                            structuredContent=cast(StructuredContent, results),
-                        )
+                        maybe_structured_content = cast(StructuredContent, results)
+                        unstructured_content = [types.TextContent(type="text", text=json.dumps(results, indent=2))]
                     elif hasattr(results, "__iter__"):
                         # tool returned unstructured content only
-                        casted_results = types.CallToolResult(
-                            content=list(cast(UnstructuredContent, results)),
-                        )
+                        unstructured_content = cast(UnstructuredContent, results)
+                        maybe_structured_content = None
                     else:
                         return self._make_error_result(f"Unexpected return type from tool: {type(results).__name__}")
 
                     # output validation
                     if tool and tool.outputSchema is not None:
-                        if casted_results.structuredContent is None:
+                        if maybe_structured_content is None:
                             return self._make_error_result(
                                 "Output validation error: outputSchema defined but no structured output returned"
                             )
                         else:
                             try:
-                                jsonschema.validate(instance=casted_results.structuredContent, schema=tool.outputSchema)
+                                jsonschema.validate(instance=maybe_structured_content, schema=tool.outputSchema)
                             except jsonschema.ValidationError as e:
                                 return self._make_error_result(f"Output validation error: {e.message}")
 
                     # result
-                    return types.ServerResult(casted_results)
+                    return types.ServerResult(
+                        types.CallToolResult(
+                            content=list(unstructured_content),
+                            structuredContent=maybe_structured_content,
+                            isError=False,
+                        )
+                    )
                 except Exception as e:
                     return self._make_error_result(str(e))
 

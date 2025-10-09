@@ -13,6 +13,7 @@ from dirty_equals import IsPartialDict
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.utilities.func_metadata import func_metadata
+from mcp.types import CallToolResult
 
 
 class SomeInputModelA(BaseModel):
@@ -832,6 +833,16 @@ def test_unstructured_output_unannotated_class():
 
     meta = func_metadata(func_returning_unannotated)
     assert meta.output_schema is None
+
+
+def test_tool_call_result_is_unstructured_and_not_converted():
+    def func_returning_call_tool_result() -> CallToolResult:
+        return CallToolResult(content=[])
+
+    meta = func_metadata(func_returning_call_tool_result)
+
+    assert meta.output_schema is None
+    assert isinstance(meta.convert_result(func_returning_call_tool_result()), CallToolResult)
 
 
 def test_structured_output_with_field_descriptions():
