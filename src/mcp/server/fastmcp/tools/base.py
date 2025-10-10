@@ -83,7 +83,7 @@ class Tool(BaseModel):
             context_kwarg=context_kwarg,
             annotations=annotations,
             icons=icons,
-            meta=meta
+            meta=meta,
         )
 
     async def run(
