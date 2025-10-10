@@ -290,6 +290,7 @@ class FastMCP(Generic[LifespanResultT]):
                 outputSchema=info.output_schema,
                 annotations=info.annotations,
                 icons=info.icons,
+                _meta=info.meta
             )
             for info in tools
         ]
@@ -363,6 +364,7 @@ class FastMCP(Generic[LifespanResultT]):
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
+        meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> None:
         """Add a tool to the server.
@@ -388,6 +390,7 @@ class FastMCP(Generic[LifespanResultT]):
             description=description,
             annotations=annotations,
             icons=icons,
+            meta=meta,
             structured_output=structured_output,
         )
 
@@ -409,6 +412,7 @@ class FastMCP(Generic[LifespanResultT]):
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
+        meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
@@ -456,6 +460,7 @@ class FastMCP(Generic[LifespanResultT]):
                 description=description,
                 annotations=annotations,
                 icons=icons,
+                meta=meta,
                 structured_output=structured_output,
             )
             return fn
