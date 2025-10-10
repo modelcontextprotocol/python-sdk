@@ -845,6 +845,39 @@ def test_tool_call_result_is_unstructured_and_not_converted():
     assert isinstance(meta.convert_result(func_returning_call_tool_result()), CallToolResult)
 
 
+def test_tool_call_result_annotated_is_structured_and_converted():
+    class PersonClass(BaseModel):
+        name: str
+
+    def func_returning_annotated_tool_call_result() -> Annotated[CallToolResult, PersonClass]:
+        return CallToolResult(content=[], structuredContent={"name": "Brandon"})
+
+    meta = func_metadata(func_returning_annotated_tool_call_result)
+
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "name": {"title": "Name", "type": "string"},
+        },
+        "required": ["name"],
+        "title": "PersonClass",
+    }
+    assert isinstance(meta.convert_result(func_returning_annotated_tool_call_result()), CallToolResult)
+
+
+def test_tool_call_result_annotated_is_structured_and_invalid():
+    class PersonClass(BaseModel):
+        name: str
+
+    def func_returning_annotated_tool_call_result() -> Annotated[CallToolResult, PersonClass]:
+        return CallToolResult(content=[], structuredContent={"person": "Brandon"})
+
+    meta = func_metadata(func_returning_annotated_tool_call_result)
+
+    with pytest.raises(ValueError):
+        meta.convert_result(func_returning_annotated_tool_call_result())
+
+
 def test_structured_output_with_field_descriptions():
     """Test that Field descriptions are preserved in structured output"""
 

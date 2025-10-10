@@ -105,6 +105,9 @@ class FuncMetadata(BaseModel):
         the structured output.
         """
         if isinstance(result, CallToolResult):
+            if self.output_schema is not None:
+                assert self.output_model is not None, "Output model must be set if output schema is defined"
+                self.output_model.model_validate(result.structuredContent)
             return result
 
         unstructured_content = _convert_to_content(result)
@@ -271,9 +274,13 @@ def func_metadata(
     output_info = FieldInfo.from_annotation(_get_typed_annotation(sig.return_annotation, globalns))
     annotation = output_info.annotation
 
-    # if the typehint is CallToolResult, the user intends to return it directly without validation
+    # if the typehint is CallToolResult, the user either intends to return without validation
+    # or they provided validation as Annotated metadata
     if isinstance(annotation, type) and issubclass(annotation, CallToolResult):
-        return FuncMetadata(arg_model=arguments_model)
+        if output_info.metadata:
+            annotation = output_info.metadata[0]
+        else:
+            return FuncMetadata(arg_model=arguments_model)
 
     output_model, output_schema, wrap_output = _try_create_model_and_schema(annotation, func.__name__, output_info)
 
