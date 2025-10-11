@@ -1663,7 +1663,7 @@ For more information on mounting applications in Starlette, see the [Starlette d
 
 ### Persistent Async Operations
 
-For production deployments, you may want async operations to survive server restarts. The `ServerAsyncOperationManager` uses pluggable `AsyncOperationStore` and `AsyncOperationBroker` components to handle operation persistence and task queuing.
+For production deployments, you may want async operations to survive server restarts. The `ServerAsyncOperationManager` uses pluggable `OperationEventQueue`, `AsyncOperationStore`, and `AsyncOperationBroker` components to handle operation persistence and task queuing.
 
 #### Operation Lifecycle
 
@@ -1679,6 +1679,10 @@ Async operations follow this lifecycle:
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.async_operations import ServerAsyncOperationManager
 
+# Create custom event queues
+custom_request_queue = MyAsyncOperationEventQueue()
+custom_response_queue = MyAsyncOperationEventQueue()
+
 # Create custom store and broker implementations
 custom_store = MyAsyncOperationStore()
 custom_broker = MyAsyncOperationBroker()
@@ -1686,7 +1690,9 @@ custom_broker = MyAsyncOperationBroker()
 # Create operation manager with custom components
 operation_manager = ServerAsyncOperationManager(
     store=custom_store,
-    broker=custom_broker
+    broker=custom_broker,
+    operation_request_queue=custom_request_queue,
+    operation_response_queue=custom_response_queue,
 )
 
 # Use with FastMCP

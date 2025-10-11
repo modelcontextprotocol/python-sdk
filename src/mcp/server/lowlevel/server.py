@@ -95,7 +95,7 @@ from mcp.shared.session import RequestResponder
 from mcp.types import NEXT_PROTOCOL_VERSION, Operation, RequestId
 
 if TYPE_CHECKING:
-    from mcp.shared.async_operations import OperationEventQueue, ServerAsyncOperationManager
+    from mcp.shared.async_operations import ServerAsyncOperationManager
 
 logger = logging.getLogger(__name__)
 
@@ -145,8 +145,6 @@ class Server(Generic[LifespanResultT, RequestT]):
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
         async_operations: ServerAsyncOperationManager | None = None,
-        operation_request_queue: OperationEventQueue | None = None,
-        operation_response_queue: OperationEventQueue | None = None,
         lifespan: Callable[
             [Server[LifespanResultT, RequestT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -160,10 +158,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         self.website_url = website_url
         self.icons = icons
         self.lifespan = lifespan
-        self.async_operations = async_operations or ServerAsyncOperationManager(
-            operation_request_queue=operation_request_queue,
-            operation_response_queue=operation_response_queue,
-        )
+        self.async_operations = async_operations or ServerAsyncOperationManager()
         self.async_operations.set_handler(self._execute_tool_async)
         # Track request ID to operation token mapping for cancellation
         self._request_to_operation: dict[RequestId, str] = {}

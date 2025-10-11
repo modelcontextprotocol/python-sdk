@@ -216,24 +216,25 @@ class SQLiteAsyncOperationStore(AsyncOperationStore):
 class SQLiteOperationEventQueue(OperationEventQueue):
     """SQLite-based implementation of OperationEventQueue for operation-specific event delivery."""
 
-    def __init__(self, db_path: str = "async_operations.db"):
+    def __init__(self, db_path: str = "async_operations.db", table_name: str = "operation_events"):
         self.db_path = db_path
+        self.table_name = table_name
         self._init_db()
 
     def _init_db(self):
         """Initialize the SQLite database for operation event queuing."""
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS operation_events (
+            conn.execute(f"""
+                CREATE TABLE IF NOT EXISTS {self.table_name} (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     operation_token TEXT NOT NULL,
                     message TEXT NOT NULL,
                     created_at REAL NOT NULL
                 )
             """)
-            conn.execute("""
+            conn.execute(f"""
                 CREATE INDEX IF NOT EXISTS idx_operation_events_token_created 
-                ON operation_events(operation_token, created_at)
+                ON {self.table_name}(operation_token, created_at)
             """)
             conn.commit()
 
@@ -244,8 +245,8 @@ class SQLiteOperationEventQueue(OperationEventQueue):
 
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
-                """
-                INSERT INTO operation_events (operation_token, message, created_at)
+                f"""
+                INSERT INTO {self.table_name} (operation_token, message, created_at)
                 VALUES (?, ?, ?)
             """,
                 (operation_token, message_json, created_at),
@@ -259,8 +260,8 @@ class SQLiteOperationEventQueue(OperationEventQueue):
 
             # Get all events for this operation token
             cursor = conn.execute(
-                """
-                SELECT id, message FROM operation_events 
+                f"""
+                SELECT id, message FROM {self.table_name} 
                 WHERE operation_token = ?
                 ORDER BY created_at
             """,
@@ -279,7 +280,7 @@ class SQLiteOperationEventQueue(OperationEventQueue):
             # Delete the dequeued events
             if event_ids:
                 placeholders = ",".join("?" * len(event_ids))
-                conn.execute(f"DELETE FROM operation_events WHERE id IN ({placeholders})", event_ids)
+                conn.execute(f"DELETE FROM {self.table_name} WHERE id IN ({placeholders})", event_ids)
                 conn.commit()
 
             return events
@@ -419,13 +420,18 @@ class UserPreferences(BaseModel):
 def main(port: int, transport: str, db_path: str):
     """Run the SQLite async operations example server."""
     # Create components with specified database path
-    operation_event_queue = SQLiteOperationEventQueue(db_path)
+    operation_request_queue = SQLiteOperationEventQueue(db_path, "operation_requests")
+    operation_response_queue = SQLiteOperationEventQueue(db_path, "operation_responses")
     broker = SQLiteAsyncOperationBroker(db_path)
     store = SQLiteAsyncOperationStore(db_path)
-    manager = ServerAsyncOperationManager(store=store, broker=broker, operation_request_queue=operation_event_queue)
+    manager = ServerAsyncOperationManager(
+        store=store,
+        broker=broker,
+        operation_request_queue=operation_request_queue,
+        operation_response_queue=operation_response_queue,
+    )
     mcp = FastMCP(
         "SQLite Async Operations Demo",
-        operation_event_queue=operation_event_queue,
         async_operations=manager,
     )
 
