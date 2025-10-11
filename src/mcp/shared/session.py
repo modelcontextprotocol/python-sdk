@@ -16,16 +16,20 @@ from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMe
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
+    CallToolResult,
     CancelledNotification,
     ClientNotification,
     ClientRequest,
     ClientResult,
     ErrorData,
+    GetOperationPayloadRequest,
+    GetOperationPayloadResult,
     JSONRPCError,
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    Operation,
     ProgressNotification,
     RequestParams,
     ServerNotification,
@@ -41,6 +45,8 @@ ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 ReceiveNotificationT = TypeVar("ReceiveNotificationT", ClientNotification, ServerNotification)
 
 RequestId = str | int
+
+logger = logging.getLogger(__name__)
 
 
 class ProgressFnT(Protocol):
@@ -70,6 +76,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         request_id: RequestId,
         request_meta: RequestParams.Meta | None,
         request: ReceiveRequestT,
+        operation: Operation | None,
         session: """BaseSession[
             SendRequestT,
             SendNotificationT,
@@ -83,6 +90,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         self.request_id = request_id
         self.request_meta = request_meta
         self.request = request
+        self.operation = operation
         self.message_metadata = message_metadata
         self._session = session
         self._completed = False
@@ -177,6 +185,7 @@ class BaseSession(
     _request_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
     _progress_callbacks: dict[RequestId, ProgressFnT]
+    _operation_requests: dict[str, RequestId]
 
     def __init__(
         self,
@@ -196,6 +205,7 @@ class BaseSession(
         self._session_read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
         self._progress_callbacks = {}
+        self._operation_requests = {}
         self._exit_stack = AsyncExitStack()
 
     async def __aenter__(self) -> Self:
@@ -238,6 +248,10 @@ class BaseSession(
 
         response_stream, response_stream_reader = anyio.create_memory_object_stream[JSONRPCResponse | JSONRPCError](1)
         self._response_streams[request_id] = response_stream
+        logging.debug(
+            f"Created response stream for request ID {request_id}. "
+            f"Active streams: {list(self._response_streams.keys())}"
+        )
 
         # Set up progress token if progress callback is provided
         request_data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
@@ -251,6 +265,15 @@ class BaseSession(
             # Store the callback for this request
             self._progress_callbacks[request_id] = progress_callback
 
+        # Remove jsonrpc and id properties if present since we're adding them ourselves.
+        # For detached sessions in lowlevel.Server, the detached session has its own request ID
+        # which will be remapped later.
+        if "jsonrpc" in request_data:
+            del request_data["jsonrpc"]
+        if "id" in request_data:
+            del request_data["id"]
+
+        pop_progress: RequestId | None = request_id
         try:
             jsonrpc_request = JSONRPCRequest(
                 jsonrpc="2.0",
@@ -285,11 +308,32 @@ class BaseSession(
             if isinstance(response_or_error, JSONRPCError):
                 raise McpError(response_or_error.error)
             else:
-                return result_type.model_validate(response_or_error.result)
+                result = result_type.model_validate(response_or_error.result)
+                if isinstance(result, CallToolResult) and result.operation is not None:
+                    # Store mapping of operation token to request ID for async operations
+                    self._operation_requests[result.operation.token] = request_id
+
+                    # Don't pop the progress function if we were given one
+                    pop_progress = None
+                elif isinstance(request, GetOperationPayloadRequest) and isinstance(result, GetOperationPayloadResult):
+                    # Checked request and result to ensure no error
+                    operation_token = request.params.token
+
+                    # Pop the progress function for the original request
+                    pop_progress = self._operation_requests[operation_token]
+
+                    # Pop the token mapping since we know we won't need it anymore
+                    self._operation_requests.pop(operation_token, None)
+                return result
 
         finally:
+            logging.debug(
+                f"Cleaning up response stream for request ID {request_id}. "
+                f"Remaining streams: {list(self._response_streams.keys())}"
+            )
             self._response_streams.pop(request_id, None)
-            self._progress_callbacks.pop(request_id, None)
+            if pop_progress:
+                self._progress_callbacks.pop(pop_progress, None)
             await response_stream.aclose()
             await response_stream_reader.aclose()
 
@@ -302,11 +346,17 @@ class BaseSession(
         Emits a notification, which is a one-way message that does not expect
         a response.
         """
+
+        # Remove jsonrpc property if present since we're adding it ourselves.
+        notification_data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
+        if "jsonrpc" in notification_data:
+            del notification_data["jsonrpc"]
+
         # Some transport implementations may need to set the related_request_id
         # to attribute to the notifications to the request that triggered them.
         jsonrpc_notification = JSONRPCNotification(
             jsonrpc="2.0",
-            **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
+            **notification_data,
         )
         session_message = SessionMessage(
             message=JSONRPCMessage(jsonrpc_notification),
@@ -336,8 +386,10 @@ class BaseSession(
             try:
                 async for message in self._read_stream:
                     if isinstance(message, Exception):
+                        logger.debug(f"Received exception: {message}")
                         await self._handle_incoming(message)
                     elif isinstance(message.message.root, JSONRPCRequest):
+                        logger.debug(f"Received request: {message}")
                         try:
                             validated_request = self._receive_request_type.model_validate(
                                 message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True)
@@ -348,6 +400,9 @@ class BaseSession(
                                 if validated_request.root.params
                                 else None,
                                 request=validated_request,
+                                operation=validated_request.root.params.operation
+                                if validated_request.root.params
+                                else None,
                                 session=self,
                                 on_complete=lambda r: self._in_flight.pop(r.request_id, None),
                                 message_metadata=message.metadata,
@@ -375,6 +430,7 @@ class BaseSession(
                             await self._write_stream.send(session_message)
 
                     elif isinstance(message.message.root, JSONRPCNotification):
+                        logger.debug(f"Received notification: {message}")
                         try:
                             notification = self._receive_notification_type.model_validate(
                                 message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True)
@@ -411,10 +467,16 @@ class BaseSession(
                                 f"Failed to validate notification: {e}. Message was: {message.message.root}"
                             )
                     else:  # Response or error
+                        logger.debug(f"Received response or error: {message}")
                         stream = self._response_streams.pop(message.message.root.id, None)
                         if stream:
+                            logging.debug(f"Routing response with ID {message.message.root.id} to waiting stream")
                             await stream.send(message.message.root)
                         else:
+                            logging.warning(
+                                f"Received response with unknown request ID {message.message.root.id}. "
+                                f"Available streams: {list(self._response_streams.keys())}"
+                            )
                             await self._handle_incoming(
                                 RuntimeError(f"Received response with an unknown request ID: {message}")
                             )

@@ -78,6 +78,7 @@ async def elicit_with_validation(
     message: str,
     schema: type[ElicitSchemaModelT],
     related_request_id: RequestId | None = None,
+    related_operation_token: str | None = None,
 ) -> ElicitationResult[ElicitSchemaModelT]:
     """Elicit information from the client/user with schema validation.
 
@@ -96,6 +97,7 @@ async def elicit_with_validation(
         message=message,
         requestedSchema=json_schema,
         related_request_id=related_request_id,
+        related_operation_token=related_operation_token,
     )
 
     if result.action == "accept" and result.content is not None:

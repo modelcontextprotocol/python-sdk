@@ -306,6 +306,73 @@ class StreamableHTTPServerTransport:
 
         return any(part == CONTENT_TYPE_JSON for part in content_type_parts)
 
+    async def _handle_sse_mode(
+        self,
+        message: JSONRPCMessage,
+        request: Request,
+        writer: MemoryObjectSendStream[SessionMessage | Exception],
+        request_id: str,
+        request_stream_reader: MemoryObjectReceiveStream[EventMessage],
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        """Handle SSE response mode."""
+        # Create SSE stream
+        sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
+
+        async def sse_writer():
+            # Get the request ID from the incoming request message
+            try:
+                async with sse_stream_writer, request_stream_reader:
+                    # Process messages from the request-specific stream
+                    async for event_message in request_stream_reader:
+                        # Build the event data
+                        event_data = self._create_event_data(event_message)
+                        await sse_stream_writer.send(event_data)
+
+                        # If response, remove from pending streams and close
+                        if isinstance(
+                            event_message.message.root,
+                            JSONRPCResponse | JSONRPCError,
+                        ):
+                            break
+            except Exception:
+                logger.exception("Error in SSE writer")
+            finally:
+                logger.debug("Closing SSE writer")
+                await self._clean_up_memory_streams(request_id)
+
+        # Create and start EventSourceResponse
+        # SSE stream mode (original behavior)
+        # Set up headers
+        headers = {
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "Content-Type": CONTENT_TYPE_SSE,
+            **({MCP_SESSION_ID_HEADER: self.mcp_session_id} if self.mcp_session_id else {}),
+        }
+        response = EventSourceResponse(
+            content=sse_stream_reader,
+            data_sender_callable=sse_writer,
+            headers=headers,
+        )
+
+        # Start the SSE response (this will send headers immediately)
+        try:
+            # First send the response to establish the SSE connection
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(response, scope, receive, send)
+                # Then send the message to be processed by the server
+                metadata = ServerMessageMetadata(request_context=request)
+                session_message = SessionMessage(message, metadata=metadata)
+                await writer.send(session_message)
+        except Exception:
+            logger.exception("SSE response error")
+            await sse_stream_writer.aclose()
+            await sse_stream_reader.aclose()
+            await self._clean_up_memory_streams(request_id)
+
     async def _handle_post_request(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:
         """Handle POST requests containing JSON-RPC messages."""
         writer = self._read_stream_writer
@@ -399,11 +466,11 @@ class StreamableHTTPServerTransport:
                 metadata = ServerMessageMetadata(request_context=request)
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
+
                 try:
                     # Process messages from the request-specific stream
                     # We need to collect all messages until we get a response
                     response_message = None
-
                     # Use similar approach to SSE writer for consistency
                     async for event_message in request_stream_reader:
                         # If it's a response, this is what we're waiting for
@@ -438,60 +505,9 @@ class StreamableHTTPServerTransport:
                 finally:
                     await self._clean_up_memory_streams(request_id)
             else:
-                # Create SSE stream
-                sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
-
-                async def sse_writer():
-                    # Get the request ID from the incoming request message
-                    try:
-                        async with sse_stream_writer, request_stream_reader:
-                            # Process messages from the request-specific stream
-                            async for event_message in request_stream_reader:
-                                # Build the event data
-                                event_data = self._create_event_data(event_message)
-                                await sse_stream_writer.send(event_data)
-
-                                # If response, remove from pending streams and close
-                                if isinstance(
-                                    event_message.message.root,
-                                    JSONRPCResponse | JSONRPCError,
-                                ):
-                                    break
-                    except Exception:
-                        logger.exception("Error in SSE writer")
-                    finally:
-                        logger.debug("Closing SSE writer")
-                        await self._clean_up_memory_streams(request_id)
-
-                # Create and start EventSourceResponse
-                # SSE stream mode (original behavior)
-                # Set up headers
-                headers = {
-                    "Cache-Control": "no-cache, no-transform",
-                    "Connection": "keep-alive",
-                    "Content-Type": CONTENT_TYPE_SSE,
-                    **({MCP_SESSION_ID_HEADER: self.mcp_session_id} if self.mcp_session_id else {}),
-                }
-                response = EventSourceResponse(
-                    content=sse_stream_reader,
-                    data_sender_callable=sse_writer,
-                    headers=headers,
+                await self._handle_sse_mode(
+                    message, request, writer, request_id, request_stream_reader, scope, receive, send
                 )
-
-                # Start the SSE response (this will send headers immediately)
-                try:
-                    # First send the response to establish the SSE connection
-                    async with anyio.create_task_group() as tg:
-                        tg.start_soon(response, scope, receive, send)
-                        # Then send the message to be processed by the server
-                        metadata = ServerMessageMetadata(request_context=request)
-                        session_message = SessionMessage(message, metadata=metadata)
-                        await writer.send(session_message)
-                except Exception:
-                    logger.exception("SSE response error")
-                    await sse_stream_writer.aclose()
-                    await sse_stream_reader.aclose()
-                    await self._clean_up_memory_streams(request_id)
 
         except Exception as err:
             logger.exception("Error handling POST request")
@@ -767,7 +783,6 @@ class StreamableHTTPServerTransport:
                             async with msg_reader:
                                 async for event_message in msg_reader:
                                     event_data = self._create_event_data(event_message)
-
                                     await sse_stream_writer.send(event_data)
                 except Exception:
                     logger.exception("Error in replay sender")
@@ -862,7 +877,8 @@ class StreamableHTTPServerTransport:
                         if request_stream_id in self._request_streams:
                             try:
                                 # Send both the message and the event ID
-                                await self._request_streams[request_stream_id][0].send(EventMessage(message, event_id))
+                                event_data = EventMessage(message, event_id)
+                                await self._request_streams[request_stream_id][0].send(event_data)
                             except (
                                 anyio.BrokenResourceError,
                                 anyio.ClosedResourceError,
