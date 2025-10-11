@@ -1,15 +1,18 @@
 """Tests for example servers"""
+
 # TODO(Marcelo): The `examples` directory needs to be importable as a package.
 # pyright: reportMissingImports=false
 # pyright: reportUnknownVariableType=false
 # pyright: reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false
-
 import sys
+from pathlib import Path
 
 import pytest
+from pydantic import AnyUrl
 from pytest_examples import CodeExample, EvalExample, find_examples
 
+from examples.fastmcp.desktop import mcp
 from mcp.shared.memory import create_connected_server_and_client_session as client_session
 from mcp.types import TextContent, TextResourceContents
 
@@ -45,13 +48,23 @@ async def test_complex_inputs():
 
 
 @pytest.mark.anyio
-async def test_desktop(monkeypatch: pytest.MonkeyPatch):
+@pytest.mark.parametrize(
+    "files",
+    [
+        pytest.param(
+            ["/fake/path/file1.txt", "/fake/path/file2.txt"],
+            id="unix",
+            marks=pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test"),
+        ),
+        pytest.param(
+            ["C:\\fake\\path\\file1.txt", "C:\\fake\\path\\file2.txt"],
+            id="windows",
+            marks=pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test"),
+        ),
+    ],
+)
+async def test_desktop(monkeypatch: pytest.MonkeyPatch, files: list[str]):
     """Test the desktop server"""
-    from pathlib import Path
-
-    from pydantic import AnyUrl
-
-    from examples.fastmcp.desktop import mcp
 
     # Mock desktop directory listing
     mock_files = [Path("/fake/path/file1.txt"), Path("/fake/path/file2.txt")]
@@ -72,15 +85,7 @@ async def test_desktop(monkeypatch: pytest.MonkeyPatch):
         content = result.contents[0]
         assert isinstance(content, TextResourceContents)
         assert isinstance(content.text, str)
-        if sys.platform == "win32":
-            file_1 = "/fake/path/file1.txt".replace("/", "\\\\")  # might be a bug
-            file_2 = "/fake/path/file2.txt".replace("/", "\\\\")  # might be a bug
-            assert file_1 in content.text
-            assert file_2 in content.text
-            # might be a bug, but the test is passing
-        else:
-            assert "/fake/path/file1.txt" in content.text
-            assert "/fake/path/file2.txt" in content.text
+        assert all(file in content.text for file in files)
 
 
 @pytest.mark.parametrize("example", find_examples("README.md"), ids=str)
