@@ -15,11 +15,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 
@@ -205,10 +205,10 @@ class SimpleAuthClient:
                     await self._run_session(read_stream, write_stream, None)
             else:
                 print("📡 Opening StreamableHTTP transport connection with auth...")
-                async with create_mcp_http_client(auth=oauth_auth) as custom_client:
+                async with httpx.AsyncClient(auth=oauth_auth, follow_redirects=True) as custom_client:
                     async with streamable_http_client(
                         url=self.server_url,
-                        httpx_client=custom_client,
+                        http_client=custom_client,
                     ) as (read_stream, write_stream, get_session_id):
                         await self._run_session(read_stream, write_stream, get_session_id)
 
