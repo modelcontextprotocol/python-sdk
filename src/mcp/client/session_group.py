@@ -263,7 +263,7 @@ class ClientSessionGroup:
 
                 client = streamable_http_client(
                     url=server_params.url,
-                    httpx_client=httpx_client,
+                    http_client=httpx_client,
                     terminate_on_close=server_params.terminate_on_close,
                 )
                 read, write, _ = await session_stack.enter_async_context(client)

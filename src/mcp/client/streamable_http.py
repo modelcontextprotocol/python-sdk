@@ -452,7 +452,7 @@ class StreamableHTTPTransport:
 async def streamable_http_client(
     url: str,
     *,
-    httpx_client: httpx.AsyncClient | None = None,
+    http_client: httpx.AsyncClient | None = None,
     terminate_on_close: bool = True,
 ) -> AsyncGenerator[
     tuple[
@@ -467,7 +467,7 @@ async def streamable_http_client(
 
     Args:
         url: The MCP server endpoint URL.
-        httpx_client: Optional pre-configured httpx.AsyncClient. If None, a default
+        http_client: Optional pre-configured httpx.AsyncClient. If None, a default
             client with recommended MCP timeouts will be created. To configure headers,
             authentication, or other HTTP settings, create an httpx.AsyncClient and pass it here.
         terminate_on_close: If True, send a DELETE request to terminate the session
@@ -486,8 +486,8 @@ async def streamable_http_client(
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
     # Determine if we need to create and manage the client
-    client_provided = httpx_client is not None
-    client = httpx_client
+    client_provided = http_client is not None
+    client = http_client
 
     if client is None:
         # Create default client with recommended MCP timeouts
@@ -579,7 +579,7 @@ async def streamablehttp_client(
     async with client:
         async with streamable_http_client(
             url,
-            httpx_client=client,
+            http_client=client,
             terminate_on_close=terminate_on_close,
         ) as streams:
             yield streams

@@ -347,13 +347,13 @@ class TestClientSessionGroup:
                 elif client_type_name == "streamablehttp":
                     assert isinstance(server_params_instance, StreamableHttpParameters)
                     # Verify streamable_http_client was called with url, httpx_client, and terminate_on_close
-                    # The httpx_client is created by the real create_mcp_http_client
+                    # The http_client is created by the real create_mcp_http_client
                     import httpx
 
                     call_args = mock_specific_client_func.call_args
                     assert call_args.kwargs["url"] == server_params_instance.url
                     assert call_args.kwargs["terminate_on_close"] == server_params_instance.terminate_on_close
-                    assert isinstance(call_args.kwargs["httpx_client"], httpx.AsyncClient)
+                    assert isinstance(call_args.kwargs["http_client"], httpx.AsyncClient)
 
                 mock_client_cm_instance.__aenter__.assert_awaited_once()
 
