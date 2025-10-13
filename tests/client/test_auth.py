@@ -94,7 +94,6 @@ def oauth_provider(client_metadata: OAuthClientMetadata, mock_storage: MockToken
 
 
 @pytest.fixture
-#<<<<<<< main
 def client_credentials_metadata():
     return OAuthClientMetadata(
         redirect_uris=[AnyHttpUrl("http://localhost:3000/callback")],
@@ -103,7 +102,10 @@ def client_credentials_metadata():
         response_types=["code"],
         scope="read write",
         token_endpoint_auth_method="client_secret_post",
-#=======
+    )
+
+
+@pytest.fixture
 def prm_metadata_response():
     """PRM metadata response with scopes."""
     return httpx.Response(
@@ -113,12 +115,10 @@ def prm_metadata_response():
             b'"authorization_servers": ["https://auth.example.com"], '
             b'"scopes_supported": ["resource:read", "resource:write"]}'
         ),
-#>>>>>>> main
     )
 
 
 @pytest.fixture
-#<<<<<<< main
 def oauth_metadata():
     return OAuthMetadata(
         issuer=AnyHttpUrl("https://auth.example.com"),
@@ -129,7 +129,10 @@ def oauth_metadata():
         response_types_supported=["code"],
         grant_types_supported=["authorization_code", "refresh_token", "client_credentials"],
         code_challenge_methods_supported=["S256"],
-#=======
+    )
+
+
+@pytest.fixture
 def prm_metadata_without_scopes_response():
     """PRM metadata response without scopes."""
     return httpx.Response(
@@ -139,12 +142,10 @@ def prm_metadata_without_scopes_response():
             b'"authorization_servers": ["https://auth.example.com"], '
             b'"scopes_supported": null}'
         ),
-#>>>>>>> main
     )
 
 
 @pytest.fixture
-#<<<<<<< main
 def oauth_client_info():
     return OAuthClientInformationFull(
         client_id="test_client_id",
@@ -154,19 +155,20 @@ def oauth_client_info():
         grant_types=["authorization_code", "refresh_token"],
         response_types=["code"],
         scope="read write",
-#=======
+    )
+
+
+@pytest.fixture
 def init_response_with_www_auth_scope():
     """Initial 401 response with WWW-Authenticate header containing scope."""
     return httpx.Response(
         401,
         headers={"WWW-Authenticate": 'Bearer scope="special:scope from:www-authenticate"'},
         request=httpx.Request("GET", "https://api.example.com/test"),
-#>>>>>>> main
     )
 
 
 @pytest.fixture
-#<<<<<<< main
 def oauth_token():
     return OAuthToken(
         access_token="test_access_token",
@@ -197,14 +199,16 @@ async def token_exchange_provider(
         client_metadata=client_credentials_metadata,
         storage=mock_storage,
         subject_token_supplier=lambda: asyncio.sleep(0, result="user_token"),
-#=======
+    )
+
+
+@pytest.fixture
 def init_response_without_www_auth_scope():
     """Initial 401 response without WWW-Authenticate scope."""
     return httpx.Response(
         401,
         headers={},
         request=httpx.Request("GET", "https://api.example.com/test"),
-#>>>>>>> main
     )
 
 
