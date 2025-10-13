@@ -165,42 +165,34 @@ async def test_list_methods_params_parameter(
 
 
 @pytest.mark.parametrize(
-    "method_name,request_method",
+    "method_name",
     [
-        ("list_tools", "tools/list"),
-        ("list_resources", "resources/list"),
-        ("list_prompts", "prompts/list"),
-        ("list_resource_templates", "resources/templates/list"),
+        "list_tools",
+        "list_resources",
+        "list_prompts",
+        "list_resource_templates",
     ],
 )
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-async def test_list_methods_params_takes_precedence_over_cursor(
-    stream_spy: Callable[[], StreamSpyCollection],
+async def test_list_methods_raises_error_when_both_cursor_and_params_provided(
     full_featured_server: FastMCP,
     method_name: str,
-    request_method: str,
 ):
-    """Test that params parameter takes precedence over cursor parameter.
+    """Test that providing both cursor and params raises ValueError.
 
     Covers: list_tools, list_resources, list_prompts, list_resource_templates
 
-    When both cursor and params are provided, params should be used and
-    cursor should be ignored, ensuring safe migration path.
+    When both cursor and params are provided, a ValueError should be raised
+    to prevent ambiguity.
     """
     async with create_session(full_featured_server._mcp_server) as client_session:
-        spies = stream_spy()
         method = getattr(client_session, method_name)
 
-        # Call with both cursor and params - params should take precedence
-        _ = await method(
-            cursor="old_cursor",
-            params=types.PaginatedRequestParams(cursor="new_cursor"),
-        )
-        requests = spies.get_client_requests(method=request_method)
-        assert len(requests) == 1
-        # Verify params takes precedence (new_cursor should be used, not old_cursor)
-        assert requests[0].params is not None
-        assert requests[0].params["cursor"] == "new_cursor"
+        # Call with both cursor and params - should raise ValueError
+        with pytest.raises(ValueError, match="Cannot specify both cursor and params"):
+            await method(
+                cursor="old_cursor",
+                params=types.PaginatedRequestParams(cursor="new_cursor"),
+            )
 
 
 async def test_list_tools_with_strict_server_validation():
