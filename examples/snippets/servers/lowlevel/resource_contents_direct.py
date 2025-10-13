@@ -37,7 +37,7 @@ async def read_resource(uri: AnyUrl) -> Iterable[types.TextResourceContents | ty
                 uri=uri,
                 text="# README\n\nThis is a sample readme file.",
                 mimeType="text/markdown",
-                meta={
+                _meta={
                     "title": "Project README",
                     "author": "Development Team",
                     "lastModified": "2024-01-15T10:00:00Z",
@@ -55,7 +55,7 @@ async def read_resource(uri: AnyUrl) -> Iterable[types.TextResourceContents | ty
                 uri=uri,
                 text='{\n  "version": "1.0.0",\n  "debug": false\n}',
                 mimeType="application/json",
-                meta={
+                _meta={
                     "schema": "https://example.com/schemas/config/v1.0",
                     "validated": True,
                     "environment": "production",
@@ -77,7 +77,7 @@ async def read_resource(uri: AnyUrl) -> Iterable[types.TextResourceContents | ty
                 uri=uri,
                 blob=base64.b64encode(png_data).decode(),
                 mimeType="image/png",
-                meta={
+                _meta={
                     "width": 1,
                     "height": 1,
                     "bitDepth": 8,
@@ -100,7 +100,7 @@ async def read_resource(uri: AnyUrl) -> Iterable[types.TextResourceContents | ty
                 uri=uri,
                 text="Part 1: Introduction",
                 mimeType="text/plain",
-                meta={
+                _meta={
                     "part": 1,
                     "title": "Introduction",
                     "order": 1,
@@ -111,7 +111,7 @@ async def read_resource(uri: AnyUrl) -> Iterable[types.TextResourceContents | ty
                 uri=uri,
                 text="## Part 2: Main Content\n\nThis is the main section.",
                 mimeType="text/markdown",
-                meta={
+                _meta={
                     "part": 2,
                     "title": "Main Content",
                     "order": 2,
@@ -123,7 +123,7 @@ async def read_resource(uri: AnyUrl) -> Iterable[types.TextResourceContents | ty
                 uri=uri,
                 blob="UGFydCAzOiBCaW5hcnkgRGF0YQ==",  # "Part 3: Binary Data" in base64
                 mimeType="application/octet-stream",
-                meta={
+                _meta={
                     "part": 3,
                     "title": "Binary Attachment",
                     "order": 3,
@@ -149,7 +149,7 @@ async def read_resource(uri: AnyUrl) -> Iterable[types.TextResourceContents | ty
                     uri=uri,
                     text=code,
                     mimeType=mime_type,
-                    meta={
+                    _meta={
                         "language": language,
                         "syntaxHighlighting": True,
                         "lineNumbers": True,
