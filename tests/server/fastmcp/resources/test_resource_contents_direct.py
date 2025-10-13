@@ -4,7 +4,7 @@ import pytest
 from pydantic import AnyUrl
 
 from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.resources import TextResource
+from mcp.server.fastmcp.resources import Resource
 from mcp.types import BlobResourceContents, TextResourceContents
 
 
@@ -13,7 +13,7 @@ async def test_resource_returns_text_resource_contents_directly():
     """Test a custom resource that returns TextResourceContents directly."""
     app = FastMCP("test")
 
-    class DirectTextResource(TextResource):
+    class DirectTextResource(Resource):
         """A resource that returns TextResourceContents directly."""
 
         async def read(self):
@@ -27,11 +27,10 @@ async def test_resource_returns_text_resource_contents_directly():
     # Add the resource
     app.add_resource(
         DirectTextResource(
-            uri="resource://direct-text",
+            uri=AnyUrl("resource://direct-text"),
             name="direct-text",
             title="Direct Text Resource",
             description="Returns TextResourceContents directly",
-            text="This is ignored since we override read()",
         )
     )
 
@@ -53,7 +52,7 @@ async def test_resource_returns_blob_resource_contents_directly():
     """Test a custom resource that returns BlobResourceContents directly."""
     app = FastMCP("test")
 
-    class DirectBlobResource(TextResource):
+    class DirectBlobResource(Resource):
         """A resource that returns BlobResourceContents directly."""
 
         async def read(self):
@@ -67,11 +66,10 @@ async def test_resource_returns_blob_resource_contents_directly():
     # Add the resource
     app.add_resource(
         DirectBlobResource(
-            uri="resource://direct-blob",
+            uri=AnyUrl("resource://direct-blob"),
             name="direct-blob",
             title="Direct Blob Resource",
             description="Returns BlobResourceContents directly",
-            text="This is ignored since we override read()",
         )
     )
 

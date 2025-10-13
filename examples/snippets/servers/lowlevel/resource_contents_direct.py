@@ -245,8 +245,14 @@ async def read_legacy_resource(
             )
         ]
 
-    # Delegate to the new handler for other resources
-    return await read_resource(uri)
+    # For other resources, return a simple not found message
+    return [
+        types.TextResourceContents(
+            uri=uri,
+            text=f"Resource not found: {uri}",
+            mimeType="text/plain",
+        )
+    ]
 
 
 async def main():
