@@ -17,10 +17,12 @@ you to attach additional context to your resources such as:
 This metadata helps clients better understand and work with the resource content.
 """
 
-from mcp.server.fastmcp import FastMCP
-from mcp.types import TextResourceContents, BlobResourceContents
-from pydantic import AnyUrl
 import base64
+
+from pydantic import AnyUrl
+
+from mcp.server.fastmcp import FastMCP
+from mcp.types import BlobResourceContents, TextResourceContents
 
 mcp = FastMCP(name="Direct ResourceContents Example")
 
@@ -40,7 +42,7 @@ def get_report() -> TextResourceContents:
             "version": "1.2.0",
             "tags": ["monthly", "finance", "q1-2024"],
             "confidentiality": "internal",
-        }
+        },
     )
 
 
@@ -50,7 +52,7 @@ def get_logo() -> BlobResourceContents:
     """Return a logo image with metadata about dimensions and format."""
     # In a real app, you might read this from a file
     image_bytes = b"\x89PNG\r\n\x1a\n..."  # PNG header
-    
+
     return BlobResourceContents(
         uri=AnyUrl("image://logo"),
         blob=base64.b64encode(image_bytes).decode(),
@@ -64,7 +66,7 @@ def get_logo() -> BlobResourceContents:
             "hasAlpha": True,
             "fileSize": 24576,
             "lastModified": "2024-01-10T08:00:00Z",
-        }
+        },
     )
 
 
@@ -73,13 +75,14 @@ def get_logo() -> BlobResourceContents:
 async def get_metrics(metric_type: str) -> TextResourceContents:
     """Return metrics data with metadata about collection time and source."""
     import datetime
-    
+
     # Simulate collecting metrics
     metrics = {"cpu": 45.2, "memory": 78.5, "disk": 62.1}
     timestamp = datetime.datetime.now(datetime.UTC).isoformat()
-    
+
     if metric_type == "json":
         import json
+
         return TextResourceContents(
             uri=AnyUrl(f"data://metrics/{metric_type}"),
             text=json.dumps(metrics, indent=2),
@@ -90,7 +93,7 @@ async def get_metrics(metric_type: str) -> TextResourceContents:
                 "interval": "5s",
                 "aggregation": "average",
                 "host": "prod-server-01",
-            }
+            },
         )
     elif metric_type == "csv":
         csv_text = "metric,value\n" + "\n".join(f"{k},{v}" for k, v in metrics.items())
@@ -102,7 +105,7 @@ async def get_metrics(metric_type: str) -> TextResourceContents:
                 "timestamp": timestamp,
                 "columns": ["metric", "value"],
                 "row_count": len(metrics),
-            }
+            },
         )
     else:
         text = "\n".join(f"{k.upper()}: {v}%" for k, v in metrics.items())
@@ -113,7 +116,7 @@ async def get_metrics(metric_type: str) -> TextResourceContents:
             _meta={
                 "timestamp": timestamp,
                 "format": "human-readable",
-            }
+            },
         )
 
 
@@ -122,7 +125,7 @@ async def get_metrics(metric_type: str) -> TextResourceContents:
 def get_config() -> TextResourceContents:
     """Return application config with version and environment metadata."""
     import json
-    
+
     config = {
         "version": "1.0.0",
         "features": {
@@ -133,9 +136,9 @@ def get_config() -> TextResourceContents:
         "limits": {
             "max_file_size": 10485760,  # 10MB
             "max_connections": 100,
-        }
+        },
     }
-    
+
     return TextResourceContents(
         uri=AnyUrl("config://app"),
         text=json.dumps(config, indent=2),
@@ -146,7 +149,7 @@ def get_config() -> TextResourceContents:
             "environment": "production",
             "schema": "https://example.com/schemas/config/v1.0",
             "editable": False,
-        }
+        },
     )
 
 
@@ -156,7 +159,7 @@ async def get_users() -> TextResourceContents:
     """Return query results with execution time and row count."""
     import json
     import time
-    
+
     # Simulate database query
     start_time = time.time()
     users = [
@@ -165,7 +168,7 @@ async def get_users() -> TextResourceContents:
         {"id": 3, "name": "Charlie", "role": "user"},
     ]
     execution_time = time.time() - start_time
-    
+
     return TextResourceContents(
         uri=AnyUrl("db://query/users"),
         text=json.dumps(users, indent=2),
@@ -177,7 +180,7 @@ async def get_users() -> TextResourceContents:
             "database": "main",
             "cached": False,
             "timestamp": "2024-01-15T16:00:00Z",
-        }
+        },
     )
 
 
