@@ -75,10 +75,11 @@ def get_logo() -> BlobResourceContents:
 async def get_metrics(metric_type: str) -> TextResourceContents:
     """Return metrics data with metadata about collection time and source."""
     import datetime
+    from datetime import timezone
 
     # Simulate collecting metrics
     metrics = {"cpu": 45.2, "memory": 78.5, "disk": 62.1}
-    timestamp = datetime.datetime.now(datetime.UTC).isoformat()
+    timestamp = datetime.datetime.now(timezone.utc).isoformat()
 
     if metric_type == "json":
         import json
