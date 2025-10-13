@@ -8,8 +8,8 @@
 [![MIT licensed][mit-badge]][mit-url]
 [![Python Version][python-badge]][python-url]
 [![Documentation][docs-badge]][docs-url]
+[![Protocol][protocol-badge]][protocol-url]
 [![Specification][spec-badge]][spec-url]
-[![GitHub Discussions][discussions-badge]][discussions-url]
 
 </div>
 
@@ -74,12 +74,12 @@
 [mit-url]: https://github.com/modelcontextprotocol/python-sdk/blob/main/LICENSE
 [python-badge]: https://img.shields.io/pypi/pyversions/mcp.svg
 [python-url]: https://www.python.org/downloads/
-[docs-badge]: https://img.shields.io/badge/docs-modelcontextprotocol.io-blue.svg
-[docs-url]: https://modelcontextprotocol.io
+[docs-badge]: https://img.shields.io/badge/docs-python--sdk-blue.svg
+[docs-url]: https://modelcontextprotocol.github.io/python-sdk/
+[protocol-badge]: https://img.shields.io/badge/protocol-modelcontextprotocol.io-blue.svg
+[protocol-url]: https://modelcontextprotocol.io
 [spec-badge]: https://img.shields.io/badge/spec-spec.modelcontextprotocol.io-blue.svg
 [spec-url]: https://spec.modelcontextprotocol.io
-[discussions-badge]: https://img.shields.io/github/discussions/modelcontextprotocol/python-sdk
-[discussions-url]: https://github.com/modelcontextprotocol/python-sdk/discussions
 
 ## Overview
 
