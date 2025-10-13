@@ -549,6 +549,7 @@ class OAuthClientProvider(BaseOAuthProvider):
         """Add authorization header to request if we have valid tokens."""
         if self.context.current_tokens and self.context.current_tokens.access_token:
             request.headers["Authorization"] = f"Bearer {self.context.current_tokens.access_token}"
+
     async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
         """HTTPX auth flow integration."""
         async with self.context.lock:
@@ -585,9 +586,7 @@ class OAuthClientProvider(BaseOAuthProvider):
                     self._select_scopes(response)
 
                     # Step 3: Discover OAuth metadata (with fallback for legacy servers)
-                    discovery_urls = self._get_discovery_urls(
-                        self.context.auth_server_url or self.context.server_url
-                    )
+                    discovery_urls = self._get_discovery_urls(self.context.auth_server_url or self.context.server_url)
                     for url in discovery_urls:
                         oauth_metadata_request = self._create_oauth_metadata_request(url)
                         oauth_metadata_response = yield oauth_metadata_request
