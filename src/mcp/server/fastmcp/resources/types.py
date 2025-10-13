@@ -14,7 +14,7 @@ import pydantic_core
 from pydantic import AnyUrl, Field, ValidationInfo, validate_call
 
 from mcp.server.fastmcp.resources.base import Resource
-from mcp.types import BlobResourceContents, Icon, ResourceContents, TextResourceContents
+from mcp.types import BlobResourceContents, Icon, TextResourceContents
 
 
 class TextResource(Resource):
@@ -63,7 +63,7 @@ class FunctionResource(Resource):
 
             if isinstance(result, Resource):
                 return await result.read()
-            elif isinstance(result, (TextResourceContents, BlobResourceContents)):
+            elif isinstance(result, TextResourceContents | BlobResourceContents):
                 return result
             elif isinstance(result, bytes):
                 return result

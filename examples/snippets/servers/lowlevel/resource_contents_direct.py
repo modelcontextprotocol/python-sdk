@@ -1,5 +1,5 @@
 """
-Example showing how to return ResourceContents objects directly from 
+Example showing how to return ResourceContents objects directly from
 low-level server resources.
 
 The main benefit is the ability to include metadata (_meta field) with
@@ -15,7 +15,7 @@ from pydantic import AnyUrl
 import mcp.server.stdio as stdio
 import mcp.types as types
 from mcp.server import NotificationOptions, Server
-
+from mcp.server.lowlevel.server import ReadResourceContents
 
 # Create a server instance
 server = Server(
@@ -29,7 +29,7 @@ server = Server(
 async def read_resource(uri: AnyUrl) -> Iterable[types.TextResourceContents | types.BlobResourceContents]:
     """Handle resource reading with direct ResourceContents return."""
     uri_str = str(uri)
-    
+
     if uri_str == "text://readme":
         # Return TextResourceContents with document metadata
         return [
@@ -44,10 +44,10 @@ async def read_resource(uri: AnyUrl) -> Iterable[types.TextResourceContents | ty
                     "version": "2.1.0",
                     "language": "en",
                     "license": "MIT",
-                }
+                },
             )
         ]
-    
+
     elif uri_str == "data://config.json":
         # Return JSON data with schema and validation metadata
         return [
@@ -61,13 +61,14 @@ async def read_resource(uri: AnyUrl) -> Iterable[types.TextResourceContents | ty
                     "environment": "production",
                     "lastValidated": "2024-01-15T14:00:00Z",
                     "checksum": "sha256:abc123...",
-                }
+                },
             )
         ]
-    
+
     elif uri_str == "image://icon.png":
         # Return binary data with comprehensive image metadata
         import base64
+
         # This is a 1x1 transparent PNG
         png_data = base64.b64decode(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
@@ -89,10 +90,10 @@ async def read_resource(uri: AnyUrl) -> Iterable[types.TextResourceContents | ty
                     "hasAlpha": True,
                     "generated": "2024-01-15T12:00:00Z",
                     "generator": "Example MCP Server",
-                }
+                },
             )
         ]
-    
+
     elif uri_str == "multi://content":
         # Return multiple ResourceContents objects with part metadata
         return [
@@ -105,7 +106,7 @@ async def read_resource(uri: AnyUrl) -> Iterable[types.TextResourceContents | ty
                     "title": "Introduction",
                     "order": 1,
                     "required": True,
-                }
+                },
             ),
             types.TextResourceContents(
                 uri=uri,
@@ -117,7 +118,7 @@ async def read_resource(uri: AnyUrl) -> Iterable[types.TextResourceContents | ty
                     "order": 2,
                     "wordCount": 8,
                     "headingLevel": 2,
-                }
+                },
             ),
             types.BlobResourceContents(
                 uri=uri,
@@ -129,19 +130,19 @@ async def read_resource(uri: AnyUrl) -> Iterable[types.TextResourceContents | ty
                     "order": 3,
                     "encoding": "base64",
                     "originalSize": 19,
-                }
+                },
             ),
         ]
-    
+
     elif uri_str.startswith("code://"):
         # Extract language from URI for syntax highlighting
         language = uri_str.split("://")[1].split("/")[0]
         code_samples = {
             "python": ('def hello():\n    print("Hello, World!")', "text/x-python"),
             "javascript": ('console.log("Hello, World!");', "text/javascript"),
-            "html": ('<h1>Hello, World!</h1>', "text/html"),
+            "html": ("<h1>Hello, World!</h1>", "text/html"),
         }
-        
+
         if language in code_samples:
             code, mime_type = code_samples[language]
             return [
@@ -155,10 +156,10 @@ async def read_resource(uri: AnyUrl) -> Iterable[types.TextResourceContents | ty
                         "lineNumbers": True,
                         "executable": language in ["python", "javascript"],
                         "documentation": f"https://docs.example.com/languages/{language}",
-                    }
+                    },
                 )
             ]
-    
+
     # Default case - resource not found
     return [
         types.TextResourceContents(
@@ -228,14 +229,13 @@ async def list_legacy_resources() -> list[types.Resource]:
 
 
 # Mix old and new styles to show compatibility
-from mcp.server.lowlevel.server import ReadResourceContents
-
-
 @server.read_resource()
-async def read_legacy_resource(uri: AnyUrl) -> Iterable[ReadResourceContents | types.TextResourceContents]:
+async def read_legacy_resource(
+    uri: AnyUrl,
+) -> Iterable[ReadResourceContents | types.TextResourceContents | types.BlobResourceContents]:
     """Handle legacy resources alongside new ResourceContents."""
     uri_str = str(uri)
-    
+
     if uri_str == "legacy://text":
         # Old style - return ReadResourceContents
         return [
@@ -244,7 +244,7 @@ async def read_legacy_resource(uri: AnyUrl) -> Iterable[ReadResourceContents | t
                 mime_type="text/plain",
             )
         ]
-    
+
     # Delegate to the new handler for other resources
     return await read_resource(uri)
 
