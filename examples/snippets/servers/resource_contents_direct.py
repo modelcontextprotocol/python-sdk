@@ -2,7 +2,7 @@
 Example showing how to return ResourceContents objects directly from resources.
 
 The main benefit of returning ResourceContents directly is the ability to include
-metadata through the _meta field (exposed as 'meta' in the constructor). This allows
+metadata through the _meta field. This allows
 you to attach additional context to your resources such as:
 
 - Timestamps (created, modified, expires)
@@ -34,7 +34,7 @@ def get_report() -> TextResourceContents:
         text="# Monthly Report\n\nThis is the monthly report content.",
         mimeType="text/markdown",
         # The main benefit: adding metadata to the resource
-        meta={
+        _meta={
             "created": "2024-01-15T10:30:00Z",
             "author": "Analytics Team",
             "version": "1.2.0",
@@ -56,7 +56,7 @@ def get_logo() -> BlobResourceContents:
         blob=base64.b64encode(image_bytes).decode(),
         mimeType="image/png",
         # Image-specific metadata
-        meta={
+        _meta={
             "width": 512,
             "height": 512,
             "format": "PNG",
@@ -84,7 +84,7 @@ async def get_metrics(metric_type: str) -> TextResourceContents:
             uri=AnyUrl(f"data://metrics/{metric_type}"),
             text=json.dumps(metrics, indent=2),
             mimeType="application/json",
-            meta={
+            _meta={
                 "timestamp": timestamp,
                 "source": "system_monitor",
                 "interval": "5s",
@@ -98,7 +98,7 @@ async def get_metrics(metric_type: str) -> TextResourceContents:
             uri=AnyUrl(f"data://metrics/{metric_type}"),
             text=csv_text,
             mimeType="text/csv",
-            meta={
+            _meta={
                 "timestamp": timestamp,
                 "columns": ["metric", "value"],
                 "row_count": len(metrics),
@@ -110,7 +110,7 @@ async def get_metrics(metric_type: str) -> TextResourceContents:
             uri=AnyUrl(f"data://metrics/{metric_type}"),
             text=text,
             mimeType="text/plain",
-            meta={
+            _meta={
                 "timestamp": timestamp,
                 "format": "human-readable",
             }
@@ -140,7 +140,7 @@ def get_config() -> TextResourceContents:
         uri=AnyUrl("config://app"),
         text=json.dumps(config, indent=2),
         mimeType="application/json",
-        meta={
+        _meta={
             "version": "1.0.0",
             "lastUpdated": "2024-01-15T14:30:00Z",
             "environment": "production",
@@ -170,7 +170,7 @@ async def get_users() -> TextResourceContents:
         uri=AnyUrl("db://query/users"),
         text=json.dumps(users, indent=2),
         mimeType="application/json",
-        meta={
+        _meta={
             "query": "SELECT * FROM users",
             "executionTime": f"{execution_time:.3f}s",
             "rowCount": len(users),
