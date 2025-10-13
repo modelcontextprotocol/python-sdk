@@ -92,9 +92,19 @@ async def test_read_resource_dir(mcp: FastMCP):
     res_list = list(res_iter)
     assert len(res_list) == 1
     res = res_list[0]
-    assert res.mime_type == "text/plain"
 
-    files = json.loads(res.content)
+    # Handle union type properly
+    from mcp.server.lowlevel.server import ReadResourceContents
+    from mcp.types import TextResourceContents
+
+    if isinstance(res, ReadResourceContents):
+        assert res.mime_type == "text/plain"
+        files = json.loads(res.content)
+    elif isinstance(res, TextResourceContents):
+        assert res.mimeType == "text/plain"
+        files = json.loads(res.text)
+    else:
+        raise AssertionError(f"Unexpected content type: {type(res)}")
 
     assert sorted([Path(f).name for f in files]) == [
         "config.json",
@@ -109,7 +119,17 @@ async def test_read_resource_file(mcp: FastMCP):
     res_list = list(res_iter)
     assert len(res_list) == 1
     res = res_list[0]
-    assert res.content == "print('hello world')"
+
+    # Handle union type properly
+    from mcp.server.lowlevel.server import ReadResourceContents
+    from mcp.types import TextResourceContents
+
+    if isinstance(res, ReadResourceContents):
+        assert res.content == "print('hello world')"
+    elif isinstance(res, TextResourceContents):
+        assert res.text == "print('hello world')"
+    else:
+        raise AssertionError(f"Unexpected content type: {type(res)}")
 
 
 @pytest.mark.anyio
@@ -125,4 +145,14 @@ async def test_delete_file_and_check_resources(mcp: FastMCP, test_dir: Path):
     res_list = list(res_iter)
     assert len(res_list) == 1
     res = res_list[0]
-    assert res.content == "File not found"
+
+    # Handle union type properly
+    from mcp.server.lowlevel.server import ReadResourceContents
+    from mcp.types import TextResourceContents
+
+    if isinstance(res, ReadResourceContents):
+        assert res.content == "File not found"
+    elif isinstance(res, TextResourceContents):
+        assert res.text == "File not found"
+    else:
+        raise AssertionError(f"Unexpected content type: {type(res)}")

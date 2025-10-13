@@ -53,8 +53,21 @@ async def test_resource_template_edge_cases():
     result = await mcp.read_resource("resource://users/123/posts/456")
     result_list = list(result)
     assert len(result_list) == 1
-    assert result_list[0].content == "Post 456 by user 123"
-    assert result_list[0].mime_type == "text/plain"
+    content = result_list[0]
+    # Since this is a string resource, it should be wrapped as ReadResourceContents
+    from mcp.server.lowlevel.server import ReadResourceContents
+    from mcp.types import TextResourceContents
+
+    if isinstance(content, ReadResourceContents):
+        assert content.content == "Post 456 by user 123"
+        assert content.mime_type == "text/plain"
+    elif isinstance(content, TextResourceContents):
+        # If it's TextResourceContents (direct return)
+        assert content.text == "Post 456 by user 123"
+        assert content.mimeType == "text/plain"
+    else:
+        # Should not happen for string resources
+        raise AssertionError(f"Unexpected content type: {type(content)}")
 
     # Verify invalid parameters raise error
     with pytest.raises(ValueError, match="Unknown resource"):

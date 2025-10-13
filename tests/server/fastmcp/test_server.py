@@ -1082,7 +1082,16 @@ class TestContextInjection:
             r_list = list(r_iter)
             assert len(r_list) == 1
             r = r_list[0]
-            return f"Read resource: {r.content} with mime type {r.mime_type}"
+            # Handle union type properly
+            from mcp.server.lowlevel.server import ReadResourceContents
+            from mcp.types import TextResourceContents
+
+            if isinstance(r, ReadResourceContents):
+                return f"Read resource: {r.content} with mime type {r.mime_type}"
+            elif isinstance(r, TextResourceContents):
+                return f"Read resource: {r.text} with mime type {r.mimeType}"
+            else:
+                raise AssertionError(f"Unexpected content type: {type(r)}")
 
         async with client_session(mcp._mcp_server) as client:
             result = await client.call_tool("tool_with_resource", {})
