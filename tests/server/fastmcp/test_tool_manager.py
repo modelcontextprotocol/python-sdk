@@ -54,6 +54,7 @@ class TestAddTools:
             parameters=AddArguments.model_json_schema(),
             context_kwarg=None,
             annotations=None,
+            immediate_result=None,
         )
         manager = ToolManager(tools=[original_tool])
         saved_tool = manager.get_tool("sum")
@@ -177,6 +178,55 @@ class TestAddTools:
         with caplog.at_level(logging.WARNING):
             manager.add_tool(f)
             assert "Tool already exists: f" not in caplog.text
+
+    def test_invocation_modes_default(self):
+        """Test that tools default to sync mode when no invocation_modes specified."""
+
+        def sync_tool(x: int) -> int:
+            """A sync tool."""
+            return x * 2
+
+        manager = ToolManager()
+        tool = manager.add_tool(sync_tool)
+
+        assert tool.invocation_modes == ["sync"]
+
+    def test_invocation_modes_async_only(self):
+        """Test async-only tool creation."""
+
+        async def async_tool(x: int) -> int:
+            """An async-only tool."""
+            return x * 2
+
+        manager = ToolManager()
+        tool = manager.add_tool(async_tool, invocation_modes=["async"])
+
+        assert tool.invocation_modes == ["async"]
+        assert tool.is_async is True
+
+    def test_invocation_modes_hybrid(self):
+        """Test hybrid sync/async tool creation."""
+
+        def hybrid_tool(x: int) -> int:
+            """A hybrid tool that supports both modes."""
+            return x * 2
+
+        manager = ToolManager()
+        tool = manager.add_tool(hybrid_tool, invocation_modes=["sync", "async"])
+
+        assert tool.invocation_modes == ["sync", "async"]
+
+    def test_invocation_modes_explicit_sync(self):
+        """Test explicitly setting sync mode."""
+
+        def explicit_sync_tool(x: int) -> int:
+            """An explicitly sync tool."""
+            return x * 2
+
+        manager = ToolManager()
+        tool = manager.add_tool(explicit_sync_tool, invocation_modes=["sync"])
+
+        assert tool.invocation_modes == ["sync"]
 
 
 class TestCallTools:
@@ -584,6 +634,84 @@ class TestStructuredOutput:
         }
         assert tool.output_schema == expected_schema
 
+    def test_tool_meta_property(self):
+        """Test that Tool.meta property works correctly."""
+
+        def double_number(n: int) -> int:
+            """Double a number."""
+            return 10
+
+        manager = ToolManager()
+        tool = manager.add_tool(double_number, meta={"foo": "bar"})
+
+        # Test that meta is populated
+        expected_meta = {
+            "foo": "bar",
+        }
+        assert tool.meta == expected_meta
+
+    def test_tool_keep_alive_property_sync(self):
+        """Test that keep_alive property works correctly with sync-only tools."""
+
+        def double_number(n: int) -> int:
+            """Double a number."""
+            return 10
+
+        manager = ToolManager()
+
+        # Should raise error when keep_alive is used on sync-only tool
+        with pytest.raises(ValueError, match="keep_alive parameter can only be used with async-compatible tools"):
+            manager.add_tool(double_number, invocation_modes=["sync"], keep_alive=1)
+
+    def test_tool_keep_alive_property_async(self):
+        """Test that keep_alive property works correctly with async-only tools."""
+
+        def double_number(n: int) -> int:
+            """Double a number."""
+            return 10
+
+        manager = ToolManager()
+        tool = manager.add_tool(double_number, invocation_modes=["async"], keep_alive=1)
+
+        # Test that meta is populated and has the keepalive stashed in it
+        expected_meta = {
+            "_keep_alive": 1,
+        }
+        assert tool.meta == expected_meta
+
+    def test_tool_keep_alive_property_hybrid(self):
+        """Test that keep_alive property works correctly with hybrid sync/async tools."""
+
+        def double_number(n: int) -> int:
+            """Double a number."""
+            return 10
+
+        manager = ToolManager()
+        tool = manager.add_tool(double_number, invocation_modes=["sync", "async"], keep_alive=1)
+
+        # Test that meta is populated and has the keepalive stashed in it
+        expected_meta = {
+            "_keep_alive": 1,
+        }
+        assert tool.meta == expected_meta
+
+    def test_tool_keep_alive_property_meta(self):
+        """Test that keep_alive property works correctly with existing metadata defined."""
+
+        def double_number(n: int) -> int:
+            """Double a number."""
+            return 10
+
+        manager = ToolManager()
+        tool = manager.add_tool(double_number, invocation_modes=["async"], keep_alive=1, meta={"foo": "bar"})
+
+        # Test that meta is populated and has the keepalive stashed in it
+        expected_meta = {
+            "foo": "bar",
+            "_keep_alive": 1,
+        }
+        assert tool.meta == expected_meta
+
     @pytest.mark.anyio
     async def test_tool_with_dict_str_any_output(self):
         """Test tool with dict[str, Any] return type."""
@@ -746,3 +874,53 @@ class TestRemoveTools:
         # Remove with correct case
         manager.remove_tool("test_func")
         assert manager.get_tool("test_func") is None
+
+
+class TestInvocationModes:
+    """Test invocation modes functionality."""
+
+    def test_invocation_mode_type_safety(self):
+        """Test InvocationMode literal type validation."""
+        from mcp.server.fastmcp.tools.base import InvocationMode
+
+        # Valid modes should work
+        valid_modes: list[InvocationMode] = ["sync", "async"]
+        assert valid_modes == ["sync", "async"]
+
+    def test_tool_from_function_with_invocation_modes(self):
+        """Test Tool.from_function with invocation_modes parameter."""
+        from mcp.server.fastmcp.tools.base import Tool
+
+        def test_tool(x: int) -> int:
+            return x
+
+        # Test default behavior
+        tool_default = Tool.from_function(test_tool)
+        assert tool_default.invocation_modes == ["sync"]
+
+        # Test explicit sync
+        tool_sync = Tool.from_function(test_tool, invocation_modes=["sync"])
+        assert tool_sync.invocation_modes == ["sync"]
+
+        # Test async only
+        tool_async = Tool.from_function(test_tool, invocation_modes=["async"])
+        assert tool_async.invocation_modes == ["async"]
+
+        # Test hybrid
+        tool_hybrid = Tool.from_function(test_tool, invocation_modes=["sync", "async"])
+        assert tool_hybrid.invocation_modes == ["sync", "async"]
+
+    def test_tool_manager_invocation_modes_parameter(self):
+        """Test ToolManager.add_tool with invocation_modes parameter."""
+        manager = ToolManager()
+
+        def test_tool(x: int) -> int:
+            return x
+
+        # Test that invocation_modes parameter is passed through
+        tool = manager.add_tool(test_tool, invocation_modes=["async"])
+        assert tool.invocation_modes == ["async"]
+
+        # Test default behavior when None
+        tool_default = manager.add_tool(test_tool, name="test_tool_default")
+        assert tool_default.invocation_modes == ["sync"]

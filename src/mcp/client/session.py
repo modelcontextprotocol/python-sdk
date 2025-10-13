@@ -2,12 +2,15 @@ import logging
 from datetime import timedelta
 from typing import Any, Protocol
 
+import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from jsonschema import SchemaError, ValidationError, validate
 from pydantic import AnyUrl, TypeAdapter
+from typing_extensions import Self
 
 import mcp.types as types
+from mcp.shared.async_operations import ClientAsyncOperationManager
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
@@ -118,6 +121,7 @@ class ClientSession(
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
+        protocol_version: str | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -127,12 +131,20 @@ class ClientSession(
             read_timeout_seconds=read_timeout_seconds,
         )
         self._client_info = client_info or DEFAULT_CLIENT_INFO
+        self._protocol_version = protocol_version or types.LATEST_PROTOCOL_VERSION
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
+        self._operation_manager = ClientAsyncOperationManager()
+
+    async def __aenter__(self) -> Self:
+        await super().__aenter__()
+        self._task_group.start_soon(self._operation_manager.cleanup_loop)
+        self._exit_stack.push_async_callback(lambda: self._operation_manager.stop_cleanup_loop())
+        return self
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
@@ -152,7 +164,7 @@ class ClientSession(
             types.ClientRequest(
                 types.InitializeRequest(
                     params=types.InitializeRequestParams(
-                        protocolVersion=types.LATEST_PROTOCOL_VERSION,
+                        protocolVersion=self._protocol_version,
                         capabilities=types.ClientCapabilities(
                             sampling=sampling,
                             elicitation=elicitation,
@@ -273,8 +285,18 @@ class ClientSession(
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
         progress_callback: ProgressFnT | None = None,
+        *,
+        async_properties: types.AsyncRequestProperties | None = None,
     ) -> types.CallToolResult:
-        """Send a tools/call request with optional progress callback support."""
+        """Send a tools/call request with optional progress callback support.
+
+        Args:
+            name: Name of the tool to call
+            arguments: Arguments to pass to the tool
+            read_timeout_seconds: Read timeout for the request
+            progress_callback: Optional progress callback
+            async_properties: Optional async parameters for async tool execution
+        """
 
         result = await self.send_request(
             types.ClientRequest(
@@ -282,6 +304,7 @@ class ClientSession(
                     params=types.CallToolRequestParams(
                         name=name,
                         arguments=arguments,
+                        operation_params=async_properties,
                     ),
                 )
             ),
@@ -291,11 +314,65 @@ class ClientSession(
         )
 
         if not result.isError:
-            await self._validate_tool_result(name, result)
+            # Track operation for async operations
+            if result.operation is not None:
+                self._operation_manager.track_operation(
+                    result.operation.token, name, result.operation.keepAlive or 3600
+                )
+                logger.debug(f"Tracking operation for token: {result.operation.token}")
+            else:
+                await self._validate_tool_result(name, result)
 
         return result
 
-    async def _validate_tool_result(self, name: str, result: types.CallToolResult) -> None:
+    async def get_operation_status(self, token: str) -> types.GetOperationStatusResult:
+        """Check the status of an async tool operation.
+
+        Args:
+            token: Token returned from async call_tool
+
+        Returns:
+            Status result with current operation state
+        """
+        return await self.send_request(
+            types.ClientRequest(
+                types.GetOperationStatusRequest(
+                    params=types.GetOperationStatusParams(token=token),
+                )
+            ),
+            types.GetOperationStatusResult,
+        )
+
+    async def get_operation_result(self, token: str) -> types.GetOperationPayloadResult:
+        """Get the result of a completed async tool operation.
+
+        Args:
+            token: Token returned from async call_tool
+
+        Returns:
+            The final tool result
+        """
+        result = await self.send_request(
+            types.ClientRequest(
+                types.GetOperationPayloadRequest(
+                    params=types.GetOperationPayloadParams(token=token),
+                )
+            ),
+            types.GetOperationPayloadResult,
+        )
+
+        # Validate using the stored tool name
+        if hasattr(result, "result") and result.result:
+            # Clean up expired operations first
+            await self._operation_manager.cleanup_expired()
+
+            tool_name = self._operation_manager.get_tool_name(token)
+            await self._validate_tool_result(tool_name, result.result)
+            # Keep the operation for potential future retrievals
+
+        return result
+
+    async def _validate_tool_result(self, name: str | None, result: types.CallToolResult) -> None:
         """Validate the structured content of a tool result against its output schema."""
         if name not in self._tool_output_schemas:
             # refresh output schema cache
@@ -308,6 +385,7 @@ class ClientSession(
             logger.warning(f"Tool {name} not listed by server, cannot validate any structured content")
 
         if output_schema is not None:
+            logger.debug(f"Validating structured content for tool: {name}")
             if result.structuredContent is None:
                 raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
             try:
@@ -388,8 +466,10 @@ class ClientSession(
     async def _received_request(self, responder: RequestResponder[types.ServerRequest, types.ClientResult]) -> None:
         ctx = RequestContext[ClientSession, Any](
             request_id=responder.request_id,
+            operation_token=responder.operation.token if responder.operation is not None else None,
             meta=responder.request_meta,
             session=self,
+            supports_async=False,  # No client tools right now
             lifespan_context=None,
         )
 
@@ -397,12 +477,36 @@ class ClientSession(
             case types.CreateMessageRequest(params=params):
                 with responder:
                     response = await self._sampling_callback(ctx, params)
+                    if isinstance(response, types.CreateMessageResult):
+                        response.operation_props = (
+                            types.Operation(token=responder.operation.token)
+                            if responder.operation is not None
+                            else None
+                        )
+                    else:
+                        response.operation = (
+                            types.Operation(token=responder.operation.token)
+                            if responder.operation is not None
+                            else None
+                        )
                     client_response = ClientResponse.validate_python(response)
                     await responder.respond(client_response)
 
             case types.ElicitRequest(params=params):
                 with responder:
                     response = await self._elicitation_callback(ctx, params)
+                    if isinstance(response, types.ElicitResult):
+                        response.operation_props = (
+                            types.Operation(token=responder.operation.token)
+                            if responder.operation is not None
+                            else None
+                        )
+                    else:
+                        response.operation = (
+                            types.Operation(token=responder.operation.token)
+                            if responder.operation is not None
+                            else None
+                        )
                     client_response = ClientResponse.validate_python(response)
                     await responder.respond(client_response)
 

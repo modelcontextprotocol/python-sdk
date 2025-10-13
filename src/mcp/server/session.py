@@ -186,8 +186,13 @@ class ServerSession(
         data: Any,
         logger: str | None = None,
         related_request_id: types.RequestId | None = None,
+        related_operation_token: str | None = None,
     ) -> None:
         """Send a log message notification."""
+        operation = None
+        if related_operation_token:
+            operation = types.Operation(token=related_operation_token)
+
         await self.send_notification(
             types.ServerNotification(
                 types.LoggingMessageNotification(
@@ -195,6 +200,7 @@ class ServerSession(
                         level=level,
                         data=data,
                         logger=logger,
+                        _operation=operation,
                     ),
                 )
             ),
@@ -223,8 +229,13 @@ class ServerSession(
         metadata: dict[str, Any] | None = None,
         model_preferences: types.ModelPreferences | None = None,
         related_request_id: types.RequestId | None = None,
+        related_operation_token: str | None = None,
     ) -> types.CreateMessageResult:
         """Send a sampling/create_message request."""
+        operation = None
+        if related_operation_token:
+            operation = types.Operation(token=related_operation_token)
+
         return await self.send_request(
             request=types.ServerRequest(
                 types.CreateMessageRequest(
@@ -237,6 +248,7 @@ class ServerSession(
                         stopSequences=stop_sequences,
                         metadata=metadata,
                         modelPreferences=model_preferences,
+                        _operation=operation,
                     ),
                 )
             ),
@@ -258,22 +270,30 @@ class ServerSession(
         message: str,
         requestedSchema: types.ElicitRequestedSchema,
         related_request_id: types.RequestId | None = None,
+        related_operation_token: str | None = None,
     ) -> types.ElicitResult:
         """Send an elicitation/create request.
 
         Args:
             message: The message to present to the user
             requestedSchema: Schema defining the expected response structure
+            related_request_id: Optional request ID this elicitation is related to
+            related_operation_token: Optional operation token this elicitation is related to
 
         Returns:
             The client's response
         """
+        operation = None
+        if related_operation_token:
+            operation = types.Operation(token=related_operation_token)
+
         return await self.send_request(
             types.ServerRequest(
                 types.ElicitRequest(
                     params=types.ElicitRequestParams(
                         message=message,
                         requestedSchema=requestedSchema,
+                        _operation=operation,
                     ),
                 )
             ),
@@ -295,8 +315,13 @@ class ServerSession(
         total: float | None = None,
         message: str | None = None,
         related_request_id: str | None = None,
+        related_operation_token: str | None = None,
     ) -> None:
         """Send a progress notification."""
+        operation = None
+        if related_operation_token:
+            operation = types.Operation(token=related_operation_token)
+
         await self.send_notification(
             types.ServerNotification(
                 types.ProgressNotification(
@@ -305,6 +330,7 @@ class ServerSession(
                         progress=progress,
                         total=total,
                         message=message,
+                        _operation=operation,
                     ),
                 )
             ),
