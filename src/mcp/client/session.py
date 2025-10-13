@@ -213,8 +213,8 @@ class ClientSession(
             types.EmptyResult,
         )
 
-    @deprecated("Use params=PaginatedRequestParams(...) instead")
     @overload
+    @deprecated("Use params=PaginatedRequestParams(...) instead")
     async def list_resources(self, cursor: str | None) -> types.ListResourcesResult: ...
 
     @overload
@@ -250,8 +250,8 @@ class ClientSession(
             types.ListResourcesResult,
         )
 
-    @deprecated("Use params=PaginatedRequestParams(...) instead")
     @overload
+    @deprecated("Use params=PaginatedRequestParams(...) instead")
     async def list_resource_templates(self, cursor: str | None) -> types.ListResourceTemplatesResult: ...
 
     @overload
@@ -372,8 +372,8 @@ class ClientSession(
             except SchemaError as e:
                 raise RuntimeError(f"Invalid schema for tool {name}: {e}")
 
-    @deprecated("Use params=PaginatedRequestParams(...) instead")
     @overload
+    @deprecated("Use params=PaginatedRequestParams(...) instead")
     async def list_prompts(self, cursor: str | None) -> types.ListPromptsResult: ...
 
     @overload
@@ -444,8 +444,8 @@ class ClientSession(
             types.CompleteResult,
         )
 
-    @deprecated("Use params=PaginatedRequestParams(...) instead")
     @overload
+    @deprecated("Use params=PaginatedRequestParams(...) instead")
     async def list_tools(self, cursor: str | None) -> types.ListToolsResult: ...
 
     @overload
