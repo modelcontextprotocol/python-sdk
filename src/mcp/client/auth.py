@@ -549,18 +549,6 @@ class OAuthClientProvider(BaseOAuthProvider):
         """Add authorization header to request if we have valid tokens."""
         if self.context.current_tokens and self.context.current_tokens.access_token:
             request.headers["Authorization"] = f"Bearer {self.context.current_tokens.access_token}"
-
-#<<<<<<< main
-#=======
-    def _create_oauth_metadata_request(self, url: str) -> httpx.Request:
-        return httpx.Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
-
-    async def _handle_oauth_metadata_response(self, response: httpx.Response) -> None:
-        content = await response.aread()
-        metadata = OAuthMetadata.model_validate_json(content)
-        self.context.oauth_metadata = metadata
-
-#>>>>>>> main
     async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
         """HTTPX auth flow integration."""
         async with self.context.lock:
@@ -593,16 +581,13 @@ class OAuthClientProvider(BaseOAuthProvider):
                     discovery_response = yield discovery_request
                     await self._handle_protected_resource_response(discovery_response)
 
-#<<<<<<< main
-                    # Step 2: Discover OAuth metadata (with fallback for legacy servers)
-                    discovery_urls = self._get_discovery_urls(self.context.auth_server_url or self.context.server_url)
-#=======
                     # Step 2: Apply scope selection strategy
                     self._select_scopes(response)
 
                     # Step 3: Discover OAuth metadata (with fallback for legacy servers)
-                    discovery_urls = self._get_discovery_urls()
-#>>>>>>> main
+                    discovery_urls = self._get_discovery_urls(
+                        self.context.auth_server_url or self.context.server_url
+                    )
                     for url in discovery_urls:
                         oauth_metadata_request = self._create_oauth_metadata_request(url)
                         oauth_metadata_response = yield oauth_metadata_request
@@ -617,13 +602,8 @@ class OAuthClientProvider(BaseOAuthProvider):
                         elif oauth_metadata_response.status_code < 400 or oauth_metadata_response.status_code >= 500:
                             break  # Non-4XX error, stop trying
 
-#<<<<<<< main
-                    # Step 3: Register client if needed
-                    registration_request = self._create_registration_request(self._metadata)
-#=======
                     # Step 4: Register client if needed
-                    registration_request = await self._register_client()
-#>>>>>>> main
+                    registration_request = self._create_registration_request(self._metadata)
                     if registration_request:
                         registration_response = yield registration_request
                         await self._handle_registration_response(registration_response)
@@ -643,7 +623,31 @@ class OAuthClientProvider(BaseOAuthProvider):
                 # Retry with new tokens
                 self._add_auth_header(request)
                 yield request
-#<<<<<<< main
+
+            elif response.status_code == 403:
+                # Step 1: Extract error field from WWW-Authenticate header
+                error = self._extract_field_from_www_auth(response, "error")
+
+                # Step 2: Check if we need to step-up authorization
+                if error == "insufficient_scope":
+                    try:
+                        # Step 2a: Update the required scopes
+                        self._select_scopes(response)
+
+                        # Step 2b: Perform (re-)authorization
+                        auth_code, code_verifier = await self._perform_authorization()
+
+                        # Step 2c: Exchange authorization code for tokens
+                        token_request = await self._exchange_token(auth_code, code_verifier)
+                        token_response = yield token_request
+                        await self._handle_token_response(token_response)
+                    except Exception:
+                        logger.exception("OAuth flow error")
+                        raise
+
+                    # Retry with new tokens
+                    self._add_auth_header(request)
+                    yield request
 
 
 class ClientCredentialsProvider(BaseOAuthProvider):
@@ -919,29 +923,3 @@ class TokenExchangeProvider(BaseOAuthProvider):
         response = yield request
         if response.status_code == 401:
             self._current_tokens = None
-#=======
-            elif response.status_code == 403:
-                # Step 1: Extract error field from WWW-Authenticate header
-                error = self._extract_field_from_www_auth(response, "error")
-
-                # Step 2: Check if we need to step-up authorization
-                if error == "insufficient_scope":
-                    try:
-                        # Step 2a: Update the required scopes
-                        self._select_scopes(response)
-
-                        # Step 2b: Perform (re-)authorization
-                        auth_code, code_verifier = await self._perform_authorization()
-
-                        # Step 2c: Exchange authorization code for tokens
-                        token_request = await self._exchange_token(auth_code, code_verifier)
-                        token_response = yield token_request
-                        await self._handle_token_response(token_response)
-                    except Exception:
-                        logger.exception("OAuth flow error")
-                        raise
-
-                    # Retry with new tokens
-                    self._add_auth_header(request)
-                    yield request
-#>>>>>>> main
