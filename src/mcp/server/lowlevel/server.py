@@ -142,10 +142,12 @@ class Server(Generic[LifespanResultT, RequestT]):
             [Server[LifespanResultT, RequestT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        notification_options: NotificationOptions | None = None,
     ):
         self.name = name
         self.version = version
         self.instructions = instructions
+        self.notification_options = notification_options or NotificationOptions()
         self.website_url = website_url
         self.icons = icons
         self.lifespan = lifespan
@@ -177,7 +179,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             server_name=self.name,
             server_version=self.version if self.version else pkg_version("mcp"),
             capabilities=self.get_capabilities(
-                notification_options or NotificationOptions(),
+                notification_options or self.notification_options,
                 experimental_capabilities or {},
             ),
             instructions=self.instructions,
