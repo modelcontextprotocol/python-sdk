@@ -13,7 +13,7 @@ from pydantic import (
     field_validator,
 )
 
-from mcp.types import Icon
+from mcp.types import BlobResourceContents, Icon, TextResourceContents
 
 
 class Resource(BaseModel, abc.ABC):
@@ -43,6 +43,6 @@ class Resource(BaseModel, abc.ABC):
         raise ValueError("Either name or uri must be provided")
 
     @abc.abstractmethod
-    async def read(self) -> str | bytes:
+    async def read(self) -> str | bytes | TextResourceContents | BlobResourceContents:
         """Read the resource content."""
         pass
