@@ -97,7 +97,7 @@ class TokenHandler:
             # Authentication failures should return 401
             return PydanticJSONResponse(
                 content=TokenErrorResponse(
-                    error="unauthorized_client",
+                    error="invalid_client",
                     error_description=e.message,
                 ),
                 status_code=401,
