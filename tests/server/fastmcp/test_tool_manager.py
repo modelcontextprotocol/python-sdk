@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, TypedDict
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
@@ -577,96 +577,12 @@ class TestStructuredOutput:
 
         # Test that output_schema is populated
         expected_schema = {
-            "properties": {
-                "name": {"type": "string", "title": "Name"},
-                "age": {"type": "integer", "title": "Age"},
-            },
+            "properties": {"name": {"type": "string", "title": "Name"}, "age": {"type": "integer", "title": "Age"}},
             "required": ["name", "age"],
             "title": "UserOutput",
             "type": "object",
         }
         assert tool.output_schema == expected_schema
-
-    def test_add_output_schema_override(self):
-        """Test registering a tool with an explicit output schema."""
-
-        # For the ChatGPT App SDK, the tool output should be structured like:
-        # {
-        #   "structuredOutput": { ... },
-        #   "content": [ { "type": "text", "text": "..." }, ... ],
-        #   "_meta": { ... }
-        # }
-        # and the tool output schema should reflect the structure of "structuredOutput"
-        class UserOutput(BaseModel):
-            name: str
-            age: int
-
-        # Output structure expected by ChatGPT App SDK
-        class ToolOutput(BaseModel):
-            structuredOutput: UserOutput
-            content: list[dict[str, str]]
-            meta: dict[str, Any] = Field(alias="_meta")
-
-        def get_user(user_id: int) -> ToolOutput:
-            """Get user by ID."""
-            return ToolOutput(
-                structuredOutput=UserOutput(name="John", age=30),
-                content=[{"type": "text", "text": "User found"}],
-                _meta={"request_id": "12345"},
-            )
-
-        manager = ToolManager()
-        tool = manager.add_tool(get_user, output_schema=UserOutput.model_json_schema())
-
-        expected_schema = {
-            "properties": {
-                "name": {"type": "string", "title": "Name"},
-                "age": {"type": "integer", "title": "Age"},
-            },
-            "required": ["name", "age"],
-            "title": "UserOutput",
-            "type": "object",
-        }
-        assert tool.output_schema == expected_schema
-        assert tool.fn_metadata.output_model == ToolOutput
-
-    @pytest.mark.anyio
-    async def test_call_tool_with_output_schema_override(self):
-        # For the ChatGPT App SDK, the tool output should be structured like:
-        # {
-        #   "structuredOutput": { ... },
-        #   "content": [ { "type": "text", "text": "..." }, ... ],
-        #   "_meta": { ... }
-        # }
-        # and the tool output schema should reflect the structure of "structuredOutput"
-        class UserOutput(BaseModel):
-            name: str
-            age: int
-
-        # Output structure expected by ChatGPT App SDK
-        class ToolOutput(BaseModel):
-            structuredOutput: UserOutput
-            content: list[dict[str, str]]
-            meta: dict[str, Any] = Field(alias="_meta")
-
-        def get_user(user_id: int) -> ToolOutput:
-            """Get user by ID."""
-            return ToolOutput(
-                structuredOutput=UserOutput(name="John", age=30),
-                content=[{"type": "some more information about the output data"}],
-                _meta={"request_id": "12345"},
-            )
-
-        manager = ToolManager()
-        manager.add_tool(get_user, output_schema=UserOutput.model_json_schema())
-        result = await manager.call_tool("get_user", {"user_id": 1}, convert_result=True)
-
-        expected_result = {
-            "structuredOutput": {"name": "John", "age": 30},
-            "content": [{"type": "some more information about the output data"}],
-            "_meta": {"request_id": "12345"},
-        }
-        assert len(result) == 2 and result[1] == expected_result
 
     @pytest.mark.anyio
     async def test_tool_with_dict_str_any_output(self):
