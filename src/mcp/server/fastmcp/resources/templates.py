@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, validate_call
 from mcp.server.fastmcp.resources.types import FunctionResource, Resource
 from mcp.server.fastmcp.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.fastmcp.utilities.func_metadata import func_metadata
-from mcp.types import Icon
+from mcp.types import Annotations, Icon
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -29,6 +29,7 @@ class ResourceTemplate(BaseModel):
     description: str | None = Field(description="Description of what the resource does")
     mime_type: str = Field(default="text/plain", description="MIME type of the resource content")
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for the resource template")
+    annotations: Annotations | None = Field(default=None, description="Optional annotations for the resource template")
     fn: Callable[..., Any] = Field(exclude=True)
     parameters: dict[str, Any] = Field(description="JSON schema for function parameters")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
@@ -43,6 +44,7 @@ class ResourceTemplate(BaseModel):
         description: str | None = None,
         mime_type: str | None = None,
         icons: list[Icon] | None = None,
+        annotations: Annotations | None = None,
         context_kwarg: str | None = None,
     ) -> ResourceTemplate:
         """Create a template from a function."""
@@ -71,6 +73,7 @@ class ResourceTemplate(BaseModel):
             description=description or fn.__doc__ or "",
             mime_type=mime_type or "text/plain",
             icons=icons,
+            annotations=annotations,
             fn=fn,
             parameters=parameters,
             context_kwarg=context_kwarg,
@@ -108,6 +111,7 @@ class ResourceTemplate(BaseModel):
                 description=self.description,
                 mime_type=self.mime_type,
                 icons=self.icons,
+                annotations=self.annotations,
                 fn=lambda: result,  # Capture result in closure
             )
         except Exception as e:
