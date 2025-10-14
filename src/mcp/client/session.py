@@ -278,7 +278,7 @@ class ClientSession(
     ) -> types.CallToolResult:
         """Send a tools/call request with optional progress callback support."""
 
-        _meta: types.ReadResourceRequestParams.Meta | None = None
+        _meta: types.RequestParams.Meta | None = None
         if meta is not None:
             _meta = types.RequestParams.Meta(**meta)
 
