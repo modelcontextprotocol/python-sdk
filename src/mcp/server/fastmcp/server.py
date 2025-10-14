@@ -169,6 +169,9 @@ class FastMCP(Generic[LifespanResultT]):
             transport_security=transport_security,
         )
 
+        # Configure logging
+        configure_logging(self.settings.log_level)
+
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
             instructions=instructions,
@@ -204,8 +207,6 @@ class FastMCP(Generic[LifespanResultT]):
         # Set up MCP protocol handlers
         self._setup_handlers()
 
-        # Configure logging
-        configure_logging(self.settings.log_level)
 
     @property
     def name(self) -> str:
