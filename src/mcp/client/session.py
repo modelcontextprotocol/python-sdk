@@ -354,7 +354,7 @@ class ClientSession(
         """Validate the structured content of a tool result against its output schema."""
         if name not in self._tool_output_schemas:
             # refresh output schema cache
-            await self.list_tools()  # type: ignore[reportDeprecated]
+            await self.list_tools()
 
         output_schema = None
         if name in self._tool_output_schemas:
