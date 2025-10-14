@@ -285,7 +285,6 @@ class ClientSession(
         result = await self.send_request(
             types.ClientRequest(
                 types.CallToolRequest(
-                    method="tools/call",
                     params=types.CallToolRequestParams(name=name, arguments=arguments, _meta=_meta),
                 )
             ),
