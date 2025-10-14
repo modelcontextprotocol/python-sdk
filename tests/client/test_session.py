@@ -507,11 +507,47 @@ async def test_client_capabilities_with_custom_callbacks():
 @pytest.mark.anyio
 @pytest.mark.parametrize(argnames="meta", argvalues=[None, {"toolMeta": "value"}])
 async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
-    """Test that client tool call requests can include metadata."""
+    """Test that client tool call requests can include metadata"""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
+    mocked_tool = types.Tool(name="sample_tool", inputSchema={})
+
     async def mock_server():
+        # Receive initialization request from client
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        request = ClientRequest.model_validate(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(request.root, InitializeRequest)
+
+        result = ServerResult(
+            InitializeResult(
+                protocolVersion=LATEST_PROTOCOL_VERSION,
+                capabilities=ServerCapabilities(),
+                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+            )
+        )
+
+        # Answer initialization request
+        await server_to_client_send.send(
+            SessionMessage(
+                JSONRPCMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.root.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                )
+            )
+        )
+
+        # Receive initialized notification
+        await client_to_server_receive.receive()
+
+        # Wait for the client to send a 'tools/call' request
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request.root, JSONRPCRequest)
@@ -527,18 +563,42 @@ async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
             CallToolResult(content=[TextContent(type="text", text="Called successfully")], isError=False)
         )
 
-        async with server_to_client_send:
-            await server_to_client_send.send(
-                SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=jsonrpc_request.root.id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
+        # Send the tools/call result
+        await server_to_client_send.send(
+            SessionMessage(
+                JSONRPCMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.root.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )
             )
+        )
+
+        # Wait for the tools/list request from the client
+        # The client requires this step to validate the tool output schema
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+
+        assert jsonrpc_request.root.method == "tools/list"
+
+        result = types.ListToolsResult(tools=[mocked_tool])
+
+        await server_to_client_send.send(
+            SessionMessage(
+                JSONRPCMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.root.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                )
+            )
+        )
+
+        server_to_client_send.close()
 
     async with (
         ClientSession(
@@ -553,6 +613,6 @@ async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
     ):
         tg.start_soon(mock_server)
 
-        session._tool_output_schemas["sample_tool"] = None
+        await session.initialize()
 
-        await session.call_tool(name="sample_tool", arguments={"foo": "bar"}, meta=meta)
+        await session.call_tool(name=mocked_tool.name, arguments={"foo": "bar"}, meta=meta)
