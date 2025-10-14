@@ -45,11 +45,6 @@ class ResourceServerSettings(BaseSettings):
     # RFC 8707 resource validation
     oauth_strict: bool = False
 
-    # TODO(Marcelo): Is this even needed? I didn't have time to check.
-    def __init__(self, **data: Any):
-        """Initialize settings with values from environment variables."""
-        super().__init__(**data)
-
 
 def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
     """
