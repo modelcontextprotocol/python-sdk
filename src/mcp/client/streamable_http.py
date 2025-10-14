@@ -96,7 +96,7 @@ class StreamableHTTPTransport:
         """
         self.url = url
         self.headers = headers or {}
-        self.extensions = extensions or {}
+        self.extensions = extensions.copy() if extensions else {}
         self.timeout = timeout.total_seconds() if isinstance(timeout, timedelta) else timeout
         self.sse_read_timeout = (
             sse_read_timeout.total_seconds() if isinstance(sse_read_timeout, timedelta) else sse_read_timeout

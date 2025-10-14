@@ -85,13 +85,4 @@ mcp> quit
 ## Configuration
 
 - `MCP_SERVER_PORT` - Server port (default: 8000)
-- `MCP_SERVER_HOSTNAME` - Server hostname (default: 8000)
-
-## Compatible Servers
-
-This client works with any MCP server that doesn't require authentication, including:
-
-- `examples/servers/simple-tool` - Basic tool server
-- `examples/servers/simple-resource` - Resource server  
-- `examples/servers/simple-prompt` - Prompt server
-- Any custom MCP server without auth requirements
+- `MCP_SERVER_HOSTNAME` - Server hostname (default: localhost)

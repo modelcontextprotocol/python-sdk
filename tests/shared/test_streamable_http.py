@@ -1597,3 +1597,367 @@ async def test_client_crash_handled(basic_server: None, basic_server_url: str):
             assert isinstance(result, InitializeResult)
             tools = await session.list_tools()
             assert tools.tools
+
+
+# Extensions Tests
+class TestStreamableHTTPExtensions:
+    """Test class for StreamableHTTP extensions functionality."""
+
+    def test_extensions_initialization_none(self):
+        """Test that extensions are properly initialized when None."""
+        from mcp.client.streamable_http import StreamableHTTPTransport
+        
+        transport = StreamableHTTPTransport("http://test.example.com")
+        assert transport.extensions == {}
+
+    def test_extensions_initialization_empty_dict(self):
+        """Test that extensions are properly initialized with empty dict."""
+        from mcp.client.streamable_http import StreamableHTTPTransport
+        
+        transport = StreamableHTTPTransport("http://test.example.com", extensions={})
+        assert transport.extensions == {}
+
+    def test_extensions_initialization_with_data(self):
+        """Test that extensions are properly initialized with provided data."""
+        from mcp.client.streamable_http import StreamableHTTPTransport
+        
+        extensions = {"custom_extension": "test_value", "trace_id": "123456"}
+        transport = StreamableHTTPTransport("http://test.example.com", extensions=extensions)
+        assert transport.extensions == extensions
+        # Ensure it's a copy, not the same reference
+        assert transport.extensions is not extensions
+
+    def test_extensions_preparation_none_base(self):
+        """Test that _prepare_request_extensions works with None base extensions."""
+        from mcp.client.streamable_http import StreamableHTTPTransport
+        
+        transport = StreamableHTTPTransport("http://test.example.com")
+        result = transport._prepare_request_extensions(None)
+        assert result == {}
+
+    def test_extensions_preparation_empty_base(self):
+        """Test that _prepare_request_extensions works with empty base extensions."""
+        from mcp.client.streamable_http import StreamableHTTPTransport
+        
+        transport = StreamableHTTPTransport("http://test.example.com")
+        result = transport._prepare_request_extensions({})
+        assert result == {}
+
+    def test_extensions_preparation_with_base(self):
+        """Test that _prepare_request_extensions works with base extensions."""
+        from mcp.client.streamable_http import StreamableHTTPTransport
+        
+        transport = StreamableHTTPTransport("http://test.example.com")
+        base_extensions = {"request_id": "req_123", "custom": "value"}
+        result = transport._prepare_request_extensions(base_extensions)
+        assert result == base_extensions
+        # Ensure it's a copy, not the same reference
+        assert result is not base_extensions
+
+    def test_extensions_preparation_preserves_original(self):
+        """Test that _prepare_request_extensions doesn't modify the original."""
+        from mcp.client.streamable_http import StreamableHTTPTransport
+        
+        transport = StreamableHTTPTransport("http://test.example.com")
+        base_extensions = {"request_id": "req_123"}
+        original_extensions = base_extensions.copy()
+        
+        result = transport._prepare_request_extensions(base_extensions)
+        
+        # Original should be unchanged
+        assert base_extensions == original_extensions
+        # Result should be a copy
+        assert result == base_extensions
+        assert result is not base_extensions
+
+    @pytest.mark.anyio
+    async def test_extensions_passed_to_streamablehttp_client(self, basic_server: None, basic_server_url: str):
+        """Test that extensions are properly passed through streamablehttp_client."""
+        test_extensions = {
+            "test_extension": "test_value",
+            "trace_id": "ext_trace_123", 
+            "custom_metadata": "custom_data"
+        }
+        
+        async with streamablehttp_client(
+            f"{basic_server_url}/mcp",
+            extensions=test_extensions
+        ) as (read_stream, write_stream, _):
+            async with ClientSession(read_stream, write_stream) as session:
+                # Test initialization with extensions
+                result = await session.initialize()
+                assert isinstance(result, InitializeResult)
+                assert result.serverInfo.name == SERVER_NAME
+                
+                # Test that session works with extensions
+                tools = await session.list_tools()
+                assert len(tools.tools) == 6
+
+    @pytest.mark.anyio
+    async def test_extensions_with_empty_dict(self, basic_server: None, basic_server_url: str):
+        """Test streamablehttp_client with empty extensions dict."""
+        async with streamablehttp_client(
+            f"{basic_server_url}/mcp",
+            extensions={}
+        ) as (read_stream, write_stream, _):
+            async with ClientSession(read_stream, write_stream) as session:
+                result = await session.initialize()
+                assert isinstance(result, InitializeResult)
+
+    @pytest.mark.anyio
+    async def test_extensions_with_none(self, basic_server: None, basic_server_url: str):
+        """Test streamablehttp_client with None extensions."""
+        async with streamablehttp_client(
+            f"{basic_server_url}/mcp",
+            extensions=None
+        ) as (read_stream, write_stream, _):
+            async with ClientSession(read_stream, write_stream) as session:
+                result = await session.initialize()
+                assert isinstance(result, InitializeResult)
+
+    def test_extensions_request_context_creation(self):
+        """Test that RequestContext includes extensions correctly."""
+        from mcp.client.streamable_http import RequestContext, StreamableHTTPTransport
+        from mcp.shared.message import SessionMessage
+        from mcp.types import JSONRPCMessage, JSONRPCRequest
+        import httpx
+        import anyio
+        import asyncio
+
+        # Create transport with extensions
+        test_extensions = {"custom": "data", "trace": "123"}
+        transport = StreamableHTTPTransport(
+            "http://test.example.com", 
+            extensions=test_extensions
+        )
+
+        async def run_test():
+            # Create mock objects for the context
+            client = httpx.AsyncClient()
+            read_stream_writer, read_stream_reader = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+            
+            try:
+                message = JSONRPCMessage(JSONRPCRequest(
+                    jsonrpc="2.0",
+                    method="test_method",
+                    id="test_id"
+                ))
+                session_message = SessionMessage(message)
+
+                # Create RequestContext
+                ctx = RequestContext(
+                    client=client,
+                    headers={},
+                    extensions=transport.extensions,
+                    session_id=None,
+                    session_message=session_message,
+                    metadata=None,
+                    read_stream_writer=read_stream_writer,
+                    sse_read_timeout=60
+                )
+
+                assert ctx.extensions == test_extensions
+                # RequestContext uses the same reference to extensions, which is acceptable
+                assert ctx.extensions is transport.extensions
+            finally:
+                # Clean up resources
+                await read_stream_writer.aclose()
+                await read_stream_reader.aclose()
+                await client.aclose()
+
+        # Run the async test
+        asyncio.run(run_test())
+
+    @pytest.mark.anyio
+    async def test_extensions_isolation_between_clients(self, basic_server: None, basic_server_url: str):
+        """Test that extensions are isolated between different client instances."""
+        extensions_1 = {"client": "1", "session": "session_1"}
+        extensions_2 = {"client": "2", "session": "session_2"}
+        
+        # Create two clients with different extensions
+        results: list[tuple[str, str]] = []
+        
+        async with streamablehttp_client(
+            f"{basic_server_url}/mcp",
+            extensions=extensions_1
+        ) as (read_stream1, write_stream1, _):
+            async with ClientSession(read_stream1, write_stream1) as session1:
+                result1 = await session1.initialize()
+                results.append(("client1", result1.serverInfo.name))
+                
+        async with streamablehttp_client(
+            f"{basic_server_url}/mcp",
+            extensions=extensions_2
+        ) as (read_stream2, write_stream2, _):
+            async with ClientSession(read_stream2, write_stream2) as session2:
+                result2 = await session2.initialize()
+                results.append(("client2", result2.serverInfo.name))
+        
+        # Both clients should work independently
+        assert len(results) == 2
+        assert all(name == SERVER_NAME for _, name in results)
+
+    def test_extensions_immutability(self):
+        """Test that modifying extensions after transport creation doesn't affect the transport."""
+        from mcp.client.streamable_http import StreamableHTTPTransport
+        
+        original_extensions = {"mutable": "original"}
+        transport = StreamableHTTPTransport(
+            "http://test.example.com",
+            extensions=original_extensions
+        )
+        
+        # Modify the original extensions dict
+        original_extensions["mutable"] = "modified"
+        original_extensions["new_key"] = "new_value"
+        
+        # Transport should still have the original values
+        assert transport.extensions == {"mutable": "original"}
+        assert "new_key" not in transport.extensions
+
+    @pytest.mark.anyio
+    async def test_extensions_passed_to_httpx_requests(self, basic_server: None, basic_server_url: str):
+        """Test that extensions are actually passed to httpx client requests."""
+        import httpx
+        from contextlib import asynccontextmanager
+        from typing import Any
+        
+        test_extensions = {
+            "test_key": "test_value",
+            "trace_id": "httpx_trace_123"
+        }
+        
+        captured_extensions: list[dict[str, str]] = []
+        
+        # Create a mock httpx client that captures extensions
+        class ExtensionCapturingClient(httpx.AsyncClient):
+            def __init__(self, *args: Any, **kwargs: Any):
+                super().__init__(*args, **kwargs)
+                
+            @asynccontextmanager
+            async def stream(self, *args: Any, **kwargs: Any):
+                # Capture extensions when stream is called
+                if 'extensions' in kwargs:
+                    captured_extensions.append(kwargs['extensions'])
+                # Call the real stream method
+                async with super().stream(*args, **kwargs) as response:
+                    yield response
+        
+        # Custom client factory that returns our capturing client
+        def custom_client_factory(
+            headers: dict[str, str] | None = None, 
+            timeout: httpx.Timeout | None = None, 
+            auth: httpx.Auth | None = None
+        ) -> httpx.AsyncClient:
+            return ExtensionCapturingClient(
+                headers=headers,
+                timeout=timeout,
+                auth=auth,
+            )
+        
+        async with streamablehttp_client(
+            f"{basic_server_url}/mcp/",
+            extensions=test_extensions,
+            httpx_client_factory=custom_client_factory
+        ) as (read_stream, write_stream, _):
+            async with ClientSession(read_stream, write_stream) as session:
+                # Initialize - this should make a POST request with extensions
+                await session.initialize()
+                
+                # Make another request to capture more extensions usage
+                await session.list_tools()
+        
+        # Verify extensions were captured in requests
+        assert len(captured_extensions) > 0
+        
+        # Check that our test extensions were included
+        for captured in captured_extensions:
+            assert "test_key" in captured
+            assert captured["test_key"] == "test_value"
+            assert "trace_id" in captured
+            assert captured["trace_id"] == "httpx_trace_123"
+
+    @pytest.mark.anyio
+    async def test_extensions_with_json_and_sse_responses(self, basic_server: None, basic_server_url: str):
+        """Test that extensions work with both JSON and SSE response types."""
+        test_extensions = {
+            "response_test": "json_sse_test",
+            "format": "both"
+        }
+        
+        # Test with regular SSE response (default behavior)
+        async with streamablehttp_client(
+            f"{basic_server_url}/mcp",
+            extensions=test_extensions
+        ) as (read_stream, write_stream, _):
+            async with ClientSession(read_stream, write_stream) as session:
+                result = await session.initialize()
+                assert isinstance(result, InitializeResult)
+                
+                # Call tool which should work with SSE
+                tool_result = await session.call_tool("test_tool", {})
+                assert len(tool_result.content) == 1
+                content = tool_result.content[0]
+                assert content.type == "text"
+                from mcp.types import TextContent
+                assert isinstance(content, TextContent)
+                assert content.text == "Called test_tool"
+
+    @pytest.mark.anyio 
+    async def test_extensions_with_json_response_server(self, json_response_server: None, json_server_url: str):
+        """Test extensions work with JSON response mode."""
+        test_extensions = {
+            "response_mode": "json_only",
+            "test_id": "json_test_123"
+        }
+        
+        async with streamablehttp_client(
+            f"{json_server_url}/mcp",
+            extensions=test_extensions
+        ) as (read_stream, write_stream, _):
+            async with ClientSession(read_stream, write_stream) as session:
+                result = await session.initialize()
+                assert isinstance(result, InitializeResult)
+                
+                tools = await session.list_tools()
+                assert len(tools.tools) == 6
+
+    def test_extensions_type_validation(self):
+        """Test that extensions parameter accepts proper types."""
+        from mcp.client.streamable_http import StreamableHTTPTransport
+        
+        # Test with valid dict[str, str]
+        valid_extensions = {"key1": "value1", "key2": "value2"}
+        transport = StreamableHTTPTransport("http://test.com", extensions=valid_extensions)
+        assert transport.extensions == valid_extensions
+        
+        # Test with None (should default to empty dict)
+        transport_none = StreamableHTTPTransport("http://test.com", extensions=None)
+        assert transport_none.extensions == {}
+        
+        # Test with empty dict
+        transport_empty = StreamableHTTPTransport("http://test.com", extensions={})
+        assert transport_empty.extensions == {}
+
+    @pytest.mark.anyio
+    async def test_extensions_with_special_characters(self, basic_server: None, basic_server_url: str):
+        """Test that extensions work with special characters in values."""
+        test_extensions = {
+            "special_chars": "test-value_with.special@chars#123!",
+            "unicode": "test_测试_🔧",
+            "json_like": '{"nested": "value"}',
+            "url_like": "https://example.com/path?param=value",
+        }
+        
+        async with streamablehttp_client(
+            f"{basic_server_url}/mcp",
+            extensions=test_extensions
+        ) as (read_stream, write_stream, _):
+            async with ClientSession(read_stream, write_stream) as session:
+                # Should not throw any errors with special characters
+                result = await session.initialize()
+                assert isinstance(result, InitializeResult)
+                
+                # Should work normally with tools
+                tools = await session.list_tools()
+                assert len(tools.tools) == 6
