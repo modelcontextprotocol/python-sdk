@@ -53,7 +53,7 @@ The client provides several commands:
 
 ### Basic tool usage
 
-```
+```markdown
 🚀 Simple Streamable Private Gateway
 Connecting to: https://localhost:8000/mcp
 📡 Opening StreamableHTTP transport connection...
@@ -85,6 +85,7 @@ mcp> quit
 ## Configuration
 
 - `MCP_SERVER_PORT` - Server port (default: 8000)
+- `MCP_SERVER_HOSTNAME` - Server hostname (default: 8000)
 
 ## Compatible Servers
 

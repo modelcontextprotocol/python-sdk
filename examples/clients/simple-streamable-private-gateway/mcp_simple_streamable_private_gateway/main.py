@@ -18,8 +18,9 @@ from mcp.client.streamable_http import streamablehttp_client
 class SimpleStreamablePrivateGateway:
     """Simple MCP streamable private gateway client without authentication."""
 
-    def __init__(self, server_url: str, transport_type: str = "streamable-http"):
+    def __init__(self, server_url: str, server_hostname: str, transport_type: str = "streamable-http"):
         self.server_url = server_url
+        self.server_hostname = server_hostname
         self.transport_type = transport_type
         self.session: ClientSession | None = None
 
@@ -29,11 +30,14 @@ class SimpleStreamablePrivateGateway:
 
         try:
             print("📡 Opening StreamableHTTP transport connection...")
+            # Note: terminate_on_close=False prevents SSL handshake failures during exit
+            # Some servers may not handle session termination gracefully over SSL
             async with streamablehttp_client(
                 url=self.server_url,
-                headers={"Host": "mcp.deepwiki.com"},
-                extensions={"sni_hostname": "mcp.deepwiki.com"},
+                headers={"Host": self.server_hostname},
+                extensions={"sni_hostname": self.server_hostname},
                 timeout=timedelta(seconds=60),
+                terminate_on_close=False,  # Skip session termination to avoid SSL errors
             ) as (read_stream, write_stream, get_session_id):
                 await self._run_session(read_stream, write_stream, get_session_id)
 
@@ -118,6 +122,7 @@ class SimpleStreamablePrivateGateway:
                     continue
 
                 if command == "quit":
+                    print("👋 Goodbye!")
                     break
 
                 elif command == "list":
@@ -151,6 +156,7 @@ class SimpleStreamablePrivateGateway:
                 print("\n\n👋 Goodbye!")
                 break
             except EOFError:
+                print("\n👋 Goodbye!")
                 break
 
 
@@ -159,15 +165,17 @@ async def main():
     # Default server URL - can be overridden with environment variable
     # Most MCP streamable HTTP servers use /mcp as the endpoint
     server_port = os.getenv("MCP_SERVER_PORT", "8000")
+    server_hostname = os.getenv("MCP_SERVER_HOSTNAME", "localhost")
     transport_type = "streamable-http"
     server_url = f"https://localhost:{server_port}/mcp"
 
     print("🚀 Simple Streamable Private Gateway")
     print(f"Connecting to: {server_url}")
+    print(f"Server hostname: {server_hostname}")
     print(f"Transport type: {transport_type}")
 
     # Start connection flow
-    client = SimpleStreamablePrivateGateway(server_url, transport_type)
+    client = SimpleStreamablePrivateGateway(server_url, server_hostname, transport_type)
     await client.connect()
 
 
