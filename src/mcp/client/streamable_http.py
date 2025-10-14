@@ -64,6 +64,7 @@ class RequestContext:
 
     client: httpx.AsyncClient
     headers: dict[str, str]
+    extensions: dict[str, str] | None
     session_id: str | None
     session_message: SessionMessage
     metadata: ClientMessageMetadata | None
@@ -78,6 +79,7 @@ class StreamableHTTPTransport:
         self,
         url: str,
         headers: dict[str, str] | None = None,
+        extensions: dict[str, str] | None = None,
         timeout: float | timedelta = 30,
         sse_read_timeout: float | timedelta = 60 * 5,
         auth: httpx.Auth | None = None,
@@ -87,12 +89,14 @@ class StreamableHTTPTransport:
         Args:
             url: The endpoint URL.
             headers: Optional headers to include in requests.
+            extensions: Optional extensions to include in requests.
             timeout: HTTP timeout for regular operations.
             sse_read_timeout: Timeout for SSE read operations.
             auth: Optional HTTPX authentication handler.
         """
         self.url = url
         self.headers = headers or {}
+        self.extensions = extensions or {}
         self.timeout = timeout.total_seconds() if isinstance(timeout, timedelta) else timeout
         self.sse_read_timeout = (
             sse_read_timeout.total_seconds() if isinstance(sse_read_timeout, timedelta) else sse_read_timeout
@@ -114,6 +118,12 @@ class StreamableHTTPTransport:
         if self.protocol_version:
             headers[MCP_PROTOCOL_VERSION] = self.protocol_version
         return headers
+
+    def _prepare_request_extensions(self, base_extensions: dict[str, str] | None) -> dict[str, str]:
+        """Update extensions with session-specific data if available."""
+        extensions = base_extensions.copy() if base_extensions else {}
+        # Add any session-specific extensions here if needed
+        return extensions
 
     def _is_initialization_request(self, message: JSONRPCMessage) -> bool:
         """Check if the message is an initialization request."""
@@ -254,6 +264,7 @@ class StreamableHTTPTransport:
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
         headers = self._prepare_request_headers(ctx.headers)
+        extensions = self._prepare_request_extensions(ctx.extensions)
         message = ctx.session_message.message
         is_initialization = self._is_initialization_request(message)
 
@@ -262,6 +273,7 @@ class StreamableHTTPTransport:
             self.url,
             json=message.model_dump(by_alias=True, mode="json", exclude_none=True),
             headers=headers,
+            extensions=extensions,
         ) as response:
             if response.status_code == 202:
                 logger.debug("Received 202 Accepted")
@@ -395,6 +407,7 @@ class StreamableHTTPTransport:
                     ctx = RequestContext(
                         client=client,
                         headers=self.request_headers,
+                        extensions=self.extensions,
                         session_id=self.session_id,
                         session_message=session_message,
                         metadata=metadata,
@@ -445,6 +458,7 @@ class StreamableHTTPTransport:
 async def streamablehttp_client(
     url: str,
     headers: dict[str, str] | None = None,
+    extensions: dict[str, str] | None = None,
     timeout: float | timedelta = 30,
     sse_read_timeout: float | timedelta = 60 * 5,
     terminate_on_close: bool = True,
@@ -470,7 +484,14 @@ async def streamablehttp_client(
             - write_stream: Stream for sending messages to the server
             - get_session_id_callback: Function to retrieve the current session ID
     """
-    transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout, auth)
+    transport = StreamableHTTPTransport(
+        url=url,
+        headers=headers,
+        extensions=extensions,
+        timeout=timeout,
+        sse_read_timeout=sse_read_timeout,
+        auth=auth,
+    )
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
