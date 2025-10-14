@@ -51,6 +51,7 @@ class ToolManager:
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
+        output_schema: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> Tool:
         """Add a tool to the server."""
@@ -62,6 +63,7 @@ class ToolManager:
             annotations=annotations,
             icons=icons,
             meta=meta,
+            output_schema=output_schema,
             structured_output=structured_output,
         )
         existing = self._tools.get(tool.name)

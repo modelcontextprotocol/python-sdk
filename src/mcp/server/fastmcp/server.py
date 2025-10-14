@@ -385,6 +385,7 @@ class FastMCP(Generic[LifespanResultT]):
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
+        output_schema: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> None:
         """Add a tool to the server.
@@ -398,6 +399,8 @@ class FastMCP(Generic[LifespanResultT]):
             title: Optional human-readable title for the tool
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
+            meta: Optional metadata dictionary
+            output_schema: Optional Pydantic model defining the output schema separate from the tool's return type
             structured_output: Controls whether the tool's output is structured or unstructured
                 - If None, auto-detects based on the function's return type annotation
                 - If True, creates a structured tool (return type annotation permitting)
@@ -411,6 +414,7 @@ class FastMCP(Generic[LifespanResultT]):
             annotations=annotations,
             icons=icons,
             meta=meta,
+            output_schema=output_schema,
             structured_output=structured_output,
         )
 
@@ -433,6 +437,7 @@ class FastMCP(Generic[LifespanResultT]):
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
+        output_schema: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
@@ -446,6 +451,8 @@ class FastMCP(Generic[LifespanResultT]):
             title: Optional human-readable title for the tool
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
+            meta: Optional metadata dictionary
+            output_schema: Optional Pydantic model defining the output schema separate from the tool's return type
             structured_output: Controls whether the tool's output is structured or unstructured
                 - If None, auto-detects based on the function's return type annotation
                 - If True, creates a structured tool (return type annotation permitting)
@@ -481,6 +488,7 @@ class FastMCP(Generic[LifespanResultT]):
                 annotations=annotations,
                 icons=icons,
                 meta=meta,
+                output_schema=output_schema,
                 structured_output=structured_output,
             )
             return fn

@@ -35,9 +35,15 @@ class Tool(BaseModel):
     annotations: ToolAnnotations | None = Field(None, description="Optional annotations for the tool")
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this tool")
     meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for this tool")
+    output_schema_override: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional Pydantic model defining the output schema separate from the tool's return type",
+    )
 
     @cached_property
     def output_schema(self) -> dict[str, Any] | None:
+        if self.output_schema_override is not None:
+            return self.output_schema_override
         return self.fn_metadata.output_schema
 
     @classmethod
@@ -51,6 +57,7 @@ class Tool(BaseModel):
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
+        output_schema: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
@@ -84,6 +91,7 @@ class Tool(BaseModel):
             annotations=annotations,
             icons=icons,
             meta=meta,
+            output_schema_override=output_schema,
         )
 
     async def run(
@@ -98,7 +106,7 @@ class Tool(BaseModel):
                 self.fn,
                 self.is_async,
                 arguments,
-                {self.context_kwarg: context} if self.context_kwarg is not None else None,
+                ({self.context_kwarg: context} if self.context_kwarg is not None else None),
             )
 
             if convert_result:
