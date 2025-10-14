@@ -6,7 +6,7 @@ import asyncio
 
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
-from mcp.types import Resource
+from mcp.types import PaginatedRequestParams, Resource
 
 
 async def list_all_resources() -> None:
@@ -23,7 +23,7 @@ async def list_all_resources() -> None:
 
             while True:
                 # Fetch a page of resources
-                result = await session.list_resources(cursor=cursor)
+                result = await session.list_resources(params=PaginatedRequestParams(cursor=cursor))
                 all_resources.extend(result.resources)
 
                 print(f"Fetched {len(result.resources)} resources")
