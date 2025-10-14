@@ -11,6 +11,7 @@ from mcp.shared.session import RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
+    CallToolResult,
     ClientNotification,
     ClientRequest,
     Implementation,
@@ -23,6 +24,7 @@ from mcp.types import (
     JSONRPCResponse,
     ServerCapabilities,
     ServerResult,
+    TextContent,
 )
 
 
@@ -492,8 +494,65 @@ async def test_client_capabilities_with_custom_callbacks():
 
     # Assert that capabilities are properly set with custom callbacks
     assert received_capabilities is not None
-    assert received_capabilities.sampling is not None  # Custom sampling callback provided
+    # Custom sampling callback provided
+    assert received_capabilities.sampling is not None
     assert isinstance(received_capabilities.sampling, types.SamplingCapability)
-    assert received_capabilities.roots is not None  # Custom list_roots callback provided
+    # Custom list_roots callback provided
+    assert received_capabilities.roots is not None
     assert isinstance(received_capabilities.roots, types.RootsCapability)
-    assert received_capabilities.roots.listChanged is True  # Should be True for custom callback
+    # Should be True for custom callback
+    assert received_capabilities.roots.listChanged is True
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(argnames="meta", argvalues=[{"toolMeta": "value"}])
+async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
+    """Test that client tool call requests can include metadata."""
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    async def mock_server():
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+
+        assert jsonrpc_request.root.method == "tools/call"
+
+        if meta is not None:
+            assert jsonrpc_request.root.params
+            assert "_meta" in jsonrpc_request.root.params
+            assert jsonrpc_request.root.params["_meta"] == meta
+
+        result = ServerResult(
+            CallToolResult(content=[TextContent(type="text", text="Called successfully")], isError=False)
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=jsonrpc_request.root.id,
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                        )
+                    )
+                )
+            )
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+
+        session._tool_output_schemas["sample_tool"] = None
+
+        await session.call_tool(name="sample_tool", arguments={"foo": "bar"}, meta=meta)
