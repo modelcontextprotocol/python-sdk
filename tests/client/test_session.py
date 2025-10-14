@@ -505,7 +505,7 @@ async def test_client_capabilities_with_custom_callbacks():
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(argnames="meta", argvalues=[{"toolMeta": "value"}])
+@pytest.mark.parametrize(argnames="meta", argvalues=[None, {"toolMeta": "value"}])
 async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
     """Test that client tool call requests can include metadata."""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
