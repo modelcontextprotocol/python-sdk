@@ -163,6 +163,7 @@ class ServerSession(
                             )
                         )
                     )
+                self._initialization_state = InitializationState.Initialized
             case types.PingRequest():
                 # Ping requests are allowed at any time
                 pass

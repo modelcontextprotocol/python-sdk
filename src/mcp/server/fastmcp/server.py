@@ -43,7 +43,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
-from mcp.types import AnyFunction, ContentBlock, GetPromptResult, Icon, ToolAnnotations
+from mcp.types import Annotations, AnyFunction, ContentBlock, GetPromptResult, Icon, ToolAnnotations
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
@@ -322,6 +322,7 @@ class FastMCP(Generic[LifespanResultT]):
                 description=resource.description,
                 mimeType=resource.mime_type,
                 icons=resource.icons,
+                annotations=resource.annotations,
             )
             for resource in resources
         ]
@@ -336,6 +337,7 @@ class FastMCP(Generic[LifespanResultT]):
                 description=template.description,
                 mimeType=template.mime_type,
                 icons=template.icons,
+                annotations=template.annotations,
             )
             for template in templates
         ]
@@ -497,6 +499,7 @@ class FastMCP(Generic[LifespanResultT]):
         description: str | None = None,
         mime_type: str | None = None,
         icons: list[Icon] | None = None,
+        annotations: Annotations | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a function as a resource.
 
@@ -572,6 +575,7 @@ class FastMCP(Generic[LifespanResultT]):
                     description=description,
                     mime_type=mime_type,
                     icons=icons,
+                    annotations=annotations,
                 )
             else:
                 # Register as regular resource
@@ -583,6 +587,7 @@ class FastMCP(Generic[LifespanResultT]):
                     description=description,
                     mime_type=mime_type,
                     icons=icons,
+                    annotations=annotations,
                 )
                 self.add_resource(resource)
             return fn
