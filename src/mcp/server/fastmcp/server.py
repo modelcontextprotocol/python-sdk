@@ -10,7 +10,7 @@ from typing import Any, Generic, Literal
 
 import anyio
 import pydantic_core
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
@@ -69,42 +69,47 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     )
 
     # Server settings
-    debug: bool
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    debug: bool = False
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     # HTTP settings
-    host: str
-    port: int
-    mount_path: str
-    sse_path: str
-    message_path: str
-    streamable_http_path: str
+    host: str = "127.0.0.1"
+    port: int = 8000
+    mount_path: str = "/"
+    sse_path: str = "/sse"
+    message_path: str = "/messages/"
+    streamable_http_path: str = "/mcp"
 
     # StreamableHTTP settings
-    json_response: bool
-    stateless_http: bool
+    json_response: bool = False
+    stateless_http: bool = False
     """Define if the server should create a new transport per request."""
 
     # resource settings
-    warn_on_duplicate_resources: bool
+    warn_on_duplicate_resources: bool = True
 
     # tool settings
-    warn_on_duplicate_tools: bool
+    warn_on_duplicate_tools: bool = True
 
     # prompt settings
-    warn_on_duplicate_prompts: bool
+    warn_on_duplicate_prompts: bool = True
 
     # TODO(Marcelo): Investigate if this is used. If it is, it's probably a good idea to remove it.
-    dependencies: list[str]
+    dependencies: list[str] = Field(
+        default_factory=list,
+        description="List of dependencies to install in the server environment",
+    )
     """A list of dependencies to install in the server environment."""
 
-    lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None
+    lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = Field(
+        None, description="Lifespan context manager"
+    )
     """A async context manager that will be called when the server is started."""
 
-    auth: AuthSettings | None
+    auth: AuthSettings | None = None
 
     # Transport security settings (DNS rebinding protection)
-    transport_security: TransportSecuritySettings | None
+    transport_security: TransportSecuritySettings | None = None
 
 
 def lifespan_wrapper(
@@ -131,43 +136,66 @@ class FastMCP(Generic[LifespanResultT]):
         event_store: EventStore | None = None,
         *,
         tools: list[Tool] | None = None,
-        debug: bool = False,
-        log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
-        host: str = "127.0.0.1",
-        port: int = 8000,
-        mount_path: str = "/",
-        sse_path: str = "/sse",
-        message_path: str = "/messages/",
-        streamable_http_path: str = "/mcp",
-        json_response: bool = False,
-        stateless_http: bool = False,
-        warn_on_duplicate_resources: bool = True,
-        warn_on_duplicate_tools: bool = True,
-        warn_on_duplicate_prompts: bool = True,
-        dependencies: Collection[str] = (),
+        debug: bool | None = None,
+        log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] | None = None,
+        host: str | None = None,
+        port: int | None = None,
+        mount_path: str | None = None,
+        sse_path: str | None = None,
+        message_path: str | None = None,
+        streamable_http_path: str | None = None,
+        json_response: bool | None = None,
+        stateless_http: bool | None = None,
+        warn_on_duplicate_resources: bool | None = None,
+        warn_on_duplicate_tools: bool | None = None,
+        warn_on_duplicate_prompts: bool | None = None,
+        dependencies: Collection[str] | None = None,
         lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
         transport_security: TransportSecuritySettings | None = None,
     ):
-        self.settings = Settings(
-            debug=debug,
-            log_level=log_level,
-            host=host,
-            port=port,
-            mount_path=mount_path,
-            sse_path=sse_path,
-            message_path=message_path,
-            streamable_http_path=streamable_http_path,
-            json_response=json_response,
-            stateless_http=stateless_http,
-            warn_on_duplicate_resources=warn_on_duplicate_resources,
-            warn_on_duplicate_tools=warn_on_duplicate_tools,
-            warn_on_duplicate_prompts=warn_on_duplicate_prompts,
-            dependencies=list(dependencies),
-            lifespan=lifespan,
-            auth=auth,
-            transport_security=transport_security,
-        )
+        # Collect all provided settings, which can be provided as explicit parameters,
+        # environment variables or .env via the Pydantic settings,
+        # or defaults from the Settings class.
+        settings_kwargs: dict[str, Any] = {}
+
+        if debug is not None:
+            settings_kwargs["debug"] = debug
+        if log_level is not None:
+            settings_kwargs["log_level"] = log_level
+        if host is not None:
+            settings_kwargs["host"] = host
+        if port is not None:
+            settings_kwargs["port"] = port
+        if mount_path is not None:
+            settings_kwargs["mount_path"] = mount_path
+        if sse_path is not None:
+            settings_kwargs["sse_path"] = sse_path
+        if message_path is not None:
+            settings_kwargs["message_path"] = message_path
+        if streamable_http_path is not None:
+            settings_kwargs["streamable_http_path"] = streamable_http_path
+        if json_response is not None:
+            settings_kwargs["json_response"] = json_response
+        if stateless_http is not None:
+            settings_kwargs["stateless_http"] = stateless_http
+        if warn_on_duplicate_resources is not None:
+            settings_kwargs["warn_on_duplicate_resources"] = warn_on_duplicate_resources
+        if warn_on_duplicate_tools is not None:
+            settings_kwargs["warn_on_duplicate_tools"] = warn_on_duplicate_tools
+        if warn_on_duplicate_prompts is not None:
+            settings_kwargs["warn_on_duplicate_prompts"] = warn_on_duplicate_prompts
+        if dependencies is not None:
+            settings_kwargs["dependencies"] = list(dependencies)
+        if lifespan is not None:
+            settings_kwargs["lifespan"] = lifespan
+        if auth is not None:
+            settings_kwargs["auth"] = auth
+        if transport_security is not None:
+            settings_kwargs["transport_security"] = transport_security
+
+        # Create settings - only specify the ones that were explicitly provided
+        self.settings: Settings[LifespanResultT] = Settings(**settings_kwargs)
 
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
