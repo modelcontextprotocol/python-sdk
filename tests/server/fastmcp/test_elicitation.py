@@ -346,26 +346,26 @@ async def test_elicitation_with_enum_titles():
             return f"User: {result.data.user_name}, Colors: {', '.join(result.data.favorite_colors)}"
         return f"User {result.action}"
 
-    # Test deprecated enumNames format
-    class DeprecatedColorSchema(BaseModel):
+    # Test legacy enumNames format
+    class LegacyColorSchema(BaseModel):
         user_name: str = Field(description="Your name")
         color: str = Field(
             description="Select a color",
             json_schema_extra={"enum": ["red", "green", "blue"], "enumNames": ["Red", "Green", "Blue"]},
         )
 
-    @mcp.tool(description="Deprecated enum format")
-    async def select_color_deprecated(ctx: Context[ServerSession, None]) -> str:
-        result = await ctx.elicit(message="Select a color (deprecated format)", schema=DeprecatedColorSchema)
+    @mcp.tool(description="Legacy enum format")
+    async def select_color_legacy(ctx: Context[ServerSession, None]) -> str:
+        result = await ctx.elicit(message="Select a color (legacy format)", schema=LegacyColorSchema)
         if result.action == "accept" and result.data:
             return f"User: {result.data.user_name}, Color: {result.data.color}"
         return f"User {result.action}"
 
     async def enum_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
-        if "colors" in params.message and "deprecated" not in params.message:
+        if "colors" in params.message and "legacy" not in params.message:
             return ElicitResult(action="accept", content={"user_name": "Bob", "favorite_colors": ["red", "green"]})
         elif "color" in params.message:
-            if "deprecated" in params.message:
+            if "legacy" in params.message:
                 return ElicitResult(action="accept", content={"user_name": "Charlie", "color": "green"})
             else:
                 return ElicitResult(action="accept", content={"user_name": "Alice", "favorite_color": "blue"})
@@ -377,5 +377,5 @@ async def test_elicitation_with_enum_titles():
     # Test multi-select with titles
     await call_tool_and_assert(mcp, enum_callback, "select_favorite_colors", {}, "User: Bob, Colors: red, green")
 
-    # Test deprecated enumNames format
-    await call_tool_and_assert(mcp, enum_callback, "select_color_deprecated", {}, "User: Charlie, Color: green")
+    # Test legacy enumNames format
+    await call_tool_and_assert(mcp, enum_callback, "select_color_legacy", {}, "User: Charlie, Color: green")
