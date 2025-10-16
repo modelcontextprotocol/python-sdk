@@ -46,9 +46,15 @@ async def test_context_injected_on_effect(caplog: LogCaptureFixture):
     sm = app._state_machine
     assert sm is not None
 
-    sm.transition(InputSymbol.for_tool("t_test", ToolResultType.SUCCESS))
+    # trigger the SUCCESS edge via async transition scope
+    async with sm.transition_scope(
+        success_symbol=InputSymbol.for_tool("t_test", ToolResultType.SUCCESS),
+        error_symbol=InputSymbol.for_tool("t_test", ToolResultType.ERROR),
+    ):
+        pass
 
-    for _ in range(10): # let the asyc t_trigger run
+    # let the async effect run
+    for _ in range(10):
         if "ctx" in called:
             break
         await asyncio.sleep(0.01)
@@ -56,6 +62,8 @@ async def test_context_injected_on_effect(caplog: LogCaptureFixture):
     assert "ctx" in called, "Callback should have been called"
     assert called["ctx"] is not None, "Context should have been injected"
     assert any("Injecting context parameter for target" in rec.message for rec in caplog.records)
+
+
 
 @pytest.mark.anyio
 async def test_context_injected_on_prompt(caplog: LogCaptureFixture):

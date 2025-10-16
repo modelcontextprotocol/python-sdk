@@ -54,12 +54,12 @@ class StateAwareToolManager:
 
         - **Pre-validate**: ensure tool is allowed and available in the current state; otherwise raise ``ValueError``.
         - **Execute**: resolve the tool and run it with ``arguments`` and ``ctx``.
-        - **Transition**: emit ``SUCCESS`` or ``ERROR`` via ``InputSymbol.for_tool(...)`` to drive a state transition.
+        - **Transition**: SUCCESS/ERROR are emitted via the state's async transition scope.
         """
         allowed = self._state_machine.get_available_inputs().get("tools", set())
         if name not in allowed:
             raise ValueError(
-                f"Tool '{name}' is not allowed in state '{self._state_machine.current_state}'."
+                f"Tool '{name}' is not allowed in state '{self._state_machine.current_state}'. "
                 f"Try `list/tools` first to check which tools are available."
             )
 
@@ -67,12 +67,9 @@ class StateAwareToolManager:
         if not tool:
             raise ValueError(f"Tool '{name}' not found.")
 
-        try:
-            result = await tool.run(arguments, context=ctx, convert_result=True)
-            self._state_machine.transition(InputSymbol.for_tool(name, ToolResultType.SUCCESS))
-            return result
-        except Exception as e:
-            self._state_machine.transition(InputSymbol.for_tool(name, ToolResultType.ERROR))
-            logger.exception("Exception during execution of tool '%s'", name)
-            raise ValueError(str(e)) from e
+        async with self._state_machine.transition_scope(
+            success_symbol=InputSymbol.for_tool(name, ToolResultType.SUCCESS),
+            error_symbol=InputSymbol.for_tool(name, ToolResultType.ERROR),
+        ):
+            return await tool.run(arguments, context=ctx, convert_result=True)
 

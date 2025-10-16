@@ -37,16 +37,6 @@ class SessionScopedStateMachine(StateMachine):
         return self._current_by_session_id
 
     @property
-    def initial_state_name(self) -> str:
-        """Expose the machine's initial state name to the session manager."""
-        return self._initial
-
-    @property
-    def context_resolver(self) -> ContextResolver:
-        """Expose the resolver callable to the session manager."""
-        return getattr(self, "_resolve_context", None)
-
-    @property
     def current_state(self) -> str:
         """Return the state for the resolved session id; otherwise fall back to the global state."""
         sid = self.session_manager.resolve_sid()
@@ -63,11 +53,11 @@ class SessionScopedStateMachine(StateMachine):
 
         return state
 
-    def _set_current_state(self, new_state: str) -> None:
+    def set_current_state(self, new_state: str) -> None:
         """Set the state for the resolved session id; otherwise set the global state."""
         sid = self.session_manager.resolve_sid()
         if not sid:
-            return super()._set_current_state(new_state)
+            return super().set_current_state(new_state)
         
         # update state for session
         with self._lock:
@@ -93,7 +83,7 @@ class SessionManager:
         """Initialize session state if unseen and record activity."""
         with self.machine._lock: # pyright: ignore[reportPrivateUsage]
             if session_id not in self.machine.session_state_map:
-                self.machine.session_state_map[session_id] = self.machine.initial_state_name
+                self.machine.session_state_map[session_id] = self.machine.initial_state
                 logger.info("Registered initial state for session %s", session_id)
             self._mark_seen_unlocked(session_id)
 

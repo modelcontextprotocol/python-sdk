@@ -50,17 +50,17 @@ class StateAwarePromptManager:
 
 
     async def get_prompt(
-            self, 
-            name: str, 
-            arguments: dict[str, Any],
-            ctx: FastMCPContext
-        ) -> GetPromptResult:
+        self, 
+        name: str, 
+        arguments: dict[str, Any],
+        ctx: FastMCPContext
+    ) -> GetPromptResult:
         """
         Execute the prompt in the **current state**:
 
         - **Pre-validate**: ensure prompt is allowed and available in the current state; otherwise raise ``ValueError``.
         - **Execute**: resolve the prompt and render it with ``arguments``.
-        - **Transition**: emit ``SUCCESS`` or ``ERROR`` via ``InputSymbol.for_prompt(...)`` to drive a state transition.
+        - **Transition**: SUCCESS/ERROR are emitted via the state's async transition scope.
         """
         allowed = self._state_machine.get_available_inputs().get("prompts", set())
         if name not in allowed:
@@ -73,15 +73,12 @@ class StateAwarePromptManager:
         if not prompt:
             raise ValueError(f"Unknown prompt: {name}")
 
-        try:
+        async with self._state_machine.transition_scope(
+            success_symbol=InputSymbol.for_prompt(name, PromptResultType.SUCCESS),
+            error_symbol=InputSymbol.for_prompt(name, PromptResultType.ERROR),
+        ):
             messages = await prompt.render(arguments, context=ctx)
-
-            self._state_machine.transition(InputSymbol.for_prompt(name, PromptResultType.SUCCESS))
             return GetPromptResult(
                 description=prompt.description,
                 messages=pydantic_core.to_jsonable_python(messages),
             )
-        except Exception as e:
-            self._state_machine.transition(InputSymbol.for_prompt(name, PromptResultType.ERROR))
-            logger.exception("Error getting prompt %s", name)
-            raise ValueError(str(e)) from e

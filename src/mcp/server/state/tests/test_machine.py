@@ -127,19 +127,39 @@ async def test_path_A_cycle_then_terminal(app_branch_cycle_machine: StatefulMCP)
     sm = app._state_machine
     assert sm is not None and sm.current_state == "s0"
 
-    sm.transition(InputSymbol.for_tool("t_login", ToolResultType.SUCCESS))
+    async with sm.transition_scope(
+        success_symbol=InputSymbol.for_tool("t_login", ToolResultType.SUCCESS),
+        error_symbol=InputSymbol.for_tool("t_login", ToolResultType.ERROR),
+    ):
+        pass
     assert sm.current_state == "s1"
 
-    sm.transition(InputSymbol.for_tool("t_next", ToolResultType.SUCCESS))
+    async with sm.transition_scope(
+        success_symbol=InputSymbol.for_tool("t_next", ToolResultType.SUCCESS),
+        error_symbol=InputSymbol.for_tool("t_next", ToolResultType.ERROR),
+    ):
+        pass
     assert sm.current_state == "s2"
 
-    sm.transition(InputSymbol.for_tool("t_back", ToolResultType.SUCCESS))
+    async with sm.transition_scope(
+        success_symbol=InputSymbol.for_tool("t_back", ToolResultType.SUCCESS),
+        error_symbol=InputSymbol.for_tool("t_back", ToolResultType.ERROR),
+    ):
+        pass
     assert sm.current_state == "s1"  # cycle back
 
-    sm.transition(InputSymbol.for_tool("t_next", ToolResultType.SUCCESS))
+    async with sm.transition_scope(
+        success_symbol=InputSymbol.for_tool("t_next", ToolResultType.SUCCESS),
+        error_symbol=InputSymbol.for_tool("t_next", ToolResultType.ERROR),
+    ):
+        pass
     assert sm.current_state == "s2"
 
-    sm.transition(InputSymbol.for_tool("t_finish", ToolResultType.SUCCESS))
+    async with sm.transition_scope(
+        success_symbol=InputSymbol.for_tool("t_finish", ToolResultType.SUCCESS),
+        error_symbol=InputSymbol.for_tool("t_finish", ToolResultType.ERROR),
+    ):
+        pass
     # sT is terminal → auto-reset
     assert sm.current_state == "s0"
 
@@ -156,13 +176,25 @@ async def test_path_B_branch_merge_then_terminal(app_branch_cycle_machine: State
     sm = app._state_machine
     assert sm is not None and sm.current_state == "s0"
 
-    sm.transition(InputSymbol.for_tool("t_alt", ToolResultType.SUCCESS))
+    async with sm.transition_scope(
+        success_symbol=InputSymbol.for_tool("t_alt", ToolResultType.SUCCESS),
+        error_symbol=InputSymbol.for_tool("t_alt", ToolResultType.ERROR),
+    ):
+        pass
     assert sm.current_state == "sA"
 
-    sm.transition(InputSymbol.for_tool("t_merge", ToolResultType.SUCCESS))
+    async with sm.transition_scope(
+        success_symbol=InputSymbol.for_tool("t_merge", ToolResultType.SUCCESS),
+        error_symbol=InputSymbol.for_tool("t_merge", ToolResultType.ERROR),
+    ):
+        pass
     assert sm.current_state == "s2"
 
-    sm.transition(InputSymbol.for_tool("t_finish", ToolResultType.SUCCESS))
+    async with sm.transition_scope(
+        success_symbol=InputSymbol.for_tool("t_finish", ToolResultType.SUCCESS),
+        error_symbol=InputSymbol.for_tool("t_finish", ToolResultType.ERROR),
+    ):
+        pass
     assert sm.current_state == "s0"  # reset after terminal
 
 
@@ -177,8 +209,19 @@ async def test_path_C_abort_from_s1_to_terminal(app_branch_cycle_machine: Statef
     sm = app._state_machine
     assert sm is not None and sm.current_state == "s0"
 
-    sm.transition(InputSymbol.for_tool("t_login", ToolResultType.SUCCESS))
+    async with sm.transition_scope(
+        success_symbol=InputSymbol.for_tool("t_login", ToolResultType.SUCCESS),
+        error_symbol=InputSymbol.for_tool("t_login", ToolResultType.ERROR),
+    ):
+        pass
     assert sm.current_state == "s1"
 
-    sm.transition(InputSymbol.for_tool("t_abort", ToolResultType.ERROR))
+    # We want to traverse the ERROR edge for t_abort.
+    # For a pure path test (no exception noise), pass the ERROR symbol as "success_symbol".
+    async with sm.transition_scope(
+        success_symbol=InputSymbol.for_tool("t_abort", ToolResultType.ERROR),
+        error_symbol=InputSymbol.for_tool("t_abort", ToolResultType.SUCCESS),
+    ):
+        pass
+
     assert sm.current_state == "s0"  # reset after terminal

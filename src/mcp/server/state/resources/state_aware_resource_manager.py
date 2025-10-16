@@ -57,7 +57,7 @@ class StateAwareResourceManager:
 
         - **Pre-validate**: ensure resource is allowed and available in the current state; otherwise raise ``ResourceError``.
         - **Execute**: resolve the resource and read its content.
-        - **Transition**: emit ``SUCCESS`` or ``ERROR`` via ``InputSymbol.for_resource(...)`` to drive a state transition.
+        - **Transition**: SUCCESS/ERROR are emitted via the state's async transition scope.
         """
         allowed = self._state_machine.get_available_inputs().get("resources", set())
         if str(uri) not in allowed:
@@ -70,13 +70,10 @@ class StateAwareResourceManager:
         if not resource:
             raise ResourceError(f"Unknown resource: {uri}")
 
-        try:
+        async with self._state_machine.transition_scope(
+            success_symbol=InputSymbol.for_resource(str(uri), ResourceResultType.SUCCESS),
+            error_symbol=InputSymbol.for_resource(str(uri), ResourceResultType.ERROR),
+        ):
             content = await resource.read()
-            self._state_machine.transition(InputSymbol.for_resource(str(uri), ResourceResultType.SUCCESS))
-
             return [ReadResourceContents(content=content, mime_type=resource.mime_type)]
-        except Exception as e:
-            self._state_machine.transition(InputSymbol.for_resource(str(uri), ResourceResultType.ERROR))
-            logger.exception("Error reading resource %s", uri)
-            raise ResourceError(str(e)) from e
 

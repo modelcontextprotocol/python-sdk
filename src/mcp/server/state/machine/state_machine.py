@@ -27,13 +27,13 @@ It can be synchronous or awaitable; awaitables are scheduled fire-and-forget.
 """
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Callable, Optional
 
 from mcp.server.fastmcp.utilities.logging import get_logger
-from mcp.server.state.helper.callback import apply_callback_with_context
+from mcp.server.state.machine.async_transition_scope import AsyncTransitionScope
 from mcp.server.state.types import (
     Callback,
     ContextResolver,
-    DEFAULT_QUALIFIER,
     PromptResultType,
     ResourceResultType,
     ToolResultType,
@@ -89,7 +89,11 @@ class State:
 ### Final Runtime State Machine
 
 class StateMachine:
-    """Deterministic state machine over InputSymbol triples."""
+    """Deterministic state machine over input symbol triples.
+
+    Provides an async context manager to drive transitions based on success or error outcomes.
+    The context manager is exposed via `transition_scope(...)`.
+    """
 
     def __init__(
         self,
@@ -104,40 +108,61 @@ class StateMachine:
         self._current = initial_state
         self._resolve_context = context_resolver
 
+    ### State Access
+
     @property
-    def current_state(self) -> str: # Always READ via property
-        """
-        Returns the current state name. 
+    def initial_state(self) -> str:
+        """Expose initial state name."""
+        return self._initial
 
-        **Note**: This can be overidden allows subclasses to change how "current" is retrieved.
-        """
+    @property
+    def current_state(self) -> str:
+        """Return the current state name."""
         return self._current
+    
+    @property
+    def context_resolver(self) -> ContextResolver:
+        """Expose the resolver callable (may be None)."""
+        return self._resolve_context
 
-    def _set_current_state(self, new_state: str) -> None: # Always WRTIE via setter
-        """Set the current state.
-        
-        **Note**: This can be overidden allows subclasses to change how "current" is written.
-        """
+    def set_current_state(self, new_state: str) -> None:
+        """Internal setter for current state (used by the transition scope)."""
         self._current = new_state
 
-    def _is_terminal_state(self, state_name: str) -> bool:
-        """Return True if the given state is marked terminal/final."""
+    def get_state(self, name: str) -> Optional[State]:
+        """Return a state object by name (None if unknown)."""
+        return self._states.get(name)
+
+    def is_terminal(self, state_name: str) -> bool:
+        """Return True if the given state is marked terminal/final (unknown → False)."""
         s = self._states.get(state_name)
         return s.is_terminal if s else False
+
+    ### Transition Scope
+
+    def transition_scope(
+        self,
+        *,
+        success_symbol: InputSymbol,
+        error_symbol: InputSymbol,
+        log_exc: Callable[..., None] = logger.exception,
+        exc_mapper: Callable[[BaseException], BaseException] = lambda e: ValueError(str(e)),
+    ) -> AsyncTransitionScope:
+        """Create an async transition scope bound to this machine."""
+        return AsyncTransitionScope(
+            self,
+            success_symbol=success_symbol,
+            error_symbol=error_symbol,
+            log_exc=log_exc,
+            exc_mapper=exc_mapper,
+        )
     
-    def _apply(self, state: State, symbol: InputSymbol) -> bool:
-        """Try to apply a transition for `symbol`; update state and run effect if found."""
-        for tr in state.transitions:
-            if symbol == tr.input_symbol:
-                self._set_current_state(tr.to_state)  
-                apply_callback_with_context(tr.effect, self._resolve_context) 
-                return True
-        return False
+    ### Introspection
 
     def get_available_inputs(self) -> dict[str, set[str]]:
         """List available tool/resource/prompt names from outgoing transitions of the current state."""
         inputs: dict[str, set[str]] = defaultdict(set)
-        state = self._states[self.current_state]  
+        state = self._states[self.current_state]
         for tr in state.transitions:
             symbol = tr.input_symbol
             if symbol.type == "tool":
@@ -151,27 +176,4 @@ class StateMachine:
             "resources": inputs.get("resources", set()),
             "prompts": inputs.get("prompts", set()),
         }
-
-    def transition(self, input_symbol: InputSymbol) -> None:
-        """Apply exact-match transition; if none, retry with DEFAULT qualifier as a fallback (no-op if still unmatched)."""
-        state = self._states.get(self.current_state)
-
-        if state is None:
-            raise RuntimeError(f"State '{self.current_state}' not defined")
-
-        if self._apply(state, input_symbol):
-            if self._is_terminal_state(self.current_state):
-                self._set_current_state(self._initial)
-            return
-
-        fallback = InputSymbol(
-            type=input_symbol.type,
-            name=input_symbol.name,
-            qualifier=DEFAULT_QUALIFIER,
-        )
-
-        self._apply(state, fallback)  # no-op if no match
-
-        if self._is_terminal_state(self.current_state):
-            self._set_current_state(self._initial)
 
