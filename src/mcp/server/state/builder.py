@@ -8,7 +8,7 @@ a deterministic state machine at server startup. The public API exposes:
 
 - StateMachineDefinition (facade)
 - StateAPI (fluent state scope)
-- TransitionAPI (fluent transition scope)
+- TransitionAPI (fluent transition scope; generic over the result type)
 
 Chaining model
 --------------
@@ -24,7 +24,7 @@ An input symbol is a triple ``(type, name, result)`` where:
 At startup the server transfers the accumulated declarations to the private
 builder, chooses global or session-scoped machine, then builds and validates.
 """
-from typing import Callable, Optional, TypeVar
+from typing import Callable, Optional, TypeVar, Generic
 
 from mcp.server.fastmcp.prompts import PromptManager
 from mcp.server.fastmcp.resources import ResourceManager
@@ -51,15 +51,16 @@ from mcp.server.state.validator import StateMachineValidator, ValidationIssue
 
 logger = get_logger(f"{__name__}.StateMachineBuilder")
 
-### Helper Types 
+### Helper Types
 
 F = TypeVar("F", bound=Callable[["StateAPI"], None])  # Decorator receives a StateAPI
+RT = TypeVar("RT", ToolResultType, PromptResultType, ResourceResultType)  # Result-type generic
 
-### Internal Builder 
+### Internal Builder
 
 class _InternalStateMachineBuilder:
     """Private, build-only implementation.
-    
+
     Collects states and transitions during DSL usage and produces either a
     global (process-wide) or session-scoped machine. Validation is invoked
     from build methods, never by users directly. This class must not be
@@ -147,7 +148,7 @@ class _InternalStateMachineBuilder:
             states=self._states,
             context_resolver=context_resolver,
         )
-    
+
     def build_session_scoped(self, *, context_resolver: ContextResolver = None) -> SessionScopedStateMachine:
         """Build a session-scoped machine (state tracked per session id, with global fallback)."""
         self._validate()
@@ -157,7 +158,7 @@ class _InternalStateMachineBuilder:
             states=self._states,
             context_resolver=context_resolver,
         )
-        
+
     def _validate(self) -> None:
         """Run structural and reference checks """
 
@@ -184,79 +185,123 @@ class _InternalStateMachineBuilder:
 ### Public API DSL
 
 class StateAPI:
-    """Fluent scope for a single state.
+    """Fluent scope for a single state (input-first style).
 
-    ``transition(to_state)`` returns a TransitionAPI to attach one or more input symbols.
-    ``done()`` returns the facade to continue with additional states.
+    Entry points:
+    - on_tool(name)     -> TransitionAPI[ToolResultType]
+    - on_prompt(name)   -> TransitionAPI[PromptResultType]
+    - on_resource(name) -> TransitionAPI[ResourceResultType]
+
+    Each `on_*` immediately installs a DEFAULT self-transition for the given (type, name).
+    Additional, result-specific transitions can be attached via `TransitionAPI.transition(...)`.
+
+    To exit the state scope, call `done()` to return the facade.
     """
 
     def __init__(self, builder: _InternalStateMachineBuilder, state_name: str):
         self._builder = builder
         self._name = state_name
 
-    def transition(self, to_state: str) -> "TransitionAPI":
-        """Ensure ``to_state`` exists (create if missing) and return a TransitionAPI to attach inputs.
+    def on_tool(self, name: str) -> "TransitionAPI[ToolResultType]":
+        """Attach a tool by name and return a tool-typed TransitionAPI.
 
-        Behavior:
-        - Creates the target state as **terminal by default** (placeholder).
-        - **Never updates** an existing state's config (uses update=False).
-        - To change flags later, **re-declare** it via `define_state(...)`.
-
-        Calling `transition(to_state)` multiple times will not alter an already-declared state's flags.
+        Side-effect: installs a DEFAULT self-transition (tool, name, DEFAULT) from this state to itself.
         """
-        self._builder.add_or_update_state(to_state, is_initial=False, is_terminal=True, update=False)
-        return TransitionAPI(self._builder, self._name, to_state)
+        # The state is assumed to be declared via `define_state`/decorator beforehand.
+        self._builder.add_transition(
+            self._name, self._name, InputSymbol.for_tool(name, ToolResultType.DEFAULT)
+        )
+        return TransitionAPI[ToolResultType](
+            builder=self._builder,
+            from_state=self._name,
+            name=name,
+            factory=InputSymbol.for_tool,
+        )
+
+    def on_prompt(self, name: str) -> "TransitionAPI[PromptResultType]":
+        """Attach a prompt by name and return a prompt-typed TransitionAPI.
+
+        Side-effect: installs a DEFAULT self-transition (prompt, name, DEFAULT).
+        """
+        self._builder.add_transition(
+            self._name, self._name, InputSymbol.for_prompt(name, PromptResultType.DEFAULT)
+        )
+        return TransitionAPI[PromptResultType](
+            builder=self._builder,
+            from_state=self._name,
+            name=name,
+            factory=InputSymbol.for_prompt,
+        )
+
+    def on_resource(self, name: str) -> "TransitionAPI[ResourceResultType]":
+        """Attach a resource by name and return a resource-typed TransitionAPI.
+
+        Side-effect: installs a DEFAULT self-transition (resource, name, DEFAULT).
+        """
+        self._builder.add_transition(
+            self._name, self._name, InputSymbol.for_resource(name, ResourceResultType.DEFAULT)
+        )
+        return TransitionAPI[ResourceResultType](
+            builder=self._builder,
+            from_state=self._name,
+            name=name,
+            factory=InputSymbol.for_resource,
+        )
 
     def done(self) -> "StateMachineDefinition":
         """Return the facade to continue the fluent chain (same builder instance)."""
         return StateMachineDefinition.from_builder(self._builder)
 
 
-class TransitionAPI:
-    """Fluent scope for a transition from ``from_state`` → ``to_state``.
+class TransitionAPI(Generic[RT]):
+    """Fluent scope for transitions of a concrete (type, name) binding within the current state.
 
-    Each ``on_*`` attaches an input symbol and returns the StateAPI for the source
-    state so you can continue chaining.
+    This class is generic over the result type `RT`, which is fixed by the entry point:
+    - `on_tool(...)`     → RT = ToolResultType
+    - `on_prompt(...)`   → RT = PromptResultType
+    - `on_resource(...)` → RT = ResourceResultType
+
+    API surface:
+    - transition(to_state, result, effect=None)  → attach an exact-match edge
+    - end()                                      → return to the StateAPI (state scope)
     """
 
-    def __init__(self, builder: _InternalStateMachineBuilder, from_state: str, to_state: str):
+    def __init__(
+        self,
+        builder: _InternalStateMachineBuilder,
+        from_state: str,
+        name: str,
+        *,
+        factory: Callable[[str, RT], InputSymbol],
+    ):
         self._builder = builder
         self._from = from_state
-        self._to = to_state
+        self._name = name
+        self._factory = factory  # InputSymbol factory for the specific result type
 
-    def on_tool(
+    def transition(
         self,
-        name: str,
-        result: ToolResultType = ToolResultType.DEFAULT,
+        to_state: str,
+        result: RT,
         effect: Callback = None,
-    ) -> StateAPI:
-        """Trigger on a tool result (DEFAULT, SUCCESS, or ERROR). Optional callback runs on fire."""
-        symbol = InputSymbol.for_tool(name, result)
-        self._builder.add_transition(self._from, self._to, symbol, effect)
+    ) -> "TransitionAPI[RT]":
+        """Attach a transition for (type, name, result) from the current state to `to_state`.
+
+        The target state is created as terminal placeholder when missing; flags are not updated otherwise.
+        """
+
+        # Ensure the target state exists (terminal placeholder).
+        self._builder.add_or_update_state(to_state, is_terminal=True, update=False)
+
+        # Build a typed input symbol with the provided result enum and attach the edge.
+        symbol = self._factory(self._name, result)
+        self._builder.add_transition(self._from, to_state, symbol, effect)
+        return self
+
+    def end(self) -> "StateAPI":
+        """Return to the state scope to continue chaining within the same state."""
         return StateAPI(self._builder, self._from)
 
-    def on_prompt(
-        self,
-        name: str,
-        result: PromptResultType = PromptResultType.DEFAULT,
-        effect: Callback = None,
-    ) -> StateAPI:
-        """Trigger on a prompt result (DEFAULT, SUCCESS, or ERROR). Optional callback runs on fire."""
-        symbol = InputSymbol.for_prompt(name, result)
-        self._builder.add_transition(self._from, self._to, symbol, effect)
-        return StateAPI(self._builder, self._from)
-
-    def on_resource(
-        self,
-        name: str,
-        result: ResourceResultType = ResourceResultType.DEFAULT,
-        effect: Callback = None,
-    ) -> StateAPI:
-        """Trigger on a resource result (DEFAULT, SUCCESS, or ERROR). Optional callback runs on fire."""
-        symbol = InputSymbol.for_resource(name, result)
-        self._builder.add_transition(self._from, self._to, symbol, effect)
-        return StateAPI(self._builder, self._from)
-    
 
 ### State Machine Definition (public facade over the internal builder)
 
@@ -268,15 +313,23 @@ class StateMachineDefinition:
     **Decorator style**::
 
         @app.statebuilder.state("start", is_initial=True)
-        def _(s):
-            s.transition("next").on_tool("my_tool")
+        def _(s: StateAPI):
+            # Chain multiple bindings: tool -> transition, then another tool.
+            s.on_tool("login") \
+             .transition("home", ToolResultType.SUCCESS) \
+             .end() \
+             .on_tool("alt_login") \
+             .transition("alt_home", ToolResultType.SUCCESS)
 
     **Fluent style**::
 
-        app.statebuilder
-            .define_state("start", is_initial=True)
-            .transition("next").on_tool("my_tool")
-            .done()
+        app.statebuilder \
+            .define_state("start", is_initial=True) \
+            .on_prompt("confirm") \
+                .transition("end", PromptResultType.SUCCESS) \
+                .end() \
+            .on_tool("help") \
+                .transition("faq", ToolResultType.SUCCESS)
     """
 
     def __init__(self, tool_manager: ToolManager, resource_manager: ResourceManager, prompt_manager: PromptManager):
@@ -298,7 +351,7 @@ class StateMachineDefinition:
         """
         self._builder.add_or_update_state(name, is_initial=is_initial, is_terminal=is_terminal, update=True)
         return StateAPI(self._builder, name)
-    
+
     def state(
         self,
         name: str,

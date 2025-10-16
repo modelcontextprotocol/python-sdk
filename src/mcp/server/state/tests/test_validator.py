@@ -23,9 +23,9 @@ def test_validation_error_no_initial_state():
     (
         app.statebuilder
             .define_state("s0")
-            .transition("s1").on_tool("t_ok", result=ToolResultType.SUCCESS).done()
-            .define_state("s1")
+            .on_tool("t_ok").transition("s1", result=ToolResultType.SUCCESS).end()
             .done()
+            .define_state("s1")
     )
 
     with pytest.raises(ValueError) as ei:
@@ -45,9 +45,10 @@ def test_validation_error_terminal_has_outgoing():
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .transition("s1").on_tool("t_ok", result=ToolResultType.SUCCESS).done()
+            .on_tool("t_ok").transition("s1", result=ToolResultType.SUCCESS).end()
+            .done()
             .define_state("s1", is_terminal=True)
-            .transition("s0").on_tool("t_ok", result=ToolResultType.SUCCESS).done()  # illegal outgoing
+            .on_tool("t_ok").transition("s0", result=ToolResultType.SUCCESS).end()  # illegal outgoing
     )
 
     with pytest.raises(ValueError) as ei:
@@ -66,8 +67,9 @@ def test_validation_error_no_reachable_terminal():
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .transition("s1").on_tool("t_ok", result=ToolResultType.SUCCESS).done()
-            .define_state("s1") # define updated isTermianl to False
+            .on_tool("t_ok").transition("s1", result=ToolResultType.SUCCESS).end()
+            .done()
+            .define_state("s1") # define updated isTermial to False
     )
 
     with pytest.raises(ValueError) as ei:
@@ -86,9 +88,10 @@ def test_validation_error_no_reachable_terminal_no_valid_edge():
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .transition("s1").on_tool("t_ok", result=ToolResultType.SUCCESS).done()
+            .on_tool("t_ok").transition("s1", result=ToolResultType.SUCCESS).end()
+            .done()
             .define_state("s1")
-            .transition("sT").on_tool("t_ok", result=ToolResultType.SUCCESS).done()
+            .on_tool("t_ok").transition("sT", result=ToolResultType.SUCCESS).end()
     )
 
     with pytest.raises(ValueError) as ei:
@@ -104,9 +107,8 @@ def test_validation_error_missing_tool():
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .transition("s1").on_tool("MISSING", result=ToolResultType.SUCCESS).done()
-            .define_state("s1", is_terminal=True)
-            .done()
+            .on_tool("MISSING")
+            .transition("s1", result=ToolResultType.SUCCESS)
     )
 
     with pytest.raises(ValueError) as ei:
@@ -122,9 +124,8 @@ def test_validation_error_missing_prompt():
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .transition("s1").on_prompt("MISSING", result=PromptResultType.SUCCESS).done()
-            .define_state("s1", is_terminal=True)
-            .done()
+            .on_prompt("MISSING")
+            .transition("s1", result=PromptResultType.SUCCESS)
     )
 
     with pytest.raises(ValueError) as ei:
@@ -140,9 +141,8 @@ def test_validation_error_missing_resource():
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .transition("s1").on_resource("resource://missing", result=ResourceResultType.SUCCESS).done()
-            .define_state("s1", is_terminal=True)
-            .done()
+            .on_resource("resource://missing")
+            .transition("s1", result=ResourceResultType.SUCCESS)
     )
 
     with pytest.raises(ValueError) as ei:
@@ -164,7 +164,8 @@ def test_validation_warning_unreachable_state(caplog: LogCaptureFixture):
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .transition("s1").on_tool("t_ok", result=ToolResultType.SUCCESS).done()
+            .on_tool("t_ok").transition("s1", result=ToolResultType.SUCCESS).end()
+            .done()
             .define_state("s1", is_terminal=True)
             .done()
             .define_state("sX")  # unreachable

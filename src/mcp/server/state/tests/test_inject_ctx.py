@@ -6,7 +6,6 @@ import asyncio
 import pytest
 from pytest import LogCaptureFixture
 
-from mcp.types import TextContent
 from mcp.server.fastmcp.server import Context
 from mcp.server.state.machine.state_machine import InputSymbol
 from mcp.server.state.server import StatefulMCP
@@ -37,7 +36,8 @@ async def test_context_injected_on_effect(caplog: LogCaptureFixture):
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .transition("s1").on_tool("t_test", result=ToolResultType.SUCCESS, effect=ctx_effect)
+            .on_tool("t_test")
+            .transition("s1", result=ToolResultType.SUCCESS, effect=ctx_effect)
     )
 
     app._build_state_machine_once()
@@ -78,7 +78,8 @@ async def test_context_injected_on_prompt(caplog: LogCaptureFixture):
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .transition("s1").on_prompt("p_ctx", PromptResultType.SUCCESS)
+            .on_prompt("p_ctx")
+            .transition("s1", PromptResultType.SUCCESS)
     )
 
     app._build_state_machine_once()
@@ -115,7 +116,8 @@ async def test_context_injected_on_tool(caplog: LogCaptureFixture):
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .transition("s1").on_tool("t_ctx", ToolResultType.SUCCESS)
+            .on_tool("t_ctx")
+            .transition("s1", ToolResultType.SUCCESS)
     )
 
     app._build_state_machine_once()

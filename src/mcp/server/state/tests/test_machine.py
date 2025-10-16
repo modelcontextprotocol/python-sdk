@@ -72,36 +72,37 @@ async def app_branch_cycle_machine() -> StatefulMCP:
     for t in ("t_login", "t_next", "t_back", "t_finish", "t_abort", "t_alt", "t_merge"):
         assert app._tool_manager.get_tool(t) is not None
 
-    # Define states & transitions
+    # Define states & transitions (input-first DSL)
     (
         app.statebuilder
             # s0 initial
             .define_state("s0", is_initial=True)
-            .transition("s1").on_tool("t_login", result=ToolResultType.SUCCESS)
-            .transition("sA").on_tool("t_alt", result=ToolResultType.SUCCESS)
+            .on_tool("t_login").transition("s1", ToolResultType.SUCCESS).end()
+            .on_tool("t_alt").transition("sA", ToolResultType.SUCCESS).end()
             .done()
 
             # s1
             .define_state("s1")
-            .transition("s2").on_tool("t_next", result=ToolResultType.SUCCESS)
-            .transition("sT").on_tool("t_abort", result=ToolResultType.ERROR)
+            .on_tool("t_next").transition("s2", ToolResultType.SUCCESS).end()
+            .on_tool("t_abort").transition("sT", ToolResultType.ERROR).end()
             .done()
 
             # sA branch merging into s2
             .define_state("sA")
-            .transition("s2").on_tool("t_merge", result=ToolResultType.SUCCESS)
+            .on_tool("t_merge").transition("s2", ToolResultType.SUCCESS).end()
             .done()
 
             # s2 with cycle back to s1 and terminal to sT
             .define_state("s2")
-            .transition("s1").on_tool("t_back", result=ToolResultType.SUCCESS)
-            .transition("sT").on_tool("t_finish", result=ToolResultType.SUCCESS)
+            .on_tool("t_back").transition("s1", ToolResultType.SUCCESS).end()
+            .on_tool("t_finish").transition("sT", ToolResultType.SUCCESS).end()
             .done()
 
-            # sT implicit terminal (no outgoing transitions)
+            # sT explicit terminal (no outgoing transitions)
             .define_state("sT", is_terminal=True)
             .done()
     )
+
 
     # Build (validation happens here)
     app._build_state_machine_once()
