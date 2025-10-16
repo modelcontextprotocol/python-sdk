@@ -207,7 +207,6 @@ class FastMCP(Generic[LifespanResultT]):
         # Set up MCP protocol handlers
         self._setup_handlers()
 
-
     @property
     def name(self) -> str:
         return self._mcp_server.name
