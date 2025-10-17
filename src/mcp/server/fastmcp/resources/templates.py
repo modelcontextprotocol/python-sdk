@@ -99,7 +99,8 @@ class ResourceTemplate(BaseModel):
             query_str = query_param_match.group(1)
             query_params = set(query_str[1:].split(","))  # Remove the leading '?' and split
 
-        required_params = {p for p in required_params if p != context_kwarg}
+        if context_kwarg:
+            required_params = required_params.remove(context_kwarg)
 
         # Validate path parameters match required function parameters
         if path_params != required_params:
