@@ -1,6 +1,8 @@
+import asyncio
 import base64
+from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
 from unittest.mock import patch
 
 import pytest
@@ -10,16 +12,16 @@ from starlette.routing import Mount, Route
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.prompts.base import Message, UserMessage
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
+from mcp.server.fastmcp.utilities.dependencies import DependencyResolver
 from mcp.server.fastmcp.utilities.types import Audio, Image
 from mcp.server.session import ServerSession
 from mcp.shared.exceptions import McpError
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as client_session,
-)
+from mcp.shared.memory import create_connected_server_and_client_session as client_session
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
     ContentBlock,
+    Depends,
     EmbeddedResource,
     ImageContent,
     TextContent,
@@ -904,6 +906,134 @@ class TestServerResourceTemplates:
             result = await client.read_resource(AnyUrl("resource://bob/csv"))
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "csv for bob"
+
+
+class TestDependenciesInjection:
+    """Test dependency injection functionality."""
+
+    @pytest.mark.anyio
+    async def test_tool_with_regular_dependency(self):
+        """Test tool with regular function dependency."""
+        mcp = FastMCP()
+
+        def load_resource() -> int:
+            return 42
+
+        @mcp.tool()
+        def add_numbers(a: int, b: int, resource: Annotated[int, Depends(dependency=load_resource)]) -> int:
+            return a + b + resource
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("add_numbers", {"a": 1, "b": 2})
+            assert len(result.content) == 1
+            content = result.content[0]
+            assert isinstance(content, TextContent)
+            assert content.text == "45"  # 1 + 2 + 42
+
+    @pytest.mark.anyio
+    async def test_tool_with_async_dependency(self):
+        """Test tool with async function dependency."""
+        mcp = FastMCP()
+
+        async def load_async_resource() -> str:
+            await asyncio.sleep(0.01)
+            return "async_data"
+
+        @mcp.tool()
+        async def process_text(text: str, data: Annotated[str, Depends(dependency=load_async_resource)]) -> str:
+            return f"Processed '{text}' with {data}"
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("process_text", {"text": "hello"})
+            assert len(result.content) == 1
+            content = result.content[0]
+            assert isinstance(content, TextContent)
+            assert content.text == "Processed 'hello' with async_data"
+
+    @pytest.mark.anyio
+    async def test_tool_with_generator_dependency_cleanup(self):
+        """Test tool with generator dependency and proper cleanup."""
+        mcp = FastMCP()
+        cleanup_called = False
+
+        def database_connection() -> Generator[str, None, None]:
+            nonlocal cleanup_called
+            try:
+                yield "db_conn_123"
+            finally:
+                cleanup_called = True
+
+        @mcp.tool()
+        def query_database(query: str, db_conn: Annotated[str, Depends(dependency=database_connection)]) -> str:
+            return f"Executed '{query}' on {db_conn}"
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("query_database", {"query": "SELECT * FROM users"})
+            assert len(result.content) == 1
+            content = result.content[0]
+            assert isinstance(content, TextContent)
+            assert content.text == "Executed 'SELECT * FROM users' on db_conn_123"
+
+        # Cleanup should have been called after tool execution
+        assert cleanup_called
+
+    @pytest.mark.anyio
+    async def test_tool_with_async_generator_dependency_cleanup(self):
+        """Test tool with async generator dependency and proper cleanup."""
+        mcp = FastMCP()
+        cleanup_called = False
+
+        async def async_file_handler() -> AsyncGenerator[str, None]:
+            nonlocal cleanup_called
+            try:
+                yield "file_123"
+            finally:
+                cleanup_called = True
+
+        @mcp.tool()
+        async def process_file(
+            content: str, file_handler: Annotated[str, Depends(dependency=async_file_handler)]
+        ) -> str:
+            await asyncio.sleep(0.01)
+            return f"Processed '{content}' with {file_handler}"
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.call_tool("process_file", {"content": "data"})
+            assert len(result.content) == 1
+            content = result.content[0]
+            assert isinstance(content, TextContent)
+            assert content.text == "Processed 'data' with file_123"
+
+        # Cleanup should have been called after tool execution
+        assert cleanup_called
+
+    @pytest.mark.anyio
+    async def test_generator_no_yield_error(self):
+        """Test error when generator doesn't yield a value."""
+
+        def empty_generator() -> Generator[str, None, None]:
+            return
+            yield  # This line is never reached
+
+        resolver = DependencyResolver()
+        dependencies = {"dep": Depends(dependency=empty_generator)}
+
+        with pytest.raises(RuntimeError):
+            await resolver.resolve_dependencies(dependencies)
+
+    @pytest.mark.anyio
+    async def test_async_generator_no_yield_error(self):
+        """Test error when async generator doesn't yield a value."""
+
+        async def empty_async_generator() -> AsyncGenerator[str, None]:
+            return
+            yield  # This line is never reached
+
+        resolver = DependencyResolver()
+        dependencies = {"dep": Depends(dependency=empty_async_generator)}
+
+        with pytest.raises(RuntimeError):
+            await resolver.resolve_dependencies(dependencies)
 
 
 class TestContextInjection:
