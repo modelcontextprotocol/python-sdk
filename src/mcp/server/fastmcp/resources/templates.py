@@ -13,16 +13,13 @@ from pydantic import BaseModel, Field, validate_call
 from mcp.server.fastmcp.resources.types import FunctionResource, Resource
 from mcp.server.fastmcp.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.fastmcp.utilities.convertors import CONVERTOR_TYPES, Convertor
-from mcp.server.fastmcp.utilities.func_metadata import (
-    use_defaults_on_optional_validation_error,func_metadata
-)
+from mcp.server.fastmcp.utilities.func_metadata import func_metadata, use_defaults_on_optional_validation_error
 from mcp.types import Annotations, Icon
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
     from mcp.server.session import ServerSessionT
     from mcp.shared.context import LifespanContextT, RequestT
-
 
 
 class ResourceTemplate(BaseModel):
@@ -105,7 +102,7 @@ class ResourceTemplate(BaseModel):
         # Validate path parameters match required function parameters
         if path_params != required_params:
             raise ValueError(
-                f"Mismatch between URI path parameters {path_params} and required function parameters {required_params} with context parameters {context_kwarg}"
+                f"Mismatch between URI path parameters {path_params} and required function parameters {required_params}"
             )
 
         # Validate query parameters are a subset of optional function parameters
@@ -129,7 +126,6 @@ class ResourceTemplate(BaseModel):
             optional_params=optional_params,
             context_kwarg=context_kwarg,
         )
-    
 
     def _generate_pattern(self) -> tuple[re.Pattern[str], dict[str, Convertor[Any]]]:
         """Compile the URI template into a regex pattern and associated converters."""
@@ -159,7 +155,7 @@ class ResourceTemplate(BaseModel):
                 pattern_parts.append(re.escape(part))
 
         return re.compile("^" + "/".join(pattern_parts) + "$"), converters
-    
+
     @staticmethod
     def _analyze_function_params(fn: Callable[..., Any]) -> tuple[set[str], set[str]]:
         """Analyze function signature to extract required and optional parameters.
@@ -184,7 +180,6 @@ class ResourceTemplate(BaseModel):
         """Check if URI matches template and extract parameters."""
         if not self._compiled_pattern or not self._convertors:
             self._compiled_pattern, self._convertors = self._generate_pattern()
-
 
         # Split URI into path and query parts
         if "?" in uri:
@@ -220,7 +215,7 @@ class ResourceTemplate(BaseModel):
         self,
         uri: str,
         params: dict[str, Any],
-        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None, #type: ignore
+        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,  # type: ignore
     ) -> Resource:
         """Create a resource from the template with the given parameters."""
         try:
@@ -233,14 +228,14 @@ class ResourceTemplate(BaseModel):
                 if name in self.required_params or name in self.optional_params
             }
             # Add context to params
-            fn_params = inject_context(self.fn, fn_params, context, self.context_kwarg) #type: ignore
+            fn_params = inject_context(self.fn, fn_params, context, self.context_kwarg)  # type: ignore
             # self.fn is now multiply-decorated:
             # 1. validate_call for coercion/validation
             # 2. our new decorator for default fallback on optional param validation err
             result = self.fn(**fn_params)
             if inspect.iscoroutine(result):
                 result = await result
-                
+
             return FunctionResource(
                 uri=uri,  # type: ignore
                 name=self.name,
