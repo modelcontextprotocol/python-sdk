@@ -195,7 +195,6 @@ class StreamableHTTPServerTransport:
 
         # Return a properly formatted JSON error response
         error_response = JSONRPCError(
-            jsonrpc="2.0",
             id="server-error",  # We don't have a request ID for general errors
             error=ErrorData(
                 code=error_code,
@@ -871,7 +870,7 @@ class StreamableHTTPServerTransport:
                                 self._request_streams.pop(request_stream_id, None)
                         else:
                             logging.debug(
-                                f"""Request stream {request_stream_id} not found 
+                                f"""Request stream {request_stream_id} not found
                                 for message. Still processing message as the client
                                 might reconnect and replay."""
                             )
