@@ -1281,11 +1281,54 @@ class ElicitResult(Result):
     """
 
 
-class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult]):
+# --- Transaction message payload --------------------------------------------
+TransactionMessagePayload: TypeAlias = SamplingMessage  
+
+# --- Transaction request params ---------------------------------------------
+
+class TransactionPrepareRequestParams(RequestParams):
+    """Parameters for 'transaction/prepare'."""
+    transactionId: str
+    payload: TransactionMessagePayload
+
+class TransactionCommitRequestParams(RequestParams):
+    """Parameters for 'transaction/commit'."""
+    transactionId: str
+
+class TransactionAbortRequestParams(RequestParams):
+    """Parameters for 'transaction/abort'."""
+    transactionId: str
+
+# --- Transaction request envelopes ------------------------------------------
+
+class TransactionPrepareRequest(Request[TransactionPrepareRequestParams, Literal["transaction/prepare"]]):
+    """A request from the server to prepare a transaction on the client."""
+    method: Literal["transaction/prepare"]
+    params: TransactionPrepareRequestParams
+
+class TransactionCommitRequest(Request[TransactionCommitRequestParams, Literal["transaction/commit"]]):
+    """A request from the server to commit a previously prepared transaction."""
+    method: Literal["transaction/commit"]
+    params: TransactionCommitRequestParams
+
+class TransactionAbortRequest(Request[TransactionAbortRequestParams, Literal["transaction/abort"]]):
+    """A request from the server to abort/roll back a previously prepared transaction."""
+    method: Literal["transaction/abort"]
+    params: TransactionAbortRequestParams
+
+# --- Transaction result ------------------------------------------------------
+
+class TransactionResult(Result):
+    """The client's response to a transaction request."""
+    success: bool
+    transactionId: str | None = None
+
+
+class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult | TransactionResult]):
     pass
 
 
-class ServerRequest(RootModel[PingRequest | CreateMessageRequest | ListRootsRequest | ElicitRequest]):
+class ServerRequest(RootModel[PingRequest | CreateMessageRequest | ListRootsRequest | ElicitRequest | TransactionPrepareRequest | TransactionCommitRequest | TransactionAbortRequest]):
     pass
 
 

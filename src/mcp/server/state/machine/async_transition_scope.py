@@ -1,9 +1,10 @@
 """
 Async transition scope for StateMachine operations.
 
-This context manager wraps an arbitrary operation and drives SUCCESS/ERROR transitions
-against a provided StateMachine instance. It implements the full transition logic
-(exact match, DEFAULT fallback, terminal reset, and effect callbacks).
+This context manager wraps an operation and emits SUCCESS/ERROR transitions.
+It applies only exact-match transitions (no DEFAULT fallback), executes any
+transition effect as a fire-and-forget side effect, and never lets effect
+failures influence state changes (failures are logged as warnings).
 
 Usage
 -----
@@ -20,11 +21,9 @@ from typing import Callable, Optional, Type, TYPE_CHECKING
 
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.server.state.helper.callback import apply_callback_with_context
-from mcp.server.state.types import DEFAULT_QUALIFIER
 
-# Import only for static type checking to avoid circular imports at runtime.
-if TYPE_CHECKING:
-    from mcp.server.state.machine.state_machine import StateMachine, State, InputSymbol  # pragma: no cover
+if TYPE_CHECKING:  # pragma: no cover
+    from mcp.server.state.machine.state_machine import StateMachine, State, InputSymbol
 
 logger = get_logger(__name__)
 
@@ -48,9 +47,9 @@ class AsyncTransitionScope:
 
     Behavior
     --------
-    - Exact-match attempt with DEFAULT fallback if no exact edge matches.
-    - Runs transition effects via `apply_callback_with_context`.
-    - Resets to the initial state when landing in a terminal state.
+    - Apply the exact matching transition only (no DEFAULT fallback).
+    - Execute transition effects as fire-and-forget; log a warning on failure.
+    - If the resulting state is terminal, reset to the initial state.
     """
 
     def __init__(
@@ -78,46 +77,43 @@ class AsyncTransitionScope:
         tb: Optional[TracebackType],
     ) -> Optional[bool]:
         if exc_type is None:
-            self._apply_with_fallback(self._success)
-            return False  # do not suppress
-        self._apply_with_fallback(self._error)
+            self._apply_exact_if_present(self._success)
+            self._maybe_reset_if_terminal()
+            return False  # do not suppress return value
+
+        # Error path → apply error transition and re-raise (mapped)
+        self._apply_exact_if_present(self._error)
+        self._maybe_reset_if_terminal()
         self._log_exc(
             "Exception during execution for symbol '%s/%s' in state '%s'",
             self._error.type, self._error.name, self._sm.current_state
         )
-        # exc can be None in odd cases; map safely
         raise self._exc_mapper(exc or RuntimeError("Unknown failure")) from exc
 
-    # ---- full transition logic lives here -----------------------------------
+    ### transition mechanics
 
-    def _apply_with_fallback(self, symbol: "InputSymbol") -> None:
-        """Apply exact-match transition; if none, retry with DEFAULT qualifier (no-op if still unmatched)."""
+    def _apply_exact_if_present(self, symbol: "InputSymbol") -> None:
+        """Apply the exact-match transition for `symbol` if present; otherwise no-op."""
         state = self._state_or_fail(self._sm.current_state)
 
-        if self._apply_exact(state, symbol):
-            self._maybe_reset_if_terminal()
-            return
-
-        # Lazy import here to avoid circular import at module import time.
-        from mcp.server.state.machine.state_machine import InputSymbol as _InputSymbol
-
-        fallback = _InputSymbol(type=symbol.type, name=symbol.name, qualifier=DEFAULT_QUALIFIER)
-        self._apply_exact(state, fallback)  # no-op if still unmatched
-        self._maybe_reset_if_terminal()
-
-    def _apply_exact(self, state: "State", symbol: "InputSymbol") -> bool:
-        """Try to apply an exact transition for `symbol`; update state and run effect if found."""
         for tr in state.transitions:
             if symbol == tr.input_symbol:
+                # set state first (effect is not allowed to interfere with transition)
                 self._sm.set_current_state(tr.to_state)
-                apply_callback_with_context(tr.effect, self._sm.context_resolver)
-                return True
-        return False
+
+                # Fire-and-forget effect; warn on synchronous failure
+                try:
+                    apply_callback_with_context(tr.effect, self._sm.context_resolver)
+                except Exception as e:  # only synchronous invocation failures are caught here
+                    logger.warning(
+                        "Transition effect failed (state '%s' -> '%s', symbol %r): %s",
+                        state.name, tr.to_state, symbol, e
+                    )
+                break  # exact match applied; stop scanning
 
     def _maybe_reset_if_terminal(self) -> None:
         """Reset to initial when the current state is terminal."""
         if self._sm.is_terminal(self._sm.current_state):
-            # Uses public property from StateMachine
             self._sm.set_current_state(self._sm.initial_state)
 
     def _state_or_fail(self, name: str) -> "State":

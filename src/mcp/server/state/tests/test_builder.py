@@ -8,6 +8,7 @@ from mcp.server.state.builder import _InternalStateMachineBuilder
 from mcp.server.state.machine.state_machine import InputSymbol
 from mcp.server.state.server import StatefulMCP
 from mcp.server.state.types import ToolResultType
+from mcp.server.state.transaction.manager import TransactionManager
 
 
 def test_builder_raises_on_second_initial_state():
@@ -38,7 +39,8 @@ def test_builder_update_ignored_when_update_false(caplog: LogCaptureFixture):
     Also verify debug log is emitted.
     """
     # Bare internal builder with empty managers (they are not used here)
-    b = _InternalStateMachineBuilder(tool_manager=None, resource_manager=None, prompt_manager=None)
+    b = _InternalStateMachineBuilder(
+        tool_manager=None, resource_manager=None, prompt_manager=None, tx_manager=TransactionManager())
 
     # Create initial state s0 (initial, non-terminal)
     b.add_or_update_state("s0", is_initial=True, is_terminal=False)
@@ -57,7 +59,8 @@ def test_builder_update_replaces_config_and_clears_transitions():
     """
     add_or_update_state(): existing & update=True → replace config and clear transitions.
     """
-    b = _InternalStateMachineBuilder(tool_manager=None, resource_manager=None, prompt_manager=None)
+    b = _InternalStateMachineBuilder(
+        tool_manager=None, resource_manager=None, prompt_manager=None, tx_manager=TransactionManager())
 
     # Create s0 + a transition s0 --(tool: t)-> s1
     b.add_or_update_state("s0", is_initial=True, is_terminal=False)
@@ -80,7 +83,8 @@ def test_builder_duplicate_transition_warns_and_is_ignored(caplog: LogCaptureFix
     """
     add_transition(): adding the same transition twice should warn and ignore the duplicate.
     """
-    b = _InternalStateMachineBuilder(tool_manager=None, resource_manager=None, prompt_manager=None)
+    b = _InternalStateMachineBuilder(
+        tool_manager=None, resource_manager=None, prompt_manager=None, tx_manager=TransactionManager())
     b.add_or_update_state("s0")
     b.add_or_update_state("s1")
 
@@ -99,7 +103,8 @@ def test_builder_ambiguous_transition_warns_and_is_ignored(caplog: LogCaptureFix
     """
     add_transition(): same symbol to a different target should warn about ambiguity and ignore the new one.
     """
-    b = _InternalStateMachineBuilder(tool_manager=None, resource_manager=None, prompt_manager=None)
+    b = _InternalStateMachineBuilder(
+        tool_manager=None, resource_manager=None, prompt_manager=None, tx_manager=TransactionManager())
     b.add_or_update_state("s0")
     b.add_or_update_state("s1")
     b.add_or_update_state("s2")

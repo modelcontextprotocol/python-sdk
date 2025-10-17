@@ -1,26 +1,56 @@
 """
-StatefulMCP - A higher-level MCP server with a session-scoped state machine.
+StatefulMCP — a higher-level MCP server with a session-scoped state machine.
 
-This class extends FastMCP and replaces selected public handlers with
-state-aware variants with stateful managers based on user-provided states.
+This class extends FastMCP and swaps selected public handlers for state-aware
+variants that consult a user-defined state machine.
 
-It preserves FastMCP's public surface (decorators, run methods, managers),
-but injects session awareness by wiring a session-scoped StateMachine into
-state-aware tool/resource/prompt managers.
+What it wires up
+----------------
+- A session-scoped StateMachine (or global, if configured).
+- State-aware managers for tools, resources, and prompts.
+  Each manager filters visibility by the machine's *current state* and
+  executes calls inside an async transition scope so SUCCESS/ERROR edges fire.
 
-Usage:
+Transactions (optional)
+-----------------------
+If a TransactionManager is present and the app registered transaction payload
+providers for a given (state, kind, name), managers wrap the user operation in
+an async transaction scope:
+  - prepare on enter (build key from current state + {tool|prompt|resource} + name)
+  - commit on normal exit
+  - abort on exceptional exit (best effort)
+
+You define states and transitions through the public DSL and let the server
+build & validate at startup.
+
+Usage
+-----
     app = StatefulMCP(name="My Stateful Server")
 
-    # Define the state machine via the public DSL
+    # Decorator style
     @app.statebuilder.state("start", is_initial=True)
-    def _start(s):
-        s.transition("next").on_tool("ping")
+    def _(s: StateAPI):
+        s.on_tool("login") \
+         .transition("home", ToolResultType.SUCCESS) \
+         .end() \
+         .on_tool("alt_login") \
+         .transition("alt_home", ToolResultType.SUCCESS)
 
     @app.tool()
-    async def ping(ctx: Context) -> str:
-        return "pong"
+    async def login(ctx: Context) -> str:
+        return "ok"
 
     app.run("stdio")
+
+Fluent alternative
+------------------
+    app.statebuilder \
+        .define_state("start", is_initial=True) \
+        .on_prompt("confirm") \
+            .transition("end", PromptResultType.SUCCESS) \
+            .end() \
+        .on_tool("help") \
+            .transition("faq", ToolResultType.SUCCESS)
 """
 
 from __future__ import annotations
@@ -44,37 +74,36 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.state.builder import StateMachineDefinition
 from mcp.server.state.machine.state_machine import StateMachine
-from mcp.server.state.prompts.state_aware_prompt_manager import (
-    StateAwarePromptManager,
-)
-from mcp.server.state.resources.state_aware_resource_manager import (
-    StateAwareResourceManager,
-)
+from mcp.server.state.prompts.state_aware_prompt_manager import StateAwarePromptManager
+from mcp.server.state.resources.state_aware_resource_manager import StateAwareResourceManager
 from mcp.server.state.tools.state_aware_tool_manager import StateAwareToolManager
+from mcp.server.state.transaction.manager import TransactionManager
 from mcp.server.state.types import FastMCPContext
 
 
 logger = get_logger(f"{__name__}.StatefulMCP")
 
 class StatefulMCP(FastMCP[LifespanResultT]):
-    """FastMCP with a session-scoped StateMachine and state-aware managers.
+    """FastMCP with a session-scoped state machine and state-aware managers.
 
-    Overrides FastMCP handlers:
-      - list_tools / call_tool
-      - list_resources / read_resource
-      - list_prompts / get_prompt
+    What it does:
+    - Attaches a StateMachine (session-scoped) and routes tool/resource/prompt
+      operations through it.
+    - Managers list only items allowed in the *current state*.
+    - Calls run inside an async transition scope so SUCCESS/ERROR edges fire.
+
+    Overridden handlers:
+    - list_tools / call_tool
+    - list_resources / read_resource
+    - list_prompts / get_prompt
 
     Session scoping:
-      State inside the state machine is bound per state for each session.
-      If `request_context` is not available the state machine will fall back to a global state.
-
-    Configuration:
-      - `global_mode`: when True, runs a non-session-scoped state machine; all clients
-        share the same `current_state` while their lifespans remain isolated.
+    The current state is resolved from the request context (per session). If no
+    context is available, a shared fallback state is used.
 
     Important:
-      Define states via `statebuilder`; otherwise no tools/resources/prompts are
-      visible and startup validation will fail (e.g., missing initial state).
+    Define your states via `statebuilder` before `run()`. The graph is built and
+    validated at startup; missing/invalid definitions will fail startup.
     """
 
     def __init__(
@@ -86,8 +115,12 @@ class StatefulMCP(FastMCP[LifespanResultT]):
         # Parent initialization sets up _mcp_server and native managers
         super().__init__(*args, **kwargs)
 
+        # A global transaction manager for communication with the client
+        self._tx_manager: TransactionManager = TransactionManager()
+
         # Public DSL to define
-        self._state_definition = StateMachineDefinition(self._tool_manager, self._resource_manager, self._prompt_manager)
+        self._state_definition = StateMachineDefinition(
+            self._tool_manager, self._resource_manager, self._prompt_manager, self._tx_manager)
 
         # user defined configs
         self._global_mode = global_mode # runs state machine with shared/global state
@@ -100,29 +133,40 @@ class StatefulMCP(FastMCP[LifespanResultT]):
         self._stateful_resources: StateAwareResourceManager | None = None
         self._stateful_prompts: StateAwarePromptManager | None = None
 
+
+
     ### Public surface
 
     @property
     def statebuilder(self) -> StateMachineDefinition:
         """Finite-state machine DSL (public).
 
-        Define states and transitions; the server builds & validates the graph at
-        startup. 
-        
-        Do not call any build method yourself!
+        Declare states and attach (tool|prompt|resource) bindings with result-specific
+        transitions. The server builds & validates the graph at startup—do not call
+        any build method yourself.
 
         Decorator style::
 
             @app.statebuilder.state("start", is_initial=True)
-            def _(s):
-                s.transition("next").on_tool("my_tool")
+            def _(s: StateAPI):
+                s.on_tool("login") \
+                .transition("home", ToolResultType.SUCCESS) \
+                .end() \
+                .on_tool("alt_login") \
+                .transition("alt_home", ToolResultType.SUCCESS)
 
         Fluent style::
 
-            app.statebuilder
-                .define_state("start", is_initial=True)
-                .transition("next").on_tool("my_tool")
-                .done()
+            app.statebuilder \
+                .define_state("start", is_initial=True) \
+                .on_prompt("confirm") \
+                    .transition("end", PromptResultType.SUCCESS) \
+                    .end() \
+                .on_tool("help") \
+                    .transition("faq", ToolResultType.SUCCESS)
+
+        Returns:
+            StateMachineDefinition: The DSL facade.
         """
         return self._state_definition
 
@@ -176,6 +220,7 @@ class StatefulMCP(FastMCP[LifespanResultT]):
             self._stateful_tools = StateAwareToolManager(
                 state_machine=self._state_machine,
                 tool_manager=self._tool_manager,
+                tx_manager=self._tx_manager
             )
 
         if self._stateful_resources is None:
@@ -183,6 +228,7 @@ class StatefulMCP(FastMCP[LifespanResultT]):
             self._stateful_resources = StateAwareResourceManager(
                 state_machine=self._state_machine,
                 resource_manager=self._resource_manager,
+                tx_manager=self._tx_manager
             )
 
         if self._stateful_prompts is None:
@@ -190,6 +236,7 @@ class StatefulMCP(FastMCP[LifespanResultT]):
             self._stateful_prompts = StateAwarePromptManager(
                 state_machine=self._state_machine,
                 prompt_manager=self._prompt_manager,
+                tx_manager=self._tx_manager
             )
 
     ### Overridden FastMCP methods (delegating to state-aware managers)
@@ -211,8 +258,7 @@ class StatefulMCP(FastMCP[LifespanResultT]):
             The context parameter is automatically removed from the signature when listing tools.
         """
         assert self._stateful_tools is not None, "Stateful managers not initialized; call run() first"
-        ctx = self.get_context()
-        return await self._stateful_tools.call_tool(name, arguments, ctx)
+        return await self._stateful_tools.call_tool(name, arguments, self.get_context())
 
 
     async def read_resource(self, uri: AnyUrl | str) -> Iterable[ReadResourceContents]:
@@ -222,7 +268,7 @@ class StatefulMCP(FastMCP[LifespanResultT]):
         session-scoped state machine to resources allowed in the *current state* of the *current session*.
         """
         assert self._stateful_resources is not None, "Stateful managers not initialized; call run() first"
-        return await self._stateful_resources.read_resource(uri)
+        return await self._stateful_resources.read_resource(uri, self.get_context())
 
 
     async def get_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> GetPromptResult:
@@ -232,8 +278,7 @@ class StatefulMCP(FastMCP[LifespanResultT]):
         session-scoped state machine to prompts allowed in the *current state* of the *current session*.
         """
         assert self._stateful_prompts is not None, "Stateful managers not initialized; call run() first"
-        ctx = self.get_context()
-        return await self._stateful_prompts.get_prompt(name, arguments or {}, ctx)
+        return await self._stateful_prompts.get_prompt(name, arguments or {}, self.get_context())
 
 
     async def list_tools(self) -> list[MCPTool]:

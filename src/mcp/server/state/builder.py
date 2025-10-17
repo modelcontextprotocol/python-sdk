@@ -47,6 +47,8 @@ from mcp.server.state.types import (
     ToolResultType,
 )
 from mcp.server.state.validator import StateMachineValidator, ValidationIssue
+from mcp.server.state.transaction.manager import TransactionManager, TxKey
+from mcp.server.state.transaction.types import TransactionPayloadProvider
 
 
 logger = get_logger(f"{__name__}.StateMachineBuilder")
@@ -67,12 +69,18 @@ class _InternalStateMachineBuilder:
     accessed from user code.
     """
 
-    def __init__(self, tool_manager: ToolManager | None, resource_manager: ResourceManager | None, prompt_manager: PromptManager | None):
+    def __init__(
+            self, tool_manager: ToolManager | None,
+            resource_manager: ResourceManager | None, 
+            prompt_manager: PromptManager | None,
+            tx_manager: TransactionManager | None
+            ):
         self._states: dict[str, State] = {}
         self._initial: Optional[str] = None
         self._tool_manager = tool_manager
         self._resource_manager = resource_manager
         self._prompt_manager = prompt_manager
+        self._tx_manager = tx_manager
 
     def add_or_update_state(
         self,
@@ -120,7 +128,23 @@ class _InternalStateMachineBuilder:
         symbol: InputSymbol,
         effect: Callback = None,
     ) -> None:
-        """Add a transition; warn and ignore on duplicates or ambiguities."""
+        """Add a transition; ensure target state exists; warn and ignore on duplicates or ambiguities.
+
+        Behavior:
+        - Ensures the *target* state exists as a terminal placeholder (no flag updates for existing states).
+        - Duplicate (exact same Transition object) → warn and ignore.
+        - Ambiguous (same input symbol mapped to a different target) → warn and ignore.
+        """
+        # Ensure source state exists (builder contracts expect states to be declared up front)
+        if from_state not in self._states:
+            raise KeyError(f"State '{from_state}' not defined")
+
+        # Ensure target state exists as terminal placeholder (no update for existing)
+        if to_state not in self._states:
+            # Create target with terminal=True by default (placeholder)
+            self.add_or_update_state(to_state, is_initial=False, is_terminal=True, update=False)
+            logger.debug("Created placeholder terminal state '%s' for transition target.", to_state)
+
         state = self._states[from_state]
         new_tr = Transition(to_state=to_state, input_symbol=symbol, effect=effect)
 
@@ -139,6 +163,24 @@ class _InternalStateMachineBuilder:
 
         state.transitions.append(new_tr)
 
+    def add_transaction(
+        self,
+        key: TxKey,
+        provider: TransactionPayloadProvider,
+    ) -> None:
+        """Register a payload provider for the given TxKey.
+
+        - The source state must exist → otherwise raise KeyError.
+        - Multiple registrations are allowed (providers are appended).
+        """
+        state = key[0]
+        if state not in self._states:
+            raise KeyError(f"State '{state}' not defined")
+
+        if self._tx_manager is not None:
+            self._tx_manager.register(key=key, provider=provider)
+            logger.debug("Registered transaction provider for key=%s", key)
+
     def build(self, *, context_resolver: ContextResolver = None) -> StateMachine:
         """Build a global machine (single current state for the process)."""
         self._validate()
@@ -146,7 +188,7 @@ class _InternalStateMachineBuilder:
         return StateMachine(
             initial_state=initial,
             states=self._states,
-            context_resolver=context_resolver,
+            context_resolver=context_resolver
         )
 
     def build_session_scoped(self, *, context_resolver: ContextResolver = None) -> SessionScopedStateMachine:
@@ -156,7 +198,7 @@ class _InternalStateMachineBuilder:
         return SessionScopedStateMachine(
             initial_state=initial,
             states=self._states,
-            context_resolver=context_resolver,
+            context_resolver=context_resolver
         )
 
     def _validate(self) -> None:
@@ -203,48 +245,32 @@ class StateAPI:
         self._name = state_name
 
     def on_tool(self, name: str) -> "TransitionAPI[ToolResultType]":
-        """Attach a tool by name and return a tool-typed TransitionAPI.
-
-        Side-effect: installs a DEFAULT self-transition (tool, name, DEFAULT) from this state to itself.
-        """
-        # The state is assumed to be declared via `define_state`/decorator beforehand.
-        self._builder.add_transition(
-            self._name, self._name, InputSymbol.for_tool(name, ToolResultType.DEFAULT)
-        )
+        """Attach a tool by name and return a tool-typed TransitionAPI."""
         return TransitionAPI[ToolResultType](
             builder=self._builder,
             from_state=self._name,
             name=name,
+            kind="tool",
             factory=InputSymbol.for_tool,
         )
 
     def on_prompt(self, name: str) -> "TransitionAPI[PromptResultType]":
-        """Attach a prompt by name and return a prompt-typed TransitionAPI.
-
-        Side-effect: installs a DEFAULT self-transition (prompt, name, DEFAULT).
-        """
-        self._builder.add_transition(
-            self._name, self._name, InputSymbol.for_prompt(name, PromptResultType.DEFAULT)
-        )
+        """Attach a prompt by name and return a prompt-typed TransitionAPI."""
         return TransitionAPI[PromptResultType](
             builder=self._builder,
             from_state=self._name,
             name=name,
+            kind="prompt",
             factory=InputSymbol.for_prompt,
         )
 
     def on_resource(self, name: str) -> "TransitionAPI[ResourceResultType]":
-        """Attach a resource by name and return a resource-typed TransitionAPI.
-
-        Side-effect: installs a DEFAULT self-transition (resource, name, DEFAULT).
-        """
-        self._builder.add_transition(
-            self._name, self._name, InputSymbol.for_resource(name, ResourceResultType.DEFAULT)
-        )
+        """Attach a resource by name and return a resource-typed TransitionAPI."""
         return TransitionAPI[ResourceResultType](
-            builder=self._builder,
             from_state=self._name,
             name=name,
+            kind="resource",
+            builder=self._builder,
             factory=InputSymbol.for_resource,
         )
 
@@ -263,21 +289,23 @@ class TransitionAPI(Generic[RT]):
 
     API surface:
     - transition(to_state, result, effect=None)  → attach an exact-match edge
+    - transaction(prepare, payload=None)         → register a transaction for this state and tool/prompt/resource
     - end()                                      → return to the StateAPI (state scope)
     """
 
     def __init__(
         self,
-        builder: _InternalStateMachineBuilder,
         from_state: str,
         name: str,
-        *,
+        kind: str,
+        builder: _InternalStateMachineBuilder,
         factory: Callable[[str, RT], InputSymbol],
     ):
         self._builder = builder
         self._from = from_state
         self._name = name
-        self._factory = factory  # InputSymbol factory for the specific result type
+        self._kind = kind           # tool / prompt / resource (TxKind)
+        self._factory = factory     # InputSymbol factory for the specific result type
 
     def transition(
         self,
@@ -287,17 +315,48 @@ class TransitionAPI(Generic[RT]):
     ) -> "TransitionAPI[RT]":
         """Attach a transition for (type, name, result) from the current state to `to_state`.
 
-        The target state is created as terminal placeholder when missing; flags are not updated otherwise.
+        **effect**:
+            Optional side-effect invoked *after* the state update when this edge is taken.
+            It is not part of the state machine’s semantics: the machine does not observe
+            its return value and does not rely on it for determinism. Keep business logic
+            out of effects—use them only for things like logging, metrics, or event-sourcing.
         """
-
-        # Ensure the target state exists (terminal placeholder).
-        self._builder.add_or_update_state(to_state, is_terminal=True, update=False)
-
         # Build a typed input symbol with the provided result enum and attach the edge.
         symbol = self._factory(self._name, result)
         self._builder.add_transition(self._from, to_state, symbol, effect)
         return self
 
+    def transaction(
+        self,
+        provider: TransactionPayloadProvider,
+    ) -> "TransitionAPI[RT]":
+        """Register a transaction for this state and tool/prompt/resource.
+
+        What it is:
+            A client-side request executed under a transaction boundary so state-dependent
+            changes don’t “stick” if the tool/prompt/resource fails. This lets the runtime
+            keep client and server in sync and preserves the state machine’s determinism.
+
+        How it runs:
+            - PREPARE happens *before* the tool/prompt/resource is executed.
+            The `provider` can be a static payload or a callable; callables may enrich the
+            payload using request context/lifespan data.
+            - On success, the transaction is COMMITed.
+            - On failure/exception, it is ABORTed (no commit).
+
+        Important:
+            - Don’t assume data written by the same tool/prompt/resource is available to the
+            `provider`—prepare runs first. If you need data in the payload, add a preceding
+            step that writes it to context.
+            - You can think of this as making the operation deterministic over the pair
+            (operation, transaction). Multiple providers may be registered; all are processed
+            in order.
+            - Correct behavior depends on client capabilities and proper client handlers.
+        """
+        key: TxKey = (self._from, self._kind, self._name)
+        self._builder.add_transaction(key, provider)
+        return self
+    
     def end(self) -> "StateAPI":
         """Return to the state scope to continue chaining within the same state."""
         return StateAPI(self._builder, self._from)
@@ -332,8 +391,14 @@ class StateMachineDefinition:
                 .transition("faq", ToolResultType.SUCCESS)
     """
 
-    def __init__(self, tool_manager: ToolManager, resource_manager: ResourceManager, prompt_manager: PromptManager):
-        self._builder = _InternalStateMachineBuilder(tool_manager, resource_manager, prompt_manager)
+    def __init__(
+            self, 
+            tool_manager: ToolManager | None, 
+            resource_manager: ResourceManager | None, 
+            prompt_manager: PromptManager | None,
+            tx_manager: TransactionManager | None
+        ):
+        self._builder = _InternalStateMachineBuilder(tool_manager, resource_manager, prompt_manager, tx_manager)
 
     @classmethod
     def from_builder(cls, builder: _InternalStateMachineBuilder) -> "StateMachineDefinition":

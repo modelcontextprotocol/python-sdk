@@ -39,7 +39,6 @@ from mcp.server.state.types import (
     ToolResultType,
 )
 
-
 logger = get_logger(__name__)
 
 ### Internal Structures 
