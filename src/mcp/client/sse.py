@@ -142,7 +142,12 @@ async def sse_client(
                     try:
                         yield read_stream, write_stream
                     finally:
-                        tg.cancel_scope.cancel()
+                        # FIX: Removed manual cancel - anyio task group handles cleanup automatically
+                        # The manual cancel caused: "RuntimeError: Attempted to exit cancel scope
+                        # in a different task than it was entered in"
+                        # When the async context manager exits, the task group's __aexit__
+                        # will properly cancel all child tasks.
+                        pass
         finally:
             await read_stream_writer.aclose()
             await write_stream.aclose()
