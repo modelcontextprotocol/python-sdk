@@ -6,12 +6,16 @@ requires-python = ">=3.10"
 members = [
     "mcp",
     "mcp-simple-auth",
+    "mcp-simple-auth-client",
+    "mcp-simple-chatbot",
+    "mcp-simple-pagination",
     "mcp-simple-prompt",
     "mcp-simple-resource",
     "mcp-simple-streamablehttp",
     "mcp-simple-streamablehttp-stateless",
     "mcp-simple-tool",
     "mcp-snippets",
+    "mcp-structured-output-lowlevel",
 ]
 
 [[package]]
@@ -731,6 +735,101 @@ dev = [
 ]
 
 [[package]]
+name = "mcp-simple-auth-client"
+version = "0.1.0"
+source = { editable = "examples/clients/simple-auth-client" }
+dependencies = [
+    { name = "click" },
+    { name = "mcp" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.2.0" },
+    { name = "mcp", editable = "." },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.379" },
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "ruff", specifier = ">=0.6.9" },
+]
+
+[[package]]
+name = "mcp-simple-chatbot"
+version = "0.1.0"
+source = { editable = "examples/clients/simple-chatbot" }
+dependencies = [
+    { name = "mcp" },
+    { name = "python-dotenv" },
+    { name = "requests" },
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mcp", editable = "." },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "requests", specifier = ">=2.31.0" },
+    { name = "uvicorn", specifier = ">=0.32.1" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.379" },
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "ruff", specifier = ">=0.6.9" },
+]
+
+[[package]]
+name = "mcp-simple-pagination"
+version = "0.1.0"
+source = { editable = "examples/servers/simple-pagination" }
+dependencies = [
+    { name = "anyio" },
+    { name = "click" },
+    { name = "httpx" },
+    { name = "mcp" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", specifier = ">=4.5" },
+    { name = "click", specifier = ">=8.2.0" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "mcp", editable = "." },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.378" },
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "ruff", specifier = ">=0.6.9" },
+]
+
+[[package]]
 name = "mcp-simple-prompt"
 version = "0.1.0"
 source = { editable = "examples/servers/simple-prompt" }
@@ -907,6 +1006,17 @@ dev = [
 name = "mcp-snippets"
 version = "0.1.0"
 source = { editable = "examples/snippets" }
+dependencies = [
+    { name = "mcp" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "mcp", editable = "." }]
+
+[[package]]
+name = "mcp-structured-output-lowlevel"
+version = "0.1.0"
+source = { virtual = "examples/servers/structured-output-lowlevel" }
 dependencies = [
     { name = "mcp" },
 ]

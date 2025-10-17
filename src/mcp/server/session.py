@@ -156,11 +156,14 @@ class ServerSession(
                                 serverInfo=types.Implementation(
                                     name=self._init_options.server_name,
                                     version=self._init_options.server_version,
+                                    websiteUrl=self._init_options.website_url,
+                                    icons=self._init_options.icons,
                                 ),
                                 instructions=self._init_options.instructions,
                             )
                         )
                     )
+                self._initialization_state = InitializationState.Initialized
             case types.PingRequest():
                 # Ping requests are allowed at any time
                 pass

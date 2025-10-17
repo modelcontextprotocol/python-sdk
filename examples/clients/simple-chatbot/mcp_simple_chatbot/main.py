@@ -291,8 +291,15 @@ class ChatSession:
         """
         import json
 
+        def _clean_json_string(json_string: str) -> str:
+            """Remove ```json ... ``` or ``` ... ``` wrappers if the LLM response is fenced."""
+            import re
+
+            pattern = r"^```(?:\s*json)?\s*(.*?)\s*```$"
+            return re.sub(pattern, r"\1", json_string, flags=re.DOTALL | re.IGNORECASE).strip()
+
         try:
-            tool_call = json.loads(llm_response)
+            tool_call = json.loads(_clean_json_string(llm_response))
             if "tool" in tool_call and "arguments" in tool_call:
                 logging.info(f"Executing tool: {tool_call['tool']}")
                 logging.info(f"With arguments: {tool_call['arguments']}")
@@ -394,7 +401,7 @@ class ChatSession:
             await self.cleanup_servers()
 
 
-async def main() -> None:
+async def run() -> None:
     """Initialize and run the chat session."""
     config = Configuration()
     server_config = config.load_config("servers_config.json")
@@ -404,5 +411,9 @@ async def main() -> None:
     await chat_session.start()
 
 
+def main() -> None:
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
