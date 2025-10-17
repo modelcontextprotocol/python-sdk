@@ -4,7 +4,14 @@ from __future__ import annotations as _annotations
 
 import inspect
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Iterable, Sequence
+from collections.abc import (
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Collection,
+    Iterable,
+    Sequence,
+)
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal
 
@@ -22,10 +29,21 @@ from starlette.routing import Mount, Route
 from starlette.types import Receive, Scope, Send
 
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
-from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
+from mcp.server.auth.middleware.bearer_auth import (
+    BearerAuthBackend,
+    RequireAuthMiddleware,
+)
+from mcp.server.auth.provider import (
+    OAuthAuthorizationServerProvider,
+    ProviderTokenVerifier,
+    TokenVerifier,
+)
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, elicit_with_validation
+from mcp.server.elicitation import (
+    ElicitationResult,
+    ElicitSchemaModelT,
+    elicit_with_validation,
+)
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
@@ -112,7 +130,9 @@ def lifespan_wrapper(
     lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]],
 ) -> Callable[[MCPServer[LifespanResultT, Request]], AbstractAsyncContextManager[LifespanResultT]]:
     @asynccontextmanager
-    async def wrap(_: MCPServer[LifespanResultT, Request]) -> AsyncIterator[LifespanResultT]:
+    async def wrap(
+        _: MCPServer[LifespanResultT, Request],
+    ) -> AsyncIterator[LifespanResultT]:
         async with lifespan(app) as context:
             yield context
 
@@ -126,7 +146,7 @@ class FastMCP(Generic[LifespanResultT]):
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[Icon] | None = None,
-        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
+        auth_server_provider: (OAuthAuthorizationServerProvider[Any, Any, Any] | None) = None,
         token_verifier: TokenVerifier | None = None,
         event_store: EventStore | None = None,
         *,
@@ -145,7 +165,7 @@ class FastMCP(Generic[LifespanResultT]):
         warn_on_duplicate_tools: bool = True,
         warn_on_duplicate_prompts: bool = True,
         dependencies: Collection[str] = (),
-        lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
+        lifespan: (Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None) = None,
         auth: AuthSettings | None = None,
         transport_security: TransportSecuritySettings | None = None,
         notification_options: NotificationOptions | None = None,
@@ -292,6 +312,7 @@ class FastMCP(Generic[LifespanResultT]):
                 outputSchema=info.output_schema,
                 annotations=info.annotations,
                 icons=info.icons,
+                _meta=info.meta,
             )
             for info in tools
         ]
@@ -367,6 +388,7 @@ class FastMCP(Generic[LifespanResultT]):
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
+        meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> None:
         """Add a tool to the server.
@@ -392,6 +414,7 @@ class FastMCP(Generic[LifespanResultT]):
             description=description,
             annotations=annotations,
             icons=icons,
+            meta=meta,
             structured_output=structured_output,
         )
 
@@ -413,6 +436,7 @@ class FastMCP(Generic[LifespanResultT]):
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
+        meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
@@ -460,6 +484,7 @@ class FastMCP(Generic[LifespanResultT]):
                 description=description,
                 annotations=annotations,
                 icons=icons,
+                meta=meta,
                 structured_output=structured_output,
             )
             return fn
@@ -1171,7 +1196,10 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         """
 
         return await elicit_with_validation(
-            session=self.request_context.session, message=message, schema=schema, related_request_id=self.request_id
+            session=self.request_context.session,
+            message=message,
+            schema=schema,
+            related_request_id=self.request_id,
         )
 
     async def log(
