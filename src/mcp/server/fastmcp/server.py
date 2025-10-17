@@ -51,7 +51,7 @@ from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.context_injection import find_context_parameter
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.server.lowlevel.server import LifespanResultT
+from mcp.server.lowlevel.server import LifespanResultT, NotificationOptions
 from mcp.server.lowlevel.server import Server as MCPServer
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.session import ServerSession, ServerSessionT
@@ -220,6 +220,7 @@ class FastMCP(Generic[LifespanResultT]):
         self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
         self._session_manager: StreamableHTTPSessionManager | None = None
+        self._notification_options: NotificationOptions | None = None
 
         # Set up MCP protocol handlers
         self._setup_handlers()
@@ -297,6 +298,28 @@ class FastMCP(Generic[LifespanResultT]):
         self._mcp_server.list_prompts()(self.list_prompts)
         self._mcp_server.get_prompt()(self.get_prompt)
         self._mcp_server.list_resource_templates()(self.list_resource_templates)
+
+    def set_notification_options(
+        self,
+        *,
+        prompts_changed: bool = False,
+        resources_changed: bool = False,
+        tools_changed: bool = False,
+    ) -> None:
+        """Configure which change notifications this server broadcasts
+
+        Args:
+            prompts_changed: Whether to send prompt list changed notifications.
+            resources_changed: Whether to send resource list changed notifications.
+            tools_changed: Whether to send tool list changed notifications.
+        """
+        from mcp.server.lowlevel.server import NotificationOptions
+
+        self._notification_options = NotificationOptions(
+            prompts_changed=prompts_changed,
+            resources_changed=resources_changed,
+            tools_changed=tools_changed,
+        )
 
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""
@@ -732,7 +755,7 @@ class FastMCP(Generic[LifespanResultT]):
             await self._mcp_server.run(
                 read_stream,
                 write_stream,
-                self._mcp_server.create_initialization_options(),
+                self._mcp_server.create_initialization_options(self._notification_options),
             )
 
     async def run_sse_async(self, mount_path: str | None = None) -> None:
@@ -821,7 +844,7 @@ class FastMCP(Generic[LifespanResultT]):
                 await self._mcp_server.run(
                     streams[0],
                     streams[1],
-                    self._mcp_server.create_initialization_options(),
+                    self._mcp_server.create_initialization_options(self._notification_options),
                 )
             return Response()
 
@@ -935,6 +958,7 @@ class FastMCP(Generic[LifespanResultT]):
                 json_response=self.settings.json_response,
                 stateless=self.settings.stateless_http,  # Use the stateless setting
                 security_settings=self.settings.transport_security,
+                notification_options=self._notification_options,
             )
 
         # Create the ASGI handler

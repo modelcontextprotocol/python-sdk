@@ -15,6 +15,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+from mcp.server.lowlevel.server import NotificationOptions
 from mcp.server.lowlevel.server import Server as MCPServer
 from mcp.server.streamable_http import (
     MCP_SESSION_ID_HEADER,
@@ -51,6 +52,9 @@ class StreamableHTTPSessionManager:
         json_response: Whether to use JSON responses instead of SSE streams
         stateless: If True, creates a completely fresh transport for each request
                    with no session tracking or state persistence between requests.
+        notification_options:
+            Specifies which change notifications (e.g. tools, resources, prompts)
+            this manager should advertise to clients.
     """
 
     def __init__(
@@ -60,12 +64,16 @@ class StreamableHTTPSessionManager:
         json_response: bool = False,
         stateless: bool = False,
         security_settings: TransportSecuritySettings | None = None,
+        notification_options: NotificationOptions | None = None,
     ):
         self.app = app
         self.event_store = event_store
         self.json_response = json_response
         self.stateless = stateless
         self.security_settings = security_settings
+
+        # Server notification options
+        self._notification_options = notification_options
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
@@ -175,7 +183,7 @@ class StreamableHTTPSessionManager:
                     await self.app.run(
                         read_stream,
                         write_stream,
-                        self.app.create_initialization_options(),
+                        self.app.create_initialization_options(self._notification_options),
                         stateless=True,
                     )
                 except Exception:
@@ -241,7 +249,7 @@ class StreamableHTTPSessionManager:
                             await self.app.run(
                                 read_stream,
                                 write_stream,
-                                self.app.create_initialization_options(),
+                                self.app.create_initialization_options(self._notification_options),
                                 stateless=False,  # Stateful mode
                             )
                         except Exception as e:
