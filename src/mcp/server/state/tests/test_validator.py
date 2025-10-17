@@ -5,11 +5,6 @@ import pytest
 from pytest import LogCaptureFixture
 
 from mcp.server.state.server import StatefulMCP
-from mcp.server.state.types import (
-    PromptResultType,
-    ResourceResultType,
-    ToolResultType,
-)
 
 
 def test_validation_error_no_initial_state():
@@ -23,9 +18,8 @@ def test_validation_error_no_initial_state():
     (
         app.statebuilder
             .define_state("s0")
-            .on_tool("t_ok").transition("s1", result=ToolResultType.SUCCESS).end()
-            .done()
-            .define_state("s1")
+            .on_tool("t_ok").on_success("s1").build_edge().build_state()
+            .define_state("s1").build_state()
     )
 
     with pytest.raises(ValueError) as ei:
@@ -45,10 +39,9 @@ def test_validation_error_terminal_has_outgoing():
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .on_tool("t_ok").transition("s1", result=ToolResultType.SUCCESS).end()
-            .done()
+            .on_tool("t_ok").on_success("s1").build_edge().build_state()
             .define_state("s1", is_terminal=True)
-            .on_tool("t_ok").transition("s0", result=ToolResultType.SUCCESS).end()  # illegal outgoing
+            .on_tool("t_ok").on_success("s0") # illegal outgoing
     )
 
     with pytest.raises(ValueError) as ei:
@@ -67,8 +60,7 @@ def test_validation_error_no_reachable_terminal():
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .on_tool("t_ok").transition("s1", result=ToolResultType.SUCCESS).end()
-            .done()
+            .on_tool("t_ok").on_success("s1").build_edge().build_state()
             .define_state("s1") # define updated isTermial to False
     )
 
@@ -88,10 +80,9 @@ def test_validation_error_no_reachable_terminal_no_valid_edge():
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .on_tool("t_ok").transition("s1", result=ToolResultType.SUCCESS).end()
-            .done()
+            .on_tool("t_ok").on_success("s1").build_edge().build_state()
             .define_state("s1")
-            .on_tool("t_ok").transition("sT", result=ToolResultType.SUCCESS).end()
+            .on_tool("t_ok").on_success("sT").build_edge().build_state()
     )
 
     with pytest.raises(ValueError) as ei:
@@ -107,8 +98,7 @@ def test_validation_error_missing_tool():
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .on_tool("MISSING")
-            .transition("s1", result=ToolResultType.SUCCESS)
+            .on_tool("MISSING").on_success("s1").build_edge()
     )
 
     with pytest.raises(ValueError) as ei:
@@ -124,8 +114,7 @@ def test_validation_error_missing_prompt():
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .on_prompt("MISSING")
-            .transition("s1", result=PromptResultType.SUCCESS)
+            .on_prompt("MISSING").on_success("s1").build_edge()
     )
 
     with pytest.raises(ValueError) as ei:
@@ -141,8 +130,7 @@ def test_validation_error_missing_resource():
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .on_resource("resource://missing")
-            .transition("s1", result=ResourceResultType.SUCCESS)
+            .on_resource("resource://missing").on_success("s1").build_edge()
     )
 
     with pytest.raises(ValueError) as ei:
@@ -164,12 +152,9 @@ def test_validation_warning_unreachable_state(caplog: LogCaptureFixture):
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .on_tool("t_ok").transition("s1", result=ToolResultType.SUCCESS).end()
-            .done()
-            .define_state("s1", is_terminal=True)
-            .done()
-            .define_state("sX")  # unreachable
-            .done()
+            .on_tool("t_ok").on_success("s1").build_edge().build_state()
+            .define_state("s1", is_terminal=True).build_state()
+            .define_state("sX").build_state()  # unreachable
     )
 
     with caplog.at_level("WARNING"):

@@ -1282,7 +1282,7 @@ class ElicitResult(Result):
 
 
 # --- Transaction message payload --------------------------------------------
-TransactionMessagePayload: TypeAlias = SamplingMessage  
+TransactionMessagePayload: TypeAlias = RequestParams
 
 # --- Transaction request params ---------------------------------------------
 

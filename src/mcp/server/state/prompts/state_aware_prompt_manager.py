@@ -26,19 +26,20 @@ class StateAwarePromptManager:
     ``PromptManager`` while constraining visibility and execution by the machine's
     *current state*.
 
-    Model:
-    - Access is gated by the state machine.
-    - The render call is wrapped by the machine’s **AsyncTransitionScope** (emits SUCCESS/ERROR).
-    - Inside that, an **AsyncTransactionScope** prepares/commits/aborts for
-      (state, "prompt", name). Any transaction failure bubbles up and causes
-      the transition scope to emit the ERROR transition.
+    Composition model:
+    - Validate access using the machine's *current state*.
+    - **Outer:** `AsyncTransactionScope` prepares transactions for (state, "prompt", name, outcome).
+      - If PREPARE fails, abort any partial preparations and raise → no transition emission, no render.
+      - On exit: COMMIT the taken outcome, ABORT the other.
+    - **Inner:** the machine's `AsyncTransitionScope` emits SUCCESS/ERROR (exact-match only, no DEFAULT),
+      executes effects fire-and-forget, and resets to initial if a terminal state is reached.
     """
 
     def __init__(
-            self, 
-            state_machine: StateMachine, 
-            prompt_manager: PromptManager,
-            tx_manager: TransactionManager
+        self,
+        state_machine: StateMachine,
+        prompt_manager: PromptManager,
+        tx_manager: TransactionManager,
     ):
         self._prompt_manager = prompt_manager
         self._state_machine = state_machine
@@ -73,12 +74,13 @@ class StateAwarePromptManager:
         """
         Render the prompt in the **current state**.
 
-        Steps
-        -----
+        Steps:
         1) **Pre-validate**: prompt must be allowed by the state machine and registered.
-        2) **Wrap with transitions**: `AsyncTransitionScope` emits SUCCESS/ERROR.
-        3) **Wrap with transactions**: `AsyncTransactionScope` prepares/commits/aborts for
-           (state, "prompt", name). Any transaction error propagates, causing ERROR transition.
+        2) **Transactions (outer)**: `AsyncTransactionScope` prepares for (state, "prompt", name, outcome).
+           - PREPARE failure stops here (no transition emission, no prompt render).
+        3) **Transitions (inner)**: `AsyncTransitionScope` emits SUCCESS/ERROR (exact-match only).
+           - Effects are fire-and-forget; failures are warnings and never affect state changes.
+        4) Render the prompt and convert to MCP types.
         """
         allowed = self._state_machine.get_available_inputs().get("prompts", set())
         if name not in allowed:
@@ -91,21 +93,21 @@ class StateAwarePromptManager:
         if not prompt:
             raise ValueError(f"Unknown prompt: {name}")
 
-        # Capture current state once for the transaction key
+        # Capture current state once for transaction keying.
         current_state = self._state_machine.current_state
 
-        # Outer: emit SUCCESS/ERROR transitions
-        async with self._state_machine.transition_scope(
-            success_symbol=InputSymbol.for_prompt(name, PromptResultType.SUCCESS),
-            error_symbol=InputSymbol.for_prompt(name, PromptResultType.ERROR),
+        # OUTER: prepare/commit/abort transactions (loosely coupled, no machine dependency).
+        async with AsyncTransactionScope(
+            tx_manager=self._tx_manager,
+            state=current_state,
+            kind="prompt",
+            name=name,
+            ctx=ctx,
         ):
-            # Inner: prepare/commit/abort transactions (loosely coupled, no machine dependency)
-            async with AsyncTransactionScope(
-                tx_manager=self._tx_manager,
-                state=current_state,
-                kind="prompt",
-                name=name,
-                ctx=ctx,
+            # INNER: emit SUCCESS/ERROR transitions (exact-match only; effects fire-and-forget).
+            async with self._state_machine.transition_scope(
+                success_symbol=InputSymbol.for_prompt(name, PromptResultType.SUCCESS),
+                error_symbol=InputSymbol.for_prompt(name, PromptResultType.ERROR),
             ):
                 messages = await prompt.render(arguments, context=ctx)
                 return GetPromptResult(

@@ -9,7 +9,7 @@ from pytest import LogCaptureFixture
 from mcp.server.fastmcp.server import Context
 from mcp.server.state.machine.state_machine import InputSymbol
 from mcp.server.state.server import StatefulMCP
-from mcp.server.state.types import ToolResultType, PromptResultType
+from mcp.server.state.types import ToolResultType
 
 
 @pytest.mark.anyio
@@ -36,8 +36,8 @@ async def test_context_injected_on_effect(caplog: LogCaptureFixture):
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .on_tool("t_test")
-            .transition("s1", result=ToolResultType.SUCCESS, effect=ctx_effect)
+            .on_tool("t_test").on_success("s1", effect=ctx_effect)
+            .build_edge()
     )
 
     app._build_state_machine_once()
@@ -86,8 +86,7 @@ async def test_context_injected_on_prompt(caplog: LogCaptureFixture):
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .on_prompt("p_ctx")
-            .transition("s1", PromptResultType.SUCCESS)
+            .on_prompt("p_ctx").on_success("s1").build_edge()
     )
 
     app._build_state_machine_once()
@@ -124,8 +123,7 @@ async def test_context_injected_on_tool(caplog: LogCaptureFixture):
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .on_tool("t_ctx")
-            .transition("s1", ToolResultType.SUCCESS)
+            .on_tool("t_ctx").on_success("s1").build_edge()
     )
 
     app._build_state_machine_once()

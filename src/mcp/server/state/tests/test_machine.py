@@ -77,31 +77,33 @@ async def app_branch_cycle_machine() -> StatefulMCP:
         app.statebuilder
             # s0 initial
             .define_state("s0", is_initial=True)
-            .on_tool("t_login").transition("s1", ToolResultType.SUCCESS).end()
-            .on_tool("t_alt").transition("sA", ToolResultType.SUCCESS).end()
-            .done()
+                .on_tool("t_login").on_success("s1").build_edge()
+                .on_tool("t_alt").on_success("sA").build_edge()
+                .build_state()
 
             # s1
             .define_state("s1")
-            .on_tool("t_next").transition("s2", ToolResultType.SUCCESS).end()
-            .on_tool("t_abort").transition("sT", ToolResultType.ERROR).end()
-            .done()
+                .on_tool("t_next").on_success("s2").build_edge()
+                .on_tool("t_abort").on_error("sT").build_edge()
+                .build_state()
 
             # sA branch merging into s2
             .define_state("sA")
-            .on_tool("t_merge").transition("s2", ToolResultType.SUCCESS).end()
-            .done()
+                .on_tool("t_merge").on_success("s2").build_edge()
+                .build_state()
 
             # s2 with cycle back to s1 and terminal to sT
             .define_state("s2")
-            .on_tool("t_back").transition("s1", ToolResultType.SUCCESS).end()
-            .on_tool("t_finish").transition("sT", ToolResultType.SUCCESS).end()
-            .done()
+                .on_tool("t_back").on_success("s1").build_edge()
+                .on_tool("t_finish").on_success("sT").build_edge()
+                .build_state()
 
             # sT explicit terminal (no outgoing transitions)
             .define_state("sT", is_terminal=True)
-            .done()
+                .build_state()
     )
+
+
 
 
     # Build (validation happens here)
@@ -216,12 +218,11 @@ async def test_path_C_abort_from_s1_to_terminal(app_branch_cycle_machine: Statef
         pass
     assert sm.current_state == "s1"
 
-    # We want to traverse the ERROR edge for t_abort.
-    # For a pure path test (no exception noise), pass the ERROR symbol as "success_symbol".
-    async with sm.transition_scope(
-        success_symbol=InputSymbol.for_tool("t_abort", ToolResultType.ERROR),
-        error_symbol=InputSymbol.for_tool("t_abort", ToolResultType.SUCCESS),
-    ):
-        pass
+    with pytest.raises(ValueError):
+        async with sm.transition_scope(
+            success_symbol=InputSymbol.for_tool("t_abort", ToolResultType.SUCCESS),
+            error_symbol=InputSymbol.for_tool("t_abort", ToolResultType.ERROR),
+        ):
+            raise ValueError()
 
     assert sm.current_state == "s0"  # reset after terminal

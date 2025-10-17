@@ -1,4 +1,4 @@
-from .builder import StateAPI, StateMachineDefinition, TransitionAPI
+from .builder import StateAPI, StateMachineDefinition, BaseTransitionAPI
 from .machine import (
     InputSymbol,
     PromptResultType,
@@ -25,5 +25,5 @@ __all__: list[str] = [
     "SessionScopedStateMachine",
     "StatefulMCP",
     "ToolResultType",
-    "TransitionAPI",
+    "BaseTransitionAPI",
 ]

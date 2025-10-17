@@ -14,28 +14,36 @@ from mcp.server.state.transaction.types import (
     FastMCPContext,
     TransactionMessagePayload,
     TransactionPayloadProvider,
-    TxKey,
+    TxKey,  # (state, kind, name, result) where result ∈ {"success","error"}
 )
 
 logger = get_logger(__name__)
 
 
 class TransactionManager:
-    """Registry + execution for per-(state, kind, name) transactions.
+    """Registry + execution for per-(state, kind, name, result) transactions.
 
     Registry:
-      - Multiple providers per TxKey (order-preserving).
+    - Multiple providers may be registered per TxKey (order-preserving).
 
     Execution model:
-      - For a given TxKey, `prepare_for` resolves each provider → payload (with optional context injection),
-        sends transaction/prepare (with a deterministic tx_id derived from TxKey + request_id), and
-        pushes the resulting tx_ids as a *batch* on a per-key stack.
-      - `commit_for` pops the last batch and commits each tx_id in order.
-      - `abort_for` pops the last batch and aborts each tx_id in order (best effort).
+    - `prepare_for(key)`: resolve each provider → payload (with optional context injection),
+      send transaction/prepare with a deterministic `transaction_id` derived from
+      (request_id, state, kind, name, result, ordinal), and push the returned client
+      `transactionId`s as a *batch* on a per-key LIFO stack.
+    - `commit_for(key)`: pop the last batch for **this exact key** and commit each `transactionId`.
+    - `abort_for(key)`:  pop the last batch for **this exact key** and abort  each `transactionId`
+      (best effort).
+
+    Notes:
+    - Including **result** in the key and derived ID prevents success/error collisions.
+    - We always use the client-returned `transactionId` for commit/abort.
     """
 
     def __init__(self) -> None:
+        # Registered providers per exact key.
         self._by_key: Dict[TxKey, List[TransactionPayloadProvider]] = {}
+        # Active batches per exact key (LIFO). Each batch is a list of client transaction_ids.
         self._active: Dict[TxKey, List[List[str]]] = {}
 
     ### Registry
@@ -52,21 +60,20 @@ class TransactionManager:
     ### Internal helpers
 
     def _derive_tx_id(self, ctx: FastMCPContext, key: TxKey, ordinal: int) -> str:
-        """Stable, compact tx_id: blake2b(request_id|state|kind|name|ordinal)."""
+        """Stable, compact transaction_id: blake2b(request_id|state|kind|name|result|ordinal)."""
         request_id = getattr(ctx, "request_id", None)
         if request_id is None:
-            # Some contexts nest it; try a common fallback
             request_id = getattr(getattr(ctx, "request_context", None), "request_id", "no-rid")
 
-        state, kind, name = key
-        raw = f"{request_id}|{state}|{kind}|{name}|{ordinal}"
+        state, kind, name, result = key
+        raw = f"{request_id}|{state}|{kind}|{name}|{result}|{ordinal}"
         h = hashlib.blake2b(raw.encode("utf-8"), digest_size=16).hexdigest()
         return f"tx_{h}"
 
     async def _resolve_payload(
         self, ctx: Optional[FastMCPContext], provider: TransactionPayloadProvider
     ) -> TransactionMessagePayload:
-        """Provider → concrete payload; inject context if provider is callable."""
+        """Provider → concrete payload; inject context if provider is callable (sync or async)."""
         if callable(provider):
             val = inject_context(provider, ctx)
             if hasattr(val, "__await__"):
@@ -74,13 +81,13 @@ class TransactionManager:
             return val  # type: ignore[return-value]
         return provider
 
-    ### Execution
+    ### Execution 
 
     async def prepare_for(self, key: TxKey, ctx: FastMCPContext) -> int:
-        """Prepare all providers for this key; push tx_id batch on the per-key stack.
+        """Prepare all providers for this key; push tx_id batch on the per-key LIFO stack.
 
         Raises:
-            RuntimeError: if any single prepare fails (best-effort abort of already prepared txs).
+            ValueError: if any prepare fails (best-effort abort of already prepared txs in this batch).
         """
         providers = self.lookup_all(key)
         if not providers:
@@ -91,10 +98,10 @@ class TransactionManager:
             for idx, prov in enumerate(providers, start=1):
                 payload: TransactionMessagePayload = await self._resolve_payload(ctx, prov)
 
-                # Derive an id deterministically from (ctx.request_id, TxKey, ordinal)
+                # Deterministic id from (request_id, key, ordinal)
                 derived_id = self._derive_tx_id(ctx, key, idx)
 
-                # Ask the client to prepare. If the client returns its own id, prefer it.
+                # Ask the client to prepare. Prefer its returned ID.
                 result = await prepare_transaction(ctx=ctx, transaction_id=derived_id, payload=payload)
                 if not result.success or not result.transactionId:
                     raise RuntimeError(
@@ -120,7 +127,7 @@ class TransactionManager:
         return len(batch_ids)
 
     async def commit_for(self, key: TxKey, ctx: FastMCPContext) -> None:
-        """Commit last batch for this key (LIFO)."""
+        """Commit last batch for this exact key (LIFO)."""
         stack = self._active.get(key)
         if not stack:
             return
@@ -132,7 +139,7 @@ class TransactionManager:
         logger.debug("Committed %d transaction(s) for key=%s", len(batch), key)
 
     async def abort_for(self, key: TxKey, ctx: FastMCPContext) -> None:
-        """Abort last batch for this key (best effort, LIFO)."""
+        """Abort last batch for this exact key (best effort, LIFO)."""
         stack = self._active.get(key)
         if not stack:
             return

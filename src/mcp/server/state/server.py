@@ -8,20 +8,26 @@ What it wires up
 ----------------
 - A session-scoped StateMachine (or global, if configured).
 - State-aware managers for tools, resources, and prompts.
-  Each manager filters visibility by the machine's *current state* and
-  executes calls inside an async transition scope so SUCCESS/ERROR edges fire.
+  Each manager filters visibility by the machine's *current state* and executes
+  calls inside two coordinated scopes:
+    1) **AsyncTransactionScope (outer)** — prepares outcome-qualified transactions
+       for (state, kind, name, "success"/"error") **before** any operation runs.
+       - If PREPARE fails → no transition emission, no operation executed.
+       - On exit: COMMIT the taken outcome; ABORT the other.
+    2) **AsyncTransitionScope (inner)** — emits exact-match SUCCESS/ERROR edges,
+       runs effects fire-and-forget (warn on failure), and resets to initial when
+       entering a terminal state.
 
 Transactions (optional)
 -----------------------
 If a TransactionManager is present and the app registered transaction payload
-providers for a given (state, kind, name), managers wrap the user operation in
-an async transaction scope:
-  - prepare on enter (build key from current state + {tool|prompt|resource} + name)
-  - commit on normal exit
-  - abort on exceptional exit (best effort)
+providers via the DSL, managers prepare **both** outcome paths for the current
+(state, kind, name). Keys are strict 4-tuples: (state, kind, name, result).
+Derived `transaction_id`s include the outcome; commit/abort always use the
+client-returned IDs.
 
-You define states and transitions through the public DSL and let the server
-build & validate at startup.
+You define states and transitions through the public DSL; the server builds &
+validates the graph at startup.
 
 Usage
 -----
@@ -30,11 +36,12 @@ Usage
     # Decorator style
     @app.statebuilder.state("start", is_initial=True)
     def _(s: StateAPI):
-        s.on_tool("login") \
-         .transition("home", ToolResultType.SUCCESS) \
-         .end() \
-         .on_tool("alt_login") \
-         .transition("alt_home", ToolResultType.SUCCESS)
+        (s.on_tool("login")
+           .on_success("home")                      # optional: effect=..., transaction=...
+           .build_edge()
+         .on_tool("alt_login")
+           .on_success("alt_home")
+           .build_edge())
 
     @app.tool()
     async def login(ctx: Context) -> str:
@@ -44,13 +51,22 @@ Usage
 
 Fluent alternative
 ------------------
-    app.statebuilder \
-        .define_state("start", is_initial=True) \
-        .on_prompt("confirm") \
-            .transition("end", PromptResultType.SUCCESS) \
-            .end() \
-        .on_tool("help") \
-            .transition("faq", ToolResultType.SUCCESS)
+    (app.statebuilder
+         .define_state("start", is_initial=True)
+            .on_prompt("confirm")
+                .on_success("end")
+                .on_error("start")
+                .build_edge()
+         .define_state("end", is_terminal=True)
+            .buildState())
+
+Notes
+-----
+- Transitions are **exact-match only**; there is no DEFAULT fallback.
+- Transition effects are non-semantic: they never affect state changes.
+- Use `on_success(..., transaction=provider)` / `on_error(..., transaction=provider)`
+  to register outcome-qualified transactions directly in the DSL.
+- Exit the binding scope with `build_edge()`; finish a state block with `buildState()`.
 """
 
 from __future__ import annotations
@@ -141,34 +157,39 @@ class StatefulMCP(FastMCP[LifespanResultT]):
     def statebuilder(self) -> StateMachineDefinition:
         """Finite-state machine DSL (public).
 
-        Declare states and attach (tool|prompt|resource) bindings with result-specific
-        transitions. The server builds & validates the graph at startup—do not call
-        any build method yourself.
+        Declare states and attach (tool|prompt|resource) bindings with **outcome-specific**
+        transitions. Use `on_success(...)` / `on_error(...)` to wire edges, optionally
+        passing `effect=` and/or `transaction=`. Call `build_edge()` to return to the state
+        scope and `buildState()` to finish the state block. The server builds & validates
+        the graph at startup—do not call internal build methods yourself.
 
         Decorator style::
 
             @app.statebuilder.state("start", is_initial=True)
             def _(s: StateAPI):
                 s.on_tool("login") \
-                .transition("home", ToolResultType.SUCCESS) \
-                .end() \
+                .on_success("home") \
+                .build_edge() \
                 .on_tool("alt_login") \
-                .transition("alt_home", ToolResultType.SUCCESS)
+                .on_success("alt_home") \
+                .build_edge()
 
         Fluent style::
 
             app.statebuilder \
                 .define_state("start", is_initial=True) \
                 .on_prompt("confirm") \
-                    .transition("end", PromptResultType.SUCCESS) \
-                    .end() \
-                .on_tool("help") \
-                    .transition("faq", ToolResultType.SUCCESS)
+                    .on_success("end") \
+                    .on_error("start") \
+                    .build_edge() \
+                .define_state("end", is_terminal=True) \
+                .buildState()
 
         Returns:
             StateMachineDefinition: The DSL facade.
         """
         return self._state_definition
+
 
     ### Server lifecycle
 

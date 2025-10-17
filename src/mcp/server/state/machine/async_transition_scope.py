@@ -1,21 +1,4 @@
-"""
-Async transition scope for StateMachine operations.
-
-This context manager wraps an operation and emits SUCCESS/ERROR transitions.
-It applies only exact-match transitions (no DEFAULT fallback), executes any
-transition effect as a fire-and-forget side effect, and never lets effect
-failures influence state changes (failures are logged as warnings).
-
-Usage
------
-    async with sm.transition_scope(
-        success_symbol=InputSymbol.for_tool("t_run", ToolResultType.SUCCESS),
-        error_symbol=InputSymbol.for_tool("t_run", ToolResultType.ERROR),
-    ):
-        await run_the_tool(...)
-"""
 from __future__ import annotations
-
 from types import TracebackType
 from typing import Callable, Optional, Type, TYPE_CHECKING
 
@@ -31,25 +14,25 @@ logger = get_logger(__name__)
 class AsyncTransitionScope:
     """
     Async context manager that wraps an operation and emits SUCCESS/ERROR transitions.
-
-    Parameters
-    ----------
+    
+    Parameters:
     sm : StateMachine
         Target machine to apply transitions to.
     success_symbol : InputSymbol
-        Symbol to emit on successful operation completion.
+        Symbol to emit on successful operation completion (e.g., InputSymbol.for_*("<op_name>", SUCCESS)).
     error_symbol : InputSymbol
-        Symbol to emit when an exception escapes the block.
+        Symbol to emit when an exception escapes the block (e.g., InputSymbol.for_*("<op_name>", ERROR)).
     log_exc : callable
-        Logger-compatible callable (default: logger.exception).
+        Logger-compatible callable used for error-path logging (default: logger.exception).
     exc_mapper : callable
-        Maps original exception -> raised exception (default: ValueError(str(e))).
+        Maps the original exception → raised exception (default: ValueError(str(e))).
 
-    Behavior
-    --------
-    - Apply the exact matching transition only (no DEFAULT fallback).
-    - Execute transition effects as fire-and-forget; log a warning on failure.
-    - If the resulting state is terminal, reset to the initial state.
+    Behavior:
+    - Applies the **exact-match** transition only (no DEFAULT fallback).
+    - Executes transition effects as fire-and-forget; failures are logged as warnings and **never**
+      influence state changes.
+    - If the resulting state is terminal, resets to the initial state.
+    - On the error path, applies the ERROR transition **before** re-raising the mapped exception.
     """
 
     def __init__(
@@ -79,9 +62,9 @@ class AsyncTransitionScope:
         if exc_type is None:
             self._apply_exact_if_present(self._success)
             self._maybe_reset_if_terminal()
-            return False  # do not suppress return value
+            return False  # do not suppress
 
-        # Error path → apply error transition and re-raise (mapped)
+        # Error path → apply error transition then re-raise (mapped)
         self._apply_exact_if_present(self._error)
         self._maybe_reset_if_terminal()
         self._log_exc(
@@ -90,21 +73,18 @@ class AsyncTransitionScope:
         )
         raise self._exc_mapper(exc or RuntimeError("Unknown failure")) from exc
 
-    ### transition mechanics
+    ### internals 
 
     def _apply_exact_if_present(self, symbol: "InputSymbol") -> None:
         """Apply the exact-match transition for `symbol` if present; otherwise no-op."""
         state = self._state_or_fail(self._sm.current_state)
-
         for tr in state.transitions:
             if symbol == tr.input_symbol:
-                # set state first (effect is not allowed to interfere with transition)
+                # Set state first; effects must not affect semantics.
                 self._sm.set_current_state(tr.to_state)
-
-                # Fire-and-forget effect; warn on synchronous failure
                 try:
                     apply_callback_with_context(tr.effect, self._sm.context_resolver)
-                except Exception as e:  # only synchronous invocation failures are caught here
+                except Exception as e:  # synchronous invocation failures only
                     logger.warning(
                         "Transition effect failed (state '%s' -> '%s', symbol %r): %s",
                         state.name, tr.to_state, symbol, e

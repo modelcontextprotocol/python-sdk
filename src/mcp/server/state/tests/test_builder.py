@@ -24,11 +24,11 @@ def test_builder_raises_on_second_initial_state():
 
     # First initial is fine
     sb = app.statebuilder
-    sb.define_state("s0", is_initial=True).done()
+    sb.define_state("s0", is_initial=True).build_state()
 
     # Second initial should blow up at define-time (builder layer)
     with pytest.raises(ValueError) as ei:
-        sb.define_state("s1", is_initial=True).done()
+        sb.define_state("s1", is_initial=True).build_state()
 
     assert "Initial state already set" in str(ei.value)
 

@@ -17,20 +17,23 @@ class StateAwareToolManager:
     """State-aware facade over ``ToolManager`` (composition).
 
     Wraps a ``StateMachine`` (global or session-scoped) and delegates to the native
-    ``ToolManager``; stays fully compatible with registrations and APIs.
+    ``ToolManager``; remains fully compatible with registrations and APIs.
 
     Composition model:
-    - Validate access using the machine’s *current state*.
-    - Wrap the operation with the machine’s **AsyncTransitionScope** to emit SUCCESS/ERROR.
-    - Inside that, wrap with **AsyncTransactionScope** (loosely coupled; uses current state + kind/name).
+    - Validate access using the machine's *current state*.
+    - **Outer:** `AsyncTransactionScope` prepares transactions for (state, "tool", name, outcome).
+      - If PREPARE fails, abort any partial preparations and raise → no transition emission, no tool call.
+      - On exit: COMMIT the taken outcome, ABORT the other.
+    - **Inner:** the machine's `AsyncTransitionScope` emits SUCCESS/ERROR (exact-match only, no DEFAULT),
+      executes effects fire-and-forget, and resets to initial if a terminal state is reached.
     """
 
     def __init__(
-            self, 
-            state_machine: StateMachine, 
-            tool_manager: ToolManager,
-            tx_manager: TransactionManager
-        ):
+        self,
+        state_machine: StateMachine,
+        tool_manager: ToolManager,
+        tx_manager: TransactionManager,
+    ):
         self._tool_manager = tool_manager
         self._state_machine = state_machine
         self._tx_manager = tx_manager
@@ -62,17 +65,15 @@ class StateAwareToolManager:
         ctx: FastMCPContext,
     ) -> Sequence[types.ContentBlock] | dict[str, Any]:
         """
-        Execute the tool in the **current state**:
+        Execute the tool in the **current state**.
 
-        Steps
-        -----
+        Steps:
         1) **Pre-validate**: tool must be allowed by the state machine and registered.
-        2) **Wrap with transitions**: `AsyncTransitionScope` emits SUCCESS/ERROR.
-        3) **Wrap with transactions**: `AsyncTransactionScope` prepares/commits/aborts for (state, "tool", name).
-           Any transaction error propagates, causing the transition scope to emit ERROR.
-
-        Returns:
-            Tool result (converted for MCP), or raises ValueError on validation/exec errors.
+        2) **Transactions (outer)**: `AsyncTransactionScope` prepares for (state, "tool", name, outcome).
+           - PREPARE failure stops here (no transition emission, no tool execution).
+        3) **Transitions (inner)**: `AsyncTransitionScope` emits SUCCESS/ERROR (exact-match only).
+           - Effects are fire-and-forget; failures are warnings and never affect state changes.
+        4) Execute the tool with MCP result conversion.
         """
         allowed = self._state_machine.get_available_inputs().get("tools", set())
         if name not in allowed:
@@ -85,20 +86,20 @@ class StateAwareToolManager:
         if not tool:
             raise ValueError(f"Tool '{name}' not found.")
 
-        # Capture the current state once for the transaction key
+        # Capture the current state once for transaction keying.
         current_state = self._state_machine.current_state
 
-        # Outer: emit SUCCESS/ERROR transitions
-        async with self._state_machine.transition_scope(
-            success_symbol=InputSymbol.for_tool(name, ToolResultType.SUCCESS),
-            error_symbol=InputSymbol.for_tool(name, ToolResultType.ERROR),
+        # OUTER: prepare/commit/abort transactions (loosely coupled, no machine dependency).
+        async with AsyncTransactionScope(
+            tx_manager=self._tx_manager,
+            state=current_state,
+            kind="tool",
+            name=name,
+            ctx=ctx,
         ):
-            # Inner: prepare/commit/abort transactions (loosely coupled, no machine dependency)
-            async with AsyncTransactionScope(
-                tx_manager=self._tx_manager,
-                state=current_state,
-                kind="tool",
-                name=name,
-                ctx=ctx,
+            # INNER: emit SUCCESS/ERROR transitions (exact-match only; effects fire-and-forget).
+            async with self._state_machine.transition_scope(
+                success_symbol=InputSymbol.for_tool(name, ToolResultType.SUCCESS),
+                error_symbol=InputSymbol.for_tool(name, ToolResultType.ERROR),
             ):
                 return await tool.run(arguments, context=ctx, convert_result=True)

@@ -24,25 +24,26 @@ class StateAwareResourceManager:
     """State-aware facade over ``ResourceManager`` (composition).
 
     Wraps a ``StateMachine`` (global or session-scoped) and delegates to the native
-    ``ResourceManager``; stays fully compatible with registrations and APIs.
+    ``ResourceManager``; remains fully compatible with registrations and APIs.
 
-    Model:
-    - Access is gated by the machine's *current state*.
-    - The actual read is wrapped by the machine’s **AsyncTransitionScope**.
-    - Transactions are handled by a separate **AsyncTransactionScope** nested inside; it
-      prepares/commits/aborts for (state, "resource", uri). Any transaction failure bubbles up,
-      causing the transition scope to emit the ERROR transition.
+    Composition model:
+    - Validate access using the machine's *current state*.
+    - **Outer:** `AsyncTransactionScope` prepares transactions for (state, "resource", uri, outcome).
+      - If PREPARE fails, abort any partial preparations and raise → no transition emission, no read.
+      - On exit: COMMIT the taken outcome, ABORT the other.
+    - **Inner:** the machine's `AsyncTransitionScope` emits SUCCESS/ERROR (exact-match only, no DEFAULT),
+      executes effects fire-and-forget, and resets to initial if a terminal state is reached.
 
     Note:
       Resource templates (``list_resource_templates``) are still handled by **FastMCP**.
     """
 
     def __init__(
-            self, 
-            state_machine: StateMachine, 
-            resource_manager: ResourceManager,
-            tx_manager: TransactionManager
-        ):
+        self,
+        state_machine: StateMachine,
+        resource_manager: ResourceManager,
+        tx_manager: TransactionManager,
+    ):
         self._resource_manager = resource_manager
         self._state_machine = state_machine
         self._tx_manager = tx_manager
@@ -71,15 +72,13 @@ class StateAwareResourceManager:
         """
         Read the resource in the **current state**.
 
-        Steps
-        -----
+        Steps:
         1) **Pre-validate**: resource must be allowed by the state machine and registered.
-        2) **Wrap with transitions**: `AsyncTransitionScope` emits SUCCESS/ERROR.
-        3) **Wrap with transactions**: `AsyncTransactionScope` prepares/commits/aborts for
-           (state, "resource", uri). Any transaction error propagates, causing ERROR transition.
-
-        Returns:
-            Iterable with a single `ReadResourceContents` entry (content + mime type).
+        2) **Transactions (outer)**: `AsyncTransactionScope` prepares for (state, "resource", uri, outcome).
+           - PREPARE failure stops here (no transition emission, no resource read).
+        3) **Transitions (inner)**: `AsyncTransitionScope` emits SUCCESS/ERROR (exact-match only).
+           - Effects are fire-and-forget; failures are warnings and never affect state changes.
+        4) Perform the resource read.
         """
         allowed = self._state_machine.get_available_inputs().get("resources", set())
         uri_str = str(uri)
@@ -93,21 +92,21 @@ class StateAwareResourceManager:
         if not resource:
             raise ResourceError(f"Unknown resource: {uri}")
 
-        # Capture current state once for the transaction key
+        # Capture current state once for transaction keying.
         current_state = self._state_machine.current_state
 
-        # Outer: emit SUCCESS/ERROR transitions
-        async with self._state_machine.transition_scope(
-            success_symbol=InputSymbol.for_resource(uri_str, ResourceResultType.SUCCESS),
-            error_symbol=InputSymbol.for_resource(uri_str, ResourceResultType.ERROR),
+        # OUTER: prepare/commit/abort transactions (loosely coupled, no machine dependency).
+        async with AsyncTransactionScope(
+            tx_manager=self._tx_manager,
+            state=current_state,
+            kind="resource",
+            name=uri_str,
+            ctx=ctx,
         ):
-            # Inner: prepare/commit/abort transactions (loosely coupled, no machine dependency)
-            async with AsyncTransactionScope(
-                tx_manager=self._tx_manager,
-                state=current_state,
-                kind="resource",
-                name=uri_str,
-                ctx=ctx,
+            # INNER: emit SUCCESS/ERROR transitions (exact-match only; effects fire-and-forget).
+            async with self._state_machine.transition_scope(
+                success_symbol=InputSymbol.for_resource(uri_str, ResourceResultType.SUCCESS),
+                error_symbol=InputSymbol.for_resource(uri_str, ResourceResultType.ERROR),
             ):
                 content = await resource.read()
                 return [ReadResourceContents(content=content, mime_type=resource.mime_type)]

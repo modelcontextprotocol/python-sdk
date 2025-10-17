@@ -24,7 +24,7 @@ An input symbol is a triple ``(type, name, result)`` where:
 At startup the server transfers the accumulated declarations to the private
 builder, chooses global or session-scoped machine, then builds and validates.
 """
-from typing import Callable, Optional, TypeVar, Generic
+from typing import Callable, Optional, TypeVar, Generic, Literal
 
 from mcp.server.fastmcp.prompts import PromptManager
 from mcp.server.fastmcp.resources import ResourceManager
@@ -226,140 +226,142 @@ class _InternalStateMachineBuilder:
 
 ### Public API DSL
 
+class BaseTransitionAPI(Generic[RT]):
+    """
+    Fluent scope for transitions of a concrete (kind, name) binding within the current state.
+
+    Outcome-first API
+    -----------------
+      - on_success(to_state, effect=None, transaction=None) -> Self
+      - on_error(to_state, effect=None, transaction=None)   -> Self
+      - build_edge() -> StateAPI  (return to state scope)
+
+    Transactions
+    ------------
+      - A `transaction` is *prepared before* entering the transition scope or executing the op.
+      - If PREPARE fails: hard stop. No op execution. No transition emission.
+      - After execution, the transition scope emits an outcome (SUCCESS or ERROR).
+      - The matching outcome’s transaction is **COMMIT**ted; the opposite outcome is **ABORT**ed.
+      - Transactions are registered per **(state, kind, name, outcome)**.
+
+    Effects
+    -------
+      - `effect` runs *after* the state update when this edge is taken.
+      - Effects are non-semantic (logging/metrics/etc.); failures are warned and ignored.
+
+    Subclasses pin the SUCCESS/ERROR enums and the InputSymbol factory for their result type.
+    """
+
+    # subclass contract
+    _SUCCESS_ENUM: RT                               # e.g. ToolResultType.SUCCESS
+    _ERROR_ENUM: RT                                 # e.g. ToolResultType.ERROR
+    _factory: Callable[[str, RT], "InputSymbol"]    # e.g. InputSymbol.for_tool
+    _kind: Literal["tool", "prompt", "resource"]
+
+    def __init__(self, builder: "_InternalStateMachineBuilder", from_state: str, name: str):
+        self._builder = builder
+        self._from = from_state
+        self._name = name
+
+    def on_success(
+        self,
+        to_state: str,
+        effect: Optional[Callback] = None,
+        transaction: Optional[TransactionPayloadProvider] = None,
+    ) -> "BaseTransitionAPI[RT]":
+        """Attach the SUCCESS edge; optionally register a SUCCESS-qualified transaction. Returns Self for fluent chaining."""
+        symbol = self._factory(self._name, self._SUCCESS_ENUM)
+        self._builder.add_transition(self._from, to_state, symbol, effect)
+        if transaction is not None:
+            key: "TxKey" = (self._from, self._kind, self._name, "success")
+            self._builder.add_transaction(key, transaction)
+        return self
+
+    def on_error(
+        self,
+        to_state: str,
+        effect: Optional[Callback] = None,
+        transaction: Optional[TransactionPayloadProvider] = None,
+    ) -> "BaseTransitionAPI[RT]":
+        """Attach the ERROR edge; optionally register an ERROR-qualified transaction. Returns Self for fluent chaining."""
+        symbol = self._factory(self._name, self._ERROR_ENUM)
+        self._builder.add_transition(self._from, to_state, symbol, effect)
+        if transaction is not None:
+            key: "TxKey" = (self._from, self._kind, self._name, "error")
+            self._builder.add_transaction(key, transaction)
+        return self
+
+    def build_edge(self) -> "StateAPI":
+        """Return to the state scope to continue chaining within the same state."""
+        return StateAPI(self._builder, self._from)
+
+
+class TransitionToolAPI(BaseTransitionAPI["ToolResultType"]):
+    """Tool-typed transition scope. Use `on_success`, `on_error`, then `build_tool()` or `build_edge()` to return."""
+    _SUCCESS_ENUM = ToolResultType.SUCCESS  
+    _ERROR_ENUM   = ToolResultType.ERROR    # 
+    _factory      = staticmethod(InputSymbol.for_tool)
+    _kind         = "tool"
+
+    def build_tool(self) -> "StateAPI":
+        """Return to the state scope to continue attaching bindings for this state."""
+        return self.build_edge()
+
+
+class TransitionPromptAPI(BaseTransitionAPI["PromptResultType"]):
+    """Prompt-typed transition scope. Use `on_success`, `on_error`, then `build_prompt()` or `build_edge()` to return."""
+    _SUCCESS_ENUM = PromptResultType.SUCCESS
+    _ERROR_ENUM   = PromptResultType.ERROR 
+    _factory      = staticmethod(InputSymbol.for_prompt)
+    _kind         = "prompt"
+
+    def build_prompt(self) -> "StateAPI":
+        """Return to the state scope to continue attaching bindings for this state."""
+        return self.build_edge()
+
+
+class TransitionResourceAPI(BaseTransitionAPI["ResourceResultType"]):
+    """Resource-typed transition scope. Use `on_success`, `on_error`, then `build_resource()` or `build_edge()` to return."""
+    _SUCCESS_ENUM = ResourceResultType.SUCCESS
+    _ERROR_ENUM   = ResourceResultType.ERROR
+    _factory      = staticmethod(InputSymbol.for_resource)
+    _kind         = "resource"
+
+    def build_resource(self) -> "StateAPI":
+        """Return to the state scope to continue attaching bindings for this state."""
+        return self.build_edge()
+
+
 class StateAPI:
     """Fluent scope for a single state (input-first style).
 
-    Entry points:
-    - on_tool(name)     -> TransitionAPI[ToolResultType]
-    - on_prompt(name)   -> TransitionAPI[PromptResultType]
-    - on_resource(name) -> TransitionAPI[ResourceResultType]
+    Entry points (return kind-specific Transition APIs):
+      - on_tool(name)     → TransitionToolAPI
+      - on_prompt(name)   → TransitionPromptAPI
+      - on_resource(name) → TransitionResourceAPI
 
-    Each `on_*` immediately installs a DEFAULT self-transition for the given (type, name).
-    Additional, result-specific transitions can be attached via `TransitionAPI.transition(...)`.
-
-    To exit the state scope, call `done()` to return the facade.
+    To exit the state scope, call `buildState()` to return the DSL facade.
     """
 
     def __init__(self, builder: _InternalStateMachineBuilder, state_name: str):
         self._builder = builder
         self._name = state_name
 
-    def on_tool(self, name: str) -> "TransitionAPI[ToolResultType]":
-        """Attach a tool by name and return a tool-typed TransitionAPI."""
-        return TransitionAPI[ToolResultType](
-            builder=self._builder,
-            from_state=self._name,
-            name=name,
-            kind="tool",
-            factory=InputSymbol.for_tool,
-        )
+    def on_tool(self, name: str) -> TransitionToolAPI:
+        """Attach a tool by name and return a tool-typed Transition API."""
+        return TransitionToolAPI(builder=self._builder, from_state=self._name, name=name)
 
-    def on_prompt(self, name: str) -> "TransitionAPI[PromptResultType]":
-        """Attach a prompt by name and return a prompt-typed TransitionAPI."""
-        return TransitionAPI[PromptResultType](
-            builder=self._builder,
-            from_state=self._name,
-            name=name,
-            kind="prompt",
-            factory=InputSymbol.for_prompt,
-        )
+    def on_prompt(self, name: str) -> TransitionPromptAPI:
+        """Attach a prompt by name and return a prompt-typed Transition API."""
+        return TransitionPromptAPI(builder=self._builder, from_state=self._name, name=name)
 
-    def on_resource(self, name: str) -> "TransitionAPI[ResourceResultType]":
-        """Attach a resource by name and return a resource-typed TransitionAPI."""
-        return TransitionAPI[ResourceResultType](
-            from_state=self._name,
-            name=name,
-            kind="resource",
-            builder=self._builder,
-            factory=InputSymbol.for_resource,
-        )
+    def on_resource(self, name: str) -> TransitionResourceAPI:
+        """Attach a resource by name and return a resource-typed Transition API."""
+        return TransitionResourceAPI(builder=self._builder, from_state=self._name, name=name)
 
-    def done(self) -> "StateMachineDefinition":
+    def build_state(self) -> "StateMachineDefinition":
         """Return the facade to continue the fluent chain (same builder instance)."""
         return StateMachineDefinition.from_builder(self._builder)
-
-
-class TransitionAPI(Generic[RT]):
-    """Fluent scope for transitions of a concrete (type, name) binding within the current state.
-
-    This class is generic over the result type `RT`, which is fixed by the entry point:
-    - `on_tool(...)`     → RT = ToolResultType
-    - `on_prompt(...)`   → RT = PromptResultType
-    - `on_resource(...)` → RT = ResourceResultType
-
-    API surface:
-    - transition(to_state, result, effect=None)  → attach an exact-match edge
-    - transaction(prepare, payload=None)         → register a transaction for this state and tool/prompt/resource
-    - end()                                      → return to the StateAPI (state scope)
-    """
-
-    def __init__(
-        self,
-        from_state: str,
-        name: str,
-        kind: str,
-        builder: _InternalStateMachineBuilder,
-        factory: Callable[[str, RT], InputSymbol],
-    ):
-        self._builder = builder
-        self._from = from_state
-        self._name = name
-        self._kind = kind           # tool / prompt / resource (TxKind)
-        self._factory = factory     # InputSymbol factory for the specific result type
-
-    def transition(
-        self,
-        to_state: str,
-        result: RT,
-        effect: Callback = None,
-    ) -> "TransitionAPI[RT]":
-        """Attach a transition for (type, name, result) from the current state to `to_state`.
-
-        **effect**:
-            Optional side-effect invoked *after* the state update when this edge is taken.
-            It is not part of the state machine’s semantics: the machine does not observe
-            its return value and does not rely on it for determinism. Keep business logic
-            out of effects—use them only for things like logging, metrics, or event-sourcing.
-        """
-        # Build a typed input symbol with the provided result enum and attach the edge.
-        symbol = self._factory(self._name, result)
-        self._builder.add_transition(self._from, to_state, symbol, effect)
-        return self
-
-    def transaction(
-        self,
-        provider: TransactionPayloadProvider,
-    ) -> "TransitionAPI[RT]":
-        """Register a transaction for this state and tool/prompt/resource.
-
-        What it is:
-            A client-side request executed under a transaction boundary so state-dependent
-            changes don’t “stick” if the tool/prompt/resource fails. This lets the runtime
-            keep client and server in sync and preserves the state machine’s determinism.
-
-        How it runs:
-            - PREPARE happens *before* the tool/prompt/resource is executed.
-            The `provider` can be a static payload or a callable; callables may enrich the
-            payload using request context/lifespan data.
-            - On success, the transaction is COMMITed.
-            - On failure/exception, it is ABORTed (no commit).
-
-        Important:
-            - Don’t assume data written by the same tool/prompt/resource is available to the
-            `provider`—prepare runs first. If you need data in the payload, add a preceding
-            step that writes it to context.
-            - You can think of this as making the operation deterministic over the pair
-            (operation, transaction). Multiple providers may be registered; all are processed
-            in order.
-            - Correct behavior depends on client capabilities and proper client handlers.
-        """
-        key: TxKey = (self._from, self._kind, self._name)
-        self._builder.add_transaction(key, provider)
-        return self
-    
-    def end(self) -> "StateAPI":
-        """Return to the state scope to continue chaining within the same state."""
-        return StateAPI(self._builder, self._from)
 
 
 ### State Machine Definition (public facade over the internal builder)
@@ -410,9 +412,8 @@ class StateMachineDefinition:
     def define_state(self, name: str, is_initial: bool = False, is_terminal: bool = False) -> StateAPI:
         """Declare (or update) a state and return a StateAPI to continue in fluent style.
 
-        If the state was already declared (via this method or the decorator), this **replaces the configuration**
-        (last call wins). **Note:** updating **replaces the State object** and **clears existing transitions**,
-        which must be reattached.
+        If the state already exists, this **replaces the configuration** (last call wins).
+        Updating **replaces the State object** and **clears existing transitions**, which must be reattached.
         """
         self._builder.add_or_update_state(name, is_initial=is_initial, is_terminal=is_terminal, update=True)
         return StateAPI(self._builder, name)
@@ -423,13 +424,7 @@ class StateMachineDefinition:
         is_initial: bool = False,
         is_terminal: bool = False,
     ) -> Callable[[F], F]:
-        """Decorator for declarative state definition.
-
-        The decorated function receives a StateAPI to attach transitions.
-        If the state already exists, this **updates** its configuration (last call wins).
-        **Note:** updating **replaces the State object** and **clears existing transitions**,
-        which must be reattached.
-        """
+        """Decorator for declarative state definition (same semantics as `define_state`)."""
         def decorator(func: F) -> F:
             state_api: StateAPI = self.define_state(name, is_initial, is_terminal)
             func(state_api)
@@ -437,9 +432,5 @@ class StateMachineDefinition:
         return decorator
 
     def _to_internal_builder(self) -> _InternalStateMachineBuilder:
-        """Internal plumbing only.
-
-        The server uses this at startup to build and validate *after* all registrations,
-        so user code is order-independent.
-        """
+        """Internal plumbing only (server builds/validates after all registrations)."""
         return self._builder
