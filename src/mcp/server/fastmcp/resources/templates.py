@@ -89,7 +89,7 @@ class ResourceTemplate(BaseModel):
         required_params, optional_params = cls._analyze_function_params(original_fn)
 
         # Extract path parameters from URI template
-        path_params: set[str] = set(re.findall(r"{(\w+)}", re.sub(r"{(\?.+?)}", "", uri_template)))
+        path_params: set[str] = set(re.findall(r"{\s*(\w+)(?::[^}]+)?\s*}", re.sub(r"{\?.+?}", "", uri_template)))
 
         # Extract query parameters from the URI template if present
         query_param_match = re.search(r"{(\?(?:\w+,)*\w+)}", uri_template)
@@ -100,12 +100,12 @@ class ResourceTemplate(BaseModel):
             query_params = set(query_str[1:].split(","))  # Remove the leading '?' and split
 
         if context_kwarg:
-            required_params = required_params.remove(context_kwarg)
+            required_params.remove(context_kwarg)
 
         # Validate path parameters match required function parameters
         if path_params != required_params:
             raise ValueError(
-                f"Mismatch between URI path parameters {path_params} and required function parameters {required_params}"
+                f"Mismatch between URI path parameters {path_params} and required function parameters {required_params} with context parameters {context_kwarg}"
             )
 
         # Validate query parameters are a subset of optional function parameters
@@ -133,7 +133,8 @@ class ResourceTemplate(BaseModel):
 
     def _generate_pattern(self) -> tuple[re.Pattern[str], dict[str, Convertor[Any]]]:
         """Compile the URI template into a regex pattern and associated converters."""
-        parts = self.uri_template.strip("/").split("/")
+        path_template = re.sub(r"\{\?.*?\}", "", self.uri_template)
+        parts = path_template.strip("/").split("/")
         pattern_parts: list[str] = []
         converters: dict[str, Convertor[Any]] = {}
         # generate the regex pattern
@@ -223,26 +224,23 @@ class ResourceTemplate(BaseModel):
     ) -> Resource:
         """Create a resource from the template with the given parameters."""
         try:
-            # Add context to params if needed
-            params = inject_context(self.fn, params, context, self.context_kwarg) #type: ignore
-
             # Prepare parameters for function call
             # For optional parameters not in URL, use their default values
-
             # First add extracted parameters
             fn_params = {
                 name: value
                 for name, value in params.items()
                 if name in self.required_params or name in self.optional_params
             }
-
+            # Add context to params
+            fn_params = inject_context(self.fn, fn_params, context, self.context_kwarg) #type: ignore
             # self.fn is now multiply-decorated:
             # 1. validate_call for coercion/validation
             # 2. our new decorator for default fallback on optional param validation err
             result = self.fn(**fn_params)
             if inspect.iscoroutine(result):
                 result = await result
-
+                
             return FunctionResource(
                 uri=uri,  # type: ignore
                 name=self.name,
