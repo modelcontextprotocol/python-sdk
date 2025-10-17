@@ -79,7 +79,7 @@
 [protocol-badge]: https://img.shields.io/badge/protocol-modelcontextprotocol.io-blue.svg
 [protocol-url]: https://modelcontextprotocol.io
 [spec-badge]: https://img.shields.io/badge/spec-spec.modelcontextprotocol.io-blue.svg
-[spec-url]: https://spec.modelcontextprotocol.io
+[spec-url]: https://modelcontextprotocol.io/specification/2025-06-18
 
 ## Overview
 
@@ -2299,7 +2299,7 @@ MCP servers declare capabilities during initialization:
 
 - [API Reference](https://modelcontextprotocol.github.io/python-sdk/api/)
 - [Model Context Protocol documentation](https://modelcontextprotocol.io)
-- [Model Context Protocol specification](https://spec.modelcontextprotocol.io)
+- [Model Context Protocol specification](https://modelcontextprotocol.io/specification/2025-06-18)
 - [Officially supported servers](https://github.com/modelcontextprotocol/servers)
 
 ## Contributing
