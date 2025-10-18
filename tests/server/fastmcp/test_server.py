@@ -807,7 +807,6 @@ class TestServerResources:
 
 
 class TestServerResourceTemplates:
-
     @pytest.mark.anyio
     async def test_resource_with_uri_params(self):
         """Test that a resource with URI parameters is automatically a template"""

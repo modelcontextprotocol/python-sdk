@@ -506,9 +506,7 @@ class TestResourceTemplate:
         def func_opt_str(key: str, opt_s: str = "default_val") -> dict[str, str]:
             return {"key": key, "opt_s": opt_s}
 
-        template_str = ResourceTemplate.from_function(
-            fn=func_opt_str, uri_template="test://{key}", name="test_opt_str"
-        )
+        template_str = ResourceTemplate.from_function(fn=func_opt_str, uri_template="test://{key}", name="test_opt_str")
         params_empty_str = {"key": "mykey"}
         resource6 = await template_str.create_resource("test://mykey?opt_s=", params_empty_str)
         result6_str = await resource6.read()
