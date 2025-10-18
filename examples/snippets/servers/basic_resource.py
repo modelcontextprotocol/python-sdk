@@ -23,7 +23,7 @@ def get_settings() -> str:
 # Form-style query expansion examples using RFC 6570 URI templates
 
 
-@mcp.resource("articles://{article_id}/view{?format,lang}")
+@mcp.resource("articles://{article_id}/view")
 def view_article(article_id: str, format: str = "html", lang: str = "en") -> str:
     """View an article with optional format and language selection.
 
@@ -42,7 +42,7 @@ def view_article(article_id: str, format: str = "html", lang: str = "en") -> str
     return content
 
 
-@mcp.resource("search://query/{search_term}{?page,limit,category,sort}")
+@mcp.resource("search://query/{search_term}")
 def search_content(
     search_term: str, page: int = 1, limit: int = 10, category: str = "all", sort: str = "relevance"
 ) -> str:
@@ -65,7 +65,7 @@ def search_content(
     return results
 
 
-@mcp.resource("users://{user_id}/profile{?include_private,format}")
+@mcp.resource("users://{user_id}/profile")
 def get_user_profile(user_id: str, include_private: bool = False, format: str = "summary") -> str:
     """Get user profile with optional private data and format selection.
 
@@ -87,7 +87,7 @@ def get_user_profile(user_id: str, include_private: bool = False, format: str = 
     return str(profile_data)
 
 
-@mcp.resource("api://weather/{location}{?units,lang,include_forecast,days}")
+@mcp.resource("api://weather/{location}")
 def get_weather_data(
     location: str, units: str = "metric", lang: str = "en", include_forecast: bool = False, days: int = 5
 ) -> str:
