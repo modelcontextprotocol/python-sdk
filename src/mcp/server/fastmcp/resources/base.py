@@ -1,7 +1,7 @@
 """Base classes and interfaces for FastMCP resources."""
 
 import abc
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import (
     AnyUrl,
@@ -44,6 +44,6 @@ class Resource(BaseModel, abc.ABC):
         raise ValueError("Either name or uri must be provided")
 
     @abc.abstractmethod
-    async def read(self) -> str | bytes:
+    async def read(self, context: Any | None = None) -> str | bytes:
         """Read the resource content."""
         pass
