@@ -4,7 +4,6 @@ from typing import Any
 
 from pydantic.fields import FieldInfo
 from pydantic.version import VERSION as PYDANTIC_VERSION
-from typing_extensions import deprecated
 
 PYDANTIC_VERSION_MINOR_TUPLE = tuple(int(x) for x in PYDANTIC_VERSION.split(".")[:2])
 PYDANTIC_V2 = PYDANTIC_VERSION_MINOR_TUPLE[0] == 2
@@ -52,7 +51,6 @@ class Param(FieldInfo):  # type: ignore[misc]
         max_digits: int | None = _Unset,
         decimal_places: int | None = _Unset,
         examples: list[Any] | None = None,
-        deprecated: deprecated | str | bool | None = None,
         include_in_schema: bool = True,
         json_schema_extra: dict[str, Any] | None = None,
     ):
@@ -78,10 +76,6 @@ class Param(FieldInfo):  # type: ignore[misc]
         if examples is not None:
             kwargs["examples"] = examples
         current_json_schema_extra = json_schema_extra
-        if PYDANTIC_VERSION_MINOR_TUPLE < (2, 7):
-            self.deprecated = deprecated
-        else:
-            kwargs["deprecated"] = deprecated
         if PYDANTIC_V2:
             kwargs.update(
                 {
@@ -134,7 +128,6 @@ class Path(Param):  # type: ignore[misc]
         max_digits: int | None = _Unset,
         decimal_places: int | None = _Unset,
         examples: list[Any] | None = None,
-        deprecated: deprecated | str | bool | None = None,
         include_in_schema: bool = True,
         json_schema_extra: dict[str, Any] | None = None,
     ):
@@ -163,7 +156,6 @@ class Path(Param):  # type: ignore[misc]
             allow_inf_nan=allow_inf_nan,
             max_digits=max_digits,
             decimal_places=decimal_places,
-            deprecated=deprecated,
             examples=examples,
             include_in_schema=include_in_schema,
             json_schema_extra=json_schema_extra,
@@ -199,7 +191,6 @@ class Query(Param):  # type: ignore[misc]
         max_digits: int | None = _Unset,
         decimal_places: int | None = _Unset,
         examples: list[Any] | None = None,
-        deprecated: deprecated | str | bool | None = None,
         include_in_schema: bool = True,
         json_schema_extra: dict[str, Any] | None = None,
     ):
@@ -226,7 +217,6 @@ class Query(Param):  # type: ignore[misc]
             allow_inf_nan=allow_inf_nan,
             max_digits=max_digits,
             decimal_places=decimal_places,
-            deprecated=deprecated,
             examples=examples,
             include_in_schema=include_in_schema,
             json_schema_extra=json_schema_extra,

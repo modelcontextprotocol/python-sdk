@@ -7,8 +7,21 @@ import re
 from collections.abc import Callable
 from typing import Annotated, Any, get_args, get_origin
 
+from pydantic.version import VERSION as PYDANTIC_VERSION
+
 from mcp.server.fastmcp.utilities.convertors import CONVERTOR_TYPES, Convertor
-from mcp.server.fastmcp.utilities.params import Path
+from mcp.server.fastmcp.utilities.params import Path, Query
+
+PYDANTIC_VERSION_MINOR_TUPLE = tuple(int(x) for x in PYDANTIC_VERSION.split(".")[:2])
+PYDANTIC_V2 = PYDANTIC_VERSION_MINOR_TUPLE[0] == 2
+
+if not PYDANTIC_V2:
+    from pydantic.fields import Undefined  # type: ignore[attr-defined]
+else:
+    from pydantic.v1.fields import Undefined
+
+# difference between not given not needed, not given maybe needed.
+_Unset: Any = Undefined  # type: ignore
 
 
 def validate_and_sync_params(
@@ -65,6 +78,10 @@ def _extract_function_params(
                 for meta in args[1:]:
                     if isinstance(meta, Path):
                         explicit_path.add(name)
+                    if isinstance(meta, Query):
+                        if meta.default is not Undefined:
+                            fn_defaults[name] = meta.default
+
         fn_param_types[name] = base_type
 
         # IGNORE TYPES caused a circular import with Context so using it as a string

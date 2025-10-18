@@ -269,7 +269,9 @@ Resources are how you expose data to LLMs. They're similar to GET endpoints in a
 
 <!-- snippet-source examples/snippets/servers/basic_resource.py -->
 ```python
-from mcp.server.fastmcp import FastMCP
+from typing import Annotated
+
+from mcp.server.fastmcp import FastMCP, Path, Query
 
 mcp = FastMCP(name="Resource Example")
 
@@ -381,6 +383,26 @@ def get_weather_data(
             weather_info += f"\nDay {day}: {forecast_temp}{temp_unit}"
 
     return weather_info
+
+
+@mcp.resource("api://data/{user_id}/{region}/{city}/{file_path:path}")
+def resource_fn(
+    # Path parameters
+    user_id: Annotated[int, Path(gt=0, description="User ID")],  # explicit Path
+    region,  # inferred path # type: ignore
+    city: str,  # inferred path
+    file_path: str,  # inferred path {file_path:path}
+    # Required query parameter (no default)
+    version: int,
+    # Optional query parameters (defaults or Query(...))
+    format: Annotated[str, Query("json", description="Output format")],
+    include_metadata: bool = False,
+    tags: list[str] = [],
+    lang: str = "en",
+    debug: bool = False,
+    precision: float = 0.5,
+) -> str:
+    return f"{user_id}/{region}/{city}/{file_path}"
 ```
 
 _Full example: [examples/snippets/servers/basic_resource.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_resource.py)_

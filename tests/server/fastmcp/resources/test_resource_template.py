@@ -1,10 +1,10 @@
 import json
-from typing import Any
+from typing import Annotated, Any
 
 import pytest
 from pydantic import BaseModel
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Path, Query
 from mcp.server.fastmcp.resources import FunctionResource, ResourceTemplate
 from mcp.types import Annotations
 
@@ -606,3 +606,50 @@ class TestResourceTemplateAnnotations:
         # Verify the resource works correctly
         content = await resource.read()
         assert content == "Item 123"
+
+    def test_full_parameter_inference(self):
+        """Test MCP path and query parameter inference: path, required query, optional query."""
+
+        # Function under test
+        def resource_fn(
+            # Path parameters
+            user_id: Annotated[int, Path(gt=0, description="User ID")],  # explicit Path
+            region,  # inferred path # type: ignore
+            city: str,  # inferred path
+            file_path: str,  # inferred path {file_path:path}
+            # Required query parameter (no default)
+            version: int,
+            # Optional query parameters (defaults or Query(...))
+            format: Annotated[str, Query("json", description="Output format")],
+            include_metadata: bool = False,
+            tags: list[str] = [],
+            lang: str = "en",
+            debug: bool = False,
+            precision: float = 0.5,
+        ) -> str:
+            return f"{user_id}/{region}/{city}/{file_path}"
+
+        # Create resource template
+        template = ResourceTemplate.from_function(
+            fn=resource_fn,  # type: ignore
+            uri_template="api://data/{user_id}/{region}/{city}/{file_path:path}",
+            name="full_resource",
+        )
+
+        # --- Assertions ---
+
+        # Path parameters
+        assert template.path_params == {"user_id", "region", "city", "file_path"}
+
+        # Required query parameters (no default)
+        assert template.required_query_params == {"version"}
+
+        # Optional query parameters (have default or Query)
+        assert template.optional_query_params == {
+            "include_metadata",
+            "tags",
+            "format",
+            "lang",
+            "debug",
+            "precision",
+        }

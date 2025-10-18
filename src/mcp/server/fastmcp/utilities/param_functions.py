@@ -2,7 +2,7 @@ from collections.abc import Callable
 from typing import Annotated, Any
 
 from pydantic.version import VERSION as PYDANTIC_VERSION
-from typing_extensions import Doc, deprecated
+from typing_extensions import Doc
 
 from mcp.server.fastmcp.utilities import params
 
@@ -258,7 +258,6 @@ def Path(  # noqa: PLR0913
         max_digits=max_digits,
         decimal_places=decimal_places,
         examples=examples,
-        deprecated=deprecated,  # type: ignore
         include_in_schema=include_in_schema,
         json_schema_extra=json_schema_extra,
     )
@@ -455,16 +454,6 @@ def Query(  # noqa: PLR0913
             """
         ),
     ] = None,
-    deprecated: Annotated[
-        deprecated | str | bool | None,
-        Doc(
-            """
-            Mark this parameter field as deprecated.
-
-            It will affect the generated OpenAPI (e.g. visible at `/docs`).
-            """
-        ),
-    ] = None,
     include_in_schema: Annotated[
         bool,
         Doc(
@@ -484,19 +473,6 @@ def Query(  # noqa: PLR0913
             """
         ),
     ] = None,
-    **extra: Annotated[
-        Any,
-        Doc(
-            """
-            Include extra fields used by the JSON Schema.
-            """
-        ),
-        deprecated(
-            """
-            The `extra` kwargs is deprecated. Use `json_schema_extra` instead.
-            """
-        ),
-    ],
 ) -> Any:
     return params.Query(
         default=default,
@@ -521,8 +497,6 @@ def Query(  # noqa: PLR0913
         max_digits=max_digits,
         decimal_places=decimal_places,
         examples=examples,
-        deprecated=deprecated,
         include_in_schema=include_in_schema,
         json_schema_extra=json_schema_extra,
-        **extra,
     )
