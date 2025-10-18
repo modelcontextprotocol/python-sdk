@@ -111,7 +111,11 @@ async def sse_client(
                             raise sse_exc
                         except Exception as exc:
                             logger.exception("Error in sse_reader")
-                            await read_stream_writer.send(exc)
+                            try:
+                                await read_stream_writer.send(exc)
+                            except anyio.ClosedResourceError:
+                                # Stream already closed during shutdown, which is expected
+                                logger.debug("Stream closed during error handling - ignoring")
                         finally:
                             await read_stream_writer.aclose()
 
@@ -142,11 +146,12 @@ async def sse_client(
                     try:
                         yield read_stream, write_stream
                     finally:
-                        # FIX: Removed manual cancel - anyio task group handles cleanup automatically
-                        # The manual cancel caused: "RuntimeError: Attempted to exit cancel scope
-                        # in a different task than it was entered in"
-                        # When the async context manager exits, the task group's __aexit__
-                        # will properly cancel all child tasks.
+                        # FIX: Removed manual tg.cancel_scope.cancel() that violated anyio lifecycle
+                        # The original code called tg.cancel_scope.cancel() here, but this caused:
+                        # "RuntimeError: Attempted to exit cancel scope in a different task than it was entered in"
+                        #
+                        # The task group's __aexit__ will properly cancel all child tasks when
+                        # this context manager exits, so no manual cancellation is needed.
                         pass
         finally:
             await read_stream_writer.aclose()
