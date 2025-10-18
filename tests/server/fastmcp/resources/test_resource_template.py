@@ -42,7 +42,7 @@ class TestResourceTemplate:
 
         # Valid match
         params = template.matches("test://foo/123")
-        assert params == {"key": "foo", "value": "123"}
+        assert params == {"key": "foo", "value": 123}
 
         # No match
         assert template.matches("test://foo") is None
@@ -95,8 +95,8 @@ class TestResourceTemplate:
         )
 
         # Verify required/optional params
-        assert template.required_params == {"key"}
-        assert template.optional_params == {"sort", "limit"}
+        assert template.path_params == {"key"}
+        assert template.optional_query_params == {"sort", "limit"}
 
         # Match with no query params - should only extract path param
         params = template.matches("test://foo")
@@ -126,22 +126,8 @@ class TestResourceTemplate:
             uri_template="test://{key}",
             name="test",
         )
-        assert template.required_params == {"key"}
-        assert template.optional_params == {"optional"}
-
-        # Invalid: missing required param in path
-        def invalid_func(key: str, value: str) -> str:
-            return f"{key}-{value}"
-
-        with pytest.raises(
-            ValueError,
-            match="Mismatch between URI path parameters .* and required function parameters .*",
-        ):
-            ResourceTemplate.from_function(
-                fn=invalid_func,
-                uri_template="test://{key}",
-                name="test",
-            )
+        assert template.path_params == {"key"}
+        assert template.optional_query_params == {"optional"}
 
     @pytest.mark.anyio
     async def test_create_resource(self):
@@ -331,13 +317,13 @@ class TestResourceTemplate:
 
         template = ResourceTemplate.from_function(
             fn=my_func,
-            uri_template="test://{category}/{id}{?filter,sort,limit}",
+            uri_template="test://{category}/{id}",
             name="test",
         )
 
         # Verify required/optional params
-        assert template.required_params == {"category", "id"}
-        assert template.optional_params == {"filter", "sort", "limit"}
+        assert template.path_params == {"category", "id"}
+        assert template.optional_query_params == {"filter", "sort", "limit"}
 
         # Match with no query params - should only extract path params
         params = template.matches("test://electronics/1234")
@@ -375,25 +361,11 @@ class TestResourceTemplate:
 
         template = ResourceTemplate.from_function(
             fn=valid_func,
-            uri_template="test://{key}{?opt1,opt2}",
+            uri_template="test://{key}",
             name="test",
         )
-        assert template.required_params == {"key"}
-        assert template.optional_params == {"opt1", "opt2", "opt3"}
-
-        # Invalid: query param not optional in function
-        def invalid_func(key: str, required: str) -> str:
-            return f"{key}-{required}"
-
-        with pytest.raises(
-            ValueError,
-            match="Mismatch between URI path parameters .* and required function parameters .*",
-        ):
-            ResourceTemplate.from_function(
-                fn=invalid_func,
-                uri_template="test://{key}{?required}",
-                name="test",
-            )
+        assert template.path_params == {"key"}
+        assert template.optional_query_params == {"opt1", "opt2", "opt3"}
 
     @pytest.mark.anyio
     async def test_create_resource_with_form_style_query(self):
@@ -416,7 +388,7 @@ class TestResourceTemplate:
 
         template = ResourceTemplate.from_function(
             fn=item_func,
-            uri_template="items://{category}/{id}{?filter,sort,limit}",
+            uri_template="items://{category}/{id}",
             name="item",
         )
 
@@ -468,7 +440,7 @@ class TestResourceTemplate:
 
         template = ResourceTemplate.from_function(
             fn=func_with_optional_typed_params,
-            uri_template="test://{key}{?opt_int,opt_bool}",
+            uri_template="test://{key}",
             name="test_optional_fallback",
         )
 
@@ -535,7 +507,7 @@ class TestResourceTemplate:
             return {"key": key, "opt_s": opt_s}
 
         template_str = ResourceTemplate.from_function(
-            fn=func_opt_str, uri_template="test://{key}{?opt_s}", name="test_opt_str"
+            fn=func_opt_str, uri_template="test://{key}", name="test_opt_str"
         )
         params_empty_str = {"key": "mykey"}
         resource6 = await template_str.create_resource("test://mykey?opt_s=", params_empty_str)

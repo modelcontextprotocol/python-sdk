@@ -12,8 +12,9 @@ from pydantic import BaseModel, Field, validate_call
 
 from mcp.server.fastmcp.resources.types import FunctionResource, Resource
 from mcp.server.fastmcp.utilities.context_injection import find_context_parameter, inject_context
-from mcp.server.fastmcp.utilities.convertors import CONVERTOR_TYPES, Convertor
+from mcp.server.fastmcp.utilities.convertors import Convertor
 from mcp.server.fastmcp.utilities.func_metadata import func_metadata, use_defaults_on_optional_validation_error
+from mcp.server.fastmcp.utilities.param_validation import validate_and_sync_params
 from mcp.types import Annotations, Icon
 
 if TYPE_CHECKING:
@@ -35,13 +36,21 @@ class ResourceTemplate(BaseModel):
     fn: Callable[..., Any] = Field(exclude=True)
     parameters: dict[str, Any] = Field(description="JSON schema for function parameters")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
-    _compiled_pattern: re.Pattern[str] | None = None
-    _convertors: dict[str, Convertor[Any]] | None = None
-    required_params: set[str] = Field(
+    compiled_pattern: re.Pattern[str] | None = Field(
+        default=None, description="Compiled regular expression pattern for matching the URI template."
+    )
+    convertors: dict[str, Convertor[Any]] | None = Field(
+        default=None, description="Mapping of parameter names to their respective type converters."
+    )
+    path_params: set[str] = Field(
         default_factory=set,
         description="Set of required parameters from the path component",
     )
-    optional_params: set[str] = Field(
+    required_query_params: set[str] = Field(
+        default_factory=set,
+        description="Set of required parameters specified in the query component",
+    )
+    optional_query_params: set[str] = Field(
         default_factory=set,
         description="Set of optional parameters specified in the query component",
     )
@@ -83,34 +92,9 @@ class ResourceTemplate(BaseModel):
         final_fn = use_defaults_on_optional_validation_error(validated_fn)
 
         # Extract required and optional params from the original function's signature
-        required_params, optional_params = cls._analyze_function_params(original_fn)
-
-        # Extract path parameters from URI template
-        path_params: set[str] = set(re.findall(r"{\s*(\w+)(?::[^}]+)?\s*}", re.sub(r"{\?.+?}", "", uri_template)))
-
-        # Extract query parameters from the URI template if present
-        query_param_match = re.search(r"{(\?(?:\w+,)*\w+)}", uri_template)
-        query_params: set[str] = set()
-        if query_param_match:
-            # Extract query parameters from {?param1,param2,...} syntax
-            query_str = query_param_match.group(1)
-            query_params = set(query_str[1:].split(","))  # Remove the leading '?' and split
-
-        if context_kwarg:
-            required_params.remove(context_kwarg)
-
-        # Validate path parameters match required function parameters
-        if path_params != required_params:
-            raise ValueError(
-                f"Mismatch between URI path parameters {path_params} and required function parameters {required_params}"
-            )
-
-        # Validate query parameters are a subset of optional function parameters
-        if not query_params.issubset(optional_params):
-            invalid_params: set[str] = query_params - optional_params
-            raise ValueError(
-                f"Query parameters {invalid_params} do not match optional function parameters {optional_params}"
-            )
+        (path_params, required_query_params, optional_query_params, convertors, compiled_pattern) = (
+            validate_and_sync_params(original_fn, uri_template)
+        )
 
         return cls(
             uri_template=uri_template,
@@ -122,64 +106,18 @@ class ResourceTemplate(BaseModel):
             annotations=annotations,
             fn=final_fn,
             parameters=parameters,
-            required_params=required_params,
-            optional_params=optional_params,
             context_kwarg=context_kwarg,
+            path_params=path_params,
+            required_query_params=required_query_params,
+            optional_query_params=optional_query_params,
+            convertors=convertors,
+            compiled_pattern=compiled_pattern,
         )
-
-    def _generate_pattern(self) -> tuple[re.Pattern[str], dict[str, Convertor[Any]]]:
-        """Compile the URI template into a regex pattern and associated converters."""
-        path_template = re.sub(r"\{\?.*?\}", "", self.uri_template)
-        parts = path_template.strip("/").split("/")
-        pattern_parts: list[str] = []
-        converters: dict[str, Convertor[Any]] = {}
-        # generate the regex pattern
-        for i, part in enumerate(parts):
-            match = re.fullmatch(r"\{(\w+)(?::(\w+))?\}", part)
-            if match:
-                name, type_ = match.groups()
-                type_ = type_ or "str"
-
-                if type_ not in CONVERTOR_TYPES:
-                    raise ValueError(f"Unknown convertor type '{type_}'")
-
-                conv = CONVERTOR_TYPES[type_]
-                converters[name] = conv
-
-                # path type must be last
-                if type_ == "path" and i != len(parts) - 1:
-                    raise ValueError("Path parameters must appear last in the template")
-
-                pattern_parts.append(f"(?P<{name}>{conv.regex})")
-            else:
-                pattern_parts.append(re.escape(part))
-
-        return re.compile("^" + "/".join(pattern_parts) + "$"), converters
-
-    @staticmethod
-    def _analyze_function_params(fn: Callable[..., Any]) -> tuple[set[str], set[str]]:
-        """Analyze function signature to extract required and optional parameters.
-        This should operate on the original, unwrapped function.
-        """
-        # Ensure we are looking at the original function if it was wrapped elsewhere
-        original_fn_for_analysis = inspect.unwrap(fn)
-        required_params: set[str] = set()
-        optional_params: set[str] = set()
-
-        signature = inspect.signature(original_fn_for_analysis)
-        for name, param in signature.parameters.items():
-            # Parameters with default values are optional
-            if param.default is param.empty:
-                required_params.add(name)
-            else:
-                optional_params.add(name)
-
-        return required_params, optional_params
 
     def matches(self, uri: str) -> dict[str, Any] | None:
         """Check if URI matches template and extract parameters."""
-        if not self._compiled_pattern or not self._convertors:
-            self._compiled_pattern, self._convertors = self._generate_pattern()
+        if not self.compiled_pattern or not self.convertors:
+            raise RuntimeError("Pattern did not compile for matching")
 
         # Split URI into path and query parts
         if "?" in uri:
@@ -187,27 +125,33 @@ class ResourceTemplate(BaseModel):
         else:
             path, query = uri, ""
 
-        match = self._compiled_pattern.match(path.strip("/"))
+        match = self.compiled_pattern.match(path.strip("/"))
         if not match:
             return None
 
-        # Extract path parameters
-        # try to convert them into respective types
         params: dict[str, Any] = {}
-        for name, conv in self._convertors.items():
+
+        # ---- Extract and convert path parameters ----
+        for name, conv in self.convertors.items():
             raw_value = match.group(name)
             try:
                 params[name] = conv.convert(raw_value)
             except Exception as e:
-                raise ValueError(f"Failed to convert '{raw_value}' for '{name}': {e}")
+                raise RuntimeError(f"Failed to convert '{raw_value}' for '{name}': {e}")
 
-        # Parse and add query parameters if present
-        if query:
-            query_params = urllib.parse.parse_qs(query)
-            for key, value in query_params.items():
-                if key in self.optional_params:
-                    # Use the first value if multiple are provided
-                    params[key] = value[0] if value else None
+        # ---- Parse and merge query parameters ----
+        query_dict = urllib.parse.parse_qs(query) if query else {}
+
+        # Normalize and flatten query params
+        for key, values in query_dict.items():
+            value = values[0] if values else None
+            if key in self.required_query_params or key in self.optional_query_params:
+                params[key] = value
+
+        # ---- Validate required query parameters ----
+        missing_required = [key for key in self.required_query_params if key not in params]
+        if missing_required:
+            raise ValueError(f"Missing required query parameters: {missing_required}")
 
         return params
 
@@ -225,7 +169,7 @@ class ResourceTemplate(BaseModel):
             fn_params = {
                 name: value
                 for name, value in params.items()
-                if name in self.required_params or name in self.optional_params
+                if name in self.path_params or name in self.required_query_params or name in self.optional_query_params
             }
             # Add context to params
             fn_params = inject_context(self.fn, fn_params, context, self.context_kwarg)  # type: ignore

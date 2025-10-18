@@ -2,18 +2,31 @@ from __future__ import annotations
 
 import math
 import uuid
-from typing import (
-    Any,
-    ClassVar,
-    Generic,
-    TypeVar,
-)
+from typing import Any, ClassVar, Generic, TypeVar, get_args
+
+from pydantic import GetCoreSchemaHandler
+from pydantic_core import core_schema
 
 T = TypeVar("T")
 
 
 class Convertor(Generic[T]):
     regex: ClassVar[str] = ""
+    python_type: Any = Any  # type hint for runtime type
+
+    def __init_subclass__(cls, **kwargs: dict[str, Any]) -> None:
+        super().__init_subclass__(**kwargs)
+        # Extract the concrete type from the generic base
+        base = cls.__orig_bases__[0]  # type: ignore[attr-defined]
+        args = get_args(base)
+        if args:
+            cls.python_type = args[0]  # type: ignore[assignment]
+        else:
+            raise RuntimeError(f"Bad converter definition in class {cls.__name__}")
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler):
+        return core_schema.any_schema()
 
     def convert(self, value: str) -> T:
         raise NotImplementedError()
