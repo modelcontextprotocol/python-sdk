@@ -6,12 +6,12 @@ Run from the repository root:
 import asyncio
 
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 
 
 async def main():
     # Connect to a streamable HTTP server
-    async with streamablehttp_client("http://localhost:8000/mcp") as (
+    async with streamable_http_client("http://localhost:8000/mcp") as (
         read_stream,
         write_stream,
         _,
