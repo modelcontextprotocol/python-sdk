@@ -1,0 +1,25 @@
+name: Pre-commit Checks
+
+on:
+  push:
+    branches: [ main, master, develop ]  # 根据您的分支名调整
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'  # 指定您的Python版本
+
+    - name: Install pre-commit
+      run: pip install pre-commit
+
+    - name: Run pre-commit on all files
+      run: pre-commit run --all-files
