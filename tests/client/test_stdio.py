@@ -6,6 +6,7 @@ import textwrap
 import time
 
 import anyio
+import errno
 import pytest
 
 from mcp.client.session import ClientSession
@@ -94,13 +95,8 @@ async def test_stdio_client_nonexistent_command():
         async with stdio_client(server_params) as (_, _):
             pass
 
-    # The error should indicate the command was not found
-    error_message = str(exc_info.value)
-    assert (
-        "nonexistent" in error_message
-        or "not found" in error_message.lower()
-        or "cannot find the file" in error_message.lower()  # Windows error message
-    )
+    # The error should indicate the command was not found (ENOENT: No such file or directory)
+    assert exc_info.value.errno == errno.ENOENT
 
 
 @pytest.mark.anyio
