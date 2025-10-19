@@ -1,3 +1,4 @@
+import errno
 import os
 import shutil
 import sys
@@ -90,17 +91,12 @@ async def test_stdio_client_nonexistent_command():
     )
 
     # Should raise an error when trying to start the process
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(OSError) as exc_info:
         async with stdio_client(server_params) as (_, _):
             pass
 
-    # The error should indicate the command was not found
-    error_message = str(exc_info.value)
-    assert (
-        "nonexistent" in error_message
-        or "not found" in error_message.lower()
-        or "cannot find the file" in error_message.lower()  # Windows error message
-    )
+    # The error should indicate the command was not found (ENOENT: No such file or directory)
+    assert exc_info.value.errno == errno.ENOENT
 
 
 @pytest.mark.anyio
