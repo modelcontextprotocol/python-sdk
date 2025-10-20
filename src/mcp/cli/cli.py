@@ -152,12 +152,10 @@ def _import_server(file: Path, server_object: str | None = None):
         """
 
         if not isinstance(server_object, FastMCP):
-            logger.error(
-                f"The server object {object_name} is of type {type(server_object)} (expecting {FastMCP})."
-            )
+            logger.error(f"The server object {object_name} is of type {type(server_object)} (expecting {FastMCP}).")
             if isinstance(server_object, LowLevelServer):
                 logger.warning(
-                    "Note that only FastMCP server (from ) is supported. Low level Server class is not yet supported."
+                    "Note that only FastMCP server is supported. Low level Server class is not yet supported."
                 )
             return False
         return True
