@@ -58,7 +58,7 @@ dev = [
     "pytest-examples>=0.0.14",
     "pytest-pretty>=1.2.0",
     "inline-snapshot>=0.23.0",
-    "dirty-equals>=0.9.0",
+    "dirty-equals>=0.9.0"
 ]
 docs = [
     "mkdocs>=1.6.1",

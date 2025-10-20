@@ -150,26 +150,14 @@ def _import_server(file: Path, server_object: str | None = None):
         Returns:
             True if it's supported.
         """
-        try:
-            from fastmcp import FastMCP as ExternalFastMCP
-        except ImportError:
-            ExternalFastMCP = None
 
-        valid_types = [FastMCP]
-        if ExternalFastMCP:
-            valid_types.append(ExternalFastMCP)
-
-        if not isinstance(server_object, tuple(valid_types)):
-            logger.error(f"The server object {object_name} is of type {type(server_object)} (expecting one of {valid_types}).")
+        if not isinstance(server_object, FastMCP):
+            logger.error(
+                f"The server object {object_name} is of type {type(server_object)} (expecting {FastMCP})."
+            )
             if isinstance(server_object, LowLevelServer):
                 logger.warning(
                     "Note that only FastMCP server (from ) is supported. Low level Server class is not yet supported."
-                )
-            else:
-                logger.warning(
-                    "Tip: Supported FastMCP classes come from either "
-                    "`mcp.server.fastmcp.FastMCP` (SDK built-in) "
-                    "or `fastmcp.FastMCP` (PyPI package)."
                 )
             return False
         return True
@@ -324,7 +312,7 @@ def run(
         str | None,
         typer.Argument(
             help="Python file to run, optionally with :object suffix (omit when using --from)",
-        )
+        ),
     ] = None,
     transport: Annotated[
         str | None,
@@ -339,7 +327,7 @@ def run(
         typer.Option(
             "--from-github",
             help="Run a remote MCP server directly from a Github URL (raw Github file or Github repo URL)",
-        )
+        ),
     ] = None,
 ) -> None:
     """Run a MCP server.
@@ -360,7 +348,6 @@ def run(
         typer.echo("Error: You cannot specify both a file path and --from URL")
         raise typer.Exit(code=1)
 
-
     if not file_spec and from_url:
         from urllib.parse import urlparse
 
@@ -374,11 +361,12 @@ def run(
         if parsed.netloc == "github.com":
             from_url = from_url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
             logger.info(f"Converted GitHub URL to raw: {from_url}")
-        
+
         logger.info(f"Fetching MCP server from {from_url}")
 
         try:
             import requests
+
             with requests.get(from_url, stream=True, timeout=10) as res:
                 res.raise_for_status()
                 temp_dir = tempfile.mkdtemp(prefix="mcp_from_")
@@ -395,7 +383,7 @@ def run(
 
     assert file_spec is not None
     file, server_object = _parse_file_path(file_spec)
-    
+
     logger.debug(
         "Running server",
         extra={
