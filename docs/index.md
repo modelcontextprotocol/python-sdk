@@ -42,10 +42,16 @@ if __name__ == "__main__":
     mcp.run(transport="streamable-http")
 ```
 
-Test it with the [MCP Inspector](https://github.com/modelcontextprotocol/inspector):
+Run the server:
 
 ```bash
-uv run mcp dev server.py
+uv run --with mcp server.py
+```
+
+Then open the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) and connect to `http://localhost:8000/mcp`:
+
+```bash
+npx -y @modelcontextprotocol/inspector
 ```
 
 ## Getting Started

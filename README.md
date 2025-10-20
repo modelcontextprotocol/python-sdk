@@ -177,17 +177,25 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/servers/fastmcp_quickstart.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/fastmcp_quickstart.py)_
 <!-- /snippet-source -->
 
-You can install this server in [Claude Code](https://docs.claude.com/en/docs/claude-code/mcp) and interact with it right away by running:
+You can install this server in [Claude Code](https://docs.claude.com/en/docs/claude-code/mcp) and interact with it right away. First, run the server:
+
+```bash
+uv run --with mcp examples/snippets/servers/fastmcp_quickstart.py
+```
+
+Then add it to Claude Code:
 
 ```bash
 claude mcp add --transport http my-server http://localhost:8000/mcp
 ```
 
-Alternatively, you can test it with the MCP Inspector:
+Alternatively, you can test it with the MCP Inspector. Start the server as above, then in a separate terminal:
 
 ```bash
-uv run mcp dev server.py
+npx -y @modelcontextprotocol/inspector
 ```
+
+In the inspector UI, connect to `http://localhost:8000/mcp`.
 
 ## What is MCP?
 
