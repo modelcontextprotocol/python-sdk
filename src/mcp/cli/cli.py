@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Annotated, Any
+import tempfile
 
 from mcp.server import FastMCP
 from mcp.server import Server as LowLevelServer
@@ -149,11 +150,26 @@ def _import_server(file: Path, server_object: str | None = None):
         Returns:
             True if it's supported.
         """
-        if not isinstance(server_object, FastMCP):
-            logger.error(f"The server object {object_name} is of type {type(server_object)} (expecting {FastMCP}).")
+        try:
+            from fastmcp import FastMCP as ExternalFastMCP
+        except ImportError:
+            ExternalFastMCP = None
+
+        valid_types = [FastMCP]
+        if ExternalFastMCP:
+            valid_types.append(ExternalFastMCP)
+
+        if not isinstance(server_object, tuple(valid_types)):
+            logger.error(f"The server object {object_name} is of type {type(server_object)} (expecting one of {valid_types}).")
             if isinstance(server_object, LowLevelServer):
                 logger.warning(
-                    "Note that only FastMCP server is supported. Low level Server class is not yet supported."
+                    "Note that only FastMCP server (from ) is supported. Low level Server class is not yet supported."
+                )
+            else:
+                logger.warning(
+                    "Tip: Supported FastMCP classes come from either "
+                    "`mcp.server.fastmcp.FastMCP` (SDK built-in) "
+                    "or `fastmcp.FastMCP` (PyPI package)."
                 )
             return False
         return True
@@ -304,10 +320,12 @@ def dev(
 
 @app.command()
 def run(
-    file_spec: str = typer.Argument(
-        ...,
-        help="Python file to run, optionally with :object suffix",
-    ),
+    file_spec: Annotated[
+        str | None,
+        typer.Argument(
+            help="Python file to run, optionally with :object suffix (omit when using --from)",
+        )
+    ] = None,
     transport: Annotated[
         str | None,
         typer.Option(
@@ -315,6 +333,13 @@ def run(
             "-t",
             help="Transport protocol to use (stdio or sse)",
         ),
+    ] = None,
+    from_url: Annotated[
+        str | None,
+        typer.Option(
+            "--from-github",
+            help="Run a remote MCP server directly from a Github URL (raw Github file or Github repo URL)",
+        )
     ] = None,
 ) -> None:
     """Run a MCP server.
@@ -327,8 +352,50 @@ def run(
     all dependencies are available.\n
     For dependency management, use `mcp install` or `mcp dev` instead.
     """  # noqa: E501
-    file, server_object = _parse_file_path(file_spec)
+    if not file_spec and not from_url:
+        typer.echo("Error: You must provide either a file path or --from <url>")
+        raise typer.Exit(code=1)
 
+    if file_spec and from_url:
+        typer.echo("Error: You cannot specify both a file path and --from URL")
+        raise typer.Exit(code=1)
+
+
+    if not file_spec and from_url:
+        from urllib.parse import urlparse
+
+        ALLOWED_DOMAINS = {"github.com", "raw.githubusercontent.com"}
+
+        parsed = urlparse(from_url)
+        if parsed.netloc not in ALLOWED_DOMAINS:
+            logger.error(f"Invalid domain: {parsed.netloc}. Only GitHub URLs are supported.")
+            sys.exit(1)
+
+        if parsed.netloc == "github.com":
+            from_url = from_url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
+            logger.info(f"Converted GitHub URL to raw: {from_url}")
+        
+        logger.info(f"Fetching MCP server from {from_url}")
+
+        try:
+            import requests
+            with requests.get(from_url, stream=True, timeout=10) as res:
+                res.raise_for_status()
+                temp_dir = tempfile.mkdtemp(prefix="mcp_from_")
+                temp_path = Path(temp_dir) / "remote_server.py"
+
+                with open(temp_path, "wb") as f:
+                    for chunk in res.iter_content(chunk_size=8192):
+                        f.write(chunk)
+        except Exception as e:
+            logger.error(f"Failed to fetch server file: {e}")
+            sys.exit(1)
+
+        file_spec = str(temp_path)
+
+    assert file_spec is not None
+    file, server_object = _parse_file_path(file_spec)
+    
     logger.debug(
         "Running server",
         extra={
@@ -346,7 +413,6 @@ def run(
         kwargs = {}
         if transport:
             kwargs["transport"] = transport
-
         server.run(**kwargs)
 
     except Exception:

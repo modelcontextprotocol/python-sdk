@@ -37,7 +37,7 @@ dependencies = [
 
 [project.optional-dependencies]
 rich = ["rich>=13.9.4"]
-cli = ["typer>=0.16.0", "python-dotenv>=1.0.0"]
+cli = ["typer>=0.16.0", "python-dotenv>=1.0.0", "requests>=2.32.5"]
 ws = ["websockets>=15.0.1"]
 
 [project.scripts]
