@@ -429,7 +429,7 @@ class OAuthClientProvider(httpx.Auth):
 
     async def _handle_token_response(self, response: httpx.Response) -> None:
         """Handle token exchange response."""
-        if response.status_code != 200:
+        if response.status_code not in {200, 201}:
             raise OAuthTokenError(f"Token exchange failed: {response.status_code}")
 
         try:
