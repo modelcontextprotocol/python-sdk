@@ -383,6 +383,61 @@ causes the tool to be classified as structured _and this is undesirable_,
 the  classification can be suppressed by passing `structured_output=False`
 to the `@tool` decorator.
 
+##### Advanced: Direct CallToolResult
+
+For full control over tool responses including the `_meta` field (for passing data to client applications without exposing it to the model), you can return `CallToolResult` directly:
+
+<!-- snippet-source examples/snippets/servers/direct_call_tool_result.py -->
+```python
+"""Example showing direct CallToolResult return for advanced control."""
+
+from typing import Annotated
+
+from pydantic import BaseModel
+
+from mcp.server.fastmcp import FastMCP
+from mcp.types import CallToolResult, TextContent
+
+mcp = FastMCP("CallToolResult Example")
+
+
+class ValidationModel(BaseModel):
+    """Model for validating structured output."""
+
+    status: str
+    data: dict[str, int]
+
+
+@mcp.tool()
+def advanced_tool() -> CallToolResult:
+    """Return CallToolResult directly for full control including _meta field."""
+    return CallToolResult(
+        content=[TextContent(type="text", text="Response visible to the model")],
+        _meta={"hidden": "data for client applications only"},
+    )
+
+
+@mcp.tool()
+def validated_tool() -> Annotated[CallToolResult, ValidationModel]:
+    """Return CallToolResult with structured output validation."""
+    return CallToolResult(
+        content=[TextContent(type="text", text="Validated response")],
+        structuredContent={"status": "success", "data": {"result": 42}},
+        _meta={"internal": "metadata"},
+    )
+
+
+@mcp.tool()
+def empty_result_tool() -> CallToolResult:
+    """For empty results, return CallToolResult with empty content."""
+    return CallToolResult(content=[])
+```
+
+_Full example: [examples/snippets/servers/direct_call_tool_result.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/direct_call_tool_result.py)_
+<!-- /snippet-source -->
+
+**Important:** `CallToolResult` must always be returned (no `Optional` or `Union`). For empty results, use `CallToolResult(content=[])`. For optional simple types, use `str | None` without `CallToolResult`.
+
 <!-- snippet-source examples/snippets/servers/structured_output.py -->
 ```python
 """Example showing structured output with tools."""
@@ -1816,13 +1871,92 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/servers/lowlevel/structured_output.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/structured_output.py)_
 <!-- /snippet-source -->
 
-Tools can return data in three ways:
+Tools can return data in four ways:
 
 1. **Content only**: Return a list of content blocks (default behavior before spec revision 2025-06-18)
 2. **Structured data only**: Return a dictionary that will be serialized to JSON (Introduced in spec revision 2025-06-18)
 3. **Both**: Return a tuple of (content, structured_data) preferred option to use for backwards compatibility
+4. **Direct CallToolResult**: Return `CallToolResult` directly for full control (including `_meta` field)
 
 When an `outputSchema` is defined, the server automatically validates the structured output against the schema. This ensures type safety and helps catch errors early.
+
+##### Returning CallToolResult Directly
+
+For full control over the response including the `_meta` field (for passing data to client applications without exposing it to the model), return `CallToolResult` directly:
+
+<!-- snippet-source examples/snippets/servers/lowlevel/direct_call_tool_result.py -->
+```python
+"""
+Run from the repository root:
+    uv run examples/snippets/servers/lowlevel/direct_call_tool_result.py
+"""
+
+import asyncio
+from typing import Any
+
+import mcp.server.stdio
+import mcp.types as types
+from mcp.server.lowlevel import NotificationOptions, Server
+from mcp.server.models import InitializationOptions
+
+server = Server("example-server")
+
+
+@server.list_tools()
+async def list_tools() -> list[types.Tool]:
+    """List available tools."""
+    return [
+        types.Tool(
+            name="advanced_tool",
+            description="Tool with full control including _meta field",
+            inputSchema={
+                "type": "object",
+                "properties": {"message": {"type": "string"}},
+                "required": ["message"],
+            },
+        )
+    ]
+
+
+@server.call_tool()
+async def handle_call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
+    """Handle tool calls by returning CallToolResult directly."""
+    if name == "advanced_tool":
+        message = str(arguments.get("message", ""))
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=f"Processed: {message}")],
+            structuredContent={"result": "success", "message": message},
+            _meta={"hidden": "data for client applications only"},
+        )
+
+    raise ValueError(f"Unknown tool: {name}")
+
+
+async def run():
+    """Run the server."""
+    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+        await server.run(
+            read_stream,
+            write_stream,
+            InitializationOptions(
+                server_name="example",
+                server_version="0.1.0",
+                capabilities=server.get_capabilities(
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={},
+                ),
+            ),
+        )
+
+
+if __name__ == "__main__":
+    asyncio.run(run())
+```
+
+_Full example: [examples/snippets/servers/lowlevel/direct_call_tool_result.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/direct_call_tool_result.py)_
+<!-- /snippet-source -->
+
+**Note:** When returning `CallToolResult`, you bypass the automatic content/structured conversion. You must construct the complete response yourself.
 
 ### Pagination (Advanced)
 
