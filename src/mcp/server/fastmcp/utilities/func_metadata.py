@@ -1,9 +1,10 @@
 import inspect
 import json
+import types
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
 from types import GenericAlias
-from typing import Annotated, Any, ForwardRef, cast, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, ForwardRef, Union, cast, get_args, get_origin, get_type_hints
 
 import pydantic_core
 from pydantic import (
@@ -273,6 +274,18 @@ def func_metadata(
 
     output_info = FieldInfo.from_annotation(_get_typed_annotation(sig.return_annotation, globalns))
     annotation = output_info.annotation
+
+    # Reject CallToolResult in Union types (including Optional)
+    # Handle both typing.Union (Union[X, Y]) and types.UnionType (X | Y)
+    origin = get_origin(annotation)
+    if origin is Union or origin is types.UnionType:
+        args = get_args(annotation)
+        # Check if CallToolResult appears in the union (excluding None for Optional check)
+        if any(isinstance(arg, type) and issubclass(arg, CallToolResult) for arg in args if arg is not type(None)):
+            raise InvalidSignature(
+                f"Function {func.__name__}: CallToolResult cannot be used in Union or Optional types. "
+                "To return empty results, use: CallToolResult(content=[])"
+            )
 
     # if the typehint is CallToolResult, the user either intends to return without validation
     # or they provided validation as Annotated metadata
