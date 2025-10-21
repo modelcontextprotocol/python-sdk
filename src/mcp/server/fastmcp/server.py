@@ -4,7 +4,14 @@ from __future__ import annotations as _annotations
 
 import inspect
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Iterable, Sequence
+from collections.abc import (
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Collection,
+    Iterable,
+    Sequence,
+)
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal
 
@@ -22,10 +29,21 @@ from starlette.routing import Mount, Route
 from starlette.types import Receive, Scope, Send
 
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
-from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
+from mcp.server.auth.middleware.bearer_auth import (
+    BearerAuthBackend,
+    RequireAuthMiddleware,
+)
+from mcp.server.auth.provider import (
+    OAuthAuthorizationServerProvider,
+    ProviderTokenVerifier,
+    TokenVerifier,
+)
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, elicit_with_validation
+from mcp.server.elicitation import (
+    ElicitationResult,
+    ElicitSchemaModelT,
+    elicit_with_validation,
+)
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
@@ -43,7 +61,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
-from mcp.types import AnyFunction, ContentBlock, GetPromptResult, Icon, ToolAnnotations
+from mcp.types import Annotations, AnyFunction, ContentBlock, GetPromptResult, Icon, ToolAnnotations
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
@@ -112,7 +130,9 @@ def lifespan_wrapper(
     lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]],
 ) -> Callable[[MCPServer[LifespanResultT, Request]], AbstractAsyncContextManager[LifespanResultT]]:
     @asynccontextmanager
-    async def wrap(_: MCPServer[LifespanResultT, Request]) -> AsyncIterator[LifespanResultT]:
+    async def wrap(
+        _: MCPServer[LifespanResultT, Request],
+    ) -> AsyncIterator[LifespanResultT]:
         async with lifespan(app) as context:
             yield context
 
@@ -126,7 +146,7 @@ class FastMCP(Generic[LifespanResultT]):
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[Icon] | None = None,
-        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
+        auth_server_provider: (OAuthAuthorizationServerProvider[Any, Any, Any] | None) = None,
         token_verifier: TokenVerifier | None = None,
         event_store: EventStore | None = None,
         *,
@@ -145,7 +165,7 @@ class FastMCP(Generic[LifespanResultT]):
         warn_on_duplicate_tools: bool = True,
         warn_on_duplicate_prompts: bool = True,
         dependencies: Collection[str] = (),
-        lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
+        lifespan: (Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None) = None,
         auth: AuthSettings | None = None,
         transport_security: TransportSecuritySettings | None = None,
     ):
@@ -290,6 +310,7 @@ class FastMCP(Generic[LifespanResultT]):
                 outputSchema=info.output_schema,
                 annotations=info.annotations,
                 icons=info.icons,
+                _meta=info.meta,
             )
             for info in tools
         ]
@@ -322,6 +343,7 @@ class FastMCP(Generic[LifespanResultT]):
                 description=resource.description,
                 mimeType=resource.mime_type,
                 icons=resource.icons,
+                annotations=resource.annotations,
             )
             for resource in resources
         ]
@@ -336,6 +358,7 @@ class FastMCP(Generic[LifespanResultT]):
                 description=template.description,
                 mimeType=template.mime_type,
                 icons=template.icons,
+                annotations=template.annotations,
             )
             for template in templates
         ]
@@ -363,6 +386,7 @@ class FastMCP(Generic[LifespanResultT]):
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
+        meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> None:
         """Add a tool to the server.
@@ -388,8 +412,20 @@ class FastMCP(Generic[LifespanResultT]):
             description=description,
             annotations=annotations,
             icons=icons,
+            meta=meta,
             structured_output=structured_output,
         )
+
+    def remove_tool(self, name: str) -> None:
+        """Remove a tool from the server by name.
+
+        Args:
+            name: The name of the tool to remove
+
+        Raises:
+            ToolError: If the tool does not exist
+        """
+        self._tool_manager.remove_tool(name)
 
     def tool(
         self,
@@ -398,6 +434,7 @@ class FastMCP(Generic[LifespanResultT]):
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
+        meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
@@ -445,6 +482,7 @@ class FastMCP(Generic[LifespanResultT]):
                 description=description,
                 annotations=annotations,
                 icons=icons,
+                meta=meta,
                 structured_output=structured_output,
             )
             return fn
@@ -486,6 +524,7 @@ class FastMCP(Generic[LifespanResultT]):
         description: str | None = None,
         mime_type: str | None = None,
         icons: list[Icon] | None = None,
+        annotations: Annotations | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a function as a resource.
 
@@ -561,6 +600,7 @@ class FastMCP(Generic[LifespanResultT]):
                     description=description,
                     mime_type=mime_type,
                     icons=icons,
+                    annotations=annotations,
                 )
             else:
                 # Register as regular resource
@@ -572,6 +612,7 @@ class FastMCP(Generic[LifespanResultT]):
                     description=description,
                     mime_type=mime_type,
                     icons=icons,
+                    annotations=annotations,
                 )
                 self.add_resource(resource)
             return fn
@@ -825,11 +866,10 @@ class FastMCP(Generic[LifespanResultT]):
             # Determine resource metadata URL
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
-                from pydantic import AnyHttpUrl
+                from mcp.server.auth.routes import build_resource_metadata_url
 
-                resource_metadata_url = AnyHttpUrl(
-                    str(self.settings.auth.resource_server_url).rstrip("/") + "/.well-known/oauth-protected-resource"
-                )
+                # Build compliant metadata URL for WWW-Authenticate header
+                resource_metadata_url = build_resource_metadata_url(self.settings.auth.resource_server_url)
 
             # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
             routes.append(
@@ -938,11 +978,10 @@ class FastMCP(Generic[LifespanResultT]):
             # Determine resource metadata URL
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
-                from pydantic import AnyHttpUrl
+                from mcp.server.auth.routes import build_resource_metadata_url
 
-                resource_metadata_url = AnyHttpUrl(
-                    str(self.settings.auth.resource_server_url).rstrip("/") + "/.well-known/oauth-protected-resource"
-                )
+                # Build compliant metadata URL for WWW-Authenticate header
+                resource_metadata_url = build_resource_metadata_url(self.settings.auth.resource_server_url)
 
             routes.append(
                 Route(
@@ -961,23 +1000,13 @@ class FastMCP(Generic[LifespanResultT]):
 
         # Add protected resource metadata endpoint if configured as RS
         if self.settings.auth and self.settings.auth.resource_server_url:
-            from mcp.server.auth.handlers.metadata import ProtectedResourceMetadataHandler
-            from mcp.server.auth.routes import cors_middleware
-            from mcp.shared.auth import ProtectedResourceMetadata
+            from mcp.server.auth.routes import create_protected_resource_routes
 
-            protected_resource_metadata = ProtectedResourceMetadata(
-                resource=self.settings.auth.resource_server_url,
-                authorization_servers=[self.settings.auth.issuer_url],
-                scopes_supported=self.settings.auth.required_scopes,
-            )
-            routes.append(
-                Route(
-                    "/.well-known/oauth-protected-resource",
-                    endpoint=cors_middleware(
-                        ProtectedResourceMetadataHandler(protected_resource_metadata).handle,
-                        ["GET", "OPTIONS"],
-                    ),
-                    methods=["GET", "OPTIONS"],
+            routes.extend(
+                create_protected_resource_routes(
+                    resource_url=self.settings.auth.resource_server_url,
+                    authorization_servers=[self.settings.auth.issuer_url],
+                    scopes_supported=self.settings.auth.required_scopes,
                 )
             )
 
@@ -1165,7 +1194,10 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         """
 
         return await elicit_with_validation(
-            session=self.request_context.session, message=message, schema=schema, related_request_id=self.request_id
+            session=self.request_context.session,
+            message=message,
+            schema=schema,
+            related_request_id=self.request_id,
         )
 
     async def log(
