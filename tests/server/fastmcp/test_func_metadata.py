@@ -13,6 +13,7 @@ from dirty_equals import IsPartialDict
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.utilities.func_metadata import func_metadata
+from mcp.types import CallToolResult
 
 
 class SomeInputModelA(BaseModel):
@@ -832,6 +833,93 @@ def test_unstructured_output_unannotated_class():
 
     meta = func_metadata(func_returning_unannotated)
     assert meta.output_schema is None
+
+
+def test_tool_call_result_is_unstructured_and_not_converted():
+    def func_returning_call_tool_result() -> CallToolResult:
+        return CallToolResult(content=[])
+
+    meta = func_metadata(func_returning_call_tool_result)
+
+    assert meta.output_schema is None
+    assert isinstance(meta.convert_result(func_returning_call_tool_result()), CallToolResult)
+
+
+def test_tool_call_result_annotated_is_structured_and_converted():
+    class PersonClass(BaseModel):
+        name: str
+
+    def func_returning_annotated_tool_call_result() -> Annotated[CallToolResult, PersonClass]:
+        return CallToolResult(content=[], structuredContent={"name": "Brandon"})
+
+    meta = func_metadata(func_returning_annotated_tool_call_result)
+
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "name": {"title": "Name", "type": "string"},
+        },
+        "required": ["name"],
+        "title": "PersonClass",
+    }
+    assert isinstance(meta.convert_result(func_returning_annotated_tool_call_result()), CallToolResult)
+
+
+def test_tool_call_result_annotated_is_structured_and_invalid():
+    class PersonClass(BaseModel):
+        name: str
+
+    def func_returning_annotated_tool_call_result() -> Annotated[CallToolResult, PersonClass]:
+        return CallToolResult(content=[], structuredContent={"person": "Brandon"})
+
+    meta = func_metadata(func_returning_annotated_tool_call_result)
+
+    with pytest.raises(ValueError):
+        meta.convert_result(func_returning_annotated_tool_call_result())
+
+
+def test_tool_call_result_in_optional_is_rejected():
+    """Test that Optional[CallToolResult] raises InvalidSignature"""
+
+    from mcp.server.fastmcp.exceptions import InvalidSignature
+
+    def func_optional_call_tool_result() -> CallToolResult | None:
+        return CallToolResult(content=[])
+
+    with pytest.raises(InvalidSignature) as exc_info:
+        func_metadata(func_optional_call_tool_result)
+
+    assert "Union or Optional" in str(exc_info.value)
+    assert "CallToolResult" in str(exc_info.value)
+
+
+def test_tool_call_result_in_union_is_rejected():
+    """Test that Union[str, CallToolResult] raises InvalidSignature"""
+
+    from mcp.server.fastmcp.exceptions import InvalidSignature
+
+    def func_union_call_tool_result() -> str | CallToolResult:
+        return CallToolResult(content=[])
+
+    with pytest.raises(InvalidSignature) as exc_info:
+        func_metadata(func_union_call_tool_result)
+
+    assert "Union or Optional" in str(exc_info.value)
+    assert "CallToolResult" in str(exc_info.value)
+
+
+def test_tool_call_result_in_pipe_union_is_rejected():
+    """Test that str | CallToolResult raises InvalidSignature"""
+    from mcp.server.fastmcp.exceptions import InvalidSignature
+
+    def func_pipe_union_call_tool_result() -> str | CallToolResult:
+        return CallToolResult(content=[])
+
+    with pytest.raises(InvalidSignature) as exc_info:
+        func_metadata(func_pipe_union_call_tool_result)
+
+    assert "Union or Optional" in str(exc_info.value)
+    assert "CallToolResult" in str(exc_info.value)
 
 
 def test_structured_output_with_field_descriptions():

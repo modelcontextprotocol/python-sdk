@@ -1,9 +1,10 @@
 import inspect
 import json
+import types
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
 from types import GenericAlias
-from typing import Annotated, Any, ForwardRef, cast, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, ForwardRef, Union, cast, get_args, get_origin, get_type_hints
 
 import pydantic_core
 from pydantic import (
@@ -22,7 +23,7 @@ from pydantic_core import PydanticUndefined
 from mcp.server.fastmcp.exceptions import InvalidSignature
 from mcp.server.fastmcp.utilities.logging import get_logger
 from mcp.server.fastmcp.utilities.types import Audio, Image
-from mcp.types import ContentBlock, TextContent
+from mcp.types import CallToolResult, ContentBlock, TextContent
 
 logger = get_logger(__name__)
 
@@ -104,6 +105,12 @@ class FuncMetadata(BaseModel):
         from function return values, whereas the lowlevel server simply serializes
         the structured output.
         """
+        if isinstance(result, CallToolResult):
+            if self.output_schema is not None:
+                assert self.output_model is not None, "Output model must be set if output schema is defined"
+                self.output_model.model_validate(result.structuredContent)
+            return result
+
         unstructured_content = _convert_to_content(result)
 
         if self.output_schema is None:
@@ -267,6 +274,26 @@ def func_metadata(
 
     output_info = FieldInfo.from_annotation(_get_typed_annotation(sig.return_annotation, globalns))
     annotation = output_info.annotation
+
+    # Reject CallToolResult in Union types (including Optional)
+    # Handle both typing.Union (Union[X, Y]) and types.UnionType (X | Y)
+    origin = get_origin(annotation)
+    if origin is Union or origin is types.UnionType:
+        args = get_args(annotation)
+        # Check if CallToolResult appears in the union (excluding None for Optional check)
+        if any(isinstance(arg, type) and issubclass(arg, CallToolResult) for arg in args if arg is not type(None)):
+            raise InvalidSignature(
+                f"Function {func.__name__}: CallToolResult cannot be used in Union or Optional types. "
+                "To return empty results, use: CallToolResult(content=[])"
+            )
+
+    # if the typehint is CallToolResult, the user either intends to return without validation
+    # or they provided validation as Annotated metadata
+    if isinstance(annotation, type) and issubclass(annotation, CallToolResult):
+        if output_info.metadata:
+            annotation = output_info.metadata[0]
+        else:
+            return FuncMetadata(arg_model=arguments_model)
 
     output_model, output_schema, wrap_output = _try_create_model_and_schema(annotation, func.__name__, output_info)
 

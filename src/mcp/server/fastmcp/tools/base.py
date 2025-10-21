@@ -34,6 +34,7 @@ class Tool(BaseModel):
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
     annotations: ToolAnnotations | None = Field(None, description="Optional annotations for the tool")
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this tool")
+    meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for this tool")
 
     @cached_property
     def output_schema(self) -> dict[str, Any] | None:
@@ -49,6 +50,7 @@ class Tool(BaseModel):
         context_kwarg: str | None = None,
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
+        meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
@@ -81,6 +83,7 @@ class Tool(BaseModel):
             context_kwarg=context_kwarg,
             annotations=annotations,
             icons=icons,
+            meta=meta,
         )
 
     async def run(
