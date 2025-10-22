@@ -45,6 +45,23 @@ async def test_complex_inputs():
 
 
 @pytest.mark.anyio
+async def test_direct_call_tool_result_return():
+    """Test the CallToolResult echo server"""
+    from examples.fastmcp.direct_call_tool_result_return import mcp
+
+    async with client_session(mcp._mcp_server) as client:
+        result = await client.call_tool("echo", {"text": "hello"})
+        assert len(result.content) == 1
+        content = result.content[0]
+        assert isinstance(content, TextContent)
+        assert content.text == "hello"
+        assert result.structuredContent
+        assert result.structuredContent["text"] == "hello"
+        assert isinstance(result.meta, dict)
+        assert result.meta["some"] == "metadata"
+
+
+@pytest.mark.anyio
 async def test_desktop(monkeypatch: pytest.MonkeyPatch):
     """Test the desktop server"""
     from pathlib import Path
