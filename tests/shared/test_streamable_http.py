@@ -1597,3 +1597,75 @@ async def test_client_crash_handled(basic_server: None, basic_server_url: str):
             assert isinstance(result, InitializeResult)
             tools = await session.list_tools()
             assert tools.tools
+
+
+@pytest.mark.anyio
+async def test_client_unexpected_content_type_raises_mcp_error():
+    """Test that unexpected content types raise McpError instead of just printing."""
+    # Use a real server that returns HTML to test the actual behavior
+    from starlette.responses import HTMLResponse
+    from starlette.routing import Route
+
+    # Create a simple server that returns HTML instead of MCP JSON
+    async def html_endpoint(request: Request):
+        return HTMLResponse("<html><body>Not an MCP server</body></html>")
+
+    app = Starlette(routes=[
+        Route("/mcp", html_endpoint, methods=["GET", "POST"]),
+    ])
+    
+    # Start server on a random port using a simpler approach
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    
+    # Use a thread instead of multiprocessing to avoid pickle issues
+    import threading
+    import asyncio
+    
+    def run_server():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        uvicorn.run(app, host="127.0.0.1", port=port, log_level="error")
+    
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
+    
+    try:
+        # Give server time to start
+        await asyncio.sleep(0.5)
+        
+        server_url = f"http://127.0.0.1:{port}"
+        
+        # Test that the client raises McpError when server returns HTML
+        with pytest.raises(ExceptionGroup) as exc_info:
+            async with streamablehttp_client(f"{server_url}/mcp") as (
+                read_stream,
+                write_stream,
+                _,
+            ):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+        
+        # Extract the McpError from the ExceptionGroup (handle nested groups)
+        mcp_error = None
+        
+        def find_mcp_error(exc_group):
+            for exc in exc_group.exceptions:
+                if isinstance(exc, McpError):
+                    return exc
+                elif isinstance(exc, ExceptionGroup):
+                    result = find_mcp_error(exc)
+                    if result:
+                        return result
+            return None
+        
+        mcp_error = find_mcp_error(exc_info.value)
+        
+        assert mcp_error is not None, f"Expected McpError in ExceptionGroup hierarchy"
+        assert "Unexpected content type" in str(mcp_error)
+        assert "text/html" in str(mcp_error)
+        
+    finally:
+        # Server thread will be cleaned up automatically as daemon
+        pass
