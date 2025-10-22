@@ -11,6 +11,11 @@ import time
 from collections.abc import Generator
 from typing import Any
 
+try:
+    from builtins import ExceptionGroup
+except ImportError:
+    from exceptiongroup import ExceptionGroup
+
 import anyio
 import httpx
 import pytest
@@ -1620,8 +1625,8 @@ async def test_client_unexpected_content_type_raises_mcp_error():
         port = s.getsockname()[1]
     
     # Use a thread instead of multiprocessing to avoid pickle issues
-    import threading
     import asyncio
+    import threading
     
     def run_server():
         loop = asyncio.new_event_loop()
@@ -1662,7 +1667,7 @@ async def test_client_unexpected_content_type_raises_mcp_error():
         
         mcp_error = find_mcp_error(exc_info.value)
         
-        assert mcp_error is not None, f"Expected McpError in ExceptionGroup hierarchy"
+        assert mcp_error is not None, "Expected McpError in ExceptionGroup hierarchy"
         assert "Unexpected content type" in str(mcp_error)
         assert "text/html" in str(mcp_error)
         
