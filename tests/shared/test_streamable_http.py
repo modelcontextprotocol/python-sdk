@@ -12,7 +12,7 @@ from collections.abc import Generator
 from typing import Any
 
 try:
-    from builtins import ExceptionGroup
+    from builtins import ExceptionGroup  # type: ignore
 except ImportError:
     from exceptiongroup import ExceptionGroup  # type: ignore
 
