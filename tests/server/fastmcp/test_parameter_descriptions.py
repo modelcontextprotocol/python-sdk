@@ -18,7 +18,7 @@ async def test_parameter_descriptions():
         """A greeting tool"""
         return f"Hello {title} {name}"
 
-    tools = await mcp.list_tools()
+    tools = await mcp.list_tools(request=None)
     assert len(tools) == 1
     tool = tools[0]
 

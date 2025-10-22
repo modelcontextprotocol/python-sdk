@@ -408,7 +408,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
     def list_tools(self):
         def decorator(
-            func: Callable[[], Awaitable[list[types.Tool]]]
+            func: Callable[..., Awaitable[list[types.Tool]]]
             | Callable[[types.ListToolsRequest], Awaitable[types.ListToolsResult]],
         ):
             logger.debug("Registering handler for ListToolsRequest")

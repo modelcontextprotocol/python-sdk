@@ -447,7 +447,7 @@ class TestToolAnnotations:
             """Echo a message back."""
             return message
 
-        tools = await app.list_tools()
+        tools = await app.list_tools(request=None)
         assert len(tools) == 1
         assert tools[0].annotations is not None
         assert tools[0].annotations.title == "Echo Tool"
@@ -704,7 +704,7 @@ class TestToolMetadata:
             """Analyze text content."""
             return {"length": len(text), "words": len(text.split())}
 
-        tools = await app.list_tools()
+        tools = await app.list_tools(request=None)
         assert len(tools) == 1
         assert tools[0].meta is not None
         assert tools[0].meta == metadata
@@ -733,7 +733,7 @@ class TestToolMetadata:
             """Third tool without metadata."""
             return z
 
-        tools = await app.list_tools()
+        tools = await app.list_tools(request=None)
         assert len(tools) == 3
 
         # Find tools by name and check metadata
@@ -799,12 +799,185 @@ class TestToolMetadata:
             """Tool with both metadata and annotations."""
             return data
 
-        tools = await app.list_tools()
+        tools = await app.list_tools(request=None)
         assert len(tools) == 1
         assert tools[0].meta == metadata
         assert tools[0].annotations is not None
         assert tools[0].annotations.title == "Combined Tool"
         assert tools[0].annotations.readOnlyHint is True
+
+
+class TestListTools:
+    """Test tool listing functionality in the tool manager."""
+
+    def test_list_all_tools(self):
+        """Test listing all tools when no filters are applied."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        def multiply(a: int, b: int) -> int:
+            """Multiply two numbers."""
+            return a * b
+
+        def divide(a: int, b: int) -> float:
+            """Divide two numbers."""
+            return a / b
+
+        manager = ToolManager()
+        manager.add_tool(add)
+        manager.add_tool(multiply)
+        manager.add_tool(divide)
+
+        tools = manager.list_tools()
+        assert len(tools) == 3
+        tool_names = {tool.name for tool in tools}
+        assert tool_names == {"add", "multiply", "divide"}
+
+    def test_list_tools_with_include(self):
+        """Test listing tools with include filter."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        def multiply(a: int, b: int) -> int:
+            """Multiply two numbers."""
+            return a * b
+
+        def divide(a: int, b: int) -> float:
+            """Divide two numbers."""
+            return a / b
+
+        manager = ToolManager()
+        manager.add_tool(add)
+        manager.add_tool(multiply)
+        manager.add_tool(divide)
+
+        # Test including specific tools
+        tools = manager.list_tools(include=["add", "multiply"])
+        assert len(tools) == 2
+        tool_names = {tool.name for tool in tools}
+        assert tool_names == {"add", "multiply"}
+
+        # Test including single tool
+        tools = manager.list_tools(include=["divide"])
+        assert len(tools) == 1
+        assert tools[0].name == "divide"
+
+        # Test including all tools explicitly
+        tools = manager.list_tools(include=["add", "multiply", "divide"])
+        assert len(tools) == 3
+        tool_names = {tool.name for tool in tools}
+        assert tool_names == {"add", "multiply", "divide"}
+
+    def test_list_tools_with_exclude(self):
+        """Test listing tools with exclude filter."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        def multiply(a: int, b: int) -> int:
+            """Multiply two numbers."""
+            return a * b
+
+        def divide(a: int, b: int) -> float:
+            """Divide two numbers."""
+            return a / b
+
+        manager = ToolManager()
+        manager.add_tool(add)
+        manager.add_tool(multiply)
+        manager.add_tool(divide)
+
+        # Test excluding specific tools
+        tools = manager.list_tools(exclude=["divide"])
+        assert len(tools) == 2
+        tool_names = {tool.name for tool in tools}
+        assert tool_names == {"add", "multiply"}
+
+        # Test excluding multiple tools
+        tools = manager.list_tools(exclude=["add", "multiply"])
+        assert len(tools) == 1
+        assert tools[0].name == "divide"
+
+        # Test excluding all tools
+        tools = manager.list_tools(exclude=["add", "multiply", "divide"])
+        assert len(tools) == 0
+
+    def test_list_tools_include_nonexistent(self):
+        """Test that including a non-existent tool raises ValueError."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        manager = ToolManager()
+        manager.add_tool(add)
+
+        with pytest.raises(ValueError, match="Tool 'nonexistent' not found in available tools, cannot be included."):
+            manager.list_tools(include=["add", "nonexistent"])
+
+    def test_list_tools_exclude_nonexistent(self):
+        """Test that excluding a non-existent tool raises ValueError."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        manager = ToolManager()
+        manager.add_tool(add)
+
+        with pytest.raises(ValueError):
+            manager.list_tools(exclude=["add", "nonexistent"])
+
+    def test_list_tools_include_and_exclude_error(self):
+        """Test that providing both include and exclude raises ValueError."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        manager = ToolManager()
+        manager.add_tool(add)
+
+        with pytest.raises(ValueError):
+            manager.list_tools(include=["add"], exclude=["add"])
+
+    def test_list_tools_empty_include(self):
+        """Test listing tools with empty include list."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        manager = ToolManager()
+        manager.add_tool(add)
+
+        tools = manager.list_tools(include=[])
+        assert len(tools) == 0
+
+    def test_list_tools_empty_exclude(self):
+        """Test listing tools with empty exclude list."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        def multiply(a: int, b: int) -> int:
+            """Multiply two numbers."""
+            return a * b
+
+        manager = ToolManager()
+        manager.add_tool(add)
+        manager.add_tool(multiply)
+
+        tools = manager.list_tools(exclude=[])
+        assert len(tools) == 2
+        tool_names = {tool.name for tool in tools}
+        assert tool_names == {"add", "multiply"}
 
 
 class TestRemoveTools:

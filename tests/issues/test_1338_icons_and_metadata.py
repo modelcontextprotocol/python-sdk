@@ -55,7 +55,7 @@ async def test_icons_and_website_url():
     assert mcp.icons[0].sizes == test_icon.sizes
 
     # Test tool includes icon
-    tools = await mcp.list_tools()
+    tools = await mcp.list_tools(request=None)
     assert len(tools) == 1
     tool = tools[0]
     assert tool.name == "test_tool"
@@ -109,7 +109,7 @@ async def test_multiple_icons():
         return "success"
 
     # Test tool has all icons
-    tools = await mcp.list_tools()
+    tools = await mcp.list_tools(request=None)
     assert len(tools) == 1
     tool = tools[0]
     assert tool.icons is not None
@@ -135,7 +135,7 @@ async def test_no_icons_or_website():
     assert mcp.icons is None
 
     # Test tool has no icons
-    tools = await mcp.list_tools()
+    tools = await mcp.list_tools(request=None)
     assert len(tools) == 1
     tool = tools[0]
     assert tool.name == "basic_tool"

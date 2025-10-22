@@ -20,7 +20,7 @@ async def test_list_tools_returns_all_tools():
         globals()[f"dummy_tool_{i}"] = dummy_tool_func  # Keep reference to avoid garbage collection
 
     # Get all tools
-    tools = await mcp.list_tools()
+    tools = await mcp.list_tools(request=None)
 
     # Verify we get all tools
     assert len(tools) == num_tools, f"Expected {num_tools} tools, but got {len(tools)}"

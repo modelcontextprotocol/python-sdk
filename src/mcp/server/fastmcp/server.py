@@ -61,7 +61,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
-from mcp.types import Annotations, AnyFunction, ContentBlock, GetPromptResult, Icon, ToolAnnotations
+from mcp.types import Annotations, AnyFunction, ContentBlock, GetPromptResult, Icon, ListToolsRequest, ToolAnnotations
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
@@ -298,9 +298,19 @@ class FastMCP(Generic[LifespanResultT]):
         self._mcp_server.get_prompt()(self.get_prompt)
         self._mcp_server.list_resource_templates()(self.list_resource_templates)
 
-    async def list_tools(self) -> list[MCPTool]:
-        """List all available tools."""
-        tools = self._tool_manager.list_tools()
+    async def list_tools(
+        self,
+        request: ListToolsRequest | None = None,
+    ) -> list[MCPTool]:
+        """List all available tools, optionally filtered by include/exclude parameters."""
+        if request and request.params:
+            tools = self._tool_manager.list_tools(
+                include=request.params.include,
+                exclude=request.params.exclude,
+            )
+        else:
+            tools = self._tool_manager.list_tools()
+
         return [
             MCPTool(
                 name=info.name,

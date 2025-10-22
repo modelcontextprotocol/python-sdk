@@ -38,8 +38,40 @@ class ToolManager:
         """Get tool by name."""
         return self._tools.get(name)
 
-    def list_tools(self) -> list[Tool]:
-        """List all registered tools."""
+    def _include_tools(self, tools: dict[str, Tool], include: list[str]) -> list[Tool]:
+        """Filter tools to include only the specified tool names."""
+        filtered_tools: list[Tool] = []
+        for tool_name in include:
+            tool = tools.get(tool_name)
+            if tool is None:
+                raise ValueError(f"Tool '{tool_name}' not found in available tools, cannot be included.")
+            filtered_tools.append(tool)
+        return filtered_tools
+
+    def _exclude_tools(self, tools: dict[str, Tool], exclude: list[str]) -> list[Tool]:
+        """Filter tools to exclude the specified tool names."""
+        exclude_set = set(exclude)
+
+        for tool_name in exclude:
+            if tool_name not in tools:
+                raise ValueError(f"Tool '{tool_name}' not found in available tools, cannot be excluded.")
+
+        return [tool for name, tool in tools.items() if name not in exclude_set]
+
+    def list_tools(
+        self,
+        *,
+        include: list[str] | None = None,
+        exclude: list[str] | None = None,
+    ) -> list[Tool]:
+        """List all registered tools, optionally filtered by include or exclude parameters."""
+        if include is not None and exclude is not None:
+            raise ValueError("Cannot specify both 'include' and 'exclude' parameters")
+        elif include is not None:
+            return self._include_tools(self._tools, include)
+        elif exclude is not None:
+            return self._exclude_tools(self._tools, exclude)
+
         return list(self._tools.values())
 
     def add_tool(

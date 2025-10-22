@@ -56,11 +56,11 @@ class RequestParams(BaseModel):
 
 
 class PaginatedRequestParams(RequestParams):
+    """Request parameters for paginated operations with optional filtering."""
+
     cursor: Cursor | None = None
-    """
-    An opaque token representing the current pagination position.
-    If provided, the server should return results starting after this cursor.
-    """
+    include: list[str] | None = None
+    exclude: list[str] | None = None
 
 
 class NotificationParams(BaseModel):
