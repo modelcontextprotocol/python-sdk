@@ -1607,7 +1607,7 @@ async def test_client_crash_handled(basic_server: None, basic_server_url: str):
 @pytest.mark.anyio
 async def test_client_unexpected_content_type_raises_mcp_error():
     """Test that unexpected content types raise McpError instead of just printing.
-    
+
     This test verifies that when a server returns HTML instead of MCP JSON,
     the client properly raises McpError wrapped in ExceptionGroup.
     """
