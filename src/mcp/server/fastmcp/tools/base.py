@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.context_injection import find_context_parameter
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
-from mcp.types import ToolAnnotations
+from mcp.types import Icon, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -33,6 +33,8 @@ class Tool(BaseModel):
     is_async: bool = Field(description="Whether the tool is async")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
     annotations: ToolAnnotations | None = Field(None, description="Optional annotations for the tool")
+    icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this tool")
+    meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for this tool")
 
     @cached_property
     def output_schema(self) -> dict[str, Any] | None:
@@ -47,6 +49,8 @@ class Tool(BaseModel):
         description: str | None = None,
         context_kwarg: str | None = None,
         annotations: ToolAnnotations | None = None,
+        icons: list[Icon] | None = None,
+        meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
@@ -78,6 +82,8 @@ class Tool(BaseModel):
             is_async=is_async,
             context_kwarg=context_kwarg,
             annotations=annotations,
+            icons=icons,
+            meta=meta,
         )
 
     async def run(

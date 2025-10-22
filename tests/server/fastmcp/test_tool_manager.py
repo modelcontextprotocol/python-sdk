@@ -633,3 +633,288 @@ class TestStructuredOutput:
         # Test converted result
         result = await manager.call_tool("get_scores", {})
         assert result == expected
+
+
+class TestToolMetadata:
+    """Test tool metadata functionality."""
+
+    def test_add_tool_with_metadata(self):
+        """Test adding a tool with metadata via ToolManager."""
+
+        def process_data(input_data: str) -> str:
+            """Process some data."""
+            return f"Processed: {input_data}"
+
+        metadata = {"ui": {"type": "form", "fields": ["input"]}, "version": "1.0"}
+
+        manager = ToolManager()
+        tool = manager.add_tool(process_data, meta=metadata)
+
+        assert tool.meta is not None
+        assert tool.meta == metadata
+        assert tool.meta["ui"]["type"] == "form"
+        assert tool.meta["version"] == "1.0"
+
+    def test_add_tool_without_metadata(self):
+        """Test that tools without metadata have None as meta value."""
+
+        def simple_tool(x: int) -> int:
+            """Simple tool."""
+            return x * 2
+
+        manager = ToolManager()
+        tool = manager.add_tool(simple_tool)
+
+        assert tool.meta is None
+
+    @pytest.mark.anyio
+    async def test_metadata_in_fastmcp_decorator(self):
+        """Test that metadata is correctly added via FastMCP.tool decorator."""
+
+        app = FastMCP()
+
+        metadata = {"client": {"ui_component": "file_picker"}, "priority": "high"}
+
+        @app.tool(meta=metadata)
+        def upload_file(filename: str) -> str:
+            """Upload a file."""
+            return f"Uploaded: {filename}"
+
+        # Get the tool from the tool manager
+        tool = app._tool_manager.get_tool("upload_file")
+        assert tool is not None
+        assert tool.meta is not None
+        assert tool.meta == metadata
+        assert tool.meta["client"]["ui_component"] == "file_picker"
+        assert tool.meta["priority"] == "high"
+
+    @pytest.mark.anyio
+    async def test_metadata_in_list_tools(self):
+        """Test that metadata is included in MCPTool when listing tools."""
+
+        app = FastMCP()
+
+        metadata = {
+            "ui": {"input_type": "textarea", "rows": 5},
+            "tags": ["text", "processing"],
+        }
+
+        @app.tool(meta=metadata)
+        def analyze_text(text: str) -> dict[str, Any]:
+            """Analyze text content."""
+            return {"length": len(text), "words": len(text.split())}
+
+        tools = await app.list_tools()
+        assert len(tools) == 1
+        assert tools[0].meta is not None
+        assert tools[0].meta == metadata
+
+    @pytest.mark.anyio
+    async def test_multiple_tools_with_different_metadata(self):
+        """Test multiple tools with different metadata values."""
+
+        app = FastMCP()
+
+        metadata1 = {"ui": "form", "version": 1}
+        metadata2 = {"ui": "picker", "experimental": True}
+
+        @app.tool(meta=metadata1)
+        def tool1(x: int) -> int:
+            """First tool."""
+            return x
+
+        @app.tool(meta=metadata2)
+        def tool2(y: str) -> str:
+            """Second tool."""
+            return y
+
+        @app.tool()
+        def tool3(z: bool) -> bool:
+            """Third tool without metadata."""
+            return z
+
+        tools = await app.list_tools()
+        assert len(tools) == 3
+
+        # Find tools by name and check metadata
+        tools_by_name = {t.name: t for t in tools}
+
+        assert tools_by_name["tool1"].meta == metadata1
+        assert tools_by_name["tool2"].meta == metadata2
+        assert tools_by_name["tool3"].meta is None
+
+    def test_metadata_with_complex_structure(self):
+        """Test metadata with complex nested structures."""
+
+        def complex_tool(data: str) -> str:
+            """Tool with complex metadata."""
+            return data
+
+        metadata = {
+            "ui": {
+                "components": [
+                    {"type": "input", "name": "field1", "validation": {"required": True, "minLength": 5}},
+                    {"type": "select", "name": "field2", "options": ["a", "b", "c"]},
+                ],
+                "layout": {"columns": 2, "responsive": True},
+            },
+            "permissions": ["read", "write"],
+            "tags": ["data-processing", "user-input"],
+            "version": 2,
+        }
+
+        manager = ToolManager()
+        tool = manager.add_tool(complex_tool, meta=metadata)
+
+        assert tool.meta is not None
+        assert tool.meta["ui"]["components"][0]["validation"]["minLength"] == 5
+        assert tool.meta["ui"]["layout"]["columns"] == 2
+        assert "read" in tool.meta["permissions"]
+        assert "data-processing" in tool.meta["tags"]
+
+    def test_metadata_empty_dict(self):
+        """Test that empty dict metadata is preserved."""
+
+        def tool_with_empty_meta(x: int) -> int:
+            """Tool with empty metadata."""
+            return x
+
+        manager = ToolManager()
+        tool = manager.add_tool(tool_with_empty_meta, meta={})
+
+        assert tool.meta is not None
+        assert tool.meta == {}
+
+    @pytest.mark.anyio
+    async def test_metadata_with_annotations(self):
+        """Test that metadata and annotations can coexist."""
+
+        app = FastMCP()
+
+        metadata = {"custom": "value"}
+        annotations = ToolAnnotations(title="Combined Tool", readOnlyHint=True)
+
+        @app.tool(meta=metadata, annotations=annotations)
+        def combined_tool(data: str) -> str:
+            """Tool with both metadata and annotations."""
+            return data
+
+        tools = await app.list_tools()
+        assert len(tools) == 1
+        assert tools[0].meta == metadata
+        assert tools[0].annotations is not None
+        assert tools[0].annotations.title == "Combined Tool"
+        assert tools[0].annotations.readOnlyHint is True
+
+
+class TestRemoveTools:
+    """Test tool removal functionality in the tool manager."""
+
+    def test_remove_existing_tool(self):
+        """Test removing an existing tool."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        manager = ToolManager()
+        manager.add_tool(add)
+
+        # Verify tool exists
+        assert manager.get_tool("add") is not None
+        assert len(manager.list_tools()) == 1
+
+        # Remove the tool - should not raise any exception
+        manager.remove_tool("add")
+
+        # Verify tool is removed
+        assert manager.get_tool("add") is None
+        assert len(manager.list_tools()) == 0
+
+    def test_remove_nonexistent_tool(self):
+        """Test removing a non-existent tool raises ToolError."""
+        manager = ToolManager()
+
+        with pytest.raises(ToolError, match="Unknown tool: nonexistent"):
+            manager.remove_tool("nonexistent")
+
+    def test_remove_tool_from_multiple_tools(self):
+        """Test removing one tool when multiple tools exist."""
+
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+
+        def multiply(a: int, b: int) -> int:
+            """Multiply two numbers."""
+            return a * b
+
+        def divide(a: int, b: int) -> float:
+            """Divide two numbers."""
+            return a / b
+
+        manager = ToolManager()
+        manager.add_tool(add)
+        manager.add_tool(multiply)
+        manager.add_tool(divide)
+
+        # Verify all tools exist
+        assert len(manager.list_tools()) == 3
+        assert manager.get_tool("add") is not None
+        assert manager.get_tool("multiply") is not None
+        assert manager.get_tool("divide") is not None
+
+        # Remove middle tool
+        manager.remove_tool("multiply")
+
+        # Verify only multiply is removed
+        assert len(manager.list_tools()) == 2
+        assert manager.get_tool("add") is not None
+        assert manager.get_tool("multiply") is None
+        assert manager.get_tool("divide") is not None
+
+    @pytest.mark.anyio
+    async def test_call_removed_tool_raises_error(self):
+        """Test that calling a removed tool raises ToolError."""
+
+        def greet(name: str) -> str:
+            """Greet someone."""
+            return f"Hello, {name}!"
+
+        manager = ToolManager()
+        manager.add_tool(greet)
+
+        # Verify tool works before removal
+        result = await manager.call_tool("greet", {"name": "World"})
+        assert result == "Hello, World!"
+
+        # Remove the tool
+        manager.remove_tool("greet")
+
+        # Verify calling removed tool raises error
+        with pytest.raises(ToolError, match="Unknown tool: greet"):
+            await manager.call_tool("greet", {"name": "World"})
+
+    def test_remove_tool_case_sensitive(self):
+        """Test that tool removal is case-sensitive."""
+
+        def test_func() -> str:
+            """Test function."""
+            return "test"
+
+        manager = ToolManager()
+        manager.add_tool(test_func)
+
+        # Verify tool exists
+        assert manager.get_tool("test_func") is not None
+
+        # Try to remove with different case - should raise ToolError
+        with pytest.raises(ToolError, match="Unknown tool: Test_Func"):
+            manager.remove_tool("Test_Func")
+
+        # Verify original tool still exists
+        assert manager.get_tool("test_func") is not None
+
+        # Remove with correct case
+        manager.remove_tool("test_func")
+        assert manager.get_tool("test_func") is None

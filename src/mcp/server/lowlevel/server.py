@@ -11,7 +11,7 @@ Usage:
 
 2. Define request handlers using decorators:
    @server.list_prompts()
-   async def handle_list_prompts() -> list[types.Prompt]:
+   async def handle_list_prompts(request: types.ListPromptsRequest) -> types.ListPromptsResult:
        # Implementation
 
    @server.get_prompt()
@@ -21,7 +21,7 @@ Usage:
        # Implementation
 
    @server.list_tools()
-   async def handle_list_tools() -> list[types.Tool]:
+   async def handle_list_tools(request: types.ListToolsRequest) -> types.ListToolsResult:
        # Implementation
 
    @server.call_tool()
@@ -82,6 +82,7 @@ from pydantic import AnyUrl
 from typing_extensions import TypeVar
 
 import mcp.types as types
+from mcp.server.lowlevel.func_inspection import create_call_wrapper
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
@@ -135,6 +136,8 @@ class Server(Generic[LifespanResultT, RequestT]):
         name: str,
         version: str | None = None,
         instructions: str | None = None,
+        website_url: str | None = None,
+        icons: list[types.Icon] | None = None,
         lifespan: Callable[
             [Server[LifespanResultT, RequestT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -143,6 +146,8 @@ class Server(Generic[LifespanResultT, RequestT]):
         self.name = name
         self.version = version
         self.instructions = instructions
+        self.website_url = website_url
+        self.icons = icons
         self.lifespan = lifespan
         self.request_handlers: dict[type, Callable[..., Awaitable[types.ServerResult]]] = {
             types.PingRequest: _ping_handler,
@@ -176,6 +181,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                 experimental_capabilities or {},
             ),
             instructions=self.instructions,
+            website_url=self.website_url,
+            icons=self.icons,
         )
 
     def get_capabilities(
@@ -229,12 +236,22 @@ class Server(Generic[LifespanResultT, RequestT]):
         return request_ctx.get()
 
     def list_prompts(self):
-        def decorator(func: Callable[[], Awaitable[list[types.Prompt]]]):
+        def decorator(
+            func: Callable[[], Awaitable[list[types.Prompt]]]
+            | Callable[[types.ListPromptsRequest], Awaitable[types.ListPromptsResult]],
+        ):
             logger.debug("Registering handler for PromptListRequest")
 
-            async def handler(_: Any):
-                prompts = await func()
-                return types.ServerResult(types.ListPromptsResult(prompts=prompts))
+            wrapper = create_call_wrapper(func, types.ListPromptsRequest)
+
+            async def handler(req: types.ListPromptsRequest):
+                result = await wrapper(req)
+                # Handle both old style (list[Prompt]) and new style (ListPromptsResult)
+                if isinstance(result, types.ListPromptsResult):
+                    return types.ServerResult(result)
+                else:
+                    # Old style returns list[Prompt]
+                    return types.ServerResult(types.ListPromptsResult(prompts=result))
 
             self.request_handlers[types.ListPromptsRequest] = handler
             return func
@@ -257,12 +274,22 @@ class Server(Generic[LifespanResultT, RequestT]):
         return decorator
 
     def list_resources(self):
-        def decorator(func: Callable[[], Awaitable[list[types.Resource]]]):
+        def decorator(
+            func: Callable[[], Awaitable[list[types.Resource]]]
+            | Callable[[types.ListResourcesRequest], Awaitable[types.ListResourcesResult]],
+        ):
             logger.debug("Registering handler for ListResourcesRequest")
 
-            async def handler(_: Any):
-                resources = await func()
-                return types.ServerResult(types.ListResourcesResult(resources=resources))
+            wrapper = create_call_wrapper(func, types.ListResourcesRequest)
+
+            async def handler(req: types.ListResourcesRequest):
+                result = await wrapper(req)
+                # Handle both old style (list[Resource]) and new style (ListResourcesResult)
+                if isinstance(result, types.ListResourcesResult):
+                    return types.ServerResult(result)
+                else:
+                    # Old style returns list[Resource]
+                    return types.ServerResult(types.ListResourcesResult(resources=result))
 
             self.request_handlers[types.ListResourcesRequest] = handler
             return func
@@ -380,16 +407,30 @@ class Server(Generic[LifespanResultT, RequestT]):
         return decorator
 
     def list_tools(self):
-        def decorator(func: Callable[[], Awaitable[list[types.Tool]]]):
+        def decorator(
+            func: Callable[[], Awaitable[list[types.Tool]]]
+            | Callable[[types.ListToolsRequest], Awaitable[types.ListToolsResult]],
+        ):
             logger.debug("Registering handler for ListToolsRequest")
 
-            async def handler(_: Any):
-                tools = await func()
-                # Refresh the tool cache
-                self._tool_cache.clear()
-                for tool in tools:
-                    self._tool_cache[tool.name] = tool
-                return types.ServerResult(types.ListToolsResult(tools=tools))
+            wrapper = create_call_wrapper(func, types.ListToolsRequest)
+
+            async def handler(req: types.ListToolsRequest):
+                result = await wrapper(req)
+
+                # Handle both old style (list[Tool]) and new style (ListToolsResult)
+                if isinstance(result, types.ListToolsResult):
+                    # Refresh the tool cache with returned tools
+                    for tool in result.tools:
+                        self._tool_cache[tool.name] = tool
+                    return types.ServerResult(result)
+                else:
+                    # Old style returns list[Tool]
+                    # Clear and refresh the entire tool cache
+                    self._tool_cache.clear()
+                    for tool in result:
+                        self._tool_cache[tool.name] = tool
+                    return types.ServerResult(types.ListToolsResult(tools=result))
 
             self.request_handlers[types.ListToolsRequest] = handler
             return func
@@ -439,7 +480,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(
             func: Callable[
                 ...,
-                Awaitable[UnstructuredContent | StructuredContent | CombinationContent],
+                Awaitable[UnstructuredContent | StructuredContent | CombinationContent | types.CallToolResult],
             ],
         ):
             logger.debug("Registering handler for CallToolRequest")
@@ -463,7 +504,9 @@ class Server(Generic[LifespanResultT, RequestT]):
                     # output normalization
                     unstructured_content: UnstructuredContent
                     maybe_structured_content: StructuredContent | None
-                    if isinstance(results, tuple) and len(results) == 2:
+                    if isinstance(results, types.CallToolResult):
+                        return types.ServerResult(results)
+                    elif isinstance(results, tuple) and len(results) == 2:
                         # tool returned both structured and unstructured content
                         unstructured_content, maybe_structured_content = cast(CombinationContent, results)
                     elif isinstance(results, dict):
@@ -601,13 +644,21 @@ class Server(Generic[LifespanResultT, RequestT]):
         raise_exceptions: bool = False,
     ):
         with warnings.catch_warnings(record=True) as w:
-            # TODO(Marcelo): We should be checking if message is Exception here.
-            match message:  # type: ignore[reportMatchNotExhaustive]
+            match message:
                 case RequestResponder(request=types.ClientRequest(root=req)) as responder:
                     with responder:
                         await self._handle_request(message, req, session, lifespan_context, raise_exceptions)
                 case types.ClientNotification(root=notify):
                     await self._handle_notification(notify)
+                case Exception():
+                    logger.error(f"Received exception from stream: {message}")
+                    await session.send_log_message(
+                        level="error",
+                        data="Internal Server Error",
+                        logger="mcp.server.exception_handler",
+                    )
+                    if raise_exceptions:
+                        raise message
 
             for warning in w:
                 logger.info("Warning: %s: %s", warning.category.__name__, warning.message)

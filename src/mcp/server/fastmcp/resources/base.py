@@ -13,6 +13,8 @@ from pydantic import (
     field_validator,
 )
 
+from mcp.types import Annotations, Icon
+
 
 class Resource(BaseModel, abc.ABC):
     """Base class for all resources."""
@@ -28,6 +30,8 @@ class Resource(BaseModel, abc.ABC):
         description="MIME type of the resource content",
         pattern=r"^[a-zA-Z0-9]+/[a-zA-Z0-9\-+.]+$",
     )
+    icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this resource")
+    annotations: Annotations | None = Field(default=None, description="Optional annotations for the resource")
 
     @field_validator("name", mode="before")
     @classmethod
