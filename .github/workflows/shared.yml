@@ -30,13 +30,18 @@ jobs:
           SKIP: no-commit-to-branch
 
   test:
+    name: Test (${{ matrix.python-version }}) (${{ matrix.os }}) (${{ matrix.dep-resolution.name }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     continue-on-error: true
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
-        dep-resolution: ["lowest-direct", "highest"]
+        dep-resolution:
+          - name: lowest-direct
+            install-flags: "--resolution lowest-direct"
+          - name: highest
+            install-flags: "--frozen"
         os: [ubuntu-latest, windows-latest]
 
     steps:
@@ -49,10 +54,12 @@ jobs:
           version: 0.9.5
 
       - name: Install the project
-        run: uv sync --frozen --all-extras --python ${{ matrix.python-version }} --resolution ${{ matrix.dep-resolution }}
+        run: uv sync ${{ matrix.dep-resolution.install-flags }} --all-extras --python ${{ matrix.python-version }}
 
       - name: Run pytest
-        run: uv run --frozen --no-sync pytest
+        run: uv run ${{ matrix.dep-resolution.install-flags }} --no-sync pytest
+        env:
+          UV_RESOLUTION: ${{ matrix.dep-resolution.name == 'lowest-direct' && 'lowest-direct' || 'highest' }}
 
   readme-snippets:
     runs-on: ubuntu-latest
