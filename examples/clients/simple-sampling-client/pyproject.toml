@@ -9,7 +9,7 @@ name = "mcp-simple-sampling-client"
 version = "0.1.0"
 description = "Exploring different features of MCP servers and clients"
 readme = { file = "README.md", content-type = "text/markdown" }
-requires-python = ">=3.13,<3.14"
+requires-python = ">=3.10"
 license = "MIT"
 authors = [
   { name = "Anirban Ray", email = "39331844+yarnabrina@users.noreply.github.com" }
@@ -28,6 +28,9 @@ classifiers = [
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Topic :: Software Development",
   "Topic :: Utilities",
