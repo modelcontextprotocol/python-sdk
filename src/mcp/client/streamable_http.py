@@ -504,9 +504,6 @@ async def streamable_http_client(
     # Create transport with extracted configuration
     transport = StreamableHTTPTransport(url, headers_dict, timeout, sse_read_timeout, auth)
 
-    # Sync client headers with transport's merged headers (includes MCP protocol requirements)
-    client.headers.update(transport.request_headers)
-
     async with anyio.create_task_group() as tg:
         try:
             logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")

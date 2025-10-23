@@ -1608,3 +1608,112 @@ async def test_client_crash_handled(basic_server: None, basic_server_url: str):
             assert isinstance(result, InitializeResult)
             tools = await session.list_tools()
             assert tools.tools
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_does_not_mutate_provided_client(
+    basic_server: None, basic_server_url: str
+) -> None:
+    """Test that streamable_http_client does not mutate the provided httpx client's headers."""
+    # Create a client with custom headers
+    original_headers = {
+        "X-Custom-Header": "custom-value",
+        "Authorization": "Bearer test-token",
+    }
+
+    async with httpx.AsyncClient(headers=original_headers, follow_redirects=True) as custom_client:
+        # Use the client with streamable_http_client
+        async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                result = await session.initialize()
+                assert isinstance(result, InitializeResult)
+
+        # Verify client headers were not mutated with MCP protocol headers
+        # If accept header exists, it should still be httpx default, not MCP's
+        if "accept" in custom_client.headers:
+            assert custom_client.headers.get("accept") == "*/*"
+        # MCP content-type should not have been added
+        assert custom_client.headers.get("content-type") != "application/json"
+
+        # Verify custom headers are still present and unchanged
+        assert custom_client.headers.get("X-Custom-Header") == "custom-value"
+        assert custom_client.headers.get("Authorization") == "Bearer test-token"
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_mcp_headers_override_defaults(
+    context_aware_server: None, basic_server_url: str
+) -> None:
+    """Test that MCP protocol headers override httpx.AsyncClient default headers."""
+    # httpx.AsyncClient has default "accept: */*" header
+    # We need to verify that our MCP accept header overrides it in actual requests
+
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        # Verify client has default accept header
+        assert client.headers.get("accept") == "*/*"
+
+        async with streamable_http_client(f"{basic_server_url}/mcp", http_client=client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+
+                # Use echo_headers tool to see what headers the server actually received
+                tool_result = await session.call_tool("echo_headers", {})
+                assert len(tool_result.content) == 1
+                assert isinstance(tool_result.content[0], TextContent)
+                headers_data = json.loads(tool_result.content[0].text)
+
+                # Verify MCP protocol headers were sent (not httpx defaults)
+                assert "accept" in headers_data
+                assert "application/json" in headers_data["accept"]
+                assert "text/event-stream" in headers_data["accept"]
+
+                assert "content-type" in headers_data
+                assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_preserves_custom_with_mcp_headers(
+    context_aware_server: None, basic_server_url: str
+) -> None:
+    """Test that both custom headers and MCP protocol headers are sent in requests."""
+    custom_headers = {
+        "X-Custom-Header": "custom-value",
+        "X-Request-Id": "req-123",
+        "Authorization": "Bearer test-token",
+    }
+
+    async with httpx.AsyncClient(headers=custom_headers, follow_redirects=True) as client:
+        async with streamable_http_client(f"{basic_server_url}/mcp", http_client=client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+
+                # Use echo_headers tool to verify both custom and MCP headers are present
+                tool_result = await session.call_tool("echo_headers", {})
+                assert len(tool_result.content) == 1
+                assert isinstance(tool_result.content[0], TextContent)
+                headers_data = json.loads(tool_result.content[0].text)
+
+                # Verify custom headers are present
+                assert headers_data.get("x-custom-header") == "custom-value"
+                assert headers_data.get("x-request-id") == "req-123"
+                assert headers_data.get("authorization") == "Bearer test-token"
+
+                # Verify MCP protocol headers are also present
+                assert "accept" in headers_data
+                assert "application/json" in headers_data["accept"]
+                assert "text/event-stream" in headers_data["accept"]
+
+                assert "content-type" in headers_data
+                assert headers_data["content-type"] == "application/json"
