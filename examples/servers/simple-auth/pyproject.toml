@@ -30,8 +30,4 @@ build-backend = "hatchling.build"
 packages = ["mcp_simple_auth"]
 
 [dependency-groups]
-dev = [
-    "pyright>=1.1.391",
-    "pytest>=8.3.4",
-    "ruff>=0.8.5",
-]
+dev = ["pyright>=1.1.391", "pytest>=8.3.4", "ruff>=0.8.5"]
