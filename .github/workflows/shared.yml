@@ -30,7 +30,7 @@ jobs:
           SKIP: no-commit-to-branch
 
   test:
-    name: Test (${{ matrix.python-version }}) (${{ matrix.os }}) (${{ matrix.dep-resolution.name }})
+    name: test (${{ matrix.python-version }}, ${{ matrix.dep-resolution.name }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     continue-on-error: true
