@@ -6,6 +6,10 @@ import httpx
 
 __all__ = ["create_mcp_http_client"]
 
+# Default MCP timeout configuration
+MCP_DEFAULT_TIMEOUT = 30.0  # General operations (seconds)
+MCP_DEFAULT_SSE_READ_TIMEOUT = 300.0  # SSE streams - 5 minutes (seconds)
+
 
 class McpHttpClientFactory(Protocol):
     def __call__(
@@ -68,7 +72,7 @@ def create_mcp_http_client(
 
     # Handle timeout
     if timeout is None:
-        kwargs["timeout"] = httpx.Timeout(30.0)
+        kwargs["timeout"] = httpx.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT)
     else:
         kwargs["timeout"] = timeout
 
