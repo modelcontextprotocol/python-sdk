@@ -5,7 +5,7 @@
 # pyright: reportUnknownLambdaType=false
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, TypedDict, Final
 
 import annotated_types
 import pytest
@@ -1182,3 +1182,23 @@ def test_basemodel_reserved_names_with_json_preparsing():
     assert result["json"] == {"nested": "data"}
     assert result["model_dump"] == [1, 2, 3]
     assert result["normal"] == "plain string"
+
+
+def test_disallowed_type_qualifier():
+    from mcp.server.fastmcp.exceptions import InvalidSignature
+
+    def func_disallowed_qualifier() -> Final[int]:  # type: ignore
+        pass
+
+    with pytest.raises(InvalidSignature) as exc_info:
+        func_metadata(func_disallowed_qualifier)
+    assert "return annotation contains an invalid type qualifier" in str(exc_info.value)
+
+
+def test_preserves_pydantic_metadata():
+    def func_with_metadata() -> Annotated[int, Field(gt=1)]: ...
+
+    meta = func_metadata(func_with_metadata)
+
+    assert meta.output_schema is not None
+    assert meta.output_schema["properties"]["result"] == {"exclusiveMinimum": 1, "title": "Result", "type": "integer"}
