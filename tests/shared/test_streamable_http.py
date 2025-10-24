@@ -1799,36 +1799,50 @@ class TestStreamableHTTPExtensions:
             "custom_metadata": "custom_data",
         }
 
-        async with streamable_http_client(f"{basic_server_url}/mcp", extensions=test_extensions) as (
-            read_stream,
-            write_stream,
-            _,
-        ):
-            async with ClientSession(read_stream, write_stream) as session:
-                # Test initialization with extensions
-                result = await session.initialize()
-                assert isinstance(result, InitializeResult)
-                assert result.serverInfo.name == SERVER_NAME
+        # Create httpx client with extensions
+        custom_client = create_mcp_http_client()
+        setattr(custom_client, "custom_extensions", test_extensions)
+        
+        async with custom_client:
+            async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client) as (
+                read_stream,
+                write_stream,
+                _,
+            ):
+                async with ClientSession(read_stream, write_stream) as session:
+                    # Test initialization with extensions
+                    result = await session.initialize()
+                    assert isinstance(result, InitializeResult)
+                    assert result.serverInfo.name == SERVER_NAME
 
-                # Test that session works with extensions
-                tools = await session.list_tools()
-                assert len(tools.tools) == 6
+                    # Test that session works with extensions
+                    tools = await session.list_tools()
+                    assert len(tools.tools) == 6
 
     @pytest.mark.anyio
     async def test_extensions_with_empty_dict(self, basic_server: None, basic_server_url: str):
         """Test streamablehttp_client with empty extensions dict."""
-        async with streamable_http_client(f"{basic_server_url}/mcp", extensions={}) as (read_stream, write_stream, _):
-            async with ClientSession(read_stream, write_stream) as session:
-                result = await session.initialize()
-                assert isinstance(result, InitializeResult)
+        # Create httpx client with empty extensions
+        custom_client = create_mcp_http_client()
+        setattr(custom_client, "custom_extensions", {})
+        
+        async with custom_client:
+            async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client) as (read_stream, write_stream, _):
+                async with ClientSession(read_stream, write_stream) as session:
+                    result = await session.initialize()
+                    assert isinstance(result, InitializeResult)
 
     @pytest.mark.anyio
     async def test_extensions_with_none(self, basic_server: None, basic_server_url: str):
-        """Test streamablehttp_client with None extensions."""
-        async with streamable_http_client(f"{basic_server_url}/mcp", extensions=None) as (read_stream, write_stream, _):
-            async with ClientSession(read_stream, write_stream) as session:
-                result = await session.initialize()
-                assert isinstance(result, InitializeResult)
+        """Test streamablehttp_client with None extensions (no custom_extensions attribute)."""
+        # Create httpx client without setting custom_extensions
+        custom_client = create_mcp_http_client()
+        
+        async with custom_client:
+            async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client) as (read_stream, write_stream, _):
+                async with ClientSession(read_stream, write_stream) as session:
+                    result = await session.initialize()
+                    assert isinstance(result, InitializeResult)
 
     def test_extensions_request_context_creation(self):
         """Test that RequestContext includes extensions correctly."""
@@ -1887,23 +1901,33 @@ class TestStreamableHTTPExtensions:
         # Create two clients with different extensions
         results: list[tuple[str, str]] = []
 
-        async with streamable_http_client(f"{basic_server_url}/mcp", extensions=extensions_1) as (
-            read_stream1,
-            write_stream1,
-            _,
-        ):
-            async with ClientSession(read_stream1, write_stream1) as session1:
-                result1 = await session1.initialize()
-                results.append(("client1", result1.serverInfo.name))
+        # First client with extensions_1
+        custom_client1 = create_mcp_http_client()
+        setattr(custom_client1, "custom_extensions", extensions_1)
+        
+        async with custom_client1:
+            async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client1) as (
+                read_stream1,
+                write_stream1,
+                _,
+            ):
+                async with ClientSession(read_stream1, write_stream1) as session1:
+                    result1 = await session1.initialize()
+                    results.append(("client1", result1.serverInfo.name))
 
-        async with streamable_http_client(f"{basic_server_url}/mcp", extensions=extensions_2) as (
-            read_stream2,
-            write_stream2,
-            _,
-        ):
-            async with ClientSession(read_stream2, write_stream2) as session2:
-                result2 = await session2.initialize()
-                results.append(("client2", result2.serverInfo.name))
+        # Second client with extensions_2
+        custom_client2 = create_mcp_http_client()
+        setattr(custom_client2, "custom_extensions", extensions_2)
+        
+        async with custom_client2:
+            async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client2) as (
+                read_stream2,
+                write_stream2,
+                _,
+            ):
+                async with ClientSession(read_stream2, write_stream2) as session2:
+                    result2 = await session2.initialize()
+                    results.append(("client2", result2.serverInfo.name))
 
         # Both clients should work independently
         assert len(results) == 2
@@ -1952,9 +1976,10 @@ class TestStreamableHTTPExtensions:
 
         # Create the custom client that will capture extensions
         custom_client = ExtensionCapturingClient()
+        setattr(custom_client, "custom_extensions", test_extensions)
 
         async with streamable_http_client(
-            f"{basic_server_url}/mcp/", extensions=test_extensions, http_client=custom_client
+            f"{basic_server_url}/mcp/", http_client=custom_client
         ) as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream) as session:
                 # Initialize - this should make a POST request with extensions
@@ -1981,42 +2006,52 @@ class TestStreamableHTTPExtensions:
         """Test that extensions work with both JSON and SSE response types."""
         test_extensions = {"response_test": "json_sse_test", "format": "both"}
 
+        # Create httpx client with extensions
+        custom_client = create_mcp_http_client()
+        setattr(custom_client, "custom_extensions", test_extensions)
+        
         # Test with regular SSE response (default behavior)
-        async with streamable_http_client(f"{basic_server_url}/mcp", extensions=test_extensions) as (
-            read_stream,
-            write_stream,
-            _,
-        ):
-            async with ClientSession(read_stream, write_stream) as session:
-                result = await session.initialize()
-                assert isinstance(result, InitializeResult)
+        async with custom_client:
+            async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client) as (
+                read_stream,
+                write_stream,
+                _,
+            ):
+                async with ClientSession(read_stream, write_stream) as session:
+                    result = await session.initialize()
+                    assert isinstance(result, InitializeResult)
 
-                # Call tool which should work with SSE
-                tool_result = await session.call_tool("test_tool", {})
-                assert len(tool_result.content) == 1
-                content = tool_result.content[0]
-                assert content.type == "text"
-                from mcp.types import TextContent
+                    # Call tool which should work with SSE
+                    tool_result = await session.call_tool("test_tool", {})
+                    assert len(tool_result.content) == 1
+                    content = tool_result.content[0]
+                    assert content.type == "text"
+                    from mcp.types import TextContent
 
-                assert isinstance(content, TextContent)
-                assert content.text == "Called test_tool"
+                    assert isinstance(content, TextContent)
+                    assert content.text == "Called test_tool"
 
     @pytest.mark.anyio
     async def test_extensions_with_json_response_server(self, json_response_server: None, json_server_url: str):
         """Test extensions work with JSON response mode."""
         test_extensions = {"response_mode": "json_only", "test_id": "json_test_123"}
 
-        async with streamable_http_client(f"{json_server_url}/mcp", extensions=test_extensions) as (
-            read_stream,
-            write_stream,
-            _,
-        ):
-            async with ClientSession(read_stream, write_stream) as session:
-                result = await session.initialize()
-                assert isinstance(result, InitializeResult)
+        # Create httpx client with extensions
+        custom_client = create_mcp_http_client()
+        setattr(custom_client, "custom_extensions", test_extensions)
+        
+        async with custom_client:
+            async with streamable_http_client(f"{json_server_url}/mcp", http_client=custom_client) as (
+                read_stream,
+                write_stream,
+                _,
+            ):
+                async with ClientSession(read_stream, write_stream) as session:
+                    result = await session.initialize()
+                    assert isinstance(result, InitializeResult)
 
-                tools = await session.list_tools()
-                assert len(tools.tools) == 6
+                    tools = await session.list_tools()
+                    assert len(tools.tools) == 6
 
     def test_extensions_type_validation(self):
         """Test that extensions parameter accepts proper types."""
@@ -2045,16 +2080,21 @@ class TestStreamableHTTPExtensions:
             "url_like": "https://example.com/path?param=value",
         }
 
-        async with streamable_http_client(f"{basic_server_url}/mcp", extensions=test_extensions) as (
-            read_stream,
-            write_stream,
-            _,
-        ):
-            async with ClientSession(read_stream, write_stream) as session:
-                # Should not throw any errors with special characters
-                result = await session.initialize()
-                assert isinstance(result, InitializeResult)
+        # Create httpx client with extensions
+        custom_client = create_mcp_http_client()
+        setattr(custom_client, "custom_extensions", test_extensions)
+        
+        async with custom_client:
+            async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client) as (
+                read_stream,
+                write_stream,
+                _,
+            ):
+                async with ClientSession(read_stream, write_stream) as session:
+                    # Should not throw any errors with special characters
+                    result = await session.initialize()
+                    assert isinstance(result, InitializeResult)
 
-                # Should work normally with tools
-                tools = await session.list_tools()
-                assert len(tools.tools) == 6
+                    # Should work normally with tools
+                    tools = await session.list_tools()
+                    assert len(tools.tools) == 6

@@ -464,7 +464,6 @@ class StreamableHTTPTransport:
 @asynccontextmanager
 async def streamable_http_client(
     url: str,
-    extensions: dict[str, str] | None = None,
     *,
     http_client: httpx.AsyncClient | None = None,
     terminate_on_close: bool = True,
@@ -481,10 +480,11 @@ async def streamable_http_client(
 
     Args:
         url: The MCP server endpoint URL.
-        extensions: Optional extensions to include in requests.
         http_client: Optional pre-configured httpx.AsyncClient. If None, a default
             client with recommended MCP timeouts will be created. To configure headers,
             authentication, or other HTTP settings, create an httpx.AsyncClient and pass it here.
+            To include custom extensions in requests, set a `custom_extensions` attribute on the
+            client: `client.custom_extensions = {"key": "value"}`.
         terminate_on_close: If True, send a DELETE request to terminate the session
             when the context exits.
 
@@ -515,9 +515,12 @@ async def streamable_http_client(
         client.timeout.read if (client.timeout and client.timeout.read is not None) else MCP_DEFAULT_SSE_READ_TIMEOUT
     )
     auth = client.auth
+    
+    # Extract custom extensions from the client if available
+    custom_extensions = getattr(client, "custom_extensions", None)
 
     # Create transport with extracted configuration
-    transport = StreamableHTTPTransport(url, headers_dict, extensions, timeout, sse_read_timeout, auth)
+    transport = StreamableHTTPTransport(url, headers_dict, custom_extensions, timeout, sse_read_timeout, auth)
 
     async with anyio.create_task_group() as tg:
         try:
