@@ -1802,7 +1802,7 @@ class TestStreamableHTTPExtensions:
         # Create httpx client with extensions
         custom_client = create_mcp_http_client()
         setattr(custom_client, "custom_extensions", test_extensions)
-        
+
         async with custom_client:
             async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client) as (
                 read_stream,
@@ -1825,9 +1825,13 @@ class TestStreamableHTTPExtensions:
         # Create httpx client with empty extensions
         custom_client = create_mcp_http_client()
         setattr(custom_client, "custom_extensions", {})
-        
+
         async with custom_client:
-            async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client) as (read_stream, write_stream, _):
+            async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client) as (
+                read_stream,
+                write_stream,
+                _,
+            ):
                 async with ClientSession(read_stream, write_stream) as session:
                     result = await session.initialize()
                     assert isinstance(result, InitializeResult)
@@ -1837,9 +1841,13 @@ class TestStreamableHTTPExtensions:
         """Test streamablehttp_client with None extensions (no custom_extensions attribute)."""
         # Create httpx client without setting custom_extensions
         custom_client = create_mcp_http_client()
-        
+
         async with custom_client:
-            async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client) as (read_stream, write_stream, _):
+            async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client) as (
+                read_stream,
+                write_stream,
+                _,
+            ):
                 async with ClientSession(read_stream, write_stream) as session:
                     result = await session.initialize()
                     assert isinstance(result, InitializeResult)
@@ -1904,7 +1912,7 @@ class TestStreamableHTTPExtensions:
         # First client with extensions_1
         custom_client1 = create_mcp_http_client()
         setattr(custom_client1, "custom_extensions", extensions_1)
-        
+
         async with custom_client1:
             async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client1) as (
                 read_stream1,
@@ -1918,7 +1926,7 @@ class TestStreamableHTTPExtensions:
         # Second client with extensions_2
         custom_client2 = create_mcp_http_client()
         setattr(custom_client2, "custom_extensions", extensions_2)
-        
+
         async with custom_client2:
             async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client2) as (
                 read_stream2,
@@ -1978,9 +1986,11 @@ class TestStreamableHTTPExtensions:
         custom_client = ExtensionCapturingClient()
         setattr(custom_client, "custom_extensions", test_extensions)
 
-        async with streamable_http_client(
-            f"{basic_server_url}/mcp/", http_client=custom_client
-        ) as (read_stream, write_stream, _):
+        async with streamable_http_client(f"{basic_server_url}/mcp/", http_client=custom_client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
             async with ClientSession(read_stream, write_stream) as session:
                 # Initialize - this should make a POST request with extensions
                 await session.initialize()
@@ -2009,7 +2019,7 @@ class TestStreamableHTTPExtensions:
         # Create httpx client with extensions
         custom_client = create_mcp_http_client()
         setattr(custom_client, "custom_extensions", test_extensions)
-        
+
         # Test with regular SSE response (default behavior)
         async with custom_client:
             async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client) as (
@@ -2039,7 +2049,7 @@ class TestStreamableHTTPExtensions:
         # Create httpx client with extensions
         custom_client = create_mcp_http_client()
         setattr(custom_client, "custom_extensions", test_extensions)
-        
+
         async with custom_client:
             async with streamable_http_client(f"{json_server_url}/mcp", http_client=custom_client) as (
                 read_stream,
@@ -2083,7 +2093,7 @@ class TestStreamableHTTPExtensions:
         # Create httpx client with extensions
         custom_client = create_mcp_http_client()
         setattr(custom_client, "custom_extensions", test_extensions)
-        
+
         async with custom_client:
             async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client) as (
                 read_stream,

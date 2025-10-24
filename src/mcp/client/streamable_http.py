@@ -515,7 +515,7 @@ async def streamable_http_client(
         client.timeout.read if (client.timeout and client.timeout.read is not None) else MCP_DEFAULT_SSE_READ_TIMEOUT
     )
     auth = client.auth
-    
+
     # Extract custom extensions from the client if available
     custom_extensions = getattr(client, "custom_extensions", None)
 
