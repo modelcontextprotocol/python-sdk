@@ -8,11 +8,30 @@ This client connects to an MCP server using streamable HTTP or SSE transport.
 
 import asyncio
 import os
-from datetime import timedelta
 from typing import Any
 
+import httpx
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
+
+
+class ExtendedHttpxClient(httpx.AsyncClient):
+    """Custom httpx AsyncClient with support for custom_extensions.
+
+    This class extends httpx.AsyncClient to add a custom_extensions attribute
+    that can be used to pass custom extensions to MCP requests.
+    """
+
+    def __init__(self, *args: Any, custom_extensions: dict[str, str] | None = None, **kwargs: Any):
+        """Initialize the extended httpx client.
+
+        Args:
+            *args: Positional arguments passed to httpx.AsyncClient
+            custom_extensions: Optional dict of extensions to include in requests
+            **kwargs: Keyword arguments passed to httpx.AsyncClient
+        """
+        super().__init__(*args, **kwargs)
+        self.custom_extensions = custom_extensions or {}
 
 
 class SimpleStreamablePrivateGateway:
@@ -30,16 +49,22 @@ class SimpleStreamablePrivateGateway:
 
         try:
             print("📡 Opening StreamableHTTP transport connection...")
+
             # Note: terminate_on_close=False prevents SSL handshake failures during exit
             # Some servers may not handle session termination gracefully over SSL
-            async with streamablehttp_client(
-                url=self.server_url,
+
+            # Create custom httpx client with headers, timeout, and extensions
+            async with ExtendedHttpxClient(
                 headers={"Host": self.server_hostname},
-                extensions={"sni_hostname": self.server_hostname},
-                timeout=timedelta(seconds=60),
-                terminate_on_close=False,  # Skip session termination to avoid SSL errors
-            ) as (read_stream, write_stream, get_session_id):
-                await self._run_session(read_stream, write_stream, get_session_id)
+                timeout=httpx.Timeout(60.0),
+                custom_extensions={"sni_hostname": self.server_hostname},
+            ) as custom_client:
+                async with streamable_http_client(
+                    url=self.server_url,
+                    http_client=custom_client,
+                    terminate_on_close=False,  # Skip session termination to avoid SSL errors
+                ) as (read_stream, write_stream, get_session_id):
+                    await self._run_session(read_stream, write_stream, get_session_id)
 
         except Exception as e:
             print(f"❌ Failed to connect: {e}")
