@@ -1799,7 +1799,7 @@ class TestStreamableHTTPExtensions:
             "custom_metadata": "custom_data",
         }
 
-        async with streamablehttp_client(f"{basic_server_url}/mcp", extensions=test_extensions) as (
+        async with streamable_http_client(f"{basic_server_url}/mcp", extensions=test_extensions) as (
             read_stream,
             write_stream,
             _,
@@ -1817,7 +1817,7 @@ class TestStreamableHTTPExtensions:
     @pytest.mark.anyio
     async def test_extensions_with_empty_dict(self, basic_server: None, basic_server_url: str):
         """Test streamablehttp_client with empty extensions dict."""
-        async with streamablehttp_client(f"{basic_server_url}/mcp", extensions={}) as (read_stream, write_stream, _):
+        async with streamable_http_client(f"{basic_server_url}/mcp", extensions={}) as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream) as session:
                 result = await session.initialize()
                 assert isinstance(result, InitializeResult)
@@ -1825,7 +1825,7 @@ class TestStreamableHTTPExtensions:
     @pytest.mark.anyio
     async def test_extensions_with_none(self, basic_server: None, basic_server_url: str):
         """Test streamablehttp_client with None extensions."""
-        async with streamablehttp_client(f"{basic_server_url}/mcp", extensions=None) as (read_stream, write_stream, _):
+        async with streamable_http_client(f"{basic_server_url}/mcp", extensions=None) as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream) as session:
                 result = await session.initialize()
                 assert isinstance(result, InitializeResult)
@@ -1887,7 +1887,7 @@ class TestStreamableHTTPExtensions:
         # Create two clients with different extensions
         results: list[tuple[str, str]] = []
 
-        async with streamablehttp_client(f"{basic_server_url}/mcp", extensions=extensions_1) as (
+        async with streamable_http_client(f"{basic_server_url}/mcp", extensions=extensions_1) as (
             read_stream1,
             write_stream1,
             _,
@@ -1896,7 +1896,7 @@ class TestStreamableHTTPExtensions:
                 result1 = await session1.initialize()
                 results.append(("client1", result1.serverInfo.name))
 
-        async with streamablehttp_client(f"{basic_server_url}/mcp", extensions=extensions_2) as (
+        async with streamable_http_client(f"{basic_server_url}/mcp", extensions=extensions_2) as (
             read_stream2,
             write_stream2,
             _,
@@ -1950,18 +1950,11 @@ class TestStreamableHTTPExtensions:
                 async with super().stream(*args, **kwargs) as response:
                     yield response
 
-        # Custom client factory that returns our capturing client
-        def custom_client_factory(
-            headers: dict[str, str] | None = None, timeout: httpx.Timeout | None = None, auth: httpx.Auth | None = None
-        ) -> httpx.AsyncClient:
-            return ExtensionCapturingClient(
-                headers=headers,
-                timeout=timeout,
-                auth=auth,
-            )
+        # Create the custom client that will capture extensions
+        custom_client = ExtensionCapturingClient()
 
-        async with streamablehttp_client(
-            f"{basic_server_url}/mcp/", extensions=test_extensions, httpx_client_factory=custom_client_factory
+        async with streamable_http_client(
+            f"{basic_server_url}/mcp/", extensions=test_extensions, http_client=custom_client
         ) as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream) as session:
                 # Initialize - this should make a POST request with extensions
@@ -1969,6 +1962,9 @@ class TestStreamableHTTPExtensions:
 
                 # Make another request to capture more extensions usage
                 await session.list_tools()
+
+        # Close the custom client
+        await custom_client.aclose()
 
         # Verify extensions were captured in requests
         assert len(captured_extensions) > 0
@@ -1986,7 +1982,7 @@ class TestStreamableHTTPExtensions:
         test_extensions = {"response_test": "json_sse_test", "format": "both"}
 
         # Test with regular SSE response (default behavior)
-        async with streamablehttp_client(f"{basic_server_url}/mcp", extensions=test_extensions) as (
+        async with streamable_http_client(f"{basic_server_url}/mcp", extensions=test_extensions) as (
             read_stream,
             write_stream,
             _,
@@ -2010,7 +2006,7 @@ class TestStreamableHTTPExtensions:
         """Test extensions work with JSON response mode."""
         test_extensions = {"response_mode": "json_only", "test_id": "json_test_123"}
 
-        async with streamablehttp_client(f"{json_server_url}/mcp", extensions=test_extensions) as (
+        async with streamable_http_client(f"{json_server_url}/mcp", extensions=test_extensions) as (
             read_stream,
             write_stream,
             _,
@@ -2049,7 +2045,7 @@ class TestStreamableHTTPExtensions:
             "url_like": "https://example.com/path?param=value",
         }
 
-        async with streamablehttp_client(f"{basic_server_url}/mcp", extensions=test_extensions) as (
+        async with streamable_http_client(f"{basic_server_url}/mcp", extensions=test_extensions) as (
             read_stream,
             write_stream,
             _,
