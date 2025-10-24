@@ -46,7 +46,7 @@ mcp = "mcp.cli:app [cli]"
 
 [tool.uv]
 default-groups = ["dev", "docs"]
-required-version = ">=0.7.2"
+required-version = ">=0.9.5"
 
 [dependency-groups]
 dev = [
