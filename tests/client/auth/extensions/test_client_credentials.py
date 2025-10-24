@@ -2,10 +2,29 @@ import urllib.parse
 
 import jwt
 import pytest
-from client.test_auth import MockTokenStorage
 
 from mcp.client.auth.extensions.client_credentials import JWTParameters, RFC7523OAuthClientProvider
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
+from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+
+
+class MockTokenStorage:
+    """Mock token storage for testing."""
+
+    def __init__(self):
+        self._tokens: OAuthToken | None = None
+        self._client_info: OAuthClientInformationFull | None = None
+
+    async def get_tokens(self) -> OAuthToken | None:
+        return self._tokens
+
+    async def set_tokens(self, tokens: OAuthToken) -> None:
+        self._tokens = tokens
+
+    async def get_client_info(self) -> OAuthClientInformationFull | None:
+        return self._client_info
+
+    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
+        self._client_info = client_info
 
 
 @pytest.fixture
