@@ -23,7 +23,7 @@ from starlette.routing import Mount
 
 import mcp.types as types
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.streamable_http import (
     MCP_PROTOCOL_VERSION_HEADER,
@@ -38,6 +38,7 @@ from mcp.server.streamable_http import (
 )
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import ClientMessageMetadata
@@ -817,7 +818,7 @@ async def http_client(basic_server: None, basic_server_url: str):
 @pytest.fixture
 async def initialized_client_session(basic_server: None, basic_server_url: str):
     """Create initialized StreamableHTTP client session."""
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -831,9 +832,9 @@ async def initialized_client_session(basic_server: None, basic_server_url: str):
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_basic_connection(basic_server: None, basic_server_url: str):
+async def test_streamable_http_client_basic_connection(basic_server: None, basic_server_url: str):
     """Test basic client connection with initialization."""
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -849,7 +850,7 @@ async def test_streamablehttp_client_basic_connection(basic_server: None, basic_
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_resource_read(initialized_client_session: ClientSession):
+async def test_streamable_http_client_resource_read(initialized_client_session: ClientSession):
     """Test client resource read functionality."""
     response = await initialized_client_session.read_resource(uri=AnyUrl("foobar://test-resource"))
     assert len(response.contents) == 1
@@ -859,7 +860,7 @@ async def test_streamablehttp_client_resource_read(initialized_client_session: C
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_tool_invocation(initialized_client_session: ClientSession):
+async def test_streamable_http_client_tool_invocation(initialized_client_session: ClientSession):
     """Test client tool invocation."""
     # First list tools
     tools = await initialized_client_session.list_tools()
@@ -874,7 +875,7 @@ async def test_streamablehttp_client_tool_invocation(initialized_client_session:
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_error_handling(initialized_client_session: ClientSession):
+async def test_streamable_http_client_error_handling(initialized_client_session: ClientSession):
     """Test error handling in client."""
     with pytest.raises(McpError) as exc_info:
         await initialized_client_session.read_resource(uri=AnyUrl("unknown://test-error"))
@@ -883,9 +884,9 @@ async def test_streamablehttp_client_error_handling(initialized_client_session: 
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_session_persistence(basic_server: None, basic_server_url: str):
+async def test_streamable_http_client_session_persistence(basic_server: None, basic_server_url: str):
     """Test that session ID persists across requests."""
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -911,9 +912,9 @@ async def test_streamablehttp_client_session_persistence(basic_server: None, bas
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_json_response(json_response_server: None, json_server_url: str):
+async def test_streamable_http_client_json_response(json_response_server: None, json_server_url: str):
     """Test client with JSON response mode."""
-    async with streamablehttp_client(f"{json_server_url}/mcp") as (
+    async with streamable_http_client(f"{json_server_url}/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -939,7 +940,7 @@ async def test_streamablehttp_client_json_response(json_response_server: None, j
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_get_stream(basic_server: None, basic_server_url: str):
+async def test_streamable_http_client_get_stream(basic_server: None, basic_server_url: str):
     """Test GET stream functionality for server-initiated messages."""
     import mcp.types as types
     from mcp.shared.session import RequestResponder
@@ -953,7 +954,7 @@ async def test_streamablehttp_client_get_stream(basic_server: None, basic_server
         if isinstance(message, types.ServerNotification):
             notifications_received.append(message)
 
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -980,13 +981,13 @@ async def test_streamablehttp_client_get_stream(basic_server: None, basic_server
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_session_termination(basic_server: None, basic_server_url: str):
+async def test_streamable_http_client_session_termination(basic_server: None, basic_server_url: str):
     """Test client session termination functionality."""
 
     captured_session_id = None
 
-    # Create the streamablehttp_client with a custom httpx client to capture headers
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+    # Create the streamable_http_client with a custom httpx client to capture headers
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
         get_session_id,
@@ -1006,22 +1007,23 @@ async def test_streamablehttp_client_session_termination(basic_server: None, bas
     if captured_session_id:
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
 
-    async with streamablehttp_client(f"{basic_server_url}/mcp", headers=headers) as (
-        read_stream,
-        write_stream,
-        _,
-    ):
-        async with ClientSession(read_stream, write_stream) as session:
-            # Attempt to make a request after termination
-            with pytest.raises(
-                McpError,
-                match="Session terminated",
-            ):
-                await session.list_tools()
+    async with create_mcp_http_client(headers=headers) as httpx_client:
+        async with streamable_http_client(f"{basic_server_url}/mcp", http_client=httpx_client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                # Attempt to make a request after termination
+                with pytest.raises(
+                    McpError,
+                    match="Session terminated",
+                ):
+                    await session.list_tools()
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_session_termination_204(
+async def test_streamable_http_client_session_termination_204(
     basic_server: None, basic_server_url: str, monkeypatch: pytest.MonkeyPatch
 ):
     """Test client session termination functionality with a 204 response.
@@ -1051,8 +1053,8 @@ async def test_streamablehttp_client_session_termination_204(
 
     captured_session_id = None
 
-    # Create the streamablehttp_client with a custom httpx client to capture headers
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+    # Create the streamable_http_client with a custom httpx client to capture headers
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
         get_session_id,
@@ -1072,22 +1074,23 @@ async def test_streamablehttp_client_session_termination_204(
     if captured_session_id:
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
 
-    async with streamablehttp_client(f"{basic_server_url}/mcp", headers=headers) as (
-        read_stream,
-        write_stream,
-        _,
-    ):
-        async with ClientSession(read_stream, write_stream) as session:
-            # Attempt to make a request after termination
-            with pytest.raises(
-                McpError,
-                match="Session terminated",
-            ):
-                await session.list_tools()
+    async with create_mcp_http_client(headers=headers) as httpx_client:
+        async with streamable_http_client(f"{basic_server_url}/mcp", http_client=httpx_client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                # Attempt to make a request after termination
+                with pytest.raises(
+                    McpError,
+                    match="Session terminated",
+                ):
+                    await session.list_tools()
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventStore, str]):
+async def test_streamable_http_client_resumption(event_server: tuple[SimpleEventStore, str]):
     """Test client session resumption using sync primitives for reliable coordination."""
     _, server_url = event_server
 
@@ -1114,7 +1117,7 @@ async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventS
         captured_resumption_token = token
 
     # First, start the client session and begin the tool that waits on lock
-    async with streamablehttp_client(f"{server_url}/mcp", terminate_on_close=False) as (
+    async with streamable_http_client(f"{server_url}/mcp", terminate_on_close=False) as (
         read_stream,
         write_stream,
         get_session_id,
@@ -1170,39 +1173,41 @@ async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventS
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
     if captured_protocol_version:
         headers[MCP_PROTOCOL_VERSION_HEADER] = captured_protocol_version
-    async with streamablehttp_client(f"{server_url}/mcp", headers=headers) as (
-        read_stream,
-        write_stream,
-        _,
-    ):
-        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
-            result = await session.send_request(
-                types.ClientRequest(
-                    types.CallToolRequest(
-                        params=types.CallToolRequestParams(name="release_lock", arguments={}),
-                    )
-                ),
-                types.CallToolResult,
-            )
-            metadata = ClientMessageMetadata(
-                resumption_token=captured_resumption_token,
-            )
 
-            result = await session.send_request(
-                types.ClientRequest(
-                    types.CallToolRequest(
-                        params=types.CallToolRequestParams(name="wait_for_lock_with_notification", arguments={}),
-                    )
-                ),
-                types.CallToolResult,
-                metadata=metadata,
-            )
-            assert len(result.content) == 1
-            assert result.content[0].type == "text"
-            assert result.content[0].text == "Completed"
+    async with create_mcp_http_client(headers=headers) as httpx_client:
+        async with streamable_http_client(f"{server_url}/mcp", http_client=httpx_client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+                result = await session.send_request(
+                    types.ClientRequest(
+                        types.CallToolRequest(
+                            params=types.CallToolRequestParams(name="release_lock", arguments={}),
+                        )
+                    ),
+                    types.CallToolResult,
+                )
+                metadata = ClientMessageMetadata(
+                    resumption_token=captured_resumption_token,
+                )
 
-            # We should have received the remaining notifications
-            assert len(captured_notifications) == 1
+                result = await session.send_request(
+                    types.ClientRequest(
+                        types.CallToolRequest(
+                            params=types.CallToolRequestParams(name="wait_for_lock_with_notification", arguments={}),
+                        )
+                    ),
+                    types.CallToolResult,
+                    metadata=metadata,
+                )
+                assert len(result.content) == 1
+                assert result.content[0].type == "text"
+                assert result.content[0].text == "Completed"
+
+                # We should have received the remaining notifications
+                assert len(captured_notifications) == 1
 
             assert isinstance(captured_notifications[0].root, types.LoggingMessageNotification)
             assert captured_notifications[0].root.params.data == "Second notification after lock"
@@ -1236,7 +1241,7 @@ async def test_streamablehttp_server_sampling(basic_server: None, basic_server_u
         )
 
     # Create client with sampling callback
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -1392,28 +1397,29 @@ async def test_streamablehttp_request_context_propagation(context_aware_server: 
         "X-Trace-Id": "trace-123",
     }
 
-    async with streamablehttp_client(f"{basic_server_url}/mcp", headers=custom_headers) as (
-        read_stream,
-        write_stream,
-        _,
-    ):
-        async with ClientSession(read_stream, write_stream) as session:
-            result = await session.initialize()
-            assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "ContextAwareServer"
+    async with create_mcp_http_client(headers=custom_headers) as httpx_client:
+        async with streamable_http_client(f"{basic_server_url}/mcp", http_client=httpx_client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                result = await session.initialize()
+                assert isinstance(result, InitializeResult)
+                assert result.serverInfo.name == "ContextAwareServer"
 
-            # Call the tool that echoes headers back
-            tool_result = await session.call_tool("echo_headers", {})
+                # Call the tool that echoes headers back
+                tool_result = await session.call_tool("echo_headers", {})
 
-            # Parse the JSON response
-            assert len(tool_result.content) == 1
-            assert isinstance(tool_result.content[0], TextContent)
-            headers_data = json.loads(tool_result.content[0].text)
+                # Parse the JSON response
+                assert len(tool_result.content) == 1
+                assert isinstance(tool_result.content[0], TextContent)
+                headers_data = json.loads(tool_result.content[0].text)
 
-            # Verify headers were propagated
-            assert headers_data.get("authorization") == "Bearer test-token"
-            assert headers_data.get("x-custom-header") == "test-value"
-            assert headers_data.get("x-trace-id") == "trace-123"
+                # Verify headers were propagated
+                assert headers_data.get("authorization") == "Bearer test-token"
+                assert headers_data.get("x-custom-header") == "test-value"
+                assert headers_data.get("x-trace-id") == "trace-123"
 
 
 @pytest.mark.anyio
@@ -1429,17 +1435,22 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
             "Authorization": f"Bearer token-{i}",
         }
 
-        async with streamablehttp_client(f"{basic_server_url}/mcp", headers=headers) as (read_stream, write_stream, _):
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
+        async with create_mcp_http_client(headers=headers) as httpx_client:
+            async with streamable_http_client(f"{basic_server_url}/mcp", http_client=httpx_client) as (
+                read_stream,
+                write_stream,
+                _,
+            ):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
 
-                # Call the tool that echoes context
-                tool_result = await session.call_tool("echo_context", {"request_id": f"request-{i}"})
+                    # Call the tool that echoes context
+                    tool_result = await session.call_tool("echo_context", {"request_id": f"request-{i}"})
 
-                assert len(tool_result.content) == 1
-                assert isinstance(tool_result.content[0], TextContent)
-                context_data = json.loads(tool_result.content[0].text)
-                contexts.append(context_data)
+                    assert len(tool_result.content) == 1
+                    assert isinstance(tool_result.content[0], TextContent)
+                    context_data = json.loads(tool_result.content[0].text)
+                    contexts.append(context_data)
 
     # Verify each request had its own context
     assert len(contexts) == 3
@@ -1453,7 +1464,7 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
 @pytest.mark.anyio
 async def test_client_includes_protocol_version_header_after_init(context_aware_server: None, basic_server_url: str):
     """Test that client includes mcp-protocol-version header after initialization."""
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -1569,7 +1580,7 @@ async def test_client_crash_handled(basic_server: None, basic_server_url: str):
     # Simulate bad client that crashes after init
     async def bad_client():
         """Client that triggers ClosedResourceError"""
-        async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        async with streamable_http_client(f"{basic_server_url}/mcp") as (
             read_stream,
             write_stream,
             _,
@@ -1587,7 +1598,7 @@ async def test_client_crash_handled(basic_server: None, basic_server_url: str):
         await anyio.sleep(0.1)
 
     # Try a good client, it should still be able to connect and list tools
-    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -1597,6 +1608,115 @@ async def test_client_crash_handled(basic_server: None, basic_server_url: str):
             assert isinstance(result, InitializeResult)
             tools = await session.list_tools()
             assert tools.tools
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_does_not_mutate_provided_client(
+    basic_server: None, basic_server_url: str
+) -> None:
+    """Test that streamable_http_client does not mutate the provided httpx client's headers."""
+    # Create a client with custom headers
+    original_headers = {
+        "X-Custom-Header": "custom-value",
+        "Authorization": "Bearer test-token",
+    }
+
+    async with httpx.AsyncClient(headers=original_headers, follow_redirects=True) as custom_client:
+        # Use the client with streamable_http_client
+        async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                result = await session.initialize()
+                assert isinstance(result, InitializeResult)
+
+        # Verify client headers were not mutated with MCP protocol headers
+        # If accept header exists, it should still be httpx default, not MCP's
+        if "accept" in custom_client.headers:
+            assert custom_client.headers.get("accept") == "*/*"
+        # MCP content-type should not have been added
+        assert custom_client.headers.get("content-type") != "application/json"
+
+        # Verify custom headers are still present and unchanged
+        assert custom_client.headers.get("X-Custom-Header") == "custom-value"
+        assert custom_client.headers.get("Authorization") == "Bearer test-token"
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_mcp_headers_override_defaults(
+    context_aware_server: None, basic_server_url: str
+) -> None:
+    """Test that MCP protocol headers override httpx.AsyncClient default headers."""
+    # httpx.AsyncClient has default "accept: */*" header
+    # We need to verify that our MCP accept header overrides it in actual requests
+
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        # Verify client has default accept header
+        assert client.headers.get("accept") == "*/*"
+
+        async with streamable_http_client(f"{basic_server_url}/mcp", http_client=client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+
+                # Use echo_headers tool to see what headers the server actually received
+                tool_result = await session.call_tool("echo_headers", {})
+                assert len(tool_result.content) == 1
+                assert isinstance(tool_result.content[0], TextContent)
+                headers_data = json.loads(tool_result.content[0].text)
+
+                # Verify MCP protocol headers were sent (not httpx defaults)
+                assert "accept" in headers_data
+                assert "application/json" in headers_data["accept"]
+                assert "text/event-stream" in headers_data["accept"]
+
+                assert "content-type" in headers_data
+                assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_preserves_custom_with_mcp_headers(
+    context_aware_server: None, basic_server_url: str
+) -> None:
+    """Test that both custom headers and MCP protocol headers are sent in requests."""
+    custom_headers = {
+        "X-Custom-Header": "custom-value",
+        "X-Request-Id": "req-123",
+        "Authorization": "Bearer test-token",
+    }
+
+    async with httpx.AsyncClient(headers=custom_headers, follow_redirects=True) as client:
+        async with streamable_http_client(f"{basic_server_url}/mcp", http_client=client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+
+                # Use echo_headers tool to verify both custom and MCP headers are present
+                tool_result = await session.call_tool("echo_headers", {})
+                assert len(tool_result.content) == 1
+                assert isinstance(tool_result.content[0], TextContent)
+                headers_data = json.loads(tool_result.content[0].text)
+
+                # Verify custom headers are present
+                assert headers_data.get("x-custom-header") == "custom-value"
+                assert headers_data.get("x-request-id") == "req-123"
+                assert headers_data.get("authorization") == "Bearer test-token"
+
+                # Verify MCP protocol headers are also present
+                assert "accept" in headers_data
+                assert "application/json" in headers_data["accept"]
+                assert "text/event-stream" in headers_data["accept"]
+
+                assert "content-type" in headers_data
+                assert headers_data["content-type"] == "application/json"
 
 
 # Extensions Tests
