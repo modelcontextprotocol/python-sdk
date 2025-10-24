@@ -288,9 +288,11 @@ class StreamableHTTPTransport:
                 elif content_type.startswith(SSE):
                     await self._handle_sse_response(response, ctx, is_initialization)
                 else:
+                    # Propagate an error bound to the originating request id so callers get McpError
                     await self._handle_unexpected_content_type(
                         content_type,
                         ctx.read_stream_writer,
+                        message.root.id,
                     )
 
     async def _handle_json_response(
@@ -343,11 +345,22 @@ class StreamableHTTPTransport:
         self,
         content_type: str,
         read_stream_writer: StreamWriter,
+        request_id: RequestId | None,
     ) -> None:
         """Handle unexpected content type in response."""
         error_msg = f"Unexpected content type: {content_type}"
         logger.error(error_msg)
-        await read_stream_writer.send(ValueError(error_msg))
+        if request_id is not None:
+            jsonrpc_error = JSONRPCError(
+                jsonrpc="2.0",
+                id=request_id,
+                error=ErrorData(code=32600, message=error_msg),
+            )
+            session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
+            await read_stream_writer.send(session_message)
+        else:
+            # Fallback: send as exception if we somehow lack a request id
+            await read_stream_writer.send(ValueError(error_msg))
 
     async def _send_session_terminated_error(
         self,
