@@ -157,7 +157,7 @@ class StreamableHTTPTransport:
         is_initialization: bool = False,
     ) -> bool:
         """Handle an SSE event, returning True if the response is complete."""
-        if sse.event == "message":
+        if sse.event in {"message", "error"}:
             try:
                 message = JSONRPCMessage.model_validate_json(sse.data)
                 logger.debug(f"SSE message: {message}")
