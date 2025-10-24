@@ -2,6 +2,7 @@ import urllib.parse
 
 import jwt
 import pytest
+from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth.extensions.client_credentials import JWTParameters, RFC7523OAuthClientProvider
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
@@ -25,6 +26,21 @@ class MockTokenStorage:
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
         self._client_info = client_info
+
+
+@pytest.fixture
+def mock_storage():
+    return MockTokenStorage()
+
+
+@pytest.fixture
+def client_metadata():
+    return OAuthClientMetadata(
+        client_name="Test Client",
+        client_uri=AnyHttpUrl("https://example.com"),
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        scope="read write",
+    )
 
 
 @pytest.fixture
