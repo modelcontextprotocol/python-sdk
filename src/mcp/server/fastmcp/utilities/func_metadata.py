@@ -17,7 +17,7 @@ from pydantic import (
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
 from typing_extensions import is_typeddict
-from typing_inspection.introspection import UNKNOWN, AnnotationSource, inspect_annotation, is_union_origin
+from typing_inspection.introspection import UNKNOWN, ForbiddenQualifier, AnnotationSource, inspect_annotation, is_union_origin
 
 from mcp.server.fastmcp.exceptions import InvalidSignature
 from mcp.server.fastmcp.utilities.logging import get_logger
@@ -262,12 +262,16 @@ def func_metadata(
     if sig.return_annotation is inspect.Parameter.empty and structured_output is True:
         raise InvalidSignature(f"Function {func.__name__}: return annotation required for structured output")
 
-    inspected_return_ann = inspect_annotation(sig.return_annotation, annotation_source=AnnotationSource.FUNCTION)
+    try:
+        inspected_return_ann = inspect_annotation(sig.return_annotation, annotation_source=AnnotationSource.FUNCTION)
+    except ForbiddenQualifier as e:
+        raise InvalidSignature(f"Function {func.__name__}: return annotation contains an invalid type qualifier") from e
+
     return_type_expr = inspected_return_ann.type
-    if return_type_expr is UNKNOWN and structured_output is True:
-        # `return_type_expr` is `UNKNOWN` when a bare type qualifier is used (unlikely to happen as a return annotation
-        # because it doesn't make any sense, but technically possible).
-        raise InvalidSignature(f"Function {func.__name__}: return annotation required for structured output")
+
+    # `AnnotationSource.FUNCTION` allows no type qualifier to be used, so `return_type_expr` is guaranteed to *not* be
+    # unknown (i.e. a bare `Final`).
+    assert return_type_expr is not UNKNOWN
 
     if is_union_origin(get_origin(return_type_expr)):
         args = get_args(return_type_expr)
