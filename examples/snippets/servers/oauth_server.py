@@ -20,6 +20,8 @@ class SimpleTokenVerifier(TokenVerifier):
 # Create FastMCP instance as a Resource Server
 mcp = FastMCP(
     "Weather Service",
+    stateless_http=True,
+    json_response=True,
     # Token verifier for authentication
     token_verifier=SimpleTokenVerifier(),
     # Auth settings for RFC 9728 Protected Resource Metadata
