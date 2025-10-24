@@ -14,7 +14,7 @@ import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Protocol
-from urllib.parse import urlencode, urljoin, urlparse
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 import anyio
 import httpx
@@ -427,14 +427,43 @@ class OAuthClientProvider(httpx.Auth):
             "POST", token_url, data=token_data, headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
 
+    def _parse_content_type(self, content_type: str) -> tuple[str, dict[str, str]]:
+        """Parse Content-Type header into media type and parameters."""
+        parts = content_type.split(";")
+        media_type = parts[0].strip()
+
+        params: dict[str, str] = {}
+        for part in parts[1:]:
+            if "=" in part:
+                key, value = part.split("=", 1)
+                params[key.strip()] = value.strip()
+
+        return media_type, params
+
     async def _handle_token_response(self, response: httpx.Response) -> None:
         """Handle token exchange response."""
         if response.status_code != 200:
             raise OAuthTokenError(f"Token exchange failed: {response.status_code}")
 
+        content_type = response.headers.get("Content-Type")
+        if content_type is None:
+            raise OAuthTokenError("Token exchange failed: Missing 'Content-Type' response header")
+
+        media_type, params = self._parse_content_type(content_type)
+        if media_type not in ("application/json", "application/x-www-form-urlencoded"):
+            raise OAuthTokenError(f"Token exchange failed: Unexpected token response content type {media_type}")
+
         try:
             content = await response.aread()
-            token_response = OAuthToken.model_validate_json(content)
+            if media_type == "application/json":
+                token_response = OAuthToken.model_validate_json(content)
+            else:
+                charset = params.get("charset", "utf-8")
+                parsed = parse_qs(content.decode(charset))
+                token_data = {key: value[0] if value else None for key, value in parsed.items()}
+                if scope := token_data.get("scope"):
+                    token_data["scope"] = scope.replace(",", " ")
+                token_response = OAuthToken.model_validate(token_data)
 
             # Validate scopes
             if token_response.scope and self.context.client_metadata.scope:
