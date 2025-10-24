@@ -20,12 +20,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from typing_extensions import deprecated
 
-from mcp.shared._httpx_utils import (
-    MCP_DEFAULT_SSE_READ_TIMEOUT,
-    MCP_DEFAULT_TIMEOUT,
-    McpHttpClientFactory,
-    create_mcp_http_client,
-)
+from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
     ErrorData,
@@ -70,12 +65,10 @@ class RequestContext:
     """Context for a request operation."""
 
     client: httpx.AsyncClient
-    headers: dict[str, str]
     session_id: str | None
     session_message: SessionMessage
     metadata: ClientMessageMetadata | None
     read_stream_writer: StreamWriter
-    sse_read_timeout: float
 
 
 class StreamableHTTPTransport:
@@ -93,29 +86,22 @@ class StreamableHTTPTransport:
 
         Args:
             url: The endpoint URL.
-            headers: Optional headers to include in requests.
-            timeout: HTTP timeout for regular operations.
-            sse_read_timeout: Timeout for SSE read operations.
-            auth: Optional HTTPX authentication handler.
+            headers: DEPRECATED - Ignored. Configure headers on the httpx.AsyncClient instead.
+            timeout: DEPRECATED - Ignored. Configure timeout on the httpx.AsyncClient instead.
+            sse_read_timeout: DEPRECATED - Ignored. Configure read timeout on the httpx.AsyncClient instead.
+            auth: DEPRECATED - Ignored. Configure auth on the httpx.AsyncClient instead.
         """
         self.url = url
-        self.headers = headers or {}
-        self.timeout = timeout.total_seconds() if isinstance(timeout, timedelta) else timeout
-        self.sse_read_timeout = (
-            sse_read_timeout.total_seconds() if isinstance(sse_read_timeout, timedelta) else sse_read_timeout
-        )
-        self.auth = auth
         self.session_id = None
         self.protocol_version = None
-        self.request_headers = {
-            **self.headers,
-            ACCEPT: f"{JSON}, {SSE}",
-            CONTENT_TYPE: JSON,
-        }
 
-    def _prepare_request_headers(self, base_headers: dict[str, str]) -> dict[str, str]:
-        """Update headers with session ID and protocol version if available."""
-        headers = base_headers.copy()
+    def _prepare_headers(self, client: httpx.AsyncClient) -> dict[str, str]:
+        """Build request headers by merging client headers with MCP protocol and session headers."""
+        headers = dict(client.headers) if client.headers else {}
+        # Add MCP protocol headers
+        headers[ACCEPT] = f"{JSON}, {SSE}"
+        headers[CONTENT_TYPE] = JSON
+        # Add session headers if available
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
         if self.protocol_version:
@@ -208,14 +194,13 @@ class StreamableHTTPTransport:
             if not self.session_id:
                 return
 
-            headers = self._prepare_request_headers(self.request_headers)
+            headers = self._prepare_headers(client)
 
             async with aconnect_sse(
                 client,
                 "GET",
                 self.url,
                 headers=headers,
-                timeout=httpx.Timeout(self.timeout, read=self.sse_read_timeout),
             ) as event_source:
                 event_source.response.raise_for_status()
                 logger.debug("GET SSE connection established")
@@ -228,7 +213,7 @@ class StreamableHTTPTransport:
 
     async def _handle_resumption_request(self, ctx: RequestContext) -> None:
         """Handle a resumption request using GET with SSE."""
-        headers = self._prepare_request_headers(ctx.headers)
+        headers = self._prepare_headers(ctx.client)
         if ctx.metadata and ctx.metadata.resumption_token:
             headers[LAST_EVENT_ID] = ctx.metadata.resumption_token
         else:
@@ -244,7 +229,6 @@ class StreamableHTTPTransport:
             "GET",
             self.url,
             headers=headers,
-            timeout=httpx.Timeout(self.timeout, read=self.sse_read_timeout),
         ) as event_source:
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
@@ -262,7 +246,7 @@ class StreamableHTTPTransport:
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
-        headers = self._prepare_request_headers(ctx.headers)
+        headers = self._prepare_headers(ctx.client)
         message = ctx.session_message.message
         is_initialization = self._is_initialization_request(message)
 
@@ -403,12 +387,10 @@ class StreamableHTTPTransport:
 
                     ctx = RequestContext(
                         client=client,
-                        headers=self.request_headers,
                         session_id=self.session_id,
                         session_message=session_message,
                         metadata=metadata,
                         read_stream_writer=read_stream_writer,
-                        sse_read_timeout=self.sse_read_timeout,
                     )
 
                     async def handle_request_async():
@@ -435,7 +417,7 @@ class StreamableHTTPTransport:
             return
 
         try:
-            headers = self._prepare_request_headers(self.request_headers)
+            headers = self._prepare_headers(client)
             response = await client.delete(self.url, headers=headers)
 
             if response.status_code == 405:
@@ -490,21 +472,11 @@ async def streamable_http_client(
     # Determine if we need to create and manage the client
     client_provided = http_client is not None
     client = http_client
-
     if client is None:
         # Create default client with recommended MCP timeouts
         client = create_mcp_http_client()
 
-    # Extract configuration from the client to pass to transport
-    headers_dict = dict(client.headers) if client.headers else None
-    timeout = client.timeout.connect if (client.timeout and client.timeout.connect is not None) else MCP_DEFAULT_TIMEOUT
-    sse_read_timeout = (
-        client.timeout.read if (client.timeout and client.timeout.read is not None) else MCP_DEFAULT_SSE_READ_TIMEOUT
-    )
-    auth = client.auth
-
-    # Create transport with extracted configuration
-    transport = StreamableHTTPTransport(url, headers_dict, timeout, sse_read_timeout, auth)
+    transport = StreamableHTTPTransport(url)
 
     async with anyio.create_task_group() as tg:
         try:
