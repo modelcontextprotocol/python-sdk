@@ -115,6 +115,7 @@ async def test_resource_title():
         name="basic_resource",
         description="Basic resource",
         fn=get_basic_data,
+        context_kwarg=None,
     )
     mcp.add_resource(basic_resource)
 
@@ -128,6 +129,7 @@ async def test_resource_title():
         title="User-Friendly Resource",
         description="Resource with title",
         fn=get_titled_data,
+        context_kwarg=None,
     )
     mcp.add_resource(titled_resource)
 
