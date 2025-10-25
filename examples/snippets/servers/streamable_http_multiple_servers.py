@@ -5,14 +5,16 @@ Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_multiple_servers:app --reload
 """
 
+import contextlib
+
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
 from mcp.server.fastmcp import FastMCP
 
 # Create multiple MCP servers
-api_mcp = FastMCP("API Server")
-chat_mcp = FastMCP("Chat Server")
+api_mcp = FastMCP("API Server", stateless_http=True)
+chat_mcp = FastMCP("Chat Server", stateless_http=True)
 
 
 @api_mcp.tool()
@@ -32,10 +34,22 @@ def send_message(message: str) -> str:
 api_mcp.settings.streamable_http_path = "/"
 chat_mcp.settings.streamable_http_path = "/"
 
+
+# Create lifespan context manager to initialize both session managers
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette):
+    """Context manager for managing multiple MCP session managers."""
+    async with contextlib.AsyncExitStack() as stack:
+        await stack.enter_async_context(api_mcp.session_manager.run())
+        await stack.enter_async_context(chat_mcp.session_manager.run())
+        yield
+
+
 # Mount the servers
 app = Starlette(
     routes=[
         Mount("/api", app=api_mcp.streamable_http_app()),
         Mount("/chat", app=chat_mcp.streamable_http_app()),
-    ]
+    ],
+    lifespan=lifespan,
 )
