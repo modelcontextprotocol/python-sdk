@@ -480,7 +480,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(
             func: Callable[
                 ...,
-                Awaitable[UnstructuredContent | StructuredContent | CombinationContent],
+                Awaitable[UnstructuredContent | StructuredContent | CombinationContent | types.CallToolResult],
             ],
         ):
             logger.debug("Registering handler for CallToolRequest")
@@ -504,7 +504,9 @@ class Server(Generic[LifespanResultT, RequestT]):
                     # output normalization
                     unstructured_content: UnstructuredContent
                     maybe_structured_content: StructuredContent | None
-                    if isinstance(results, tuple) and len(results) == 2:
+                    if isinstance(results, types.CallToolResult):
+                        return types.ServerResult(results)
+                    elif isinstance(results, tuple) and len(results) == 2:
                         # tool returned both structured and unstructured content
                         unstructured_content, maybe_structured_content = cast(CombinationContent, results)
                     elif isinstance(results, dict):
