@@ -38,9 +38,9 @@ classifiers = [
 ]
 dependencies = [
   "mcp>=1.16.0,<2",
-  "openai>=2.1.0,<3",
   "pydantic>=2.11.10,<3",
   "pydantic-settings>=2.11.0,<3",
+  "requests>=2.32.5,<3",
 ]
 
 [project.scripts]
