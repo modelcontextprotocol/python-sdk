@@ -242,12 +242,14 @@ class StreamableHTTPSessionManager:
                     logger.info(f"Created transport for roaming session: {request_mcp_session_id}")
 
                     await self._start_transport_server(http_transport)
+                    transport = http_transport  # Use local reference to avoid race condition
+                else:
+                    # Another request created it while we waited for the lock
+                    transport = self._server_instances[request_mcp_session_id]
 
-                # Get the transport (either newly created or created by another request)
-                transport = self._server_instances[request_mcp_session_id]
-                await transport.handle_request(scope, receive, send)
-
-                return
+            # Use the local transport reference (safe even if cleaned up from dict)
+            await transport.handle_request(scope, receive, send)
+            return
 
         if request_mcp_session_id is None:
             # New session case
