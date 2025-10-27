@@ -13,11 +13,13 @@ Get up and running with session roaming in 5 minutes!
 ### Step 1: Start Redis
 
 **Using Docker:**
+
 ```bash
 docker run -d -p 6379:6379 redis:latest
 ```
 
 **Or using local Redis:**
+
 ```bash
 redis-server
 ```
@@ -32,17 +34,20 @@ uv sync
 ### Step 3: Start Multiple Instances
 
 **Terminal 1 - Instance 1:**
+
 ```bash
 uv run mcp-streamablehttp-roaming --port 3001 --instance-id instance-1
 ```
 
 **Terminal 2 - Instance 2:**
+
 ```bash
 uv run mcp-streamablehttp-roaming --port 3002 --instance-id instance-2
 ```
 
 You should see:
-```
+
+```text
 ======================================================================
 🚀 Instance instance-1 started with SESSION ROAMING!
 ======================================================================
@@ -56,12 +61,14 @@ You should see:
 ### Step 4: Test Session Roaming
 
 **Terminal 3 - Run Test:**
+
 ```bash
 ./test_roaming.sh
 ```
 
 Expected output:
-```
+
+```text
 🧪 Testing Session Roaming Across MCP Instances
 ================================================
 
@@ -80,6 +87,7 @@ Expected output:
 ```
 
 **What just happened?**
+
 1. Session created on Instance 1
 2. Tool called on Instance 1 - success
 3. **Same session** used on Instance 2 - **also success!**
@@ -95,6 +103,7 @@ docker-compose up -d
 ```
 
 This starts:
+
 - Redis (persistent event store)
 - 3 MCP server instances (ports 3001, 3002, 3003)
 - NGINX load balancer (port 80)
@@ -146,7 +155,8 @@ docker-compose logs -f mcp-instance-3
 ```
 
 Look for these log messages:
-```
+
+```text
 INFO - Session abc123 roaming to this instance (EventStore enables roaming)
 INFO - Created transport for roaming session: abc123
 INFO - Instance instance-2 handling request for session abc123
@@ -179,7 +189,8 @@ curl -X POST http://localhost:3001/mcp \
 ```
 
 **Save the session ID from the response header:**
-```
+
+```text
 MCP-Session-ID: a1b2c3d4e5f67890abcdef1234567890
 ```
 
@@ -203,6 +214,7 @@ curl -X POST http://localhost:3001/mcp \
 ```
 
 **Response shows:**
+
 ```json
 {
   "result": {
@@ -234,6 +246,7 @@ curl -X POST http://localhost:3002/mcp \
 ```
 
 **Response shows:**
+
 ```json
 {
   "result": {
@@ -252,6 +265,7 @@ curl -X POST http://localhost:3002/mcp \
 ### What Enables Session Roaming?
 
 **Just one line of code:**
+
 ```python
 session_manager = StreamableHTTPSessionManager(
     app=app,
@@ -260,6 +274,7 @@ session_manager = StreamableHTTPSessionManager(
 ```
 
 That's it! The `event_store` parameter enables:
+
 1. ✅ Event replay (resumability)
 2. ✅ Session roaming (distributed sessions)
 
@@ -276,6 +291,7 @@ When Instance 2 receives a request with an unknown session ID:
 ### Why Does This Work?
 
 Events in EventStore prove sessions existed:
+
 - Session `abc123` has events in Redis
 - Therefore session `abc123` existed
 - Safe to create transport for it
@@ -288,6 +304,7 @@ Events in EventStore prove sessions existed:
 **Problem:** Redis not running
 
 **Solution:**
+
 ```bash
 docker run -d -p 6379:6379 redis:latest
 ```
@@ -297,6 +314,7 @@ docker run -d -p 6379:6379 redis:latest
 **Problem:** EventStore not configured or Redis not accessible
 
 **Solution:**
+
 - Check Redis is running: `redis-cli ping` (should return "PONG")
 - Check Redis URL in server startup
 - Check logs for Redis connection errors
@@ -304,6 +322,7 @@ docker run -d -p 6379:6379 redis:latest
 ### Session not roaming
 
 **Checklist:**
+
 - [ ] Redis running and accessible
 - [ ] All instances use same `--redis-url`
 - [ ] Session ID included in `MCP-Session-ID` header
@@ -319,6 +338,7 @@ docker run -d -p 6379:6379 redis:latest
 ## Questions?
 
 Check out:
+
 - [README.md](README.md) - Full documentation
 - [server.py](mcp_simple_streamablehttp_roaming/server.py) - Implementation
 - [redis_event_store.py](mcp_simple_streamablehttp_roaming/redis_event_store.py) - EventStore implementation

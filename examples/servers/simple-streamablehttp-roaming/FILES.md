@@ -4,7 +4,7 @@ This example demonstrates session roaming across multiple MCP server instances.
 
 ## Directory Structure
 
-```
+```text
 simple-streamablehttp-roaming/
 ├── README.md                              # Comprehensive documentation
 ├── QUICKSTART.md                          # 5-minute getting started guide
@@ -47,10 +47,10 @@ simple-streamablehttp-roaming/
 
 ### Python Package
 
-- **mcp_simple_streamablehttp_roaming/__init__.py** (3 lines)
+- **mcp_simple_streamablehttp_roaming/**init**.py** (3 lines)
   - Package version information
 
-- **mcp_simple_streamablehttp_roaming/__main__.py** (5 lines)
+- **mcp_simple_streamablehttp_roaming/**main**.py** (5 lines)
   - Entry point for running as module
 
 - **mcp_simple_streamablehttp_roaming/server.py** (169 lines)
@@ -115,17 +115,20 @@ simple-streamablehttp-roaming/
 ## Key Features Demonstrated
 
 ### 1. Session Roaming
+
 - Sessions move freely between instances
 - No sticky sessions required
 - EventStore provides continuity
 
 ### 2. Production Deployment
+
 - Docker Compose for local testing
 - Kubernetes manifests in README
 - NGINX load balancing example
 - Redis persistence configuration
 
 ### 3. Developer Experience
+
 - Automated testing script
 - Comprehensive documentation
 - Quick start guide
@@ -133,6 +136,7 @@ simple-streamablehttp-roaming/
 - Detailed logging
 
 ### 4. Code Quality
+
 - Type hints throughout
 - Comprehensive docstrings
 - Configuration via CLI arguments
@@ -142,6 +146,7 @@ simple-streamablehttp-roaming/
 ## Usage Examples
 
 ### Local Development
+
 ```bash
 # Terminal 1
 uv run mcp-streamablehttp-roaming --port 3001 --instance-id instance-1
@@ -154,6 +159,7 @@ uv run mcp-streamablehttp-roaming --port 3002 --instance-id instance-2
 ```
 
 ### Docker Compose
+
 ```bash
 docker-compose up -d
 # Access via http://localhost/mcp (load balanced)
@@ -161,6 +167,7 @@ docker-compose up -d
 ```
 
 ### Manual Testing
+
 ```bash
 # Create session on Instance 1
 curl -X POST http://localhost:3001/mcp -H "Content-Type: application/json" ...
@@ -182,6 +189,7 @@ curl -X POST http://localhost:3002/mcp -H "MCP-Session-ID: <session-id>" ...
 ### Minimal Code for Maximum Impact
 
 **Enable session roaming with just:**
+
 ```python
 event_store = RedisEventStore(redis_url="redis://localhost:6379")
 manager = StreamableHTTPSessionManager(app=app, event_store=event_store)
@@ -190,6 +198,7 @@ manager = StreamableHTTPSessionManager(app=app, event_store=event_store)
 ### No Special Session Store Needed
 
 The EventStore alone enables:
+
 - ✅ Event replay (resumability)
 - ✅ Session roaming (distributed sessions)
 - ✅ Horizontal scaling

@@ -16,10 +16,12 @@ Session roaming allows MCP sessions to seamlessly move between different server 
 ### The Key Insight
 
 **EventStore serves dual purposes:**
+
 1. **Event replay** (resumability): Replays missed events when clients reconnect
 2. **Session proof** (roaming): Proves a session existed, enabling any instance to serve it
 
 When a client sends a session ID that's not in an instance's local memory, the presence of an EventStore allows that instance to:
+
 1. Accept the unknown session ID
 2. Create a transport for that session
 3. Let EventStore replay any missed events
@@ -27,7 +29,7 @@ When a client sends a session ID that's not in an instance's local memory, the p
 
 ### Architecture
 
-```
+```text
 ┌─────────────┐
 │   Client    │
 └──────┬──────┘
@@ -53,6 +55,7 @@ When a client sends a session ID that's not in an instance's local memory, the p
 ```
 
 **Request Flow:**
+
 1. Client creates session on Pod 1 (session ID: `abc123`)
 2. Session stored in Pod 1's memory
 3. Events stored in Redis EventStore
@@ -100,16 +103,19 @@ redis-server
 ### Running Multiple Instances
 
 **Terminal 1 - Instance 1:**
+
 ```bash
 uv run mcp-streamablehttp-roaming --port 3001 --instance-id instance-1
 ```
 
 **Terminal 2 - Instance 2:**
+
 ```bash
 uv run mcp-streamablehttp-roaming --port 3002 --instance-id instance-2
 ```
 
 **Terminal 3 - Instance 3:**
+
 ```bash
 uv run mcp-streamablehttp-roaming --port 3003 --instance-id instance-3
 ```
@@ -141,6 +147,7 @@ chmod +x test_roaming.sh
 ```
 
 **What the test does:**
+
 1. Creates a session on Instance 1 (port 3001)
 2. Calls a tool on Instance 1
 3. Uses the same session ID on Instance 2 (port 3002)
@@ -148,7 +155,8 @@ chmod +x test_roaming.sh
 5. Verifies the session roamed successfully
 
 **Expected output:**
-```
+
+```text
 🧪 Testing Session Roaming Across MCP Instances
 ================================================
 
@@ -169,7 +177,8 @@ chmod +x test_roaming.sh
 
 ### Manual Testing
 
-**Step 1: Create session on Instance 1**
+#### Step 1: Create session on Instance 1
+
 ```bash
 curl -X POST http://localhost:3001/mcp \
   -H "Content-Type: application/json" \
@@ -187,11 +196,13 @@ curl -X POST http://localhost:3001/mcp \
 ```
 
 **Note the session ID from the response header:**
-```
+
+```text
 MCP-Session-ID: a1b2c3d4e5f67890abcdef1234567890
 ```
 
-**Step 2: Use session on Instance 2**
+#### Step 2: Use session on Instance 2
+
 ```bash
 curl -X POST http://localhost:3002/mcp \
   -H "Content-Type: application/json" \
@@ -303,6 +314,7 @@ spec:
 ```
 
 **Key points:**
+
 - ✅ No `sessionAffinity: ClientIP` needed
 - ✅ Load balancer can route freely
 - ✅ Rolling updates work seamlessly
@@ -387,6 +399,7 @@ manager = StreamableHTTPSessionManager(
 ```
 
 **That's it!** No `session_store` parameter needed. EventStore alone enables both:
+
 - Event replay (resumability)
 - Session roaming (distributed sessions)
 
@@ -395,6 +408,7 @@ manager = StreamableHTTPSessionManager(
 When a request arrives with a session ID:
 
 1. **Check local memory** (fast path):
+
    ```python
    if session_id in self._server_instances:
        # Session exists locally, handle directly
@@ -403,6 +417,7 @@ When a request arrives with a session ID:
    ```
 
 2. **Check for EventStore** (roaming path):
+
    ```python
    if session_id is not None and self.event_store is not None:
        # Session not in memory, but EventStore exists
@@ -416,6 +431,7 @@ When a request arrives with a session ID:
    ```
 
 3. **No EventStore** (reject):
+
    ```python
    if session_id is not None:
        # Unknown session, no EventStore to verify
@@ -457,13 +473,14 @@ manager = StreamableHTTPSessionManager(
 
 The server logs session roaming events:
 
-```
+```text
 INFO - Session abc123 roaming to this instance (EventStore enables roaming)
 INFO - Created transport for roaming session: abc123
 INFO - Instance instance-2 handling request for session abc123
 ```
 
 You can track:
+
 - Which instances handle which sessions
 - Session creation events
 - Session roaming events
@@ -480,6 +497,7 @@ You can track:
 ### Session not roaming between instances
 
 **Checklist:**
+
 - ✅ Redis running and accessible
 - ✅ All instances use same `--redis-url`
 - ✅ Session ID included in `MCP-Session-ID` header
@@ -488,6 +506,7 @@ You can track:
 ### Performance Issues
 
 **Redis configuration:**
+
 - Use Redis persistence (AOF or RDB) for production
 - Consider Redis Cluster for high throughput
 - Monitor Redis memory usage
@@ -498,6 +517,7 @@ You can track:
 ### EventStore as Session Proof
 
 Events stored in EventStore prove sessions existed:
+
 - If EventStore has events for session `abc123`
 - Then session `abc123` must have existed
 - Safe for any instance to create transport for it
@@ -506,6 +526,7 @@ Events stored in EventStore prove sessions existed:
 ### Protocol-Level Sessions (SEP-1359)
 
 MCP sessions identify conversation context, not authentication:
+
 - Session ID = conversation thread
 - Authentication per-request (separate concern)
 - Creating transport for any session ID is safe
@@ -514,6 +535,7 @@ MCP sessions identify conversation context, not authentication:
 ### Single Source of Truth
 
 EventStore is the authoritative record:
+
 - All events stored centrally
 - All instances read from same source
 - Consistency guaranteed
