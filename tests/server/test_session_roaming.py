@@ -4,6 +4,7 @@ These tests verify that sessions can roam across different manager instances
 when an EventStore is provided, enabling distributed deployments without sticky sessions.
 """
 
+import contextlib
 from typing import Any
 from unittest.mock import AsyncMock
 
