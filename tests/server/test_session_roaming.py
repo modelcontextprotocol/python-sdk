@@ -5,6 +5,7 @@ when an EventStore is provided, enabling distributed deployments without sticky 
 """
 
 import contextlib
+from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -291,7 +292,7 @@ async def test_transport_server_task_cleanup_on_exception():
     mock_write_stream = AsyncMock()
 
     @contextlib.asynccontextmanager
-    async def mock_connect() -> Any:
+    async def mock_connect() -> AsyncIterator[tuple[AsyncMock, AsyncMock]]:
         yield (mock_read_stream, mock_write_stream)
 
     async with manager.run():
@@ -334,7 +335,7 @@ async def test_transport_server_task_no_cleanup_on_terminated():
     mock_write_stream = AsyncMock()
 
     @contextlib.asynccontextmanager
-    async def mock_connect() -> Any:
+    async def mock_connect() -> AsyncIterator[tuple[AsyncMock, AsyncMock]]:
         yield (mock_read_stream, mock_write_stream)
 
     async with manager.run():
