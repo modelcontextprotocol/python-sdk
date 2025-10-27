@@ -163,6 +163,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
         redirect_uri_provided_explicitly = state_data["redirect_uri_provided_explicitly"] == "True"
         client_id = state_data["client_id"]
         resource = state_data.get("resource")  # RFC 8707
+        resource_owner = username  # Use username as resource owner
 
         # These are required values from our own state mapping
         assert redirect_uri is not None
@@ -184,6 +185,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
             scopes=[self.settings.mcp_scope],
             code_challenge=code_challenge,
             resource=resource,  # RFC 8707
+            resource_owner=resource_owner,
         )
         self.auth_codes[new_code] = auth_code
 
@@ -220,6 +222,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
             scopes=authorization_code.scopes,
             expires_at=int(time.time()) + 3600,
             resource=authorization_code.resource,  # RFC 8707
+            resource_owner=authorization_code.resource_owner,
         )
 
         # Store user data mapping for this token

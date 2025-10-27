@@ -25,6 +25,7 @@ class AuthorizationCode(BaseModel):
     redirect_uri: AnyUrl
     redirect_uri_provided_explicitly: bool
     resource: str | None = None  # RFC 8707 resource indicator
+    resource_owner: str | None = None
 
 
 class RefreshToken(BaseModel):
@@ -40,6 +41,7 @@ class AccessToken(BaseModel):
     scopes: list[str]
     expires_at: int | None = None
     resource: str | None = None  # RFC 8707 resource indicator
+    resource_owner: str | None = None
 
 
 RegistrationErrorCode = Literal[
