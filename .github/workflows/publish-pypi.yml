@@ -16,7 +16,7 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-          version: 0.7.2
+          version: 0.9.5
 
       - name: Set up Python 3.12
         run: uv python install 3.12
@@ -68,7 +68,7 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-          version: 0.7.2
+          version: 0.9.5
 
       - run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV
       - uses: actions/cache@v4

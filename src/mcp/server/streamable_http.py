@@ -306,20 +306,36 @@ class StreamableHTTPServerTransport:
 
         return any(part == CONTENT_TYPE_JSON for part in content_type_parts)
 
+    async def _validate_accept_header(self, request: Request, scope: Scope, send: Send) -> bool:
+        """Validate Accept header based on response mode. Returns True if valid."""
+        has_json, has_sse = self._check_accept_headers(request)
+        if self.is_json_response_enabled:
+            # For JSON-only responses, only require application/json
+            if not has_json:
+                response = self._create_error_response(
+                    "Not Acceptable: Client must accept application/json",
+                    HTTPStatus.NOT_ACCEPTABLE,
+                )
+                await response(scope, request.receive, send)
+                return False
+        # For SSE responses, require both content types
+        elif not (has_json and has_sse):
+            response = self._create_error_response(
+                "Not Acceptable: Client must accept both application/json and text/event-stream",
+                HTTPStatus.NOT_ACCEPTABLE,
+            )
+            await response(scope, request.receive, send)
+            return False
+        return True
+
     async def _handle_post_request(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:
         """Handle POST requests containing JSON-RPC messages."""
         writer = self._read_stream_writer
         if writer is None:
             raise ValueError("No read stream writer available. Ensure connect() is called first.")
         try:
-            # Check Accept headers
-            has_json, has_sse = self._check_accept_headers(request)
-            if not (has_json and has_sse):
-                response = self._create_error_response(
-                    ("Not Acceptable: Client must accept both application/json and text/event-stream"),
-                    HTTPStatus.NOT_ACCEPTABLE,
-                )
-                await response(scope, receive, send)
+            # Validate Accept header
+            if not await self._validate_accept_header(request, scope, send):
                 return
 
             # Validate Content-Type
