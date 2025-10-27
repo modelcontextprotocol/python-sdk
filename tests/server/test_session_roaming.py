@@ -26,6 +26,15 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import JSONRPCMessage
 
 
+async def mock_app_run(*args: Any, **kwargs: Any) -> None:
+    """Mock app.run that blocks until cancelled instead of completing immediately."""
+    try:
+        await anyio.sleep_forever()
+    except anyio.get_cancelled_exc_class():
+        # Task was cancelled, which is expected when test exits
+        pass
+
+
 class SimpleEventStore(EventStore):
     """Simple in-memory event store for testing session roaming."""
 
@@ -76,8 +85,8 @@ async def test_session_roaming_with_eventstore():
     # Create first manager instance (simulating pod 1)
     manager1 = StreamableHTTPSessionManager(app=app, event_store=event_store)
 
-    # Mock app.run to complete immediately
-    app.run = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    # Mock app.run to block until cancelled
+    app.run = mock_app_run  # type: ignore[method-assign]
 
     sent_messages: list[Message] = []
 
@@ -122,7 +131,7 @@ async def test_session_roaming_with_eventstore():
     manager2 = StreamableHTTPSessionManager(app=app, event_store=event_store)
 
     # Mock app.run for manager2
-    app.run = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    app.run = mock_app_run  # type: ignore[method-assign]
 
     # Start manager2 and use the session from manager1
     async with manager2.run():
@@ -199,7 +208,7 @@ async def test_session_roaming_concurrent_requests():
 
     # Create first manager and a session
     manager1 = StreamableHTTPSessionManager(app=app, event_store=event_store)
-    app.run = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    app.run = mock_app_run  # type: ignore[method-assign]
 
     sent_messages: list[Message] = []
 
@@ -235,7 +244,7 @@ async def test_session_roaming_concurrent_requests():
 
     # Create second manager
     manager2 = StreamableHTTPSessionManager(app=app, event_store=event_store)
-    app.run = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    app.run = mock_app_run  # type: ignore[method-assign]
 
     async with manager2.run():
         # Make two concurrent requests with the same roaming session ID
@@ -362,7 +371,7 @@ async def test_session_roaming_fast_path_unchanged():
     event_store = SimpleEventStore()
     manager = StreamableHTTPSessionManager(app=app, event_store=event_store)
 
-    app.run = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    app.run = mock_app_run  # type: ignore[method-assign]
 
     sent_messages: list[Message] = []
 
@@ -433,7 +442,7 @@ async def test_session_roaming_logs_correctly(caplog: Any):  # type: ignore[misc
 
     # Create first manager and session
     manager1 = StreamableHTTPSessionManager(app=app, event_store=event_store)
-    app.run = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    app.run = mock_app_run  # type: ignore[method-assign]
 
     sent_messages: list[Message] = []
 
@@ -471,7 +480,7 @@ async def test_session_roaming_logs_correctly(caplog: Any):  # type: ignore[misc
 
     # Create second manager
     manager2 = StreamableHTTPSessionManager(app=app, event_store=event_store)
-    app.run = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    app.run = mock_app_run  # type: ignore[method-assign]
 
     async with manager2.run():
         scope_with_session = {
