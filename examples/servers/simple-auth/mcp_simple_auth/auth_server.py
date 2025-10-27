@@ -123,6 +123,7 @@ def create_authorization_server(server_settings: AuthServerSettings, auth_settin
                 "iat": int(time.time()),
                 "token_type": "Bearer",
                 "aud": access_token.resource,  # RFC 8707 audience claim
+                "sub": access_token.resource_owner,  # Resource owner
             }
         )
 
