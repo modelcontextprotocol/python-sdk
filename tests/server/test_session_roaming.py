@@ -289,15 +289,9 @@ async def test_transport_server_task_cleanup_on_exception():
     mock_read_stream = AsyncMock()
     mock_write_stream = AsyncMock()
 
-    async def mock_connect(self: Any) -> Any:
-        class MockStreams:
-            async def __aenter__(self) -> Any:
-                return (mock_read_stream, mock_write_stream)
-
-            async def __aexit__(self, *args: Any) -> None:
-                pass
-
-        return MockStreams()
+    @contextlib.asynccontextmanager
+    async def mock_connect() -> Any:
+        yield (mock_read_stream, mock_write_stream)
 
     async with manager.run():
         # Manually add transport to instances
@@ -338,15 +332,9 @@ async def test_transport_server_task_no_cleanup_on_terminated():
     mock_read_stream = AsyncMock()
     mock_write_stream = AsyncMock()
 
-    async def mock_connect(self: Any) -> Any:
-        class MockStreams:
-            async def __aenter__(self) -> Any:
-                return (mock_read_stream, mock_write_stream)
-
-            async def __aexit__(self, *args: Any) -> None:
-                pass
-
-        return MockStreams()
+    @contextlib.asynccontextmanager
+    async def mock_connect() -> Any:
+        yield (mock_read_stream, mock_write_stream)
 
     async with manager.run():
         # Manually add transport to instances
