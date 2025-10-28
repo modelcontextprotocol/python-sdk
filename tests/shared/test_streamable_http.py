@@ -694,6 +694,51 @@ def test_json_response(json_response_server: None, json_server_url: str):
     assert response.headers.get("Content-Type") == "application/json"
 
 
+def test_json_response_accept_json_only(json_response_server: None, json_server_url: str):
+    """Test that json_response servers only require application/json in Accept header."""
+    mcp_url = f"{json_server_url}/mcp"
+    response = requests.post(
+        mcp_url,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert response.status_code == 200
+    assert response.headers.get("Content-Type") == "application/json"
+
+
+def test_json_response_missing_accept_header(json_response_server: None, json_server_url: str):
+    """Test that json_response servers reject requests without Accept header."""
+    mcp_url = f"{json_server_url}/mcp"
+    response = requests.post(
+        mcp_url,
+        headers={
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert response.status_code == 406
+    assert "Not Acceptable" in response.text
+
+
+def test_json_response_incorrect_accept_header(json_response_server: None, json_server_url: str):
+    """Test that json_response servers reject requests with incorrect Accept header."""
+    mcp_url = f"{json_server_url}/mcp"
+    # Test with only text/event-stream (wrong for JSON server)
+    response = requests.post(
+        mcp_url,
+        headers={
+            "Accept": "text/event-stream",
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert response.status_code == 406
+    assert "Not Acceptable" in response.text
+
+
 def test_get_sse_stream(basic_server: None, basic_server_url: str):
     """Test establishing an SSE stream via GET request."""
     # First, we need to initialize a session
