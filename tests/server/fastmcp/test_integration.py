@@ -60,6 +60,7 @@ from mcp.types import (
     TextResourceContents,
     ToolListChangedNotification,
 )
+from tests.test_helpers import get_worker_specific_port
 
 
 class NotificationCollector:
@@ -88,11 +89,20 @@ class NotificationCollector:
 
 # Common fixtures
 @pytest.fixture
-def server_port() -> int:
-    """Get a free port for testing."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+def server_port(worker_id: str) -> int:
+    """Get a free port for testing with worker-specific ranges.
+
+    Uses worker-specific port ranges to prevent port conflicts when running
+    tests in parallel with pytest-xdist. Each worker gets a dedicated range
+    of ports, eliminating race conditions.
+
+    Args:
+        worker_id: pytest-xdist worker ID (injected by pytest)
+
+    Returns:
+        An available port in this worker's range
+    """
+    return get_worker_specific_port(worker_id)
 
 
 @pytest.fixture

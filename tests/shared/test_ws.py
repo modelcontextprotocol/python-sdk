@@ -1,5 +1,4 @@
 import multiprocessing
-import socket
 import time
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
@@ -26,16 +25,14 @@ from mcp.types import (
     TextResourceContents,
     Tool,
 )
-from tests.test_helpers import wait_for_server
+from tests.test_helpers import get_worker_specific_port, wait_for_server
 
 SERVER_NAME = "test_server_for_WS"
 
 
 @pytest.fixture
-def server_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+def server_port(worker_id: str) -> int:
+    return get_worker_specific_port(worker_id)
 
 
 @pytest.fixture

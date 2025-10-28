@@ -6,7 +6,6 @@ Contains tests for both server and client sides of the StreamableHTTP transport.
 
 import json
 import multiprocessing
-import socket
 from collections.abc import Generator
 from typing import Any
 
@@ -42,7 +41,7 @@ from mcp.shared.exceptions import McpError
 from mcp.shared.message import ClientMessageMetadata
 from mcp.shared.session import RequestResponder
 from mcp.types import InitializeResult, TextContent, TextResourceContents, Tool
-from tests.test_helpers import wait_for_server
+from tests.test_helpers import get_worker_specific_port, wait_for_server
 
 # Test constants
 SERVER_NAME = "test_streamable_http_server"
@@ -322,19 +321,15 @@ def run_server(port: int, is_json_response_enabled: bool = False, event_store: E
 
 # Test fixtures - using same approach as SSE tests
 @pytest.fixture
-def basic_server_port() -> int:
+def basic_server_port(worker_id: str) -> int:
     """Find an available port for the basic server."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    return get_worker_specific_port(worker_id)
 
 
 @pytest.fixture
-def json_server_port() -> int:
+def json_server_port(worker_id: str) -> int:
     """Find an available port for the JSON response server."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    return get_worker_specific_port(worker_id)
 
 
 @pytest.fixture
@@ -360,11 +355,9 @@ def event_store() -> SimpleEventStore:
 
 
 @pytest.fixture
-def event_server_port() -> int:
+def event_server_port(worker_id: str) -> int:
     """Find an available port for the event store server."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    return get_worker_specific_port(worker_id)
 
 
 @pytest.fixture

@@ -2,7 +2,6 @@
 
 import logging
 import multiprocessing
-import socket
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -17,17 +16,15 @@ from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import Tool
-from tests.test_helpers import wait_for_server
+from tests.test_helpers import get_worker_specific_port, wait_for_server
 
 logger = logging.getLogger(__name__)
 SERVER_NAME = "test_streamable_http_security_server"
 
 
 @pytest.fixture
-def server_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+def server_port(worker_id: str) -> int:
+    return get_worker_specific_port(worker_id)
 
 
 @pytest.fixture

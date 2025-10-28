@@ -22,6 +22,7 @@ from mcp import ClientSession, types
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.session import RequestResponder
 from mcp.types import ClientNotification, RootsListChangedNotification
+from tests.test_helpers import get_worker_specific_port
 
 
 def create_non_sdk_server_app() -> Starlette:
@@ -81,11 +82,9 @@ def run_non_sdk_server(port: int) -> None:
 
 
 @pytest.fixture
-def non_sdk_server_port() -> int:
+def non_sdk_server_port(worker_id: str) -> int:
     """Get an available port for the test server."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    return get_worker_specific_port(worker_id)
 
 
 @pytest.fixture
