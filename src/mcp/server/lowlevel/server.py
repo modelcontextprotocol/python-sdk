@@ -480,7 +480,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(
             func: Callable[
                 ...,
-                Awaitable[UnstructuredContent | StructuredContent | CombinationContent],
+                Awaitable[UnstructuredContent | StructuredContent | CombinationContent | types.CallToolResult],
             ],
         ):
             logger.debug("Registering handler for CallToolRequest")
@@ -504,7 +504,9 @@ class Server(Generic[LifespanResultT, RequestT]):
                     # output normalization
                     unstructured_content: UnstructuredContent
                     maybe_structured_content: StructuredContent | None
-                    if isinstance(results, tuple) and len(results) == 2:
+                    if isinstance(results, types.CallToolResult):
+                        return types.ServerResult(results)
+                    elif isinstance(results, tuple) and len(results) == 2:
                         # tool returned both structured and unstructured content
                         unstructured_content, maybe_structured_content = cast(CombinationContent, results)
                     elif isinstance(results, dict):
@@ -679,13 +681,21 @@ class Server(Generic[LifespanResultT, RequestT]):
         raise_exceptions: bool = False,
     ):
         with warnings.catch_warnings(record=True) as w:
-            # TODO(Marcelo): We should be checking if message is Exception here.
-            match message:  # type: ignore[reportMatchNotExhaustive]
+            match message:
                 case RequestResponder(request=types.ClientRequest(root=req)) as responder:
                     with responder:
                         await self._handle_request(message, req, session, lifespan_context, raise_exceptions)
                 case types.ClientNotification(root=notify):
                     await self._handle_notification(notify, session)
+                case Exception():
+                    logger.error(f"Received exception from stream: {message}")
+                    await session.send_log_message(
+                        level="error",
+                        data="Internal Server Error",
+                        logger="mcp.server.exception_handler",
+                    )
+                    if raise_exceptions:
+                        raise message
 
         for warning in w:
             logger.info("Warning: %s: %s", warning.category.__name__, warning.message)

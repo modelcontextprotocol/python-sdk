@@ -66,12 +66,32 @@ def run_server_with_settings(port: int, security_settings: TransportSecuritySett
     uvicorn.run(starlette_app, host="127.0.0.1", port=port, log_level="error")
 
 
+def wait_for_server(port: int, timeout: float = 5.0) -> None:
+    """Wait for server to be ready to accept connections.
+
+    Polls the server port until it accepts connections or timeout is reached.
+    This eliminates race conditions without arbitrary sleeps.
+    """
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.1)
+                s.connect(("127.0.0.1", port))
+                # Server is ready
+                return
+        except (ConnectionRefusedError, OSError):
+            # Server not ready yet, retry quickly
+            time.sleep(0.01)
+    raise TimeoutError(f"Server on port {port} did not start within {timeout} seconds")
+
+
 def start_server_process(port: int, security_settings: TransportSecuritySettings | None = None):
     """Start server in a separate process."""
     process = multiprocessing.Process(target=run_server_with_settings, args=(port, security_settings))
     process.start()
-    # Give server time to start
-    time.sleep(1)
+    # Wait for server to be ready to accept connections
+    wait_for_server(port)
     return process
 
 
