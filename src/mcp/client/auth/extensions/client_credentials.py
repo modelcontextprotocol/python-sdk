@@ -102,14 +102,18 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
         """Add JWT assertion for client authentication to token endpoint parameters."""
         if not self.jwt_parameters:
             raise OAuthTokenError("Missing JWT parameters for private_key_jwt flow")
+        if not self.context.oauth_metadata:
+            raise OAuthTokenError("Missing OAuth metadata for private_key_jwt flow")
 
-        token_url = self._get_token_endpoint()
-        assertion = self.jwt_parameters.to_assertion(with_audience_fallback=token_url)
+        # We need to set the audience to the issuer identifier of the authorization server
+        # https://datatracker.ietf.org/doc/html/draft-ietf-oauth-rfc7523bis-01#name-updates-to-rfc-7523
+        issuer = str(self.context.oauth_metadata.issuer)
+        assertion = self.jwt_parameters.to_assertion(with_audience_fallback=issuer)
 
         # When using private_key_jwt, in a client_credentials flow, we use RFC 7523 Section 2.2
         token_data["client_assertion"] = assertion
         token_data["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
-        # We need to set the audience to the token endpoint, the audience is difference from the one in claims
+        # We need to set the audience to the resource server, the audience is difference from the one in claims
         # it represents the resource server that will validate the token
         token_data["audience"] = self.context.get_resource_url()
 
@@ -119,9 +123,13 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
             raise OAuthFlowError("Missing client info")
         if not self.jwt_parameters:
             raise OAuthFlowError("Missing JWT parameters")
+        if not self.context.oauth_metadata:
+            raise OAuthTokenError("Missing OAuth metadata")
 
-        token_url = self._get_token_endpoint()
-        assertion = self.jwt_parameters.to_assertion(with_audience_fallback=token_url)
+        # We need to set the audience to the issuer identifier of the authorization server
+        # https://datatracker.ietf.org/doc/html/draft-ietf-oauth-rfc7523bis-01#name-updates-to-rfc-7523
+        issuer = str(self.context.oauth_metadata.issuer)
+        assertion = self.jwt_parameters.to_assertion(with_audience_fallback=issuer)
 
         token_data = {
             "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
@@ -134,6 +142,7 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
         if self.context.client_metadata.scope:
             token_data["scope"] = self.context.client_metadata.scope
 
+        token_url = self._get_token_endpoint()
         return httpx.Request(
             "POST", token_url, data=token_data, headers={"Content-Type": "application/x-www-form-urlencoded"}
         )

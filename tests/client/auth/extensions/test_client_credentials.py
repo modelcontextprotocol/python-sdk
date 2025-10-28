@@ -5,7 +5,7 @@ import pytest
 from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth.extensions.client_credentials import JWTParameters, RFC7523OAuthClientProvider
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata, OAuthToken
 
 
 class MockTokenStorage:
@@ -75,6 +75,12 @@ class TestOAuthFlowClientCredentials:
             redirect_uris=None,
             scope="read write",
         )
+        rfc7523_oauth_provider.context.oauth_metadata = OAuthMetadata(
+            issuer=AnyHttpUrl("https://api.example.com"),
+            authorization_endpoint=AnyHttpUrl("https://api.example.com/authorize"),
+            token_endpoint=AnyHttpUrl("https://api.example.com/token"),
+            registration_endpoint=AnyHttpUrl("https://api.example.com/register"),
+        )
         rfc7523_oauth_provider.context.client_metadata = rfc7523_oauth_provider.context.client_info
         rfc7523_oauth_provider.context.protocol_version = "2025-06-18"
         rfc7523_oauth_provider.jwt_parameters = JWTParameters(
@@ -107,6 +113,12 @@ class TestOAuthFlowClientCredentials:
             token_endpoint_auth_method="private_key_jwt",
             redirect_uris=None,
             scope="read write",
+        )
+        rfc7523_oauth_provider.context.oauth_metadata = OAuthMetadata(
+            issuer=AnyHttpUrl("https://api.example.com"),
+            authorization_endpoint=AnyHttpUrl("https://api.example.com/authorize"),
+            token_endpoint=AnyHttpUrl("https://api.example.com/token"),
+            registration_endpoint=AnyHttpUrl("https://api.example.com/register"),
         )
         rfc7523_oauth_provider.context.client_metadata = rfc7523_oauth_provider.context.client_info
         rfc7523_oauth_provider.context.protocol_version = "2025-06-18"
@@ -141,7 +153,7 @@ class TestOAuthFlowClientCredentials:
             assertion,
             key="a-string-secret-at-least-256-bits-long",
             algorithms=["HS256"],
-            audience="https://api.example.com/token",
+            audience="https://api.example.com/",
             subject="1234567890",
             issuer="foo",
             verify=True,
