@@ -206,13 +206,20 @@ def test_get_worker_specific_port_raises_when_no_ports_available(monkeypatch: py
     try:
         # Try to bind all ports in range (may not succeed on all platforms)
         for port in range(start, min(start + 10, end)):  # Just bind first 10 for speed
+            s: socket.socket | None = None
             try:
                 s = socket.socket()
-                s.bind(("127.0.0.1", port))
-                sockets.append(s)
-            except OSError:
-                # Port already in use, skip
-                pass
+                try:
+                    s.bind(("127.0.0.1", port))
+                    sockets.append(s)
+                except OSError:
+                    # Port already in use, skip
+                    s.close()
+            except Exception:
+                # Clean up socket if any unexpected error
+                if s is not None:
+                    s.close()
+                raise
 
         # If we managed to bind some ports, temporarily exhaust the small range
         if sockets:
@@ -221,5 +228,5 @@ def test_get_worker_specific_port_raises_when_no_ports_available(monkeypatch: py
             pass
     finally:
         # Clean up sockets
-        for s in sockets:
-            s.close()
+        for sock in sockets:
+            sock.close()

@@ -14,6 +14,7 @@ import pytest
 
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+from tests.test_helpers import get_worker_specific_port
 
 # Test constants with various Unicode characters
 UNICODE_TEST_STRINGS = {
@@ -145,11 +146,9 @@ def run_unicode_server(port: int) -> None:
 
 
 @pytest.fixture
-def unicode_server_port() -> int:
+def unicode_server_port(worker_id: str) -> int:
     """Find an available port for the Unicode test server."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    return get_worker_specific_port(worker_id)
 
 
 @pytest.fixture
