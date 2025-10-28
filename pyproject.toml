@@ -98,7 +98,7 @@ venv = ".venv"
 # those private functions instead of testing the private functions directly. It makes it easier to maintain the code source
 # and refactor code that is not public.
 executionEnvironments = [
-    { root = "tests", reportUnusedFunction = false, reportPrivateUsage = false },
+    { root = "tests", extraPaths = ["."], reportUnusedFunction = false, reportPrivateUsage = false },
     { root = "examples/servers", reportUnusedFunction = false },
 ]
 
