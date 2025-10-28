@@ -29,5 +29,5 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["mcp_simple_auth"]
 
-[tool.uv]
-dev-dependencies = ["pyright>=1.1.391", "pytest>=8.3.4", "ruff>=0.8.5"]
+[dependency-groups]
+dev = ["pyright>=1.1.391", "pytest>=8.3.4", "ruff>=0.8.5"]

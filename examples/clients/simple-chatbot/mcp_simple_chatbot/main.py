@@ -401,7 +401,7 @@ class ChatSession:
             await self.cleanup_servers()
 
 
-async def main() -> None:
+async def run() -> None:
     """Initialize and run the chat session."""
     config = Configuration()
     server_config = config.load_config("servers_config.json")
@@ -411,5 +411,9 @@ async def main() -> None:
     await chat_session.start()
 
 
+def main() -> None:
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
