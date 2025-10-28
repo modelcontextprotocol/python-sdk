@@ -162,6 +162,11 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                         await read_stream_writer.send(session_message)
         except anyio.ClosedResourceError:
             await anyio.lowlevel.checkpoint()
+        except (BrokenPipeError, ConnectionResetError):
+            # The server process exited and closed its stdin. Treat this as a normal
+            # shutdown so the caller sees the connection close rather than an
+            # unhandled exception from the background task.
+            await anyio.lowlevel.checkpoint()
 
     async def stdin_writer():
         assert process.stdin, "Opened process is missing stdin"
