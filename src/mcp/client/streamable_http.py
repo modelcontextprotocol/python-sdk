@@ -12,6 +12,8 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any, overload
+from warnings import warn
 
 import anyio
 import httpx
@@ -74,6 +76,11 @@ class RequestContext:
 class StreamableHTTPTransport:
     """StreamableHTTP client transport implementation."""
 
+    @overload
+    def __init__(self, url: str) -> None: ...
+
+    @deprecated("Those parameters are deprecated. Use the url parameter instead.")
+    @overload
     def __init__(
         self,
         url: str,
@@ -81,6 +88,16 @@ class StreamableHTTPTransport:
         timeout: float | timedelta = 30,
         sse_read_timeout: float | timedelta = 60 * 5,
         auth: httpx.Auth | None = None,
+    ) -> None: ...
+
+    def __init__(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        timeout: float | timedelta = 30,
+        sse_read_timeout: float | timedelta = 60 * 5,
+        auth: httpx.Auth | None = None,
+        **deprecated: dict[str, Any],
     ) -> None:
         """Initialize the StreamableHTTP transport.
 
@@ -91,6 +108,8 @@ class StreamableHTTPTransport:
             sse_read_timeout: DEPRECATED - Ignored. Configure read timeout on the httpx.AsyncClient instead.
             auth: DEPRECATED - Ignored. Configure auth on the httpx.AsyncClient instead.
         """
+        if deprecated:
+            warn(f"Deprecated parameters: {deprecated}", DeprecationWarning)
         self.url = url
         self.session_id = None
         self.protocol_version = None
