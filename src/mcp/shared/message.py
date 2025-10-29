@@ -24,6 +24,7 @@ class ClientMessageMetadata:
 
     resumption_token: ResumptionToken | None = None
     on_resumption_token_update: Callable[[ResumptionToken], Awaitable[None]] | None = None
+    extra_headers: dict[str, str] | None = None
 
 
 @dataclass
