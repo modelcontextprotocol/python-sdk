@@ -401,6 +401,7 @@ class TestOAuthFallback:
         # Send a successful token response
         token_response = httpx.Response(
             200,
+            headers={"Content-Type": "application/json"},
             content=(
                 b'{"access_token": "new_access_token", "token_type": "Bearer", "expires_in": 3600, '
                 b'"refresh_token": "new_refresh_token"}'
@@ -790,9 +791,9 @@ class TestAuthFlow:
         # Send a successful token response
         token_response = httpx.Response(
             200,
+            headers={"Content-Type": "application/x-www-form-urlencoded; charset=utf-8"},
             content=(
-                b'{"access_token": "new_access_token", "token_type": "Bearer", "expires_in": 3600, '
-                b'"refresh_token": "new_refresh_token"}'
+                b"access_token=new_access_token&token_type=bearer&expires_in=3600&refresh_token=new_refresh_token"
             ),
             request=token_request,
         )
