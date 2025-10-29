@@ -13,7 +13,7 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create MCP server
-mcp = FastMCP("My App", stateless_http=True)
+mcp = FastMCP("My App")
 
 
 @mcp.tool()
