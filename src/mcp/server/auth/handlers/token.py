@@ -110,7 +110,7 @@ class TokenHandler:
         except AuthenticationError as e:
             return self.response(
                 TokenErrorResponse(
-                    error="unauthorized_client",
+                    error="invalid_client",
                     error_description=e.message,
                 )
             )
