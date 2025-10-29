@@ -5,7 +5,8 @@ from importlib.metadata import version
 from mcp.types import Icon
 
 from .server import Context, FastMCP
+from .utilities.param_functions import Path, Query
 from .utilities.types import Audio, Image
 
 __version__ = version("mcp")
-__all__ = ["FastMCP", "Context", "Image", "Audio", "Icon"]
+__all__ = ["FastMCP", "Context", "Image", "Audio", "Icon", "Path", "Query"]

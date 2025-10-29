@@ -3,7 +3,6 @@
 from __future__ import annotations as _annotations
 
 import inspect
-import re
 from collections.abc import (
     AsyncIterator,
     Awaitable,
@@ -48,7 +47,6 @@ from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.fastmcp.tools import Tool, ToolManager
-from mcp.server.fastmcp.utilities.context_injection import find_context_parameter
 from mcp.server.fastmcp.utilities.logging import configure_logging, get_logger
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT
@@ -537,6 +535,15 @@ class FastMCP(Generic[LifespanResultT]):
         If the URI contains parameters (e.g. "resource://{param}") or the function
         has parameters, it will be registered as a template resource.
 
+        Function parameters in the path are required,
+        while parameters with default values
+        can be optionally provided as query parameters using RFC 6570 form-style query
+        expansion syntax: {?param1,param2,...}
+
+        Examples:
+        - resource://{category}/{id}{?filter,sort,limit}
+        - resource://{user_id}/profile{?format,fields}
+
         Args:
             uri: URI for the resource (e.g. "resource://my-resource" or "resource://{param}")
             name: Optional name for the resource
@@ -558,6 +565,19 @@ class FastMCP(Generic[LifespanResultT]):
             def get_weather(city: str) -> str:
                 return f"Weather for {city}"
 
+            @server.resource("resource://{city}/weather{?units}")
+            def get_weather_with_options(city: str, units: str = "metric") -> str:
+                # Can be called with resource://paris/weather?units=imperial
+                return f"Weather for {city} in {units} units"
+
+            @server.resource("resource://{category}/{id}
+            {?filter,sort,limit}")
+            def get_item(category: str, id: str, filter: str = "all", sort: str = "name"
+            , limit: int = 10) -> str:
+                # Can be called with resource://electronics/1234?filter=new&sort=price&limit=20
+                return f"Item {id} in {category}, filtered by {filter}, sorted by {sort}
+                , limited to {limit}"
+
             @server.resource("resource://{city}/weather")
             async def get_weather(city: str) -> str:
                 data = await fetch_weather(city)
@@ -577,20 +597,6 @@ class FastMCP(Generic[LifespanResultT]):
             has_func_params = bool(sig.parameters)
 
             if has_uri_params or has_func_params:
-                # Check for Context parameter to exclude from validation
-                context_param = find_context_parameter(fn)
-
-                # Validate that URI params match function params (excluding context)
-                uri_params = set(re.findall(r"{(\w+)}", uri))
-                # We need to remove the context_param from the resource function if
-                # there is any.
-                func_params = {p for p in sig.parameters.keys() if p != context_param}
-
-                if uri_params != func_params:
-                    raise ValueError(
-                        f"Mismatch between URI parameters {uri_params} and function parameters {func_params}"
-                    )
-
                 # Register as template
                 self._resource_manager.add_template(
                     fn=fn,
