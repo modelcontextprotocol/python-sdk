@@ -75,7 +75,7 @@ def server_url(server_port: int) -> str:
     return f"http://127.0.0.1:{server_port}"
 
 
-def start_server_process(port: int) -> subprocess.Popen[str]:
+def start_server_process(port: int, json_response: bool | None = None) -> subprocess.Popen[str]:
     """Start server in a separate process."""
     # Create a temporary script to run the server
     import os
@@ -114,7 +114,7 @@ def run_server_with_logging(port: int) -> None:
     # Create session manager
     session_manager = StreamableHTTPSessionManager(
         app=app,
-        json_response=False,
+        json_response={json_response},
         stateless=True,  # Use stateless mode to trigger the race condition
     )
 
@@ -248,3 +248,30 @@ async def test_race_condition_invalid_content_type(server_port: int):
         process.wait()
         # Check server logs for race condition errors
         check_server_logs_for_errors(process, "test_race_condition_invalid_content_type")
+
+
+@pytest.mark.anyio
+async def test_race_condition_message_router_async_for(server_port: int):
+    """
+    Uses json_response=True to trigger the `if self.is_json_response_enabled` branch,
+    which reproduces the ClosedResourceError when message_router is suspended
+    in async for loop while transport cleanup closes streams concurrently.
+    """
+    process = start_server_process(server_port, json_response=True)
+
+    try:
+        # use standard mcp client to send requests
+        from mcp.client.session import ClientSession
+        from mcp.client.streamable_http import streamablehttp_client
+
+        for _ in range(1):
+            async with streamablehttp_client(f"http://127.0.0.1:{server_port}") as (read_stream, write_stream, _):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+
+
+    finally:
+        process.terminate()
+        process.wait()
+        # Check server logs for race condition errors in message router
+        check_server_logs_for_errors(process, "test_race_condition_message_router_async_for")
