@@ -5,7 +5,7 @@
 # pyright: reportUnknownLambdaType=false
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, Any, TypedDict, Final
+from typing import Annotated, Any, Final, TypedDict
 
 import annotated_types
 import pytest
