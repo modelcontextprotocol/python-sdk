@@ -1317,13 +1317,15 @@ Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_basic_mounting:app --reload
 """
 
+import contextlib
+
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
 from mcp.server.fastmcp import FastMCP
 
 # Create MCP server
-mcp = FastMCP("My App")
+mcp = FastMCP("My App", stateless_http=True)
 
 
 @mcp.tool()
@@ -1332,11 +1334,20 @@ def hello() -> str:
     return "Hello from MCP!"
 
 
+# Create lifespan context manager to initialize the session manager
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette):
+    """Context manager for managing MCP session manager lifecycle."""
+    async with mcp.session_manager.run():
+        yield
+
+
 # Mount the StreamableHTTP server to the existing ASGI server
 app = Starlette(
     routes=[
         Mount("/", app=mcp.streamable_http_app()),
-    ]
+    ],
+    lifespan=lifespan,
 )
 ```
 
@@ -1354,13 +1365,15 @@ Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_host_mounting:app --reload
 """
 
+import contextlib
+
 from starlette.applications import Starlette
 from starlette.routing import Host
 
 from mcp.server.fastmcp import FastMCP
 
 # Create MCP server
-mcp = FastMCP("MCP Host App")
+mcp = FastMCP("MCP Host App", stateless_http=True)
 
 
 @mcp.tool()
@@ -1369,11 +1382,20 @@ def domain_info() -> str:
     return "This is served from mcp.acme.corp"
 
 
+# Create lifespan context manager to initialize the session manager
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette):
+    """Context manager for managing MCP session manager lifecycle."""
+    async with mcp.session_manager.run():
+        yield
+
+
 # Mount using Host-based routing
 app = Starlette(
     routes=[
         Host("mcp.acme.corp", app=mcp.streamable_http_app()),
-    ]
+    ],
+    lifespan=lifespan,
 )
 ```
 
@@ -1391,14 +1413,16 @@ Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_multiple_servers:app --reload
 """
 
+import contextlib
+
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
 from mcp.server.fastmcp import FastMCP
 
 # Create multiple MCP servers
-api_mcp = FastMCP("API Server")
-chat_mcp = FastMCP("Chat Server")
+api_mcp = FastMCP("API Server", stateless_http=True)
+chat_mcp = FastMCP("Chat Server", stateless_http=True)
 
 
 @api_mcp.tool()
@@ -1418,12 +1442,24 @@ def send_message(message: str) -> str:
 api_mcp.settings.streamable_http_path = "/"
 chat_mcp.settings.streamable_http_path = "/"
 
+
+# Create lifespan context manager to initialize both session managers
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette):
+    """Context manager for managing multiple MCP session managers."""
+    async with contextlib.AsyncExitStack() as stack:
+        await stack.enter_async_context(api_mcp.session_manager.run())
+        await stack.enter_async_context(chat_mcp.session_manager.run())
+        yield
+
+
 # Mount the servers
 app = Starlette(
     routes=[
         Mount("/api", app=api_mcp.streamable_http_app()),
         Mount("/chat", app=chat_mcp.streamable_http_app()),
-    ]
+    ],
+    lifespan=lifespan,
 )
 ```
 
@@ -1441,6 +1477,8 @@ Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_path_config:app --reload
 """
 
+import contextlib
+
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
@@ -1448,7 +1486,7 @@ from mcp.server.fastmcp import FastMCP
 
 # Configure streamable_http_path during initialization
 # This server will mount at the root of wherever it's mounted
-mcp_at_root = FastMCP("My Server", streamable_http_path="/")
+mcp_at_root = FastMCP("My Server", streamable_http_path="/", stateless_http=True)
 
 
 @mcp_at_root.tool()
@@ -1457,11 +1495,20 @@ def process_data(data: str) -> str:
     return f"Processed: {data}"
 
 
+# Create lifespan context manager to initialize the session manager
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette):
+    """Context manager for managing MCP session manager lifecycle."""
+    async with mcp_at_root.session_manager.run():
+        yield
+
+
 # Mount at /process - endpoints will be at /process instead of /process/mcp
 app = Starlette(
     routes=[
         Mount("/process", app=mcp_at_root.streamable_http_app()),
-    ]
+    ],
+    lifespan=lifespan,
 )
 ```
 
