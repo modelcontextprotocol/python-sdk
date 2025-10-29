@@ -18,6 +18,7 @@ class TestFunctionResource:
             name="test",
             description="test function",
             fn=my_func,
+            context_kwarg=None,
         )
         assert str(resource.uri) == "fn://test"
         assert resource.name == "test"
@@ -36,6 +37,7 @@ class TestFunctionResource:
             uri=AnyUrl("function://test"),
             name="test",
             fn=get_data,
+            context_kwarg=None,
         )
         content = await resource.read()
         assert content == "Hello, world!"
@@ -52,6 +54,7 @@ class TestFunctionResource:
             uri=AnyUrl("function://test"),
             name="test",
             fn=get_data,
+            context_kwarg=None,
         )
         content = await resource.read()
         assert content == b"Hello, world!"
@@ -67,6 +70,7 @@ class TestFunctionResource:
             uri=AnyUrl("function://test"),
             name="test",
             fn=get_data,
+            context_kwarg=None,
         )
         content = await resource.read()
         assert isinstance(content, str)
@@ -83,6 +87,7 @@ class TestFunctionResource:
             uri=AnyUrl("function://test"),
             name="test",
             fn=failing_func,
+            context_kwarg=None,
         )
         with pytest.raises(ValueError, match="Error reading resource function://test"):
             await resource.read()
@@ -98,6 +103,7 @@ class TestFunctionResource:
             uri=AnyUrl("function://test"),
             name="test",
             fn=lambda: MyModel(name="test"),
+            context_kwarg=None,
         )
         content = await resource.read()
         assert content == '{\n  "name": "test"\n}'
@@ -117,6 +123,7 @@ class TestFunctionResource:
             uri=AnyUrl("function://test"),
             name="test",
             fn=get_data,
+            context_kwarg=None,
         )
         content = await resource.read()
         assert isinstance(content, str)
@@ -132,6 +139,7 @@ class TestFunctionResource:
             uri=AnyUrl("function://test"),
             name="test",
             fn=get_data,
+            context_kwarg=None,
         )
         content = await resource.read()
         assert content == "Hello, world!"

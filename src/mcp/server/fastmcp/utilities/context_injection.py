@@ -31,17 +31,16 @@ def find_context_parameter(fn: Callable[..., Any]) -> str | None:
 
     # Check each parameter's type hint
     for param_name, annotation in hints.items():
-        # Handle direct Context type
+        # Handle direct Context type and generic aliases of Context
+        origin = typing.get_origin(annotation)
+
+        # Check if the annotation itself is Context or a subclass
         if inspect.isclass(annotation) and issubclass(annotation, Context):
             return param_name
 
-        # Handle generic types like Optional[Context]
-        origin = typing.get_origin(annotation)
-        if origin is not None:
-            args = typing.get_args(annotation)
-            for arg in args:
-                if inspect.isclass(arg) and issubclass(arg, Context):
-                    return param_name
+        # Check if it's a generic alias of Context (e.g., Context[...])
+        if origin is not None and inspect.isclass(origin) and issubclass(origin, Context):
+            return param_name
 
     return None
 
