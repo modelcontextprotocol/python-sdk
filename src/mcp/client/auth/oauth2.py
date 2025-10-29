@@ -13,7 +13,7 @@ import string
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 from urllib.parse import urlencode, urljoin, urlparse
 
 import anyio
@@ -88,8 +88,8 @@ class OAuthContext:
     server_url: str
     client_metadata: OAuthClientMetadata
     storage: TokenStorage
-    redirect_handler: Callable[[str], Awaitable[None]]
-    callback_handler: Callable[[], Awaitable[tuple[str, str | None]]]
+    redirect_handler: Callable[[str], Awaitable[None]] | None
+    callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None
     timeout: float = 300.0
 
     # Discovered metadata
@@ -189,8 +189,8 @@ class OAuthClientProvider(httpx.Auth):
         server_url: str,
         client_metadata: OAuthClientMetadata,
         storage: TokenStorage,
-        redirect_handler: Callable[[str], Awaitable[None]],
-        callback_handler: Callable[[], Awaitable[tuple[str, str | None]]],
+        redirect_handler: Callable[[str], Awaitable[None]] | None = None,
+        callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None = None,
         timeout: float = 300.0,
     ):
         """Initialize OAuth2 authentication."""
@@ -351,8 +351,21 @@ class OAuthClientProvider(httpx.Auth):
         except ValidationError as e:
             raise OAuthRegistrationError(f"Invalid registration response: {e}")
 
-    async def _perform_authorization(self) -> tuple[str, str]:
+    async def _perform_authorization(self) -> httpx.Request:
+        """Perform the authorization flow."""
+        auth_code, code_verifier = await self._perform_authorization_code_grant()
+        token_request = await self._exchange_token_authorization_code(auth_code, code_verifier)
+        return token_request
+
+    async def _perform_authorization_code_grant(self) -> tuple[str, str]:
         """Perform the authorization redirect and get auth code."""
+        if self.context.client_metadata.redirect_uris is None:
+            raise OAuthFlowError("No redirect URIs provided for authorization code grant")
+        if not self.context.redirect_handler:
+            raise OAuthFlowError("No redirect handler provided for authorization code grant")
+        if not self.context.callback_handler:
+            raise OAuthFlowError("No callback handler provided for authorization code grant")
+
         if self.context.oauth_metadata and self.context.oauth_metadata.authorization_endpoint:
             auth_endpoint = str(self.context.oauth_metadata.authorization_endpoint)
         else:
@@ -397,24 +410,34 @@ class OAuthClientProvider(httpx.Auth):
         # Return auth code and code verifier for token exchange
         return auth_code, pkce_params.code_verifier
 
-    async def _exchange_token(self, auth_code: str, code_verifier: str) -> httpx.Request:
-        """Build token exchange request."""
-        if not self.context.client_info:
-            raise OAuthFlowError("Missing client info")
-
+    def _get_token_endpoint(self) -> str:
         if self.context.oauth_metadata and self.context.oauth_metadata.token_endpoint:
             token_url = str(self.context.oauth_metadata.token_endpoint)
         else:
             auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             token_url = urljoin(auth_base_url, "/token")
+        return token_url
 
-        token_data = {
-            "grant_type": "authorization_code",
-            "code": auth_code,
-            "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
-            "client_id": self.context.client_info.client_id,
-            "code_verifier": code_verifier,
-        }
+    async def _exchange_token_authorization_code(
+        self, auth_code: str, code_verifier: str, *, token_data: dict[str, Any] | None = {}
+    ) -> httpx.Request:
+        """Build token exchange request for authorization_code flow."""
+        if self.context.client_metadata.redirect_uris is None:
+            raise OAuthFlowError("No redirect URIs provided for authorization code grant")
+        if not self.context.client_info:
+            raise OAuthFlowError("Missing client info")
+
+        token_url = self._get_token_endpoint()
+        token_data = token_data or {}
+        token_data.update(
+            {
+                "grant_type": "authorization_code",
+                "code": auth_code,
+                "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
+                "client_id": self.context.client_info.client_id,
+                "code_verifier": code_verifier,
+            }
+        )
 
         # Only include resource param if conditions are met
         if self.context.should_include_resource_param(self.context.protocol_version):
@@ -430,7 +453,9 @@ class OAuthClientProvider(httpx.Auth):
     async def _handle_token_response(self, response: httpx.Response) -> None:
         """Handle token exchange response."""
         if response.status_code != 200:
-            raise OAuthTokenError(f"Token exchange failed: {response.status_code}")
+            body = await response.aread()
+            body = body.decode("utf-8")
+            raise OAuthTokenError(f"Token exchange failed ({response.status_code}): {body}")
 
         try:
             content = await response.aread()
@@ -577,12 +602,8 @@ class OAuthClientProvider(httpx.Auth):
                         registration_response = yield registration_request
                         await self._handle_registration_response(registration_response)
 
-                    # Step 5: Perform authorization
-                    auth_code, code_verifier = await self._perform_authorization()
-
-                    # Step 6: Exchange authorization code for tokens
-                    token_request = await self._exchange_token(auth_code, code_verifier)
-                    token_response = yield token_request
+                    # Step 5: Perform authorization and complete token exchange
+                    token_response = yield await self._perform_authorization()
                     await self._handle_token_response(token_response)
                 except Exception:
                     logger.exception("OAuth flow error")
@@ -601,17 +622,13 @@ class OAuthClientProvider(httpx.Auth):
                         # Step 2a: Update the required scopes
                         self._select_scopes(response)
 
-                        # Step 2b: Perform (re-)authorization
-                        auth_code, code_verifier = await self._perform_authorization()
-
-                        # Step 2c: Exchange authorization code for tokens
-                        token_request = await self._exchange_token(auth_code, code_verifier)
-                        token_response = yield token_request
+                        # Step 2b: Perform (re-)authorization and token exchange
+                        token_response = yield await self._perform_authorization()
                         await self._handle_token_response(token_response)
                     except Exception:
                         logger.exception("OAuth flow error")
                         raise
 
-                    # Retry with new tokens
-                    self._add_auth_header(request)
-                    yield request
+                # Retry with new tokens
+                self._add_auth_header(request)
+                yield request
