@@ -1325,7 +1325,7 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create MCP server
-mcp = FastMCP("My App", stateless_http=True)
+mcp = FastMCP("My App")
 
 
 @mcp.tool()
@@ -1373,7 +1373,7 @@ from starlette.routing import Host
 from mcp.server.fastmcp import FastMCP
 
 # Create MCP server
-mcp = FastMCP("MCP Host App", stateless_http=True)
+mcp = FastMCP("MCP Host App")
 
 
 @mcp.tool()
@@ -1421,8 +1421,8 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create multiple MCP servers
-api_mcp = FastMCP("API Server", stateless_http=True)
-chat_mcp = FastMCP("Chat Server", stateless_http=True)
+api_mcp = FastMCP("API Server")
+chat_mcp = FastMCP("Chat Server")
 
 
 @api_mcp.tool()
@@ -1486,7 +1486,7 @@ from mcp.server.fastmcp import FastMCP
 
 # Configure streamable_http_path during initialization
 # This server will mount at the root of wherever it's mounted
-mcp_at_root = FastMCP("My Server", streamable_http_path="/", stateless_http=True)
+mcp_at_root = FastMCP("My Server", streamable_http_path="/")
 
 
 @mcp_at_root.tool()
