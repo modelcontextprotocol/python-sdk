@@ -527,6 +527,7 @@ class TestOAuthFallback:
         assert request.method == "POST"
         assert str(request.url) == "https://api.example.com/token"
         assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
+        assert request.headers["Accept"] == "application/json"
 
         # Check form data
         content = request.content.decode()
@@ -552,6 +553,7 @@ class TestOAuthFallback:
         assert request.method == "POST"
         assert str(request.url) == "https://api.example.com/token"
         assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
+        assert request.headers["Accept"] == "application/json"
 
         # Check form data
         content = request.content.decode()

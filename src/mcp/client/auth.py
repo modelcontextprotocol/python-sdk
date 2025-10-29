@@ -424,7 +424,10 @@ class OAuthClientProvider(httpx.Auth):
             token_data["client_secret"] = self.context.client_info.client_secret
 
         return httpx.Request(
-            "POST", token_url, data=token_data, headers={"Content-Type": "application/x-www-form-urlencoded"}
+            "POST",
+            token_url,
+            data=token_data,
+            headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
         )
 
     async def _handle_token_response(self, response: httpx.Response) -> None:
@@ -478,7 +481,10 @@ class OAuthClientProvider(httpx.Auth):
             refresh_data["client_secret"] = self.context.client_info.client_secret
 
         return httpx.Request(
-            "POST", token_url, data=refresh_data, headers={"Content-Type": "application/x-www-form-urlencoded"}
+            "POST",
+            token_url,
+            data=refresh_data,
+            headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
         )
 
     async def _handle_refresh_response(self, response: httpx.Response) -> bool:
