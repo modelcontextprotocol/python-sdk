@@ -269,7 +269,6 @@ async def test_race_condition_message_router_async_for(server_port: int):
                 async with ClientSession(read_stream, write_stream) as session:
                     await session.initialize()
 
-
     finally:
         process.terminate()
         process.wait()
