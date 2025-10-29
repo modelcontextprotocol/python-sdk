@@ -17,7 +17,13 @@ from pydantic import (
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
 from typing_extensions import is_typeddict
-from typing_inspection.introspection import UNKNOWN, ForbiddenQualifier, AnnotationSource, inspect_annotation, is_union_origin
+from typing_inspection.introspection import (
+    UNKNOWN,
+    AnnotationSource,
+    ForbiddenQualifier,
+    inspect_annotation,
+    is_union_origin,
+)
 
 from mcp.server.fastmcp.exceptions import InvalidSignature
 from mcp.server.fastmcp.utilities.logging import get_logger
