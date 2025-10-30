@@ -243,7 +243,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Raises:
             TokenError: If the request is invalid
         """
-        ...
+        ...  # pragma: no cover
 
     async def load_access_token(self, token: str) -> AccessTokenT | None:
         """
