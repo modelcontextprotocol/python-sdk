@@ -241,10 +241,10 @@ class TestOAuthFlow:
     """Test OAuth flow methods."""
 
     @pytest.mark.anyio
-    async def test_discover_protected_resource_request(
+    async def test_build_protected_resource_discovery_urls(
         self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
     ):
-        """Test protected resource discovery request building maintains backward compatibility."""
+        """Test protected resource metadata discovery URL building with fallback."""
 
         async def redirect_handler(url: str) -> None:
             pass
@@ -265,22 +265,19 @@ class TestOAuthFlow:
             status_code=401, headers={}, request=httpx.Request("GET", "https://request-api.example.com")
         )
 
-        request = await provider._discover_protected_resource(init_response)
-        assert request.method == "GET"
-        assert str(request.url) == "https://api.example.com/.well-known/oauth-protected-resource"
-        assert "mcp-protocol-version" in request.headers
+        urls = provider._build_protected_resource_discovery_urls(init_response)
+        assert len(urls) == 1
+        assert urls[0] == "https://api.example.com/.well-known/oauth-protected-resource"
 
         # Test with WWW-Authenticate header
-        # Reset discovery state for new test case
-        provider.context.reset_discovery_state()
         init_response.headers["WWW-Authenticate"] = (
             'Bearer resource_metadata="https://prm.example.com/.well-known/oauth-protected-resource/path"'
         )
 
-        request = await provider._discover_protected_resource(init_response)
-        assert request.method == "GET"
-        assert str(request.url) == "https://prm.example.com/.well-known/oauth-protected-resource/path"
-        assert "mcp-protocol-version" in request.headers
+        urls = provider._build_protected_resource_discovery_urls(init_response)
+        assert len(urls) == 2
+        assert urls[0] == "https://prm.example.com/.well-known/oauth-protected-resource/path"
+        assert urls[1] == "https://api.example.com/.well-known/oauth-protected-resource"
 
     @pytest.mark.anyio
     def test_create_oauth_metadata_request(self, oauth_provider: OAuthClientProvider):
