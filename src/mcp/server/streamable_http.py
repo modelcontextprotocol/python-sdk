@@ -369,9 +369,11 @@ class StreamableHTTPServerTransport:
                 return
 
             # Check if this is an initialization request
-            is_initialization_request = isinstance(message.root, JSONRPCRequest) and message.root.method == "initialize" # pragma: no cover
+            is_initialization_request = (
+                isinstance(message.root, JSONRPCRequest) and message.root.method == "initialize"
+            )  # pragma: no cover
 
-            if is_initialization_request: # pragma: no cover
+            if is_initialization_request:  # pragma: no cover
                 # Check if the server already has an established session
                 if self.mcp_session_id:
                     # Check if request has a session ID
@@ -385,11 +387,11 @@ class StreamableHTTPServerTransport:
                         )
                         await response(scope, receive, send)
                         return
-            elif not await self._validate_request_headers(request, send): # pragma: no cover
+            elif not await self._validate_request_headers(request, send):  # pragma: no cover
                 return
 
             # For notifications and responses only, return 202 Accepted
-            if not isinstance(message.root, JSONRPCRequest): # pragma: no cover
+            if not isinstance(message.root, JSONRPCRequest):  # pragma: no cover
                 # Create response object and send it
                 response = self._create_json_response(
                     None,
@@ -405,10 +407,10 @@ class StreamableHTTPServerTransport:
                 return
 
             # Extract the request ID outside the try block for proper scope
-            request_id = str(message.root.id) # pragma: no cover
+            request_id = str(message.root.id)  # pragma: no cover
             # Register this stream for the request ID
-            self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](0) # pragma: no cover
-            request_stream_reader = self._request_streams[request_id][1] # pragma: no cover
+            self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](0)  # pragma: no cover
+            request_stream_reader = self._request_streams[request_id][1]  # pragma: no cover
 
             if self.is_json_response_enabled:  # pragma: no cover
                 # Process the message
@@ -453,7 +455,7 @@ class StreamableHTTPServerTransport:
                     await response(scope, receive, send)
                 finally:
                     await self._clean_up_memory_streams(request_id)
-            else: # pragma: no cover
+            else:  # pragma: no cover
                 # Create SSE stream
                 sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
 
@@ -509,7 +511,7 @@ class StreamableHTTPServerTransport:
                     await sse_stream_reader.aclose()
                     await self._clean_up_memory_streams(request_id)
 
-        except Exception as err: # pragma: no cover
+        except Exception as err:  # pragma: no cover
             logger.exception("Error handling POST request")
             response = self._create_error_response(
                 f"Error handling POST request: {err}",

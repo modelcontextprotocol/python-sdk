@@ -173,6 +173,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Raises:
             AuthorizeError: If the authorization request is invalid.
         """
+        ...  # pragma: no cover
 
     async def load_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: str
@@ -187,6 +188,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Returns:
             The AuthorizationCode, or None if not found
         """
+        ...  # pragma: no cover
 
     async def exchange_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: AuthorizationCodeT
@@ -204,6 +206,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Raises:
             TokenError: If the request is invalid
         """
+        ...  # pragma: no cover
 
     async def load_refresh_token(self, client: OAuthClientInformationFull, refresh_token: str) -> RefreshTokenT | None:
         """
@@ -216,6 +219,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Returns:
             The RefreshToken object if found, or None if not found.
         """
+        ...  # pragma: no cover
 
     async def exchange_refresh_token(
         self,
@@ -239,6 +243,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Raises:
             TokenError: If the request is invalid
         """
+        ...
 
     async def load_access_token(self, token: str) -> AccessTokenT | None:
         """

@@ -347,7 +347,9 @@ class TestContextHandling:
         tool = manager.add_tool(tool_without_context)
         assert tool.context_kwarg is None
 
-        def tool_with_parametrized_context(x: int, ctx: Context[ServerSessionT, LifespanContextT, RequestT]) -> str:  # pragma: no cover
+        def tool_with_parametrized_context(
+            x: int, ctx: Context[ServerSessionT, LifespanContextT, RequestT]
+        ) -> str:  # pragma: no cover
             return str(x)
 
         tool = manager.add_tool(tool_with_parametrized_context)

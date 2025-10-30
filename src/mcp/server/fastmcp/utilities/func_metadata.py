@@ -477,7 +477,9 @@ def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:
 
 
 def _get_typed_annotation(annotation: Any, globalns: dict[str, Any]) -> Any:
-    def try_eval_type(value: Any, globalns: dict[str, Any], localns: dict[str, Any]) -> tuple[Any, bool]:  # pragma: no cover
+    def try_eval_type(
+        value: Any, globalns: dict[str, Any], localns: dict[str, Any]
+    ) -> tuple[Any, bool]:  # pragma: no cover
         try:
             return eval_type_backport(value, globalns, localns), True
         except NameError:
