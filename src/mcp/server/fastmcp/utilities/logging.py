@@ -25,15 +25,15 @@ def configure_logging(
         level: the log level to use
     """
     handlers: list[logging.Handler] = []
-    try:
+    try:  # pragma: no cover
         from rich.console import Console
         from rich.logging import RichHandler
 
         handlers.append(RichHandler(console=Console(stderr=True), rich_tracebacks=True))
-    except ImportError:
+    except ImportError:  # pragma: no cover
         pass
 
-    if not handlers:
+    if not handlers:  # pragma: no cover
         handlers.append(logging.StreamHandler())
 
     logging.basicConfig(

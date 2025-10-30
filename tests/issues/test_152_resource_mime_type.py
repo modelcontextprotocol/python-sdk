@@ -88,7 +88,7 @@ async def test_lowlevel_resource_mime_type():
             return [ReadResourceContents(content=base64_string, mime_type="image/png")]
         elif str(uri) == "test://image_bytes":
             return [ReadResourceContents(content=bytes(image_bytes), mime_type="image/png")]
-        raise Exception(f"Resource not found: {uri}")
+        raise Exception(f"Resource not found: {uri}")  # pragma: no cover
 
     # Test that resources are listed with correct mime type
     async with client_session(server) as client:

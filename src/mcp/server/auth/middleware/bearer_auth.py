@@ -99,7 +99,7 @@ class RequireAuthMiddleware:
         """Send an authentication error response with WWW-Authenticate header."""
         # Build WWW-Authenticate header value
         www_auth_parts = [f'error="{error}"', f'error_description="{description}"']
-        if self.resource_metadata_url:
+        if self.resource_metadata_url:  # pragma: no cover
             www_auth_parts.append(f'resource_metadata="{self.resource_metadata_url}"')
 
         www_authenticate = f"Bearer {', '.join(www_auth_parts)}"

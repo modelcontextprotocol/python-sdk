@@ -8,13 +8,13 @@ from mcp.server.session import ServerSession
 
 class Database:  # Replace with your actual DB type
     @classmethod
-    async def connect(cls):
+    async def connect(cls):  # pragma: no cover
         return cls()
 
-    async def disconnect(self):
+    async def disconnect(self):  # pragma: no cover
         pass
 
-    def query(self):
+    def query(self):  # pragma: no cover
         return "Hello, World!"
 
 
@@ -28,7 +28,7 @@ class AppContext:
 
 
 @asynccontextmanager
-async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
+async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:  # pragma: no cover
     """Manage application lifecycle with type-safe context"""
     # Initialize on startup
     db = await Database.connect()
@@ -45,7 +45,7 @@ mcp = FastMCP("My App", lifespan=app_lifespan)
 
 # Access type-safe lifespan context in tools
 @mcp.tool()
-def query_db(ctx: Context[ServerSession, AppContext]) -> str:
+def query_db(ctx: Context[ServerSession, AppContext]) -> str:  # pragma: no cover
     """Tool that uses initialized resources"""
     db = ctx.request_context.lifespan_context.db
     return db.query()

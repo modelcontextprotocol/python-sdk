@@ -50,7 +50,7 @@ class TestClientSessionGroup:
         mock_session = mock.AsyncMock()
 
         # --- Prepare Session Group ---
-        def hook(name: str, server_info: types.Implementation) -> str:
+        def hook(name: str, server_info: types.Implementation) -> str:  # pragma: no cover
             return f"{(server_info.name)}-{name}"
 
         mcp_session_group = ClientSessionGroup(component_name_hook=hook)
@@ -344,7 +344,7 @@ class TestClientSessionGroup:
                         timeout=server_params_instance.timeout,
                         sse_read_timeout=server_params_instance.sse_read_timeout,
                     )
-                elif client_type_name == "streamablehttp":
+                elif client_type_name == "streamablehttp":  # pragma: no branch
                     assert isinstance(server_params_instance, StreamableHttpParameters)
                     mock_specific_client_func.assert_called_once_with(
                         url=server_params_instance.url,

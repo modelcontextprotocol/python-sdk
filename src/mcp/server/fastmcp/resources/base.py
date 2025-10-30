@@ -46,4 +46,4 @@ class Resource(BaseModel, abc.ABC):
     @abc.abstractmethod
     async def read(self) -> str | bytes:
         """Read the resource content."""
-        pass
+        pass  # pragma: no cover

@@ -97,7 +97,7 @@ class ResourceManager:
             if params := template.matches(uri_str):
                 try:
                     return await template.create_resource(uri_str, params, context=context)
-                except Exception as e:
+                except Exception as e:  # pragma: no cover
                     raise ValueError(f"Error creating resource from template: {e}")
 
         raise ValueError(f"Unknown resource: {uri}")

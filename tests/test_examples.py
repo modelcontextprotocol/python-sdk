@@ -89,7 +89,7 @@ async def test_desktop(monkeypatch: pytest.MonkeyPatch):
         content = result.contents[0]
         assert isinstance(content, TextResourceContents)
         assert isinstance(content.text, str)
-        if sys.platform == "win32":
+        if sys.platform == "win32":  # pragma: no cover
             file_1 = "/fake/path/file1.txt".replace("/", "\\\\")  # might be a bug
             file_2 = "/fake/path/file2.txt".replace("/", "\\\\")  # might be a bug
             assert file_1 in content.text

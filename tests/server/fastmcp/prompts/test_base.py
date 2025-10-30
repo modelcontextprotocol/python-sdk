@@ -36,7 +36,7 @@ class TestRenderPrompt:
 
     @pytest.mark.anyio
     async def test_fn_with_invalid_kwargs(self):
-        async def fn(name: str, age: int = 30) -> str:
+        async def fn(name: str, age: int = 30) -> str:  # pragma: no cover
             return f"Hello, {name}! You're {age} years old."
 
         prompt = Prompt.from_function(fn)

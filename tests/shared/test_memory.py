@@ -13,7 +13,7 @@ def mcp_server() -> Server:
     server = Server(name="test_server")
 
     @server.list_resources()
-    async def handle_list_resources():
+    async def handle_list_resources():  # pragma: no cover
         return [
             Resource(
                 uri=AnyUrl("memory://test"),

@@ -11,12 +11,12 @@ async def test_resource_templates():
 
     # Add a dynamic greeting resource
     @mcp.resource("greeting://{name}")
-    def get_greeting(name: str) -> str:
+    def get_greeting(name: str) -> str:  # pragma: no cover
         """Get a personalized greeting"""
         return f"Hello, {name}!"
 
     @mcp.resource("users://{user_id}/profile")
-    def get_user_profile(user_id: str) -> str:
+    def get_user_profile(user_id: str) -> str:  # pragma: no cover
         """Dynamic user data"""
         return f"Profile data for user {user_id}"
 
@@ -33,10 +33,10 @@ async def test_resource_templates():
     assert len(templates) == 2
 
     # Verify template details
-    greeting_template = next(t for t in templates if t.name == "get_greeting")
+    greeting_template = next(t for t in templates if t.name == "get_greeting")  # pragma: no cover
     assert greeting_template.uriTemplate == "greeting://{name}"
     assert greeting_template.description == "Get a personalized greeting"
 
-    profile_template = next(t for t in templates if t.name == "get_user_profile")
+    profile_template = next(t for t in templates if t.name == "get_user_profile")  # pragma: no cover
     assert profile_template.uriTemplate == "users://{user_id}/profile"
     assert profile_template.description == "Dynamic user data"

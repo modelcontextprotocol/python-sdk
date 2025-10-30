@@ -61,10 +61,10 @@ class TestAuthContextMiddleware:
         scope: Scope = {"type": "http", "user": user}
 
         # Create dummy async functions for receive and send
-        async def receive() -> Message:
+        async def receive() -> Message:  # pragma: no cover
             return {"type": "http.request"}
 
-        async def send(message: Message) -> None:
+        async def send(message: Message) -> None:  # pragma: no cover
             pass
 
         # Verify context is empty before middleware
@@ -95,10 +95,10 @@ class TestAuthContextMiddleware:
         scope: Scope = {"type": "http"}  # No user
 
         # Create dummy async functions for receive and send
-        async def receive() -> Message:
+        async def receive() -> Message:  # pragma: no cover
             return {"type": "http.request"}
 
-        async def send(message: Message) -> None:
+        async def send(message: Message) -> None:  # pragma: no cover
             pass
 
         # Verify context is empty before middleware

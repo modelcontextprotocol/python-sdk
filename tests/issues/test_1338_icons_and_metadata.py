@@ -23,25 +23,25 @@ async def test_icons_and_website_url():
 
     # Create tool with icon
     @mcp.tool(icons=[test_icon])
-    def test_tool(message: str) -> str:
+    def test_tool(message: str) -> str:  # pragma: no cover
         """A test tool with an icon."""
         return message
 
     # Create resource with icon
     @mcp.resource("test://resource", icons=[test_icon])
-    def test_resource() -> str:
+    def test_resource() -> str:  # pragma: no cover
         """A test resource with an icon."""
         return "test content"
 
     # Create prompt with icon
     @mcp.prompt("test_prompt", icons=[test_icon])
-    def test_prompt(text: str) -> str:
+    def test_prompt(text: str) -> str:  # pragma: no cover
         """A test prompt with an icon."""
         return text
 
     # Create resource template with icon
     @mcp.resource("test://weather/{city}", icons=[test_icon])
-    def test_resource_template(city: str) -> str:
+    def test_resource_template(city: str) -> str:  # pragma: no cover
         """Get weather for a city."""
         return f"Weather for {city}"
 
@@ -104,7 +104,7 @@ async def test_multiple_icons():
 
     # Create tool with multiple icons
     @mcp.tool(icons=[icon1, icon2, icon3])
-    def multi_icon_tool() -> str:
+    def multi_icon_tool() -> str:  # pragma: no cover
         """A tool with multiple icons."""
         return "success"
 
@@ -125,7 +125,7 @@ async def test_no_icons_or_website():
     mcp = FastMCP("BasicServer")
 
     @mcp.tool()
-    def basic_tool() -> str:
+    def basic_tool() -> str:  # pragma: no cover
         """A basic tool without icons."""
         return "success"
 

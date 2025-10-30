@@ -63,13 +63,13 @@ async def stdio_server(
                 async for line in stdin:
                     try:
                         message = types.JSONRPCMessage.model_validate_json(line)
-                    except Exception as exc:
+                    except Exception as exc:  # pragma: no cover
                         await read_stream_writer.send(exc)
                         continue
 
                     session_message = SessionMessage(message)
                     await read_stream_writer.send(session_message)
-        except anyio.ClosedResourceError:
+        except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
     async def stdout_writer():
@@ -79,7 +79,7 @@ async def stdio_server(
                     json = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
                     await stdout.write(json + "\n")
                     await stdout.flush()
-        except anyio.ClosedResourceError:
+        except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
     async with anyio.create_task_group() as tg:

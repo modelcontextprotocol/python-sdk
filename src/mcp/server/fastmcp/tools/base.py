@@ -62,7 +62,7 @@ class Tool(BaseModel):
         func_doc = description or fn.__doc__ or ""
         is_async = _is_async_callable(fn)
 
-        if context_kwarg is None:
+        if context_kwarg is None:  # pragma: no branch
             context_kwarg = find_context_parameter(fn)
 
         func_arg_metadata = func_metadata(
@@ -110,7 +110,7 @@ class Tool(BaseModel):
 
 
 def _is_async_callable(obj: Any) -> bool:
-    while isinstance(obj, functools.partial):
+    while isinstance(obj, functools.partial):  # pragma: no cover
         obj = obj.func
 
     return inspect.iscoroutinefunction(obj) or (

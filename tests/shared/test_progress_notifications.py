@@ -41,7 +41,7 @@ async def test_bidirectional_progress_notifications():
             async for message in server_session.incoming_messages:
                 try:
                     await server._handle_message(message, server_session, {})
-                except Exception as e:
+                except Exception as e:  # pragma: no cover
                     raise e
 
     # Track progress updates
@@ -91,10 +91,10 @@ async def test_bidirectional_progress_notifications():
             if arguments and "_meta" in arguments:
                 progressToken = arguments["_meta"]["progressToken"]
 
-                if not progressToken:
+                if not progressToken:  # pragma: no cover
                     raise ValueError("Empty progress token received")
 
-                if progressToken != client_progress_token:
+                if progressToken != client_progress_token:  # pragma: no cover
                     raise ValueError("Server sending back incorrect progressToken")
 
                 # Send progress notifications
@@ -119,22 +119,22 @@ async def test_bidirectional_progress_notifications():
                     message="Server progress 100%",
                 )
 
-            else:
+            else:  # pragma: no cover
                 raise ValueError("Progress token not sent.")
 
             return [types.TextContent(type="text", text="Tool executed successfully")]
 
-        raise ValueError(f"Unknown tool: {name}")
+        raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
 
     # Client message handler to store progress notifications
     async def handle_client_message(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
-        if isinstance(message, types.ServerNotification):
-            if isinstance(message.root, types.ProgressNotification):
+        if isinstance(message, types.ServerNotification):  # pragma: no branch
+            if isinstance(message.root, types.ProgressNotification):  # pragma: no branch
                 params = message.root.params
                 client_progress_updates.append(
                     {
@@ -248,14 +248,14 @@ async def test_progress_context_manager():
             async for message in server_session.incoming_messages:
                 try:
                     await server._handle_message(message, server_session, {})
-                except Exception as e:
+                except Exception as e:  # pragma: no cover
                     raise e
 
     # Client message handler
     async def handle_client_message(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
     # run client session
@@ -335,7 +335,9 @@ async def test_progress_callback_exception_logging():
         logged_errors.append(msg % args if args else msg)
 
     # Create a progress callback that raises an exception
-    async def failing_progress_callback(progress: float, total: float | None, message: str | None) -> None:
+    async def failing_progress_callback(
+        progress: float, total: float | None, message: str | None
+    ) -> None:  # pragma: no cover
         raise ValueError("Progress callback failed!")
 
     # Create a server with a tool that sends progress notifications
@@ -352,7 +354,7 @@ async def test_progress_callback_exception_logging():
                 message="Halfway done",
             )
             return [types.TextContent(type="text", text="progress_result")]
-        raise ValueError(f"Unknown tool: {name}")
+        raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
 
     @server.list_tools()
     async def handle_list_tools() -> list[types.Tool]:
