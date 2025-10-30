@@ -33,6 +33,7 @@ dependencies = [
     "uvicorn>=0.31.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",
     "pywin32>=310; sys_platform == 'win32'",
+    "pyjwt[crypto]>=2.10.1",
 ]
 
 [project.optional-dependencies]
@@ -98,7 +99,7 @@ venv = ".venv"
 # those private functions instead of testing the private functions directly. It makes it easier to maintain the code source
 # and refactor code that is not public.
 executionEnvironments = [
-    { root = "tests", reportUnusedFunction = false, reportPrivateUsage = false },
+    { root = "tests", extraPaths = ["."], reportUnusedFunction = false, reportPrivateUsage = false },
     { root = "examples/servers", reportUnusedFunction = false },
 ]
 

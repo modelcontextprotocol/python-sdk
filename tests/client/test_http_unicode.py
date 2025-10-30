@@ -7,13 +7,13 @@ Verifies that Unicode text is correctly transmitted and received in both directi
 
 import multiprocessing
 import socket
-import time
 from collections.abc import Generator
 
 import pytest
 
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+from tests.test_helpers import wait_for_server
 
 # Test constants with various Unicode characters
 UNICODE_TEST_STRINGS = {
@@ -158,19 +158,8 @@ def running_unicode_server(unicode_server_port: int) -> Generator[str, None, Non
     proc = multiprocessing.Process(target=run_unicode_server, kwargs={"port": unicode_server_port}, daemon=True)
     proc.start()
 
-    # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", unicode_server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+    # Wait for server to be ready
+    wait_for_server(unicode_server_port)
 
     try:
         yield f"http://127.0.0.1:{unicode_server_port}"
