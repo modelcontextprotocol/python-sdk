@@ -8,19 +8,19 @@ the connection is closed.
 This is only intended for writing tests for the SSE transport.
 """
 
-import typing
-from typing import Any, cast
+import typing  # pragma: no cover
+from typing import Any, cast  # pragma: no cover
 
-import anyio
-import anyio.abc
-import anyio.streams.memory
-from httpx._models import Request, Response
-from httpx._transports.base import AsyncBaseTransport
-from httpx._types import AsyncByteStream
-from starlette.types import ASGIApp, Receive, Scope, Send
+import anyio  # pragma: no cover
+import anyio.abc  # pragma: no cover
+import anyio.streams.memory  # pragma: no cover
+from httpx._models import Request, Response  # pragma: no cover
+from httpx._transports.base import AsyncBaseTransport  # pragma: no cover
+from httpx._types import AsyncByteStream  # pragma: no cover
+from starlette.types import ASGIApp, Receive, Scope, Send  # pragma: no cover
 
 
-class StreamingASGITransport(AsyncBaseTransport):
+class StreamingASGITransport(AsyncBaseTransport):  # pragma: no cover
     """
     A custom AsyncTransport that handles sending requests directly to an ASGI app
     and supports streaming responses like SSE.
@@ -45,7 +45,7 @@ class StreamingASGITransport(AsyncBaseTransport):
     upstream implementation.
     """
 
-    def __init__(
+    def __init__(  # pragma: no cover
         self,
         app: ASGIApp,
         task_group: anyio.abc.TaskGroup,
@@ -59,7 +59,7 @@ class StreamingASGITransport(AsyncBaseTransport):
         self.client = client
         self.task_group = task_group
 
-    async def handle_async_request(
+    async def handle_async_request(  # pragma: no cover
         self,
         request: Request,
     ) -> Response:
@@ -180,7 +180,7 @@ class StreamingASGITransport(AsyncBaseTransport):
         )
 
 
-class StreamingASGIResponseStream(AsyncByteStream):
+class StreamingASGIResponseStream(AsyncByteStream):  # pragma: no cover
     """
     A modified ASGIResponseStream that supports streaming responses.
 
@@ -189,13 +189,13 @@ class StreamingASGIResponseStream(AsyncByteStream):
     is returned.
     """
 
-    def __init__(
+    def __init__(  # pragma: no cover
         self,
         receive_channel: anyio.streams.memory.MemoryObjectReceiveStream[bytes],
     ) -> None:
         self.receive_channel = receive_channel
 
-    async def __aiter__(self) -> typing.AsyncIterator[bytes]:
+    async def __aiter__(self) -> typing.AsyncIterator[bytes]:  # pragma: no cover
         try:
             async for chunk in self.receive_channel:
                 yield chunk

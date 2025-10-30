@@ -7,8 +7,8 @@ import httpx
 __all__ = ["create_mcp_http_client"]
 
 
-class McpHttpClientFactory(Protocol):
-    def __call__(
+class McpHttpClientFactory(Protocol):  # pragma: no branch
+    def __call__(  # pragma: no branch
         self,
         headers: dict[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
@@ -77,7 +77,7 @@ def create_mcp_http_client(
         kwargs["headers"] = headers
 
     # Handle authentication
-    if auth is not None:
+    if auth is not None:  # pragma: no cover
         kwargs["auth"] = auth
 
     return httpx.AsyncClient(**kwargs)

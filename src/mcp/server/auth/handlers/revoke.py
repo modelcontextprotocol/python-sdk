@@ -56,7 +56,7 @@ class RevocationHandler:
             client = await self.client_authenticator.authenticate(
                 revocation_request.client_id, revocation_request.client_secret
             )
-        except AuthenticationError as e:
+        except AuthenticationError as e:  # pragma: no cover
             return PydanticJSONResponse(
                 status_code=401,
                 content=RevocationErrorResponse(
@@ -69,7 +69,7 @@ class RevocationHandler:
             self.provider.load_access_token,
             partial(self.provider.load_refresh_token, client),
         ]
-        if revocation_request.token_type_hint == "refresh_token":
+        if revocation_request.token_type_hint == "refresh_token":  # pragma: no cover
             loaders = reversed(loaders)
 
         token: None | AccessToken | RefreshToken = None

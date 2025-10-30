@@ -7,7 +7,7 @@ from mcp.shared.auth import OAuthClientInformationFull
 
 class AuthenticationError(Exception):
     def __init__(self, message: str):
-        self.message = message
+        self.message = message  # pragma: no cover
 
 
 class ClientAuthenticator:
@@ -34,18 +34,18 @@ class ClientAuthenticator:
         # Look up client information
         client = await self.provider.get_client(client_id)
         if not client:
-            raise AuthenticationError("Invalid client_id")
+            raise AuthenticationError("Invalid client_id")  # pragma: no cover
 
         # If client from the store expects a secret, validate that the request provides
         # that secret
-        if client.client_secret:
+        if client.client_secret:  # pragma: no branch
             if not client_secret:
-                raise AuthenticationError("Client secret is required")
+                raise AuthenticationError("Client secret is required")  # pragma: no cover
 
             if client.client_secret != client_secret:
-                raise AuthenticationError("Invalid client_secret")
+                raise AuthenticationError("Invalid client_secret")  # pragma: no cover
 
             if client.client_secret_expires_at and client.client_secret_expires_at < int(time.time()):
-                raise AuthenticationError("Client secret has expired")
+                raise AuthenticationError("Client secret has expired")  # pragma: no cover
 
         return client

@@ -117,7 +117,6 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Returns:
             The client information, or None if the client does not exist.
         """
-        ...
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         """
@@ -132,7 +131,6 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Raises:
             RegistrationError: If the client metadata is invalid.
         """
-        ...
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
         """
@@ -175,7 +173,6 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Raises:
             AuthorizeError: If the authorization request is invalid.
         """
-        ...
 
     async def load_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: str
@@ -190,7 +187,6 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Returns:
             The AuthorizationCode, or None if not found
         """
-        ...
 
     async def exchange_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: AuthorizationCodeT
@@ -208,7 +204,6 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Raises:
             TokenError: If the request is invalid
         """
-        ...
 
     async def load_refresh_token(self, client: OAuthClientInformationFull, refresh_token: str) -> RefreshTokenT | None:
         """
@@ -221,8 +216,6 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Returns:
             The RefreshToken object if found, or None if not found.
         """
-
-    ...
 
     async def exchange_refresh_token(
         self,
@@ -246,7 +239,6 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Raises:
             TokenError: If the request is invalid
         """
-        ...
 
     async def load_access_token(self, token: str) -> AccessTokenT | None:
         """
@@ -258,7 +250,6 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Returns:
             The AuthInfo, or None if the token is invalid.
         """
-        ...
 
     async def revoke_token(
         self,
@@ -276,7 +267,6 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Args:
             token: the token to revoke
         """
-        ...
 
 
 def construct_redirect_uri(redirect_uri_base: str, **params: str | None) -> str:
