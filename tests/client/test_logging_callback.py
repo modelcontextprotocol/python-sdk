@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 import pytest
 
@@ -47,6 +47,24 @@ async def test_logging_callback():
         )
         return True
 
+    @server.tool("test_tool_with_log_extra")
+    async def test_tool_with_log_extra(
+        message: str,
+        level: Literal["debug", "info", "warning", "error"],
+        logger: str,
+        extra_string: str,
+        extra_dict: dict[str, Any],
+    ) -> bool:
+        """Send a log notification to the client with extra fields."""
+        await server.get_context().log(
+            level=level,
+            message=message,
+            logger_name=logger,
+            extra_string=extra_string,
+            extra_dict=extra_dict,
+        )
+        return True
+
     # Create a message handler to catch exceptions
     async def message_handler(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
@@ -74,10 +92,30 @@ async def test_logging_callback():
                 "logger": "test_logger",
             },
         )
+        log_result_with_extra = await client_session.call_tool(
+            "test_tool_with_log_extra",
+            {
+                "message": "Test log message",
+                "level": "info",
+                "logger": "test_logger",
+                "extra_string": "example",
+                "extra_dict": {"a": 1, "b": 2, "c": 3},
+            },
+        )
         assert log_result.isError is False
-        assert len(logging_collector.log_messages) == 1
+        assert log_result_with_extra.isError is False
+        assert len(logging_collector.log_messages) == 2
         # Create meta object with related_request_id added dynamically
         log = logging_collector.log_messages[0]
         assert log.level == "info"
         assert log.logger == "test_logger"
         assert log.data == "Test log message"
+
+        log_with_extra = logging_collector.log_messages[1]
+        assert log_with_extra.level == "info"
+        assert log_with_extra.logger == "test_logger"
+        assert log_with_extra.data == {
+            "message": "Test log message",
+            "extra_string": "example",
+            "extra_dict": {"a": 1, "b": 2, "c": 3},
+        }

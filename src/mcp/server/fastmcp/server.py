@@ -1206,6 +1206,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         message: str,
         *,
         logger_name: str | None = None,
+        **extra: Any,
     ) -> None:
         """Send a log message to the client.
 
@@ -1215,9 +1216,18 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             logger_name: Optional logger name
             **extra: Additional structured data to include
         """
+
+        if extra:
+            log_data = {
+                "message": message,
+                **extra,
+            }
+        else:
+            log_data = message
+
         await self.request_context.session.send_log_message(
             level=level,
-            data=message,
+            data=log_data,
             logger=logger_name,
             related_request_id=self.request_id,
         )
