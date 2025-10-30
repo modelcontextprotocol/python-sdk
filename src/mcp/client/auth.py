@@ -108,9 +108,9 @@ class OAuthContext:
     # State
     lock: anyio.Lock = field(default_factory=anyio.Lock)
 
-    # Discovery state for fallback support
-    discovery_base_url: str | None = None
-    discovery_pathname: str | None = None
+    # Discovery state for fallback support (SEP-985)
+    discovery_urls: list[str] = field(default_factory=lambda: [])
+    discovery_index: int = 0
 
     def get_authorization_base_url(self, server_url: str) -> str:
         """Extract base URL by removing path component."""
@@ -140,6 +140,11 @@ class OAuthContext:
         """Clear current tokens."""
         self.current_tokens = None
         self.token_expiry_time = None
+
+    def reset_discovery_state(self) -> None:
+        """Reset protected resource metadata discovery state."""
+        self.discovery_urls = []
+        self.discovery_index = 0
 
     def get_resource_url(self) -> str:
         """Get resource URL for RFC 8707.
@@ -204,6 +209,43 @@ class OAuthClientProvider(httpx.Auth):
         )
         self._initialized = False
 
+    def _build_protected_resource_discovery_urls(self, init_response: httpx.Response) -> list[str]:
+        """
+        Build ordered list of URLs to try for protected resource metadata discovery.
+
+        Per SEP-985, the client MUST:
+        1. Try resource_metadata from WWW-Authenticate header (if present)
+        2. Fall back to path-based well-known URI: /.well-known/oauth-protected-resource/{path}
+        3. Fall back to root-based well-known URI: /.well-known/oauth-protected-resource
+
+        Args:
+            init_response: The initial 401 response from the server
+
+        Returns:
+            Ordered list of URLs to try for discovery
+        """
+        urls: list[str] = []
+
+        # Priority 1: WWW-Authenticate header with resource_metadata parameter
+        www_auth_url = self._extract_resource_metadata_from_www_auth(init_response)
+        if www_auth_url:
+            urls.append(www_auth_url)
+
+        # Priority 2-3: Well-known URIs (RFC 9728)
+        parsed = urlparse(self.context.server_url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+
+        # Priority 2: Path-based well-known URI (if server has a path component)
+        if parsed.path and parsed.path != "/":
+            path_based_url = urljoin(base_url, f"/.well-known/oauth-protected-resource{parsed.path}")
+            urls.append(path_based_url)
+
+        # Priority 3: Root-based well-known URI
+        root_based_url = urljoin(base_url, "/.well-known/oauth-protected-resource")
+        urls.append(root_based_url)
+
+        return urls
+
     def _extract_field_from_www_auth(self, init_response: httpx.Response, field_name: str) -> str | None:
         """
         Extract field from WWW-Authenticate header.
@@ -247,18 +289,40 @@ class OAuthClientProvider(httpx.Auth):
         return self._extract_field_from_www_auth(init_response, "scope")
 
     async def _discover_protected_resource(self, init_response: httpx.Response) -> httpx.Request:
-        # RFC9728: Try to extract resource_metadata URL from WWW-Authenticate header of the initial response
-        url = self._extract_resource_metadata_from_www_auth(init_response)
+        """
+        Build protected resource metadata discovery request.
 
-        if not url:
-            # Fallback to well-known discovery
-            auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
-            url = urljoin(auth_base_url, "/.well-known/oauth-protected-resource")
+        Per SEP-985, supports multiple discovery mechanisms with fallback:
+        1. WWW-Authenticate header (if present)
+        2. Path-based well-known URI
+        3. Root-based well-known URI
+
+        Returns:
+            Request for the next discovery URL to try
+        """
+        # Initialize discovery URLs on first call
+        if not self.context.discovery_urls:
+            self.context.discovery_urls = self._build_protected_resource_discovery_urls(init_response)
+            self.context.discovery_index = 0
+
+        # Get current URL to try
+        if self.context.discovery_index < len(self.context.discovery_urls):
+            url = self.context.discovery_urls[self.context.discovery_index]
+        else:
+            # No more URLs to try - this shouldn't happen in normal flow
+            raise OAuthFlowError("Protected resource metadata discovery failed: all URLs exhausted")
 
         return httpx.Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
 
-    async def _handle_protected_resource_response(self, response: httpx.Response) -> None:
-        """Handle discovery response."""
+    async def _handle_protected_resource_response(self, response: httpx.Response) -> bool:
+        """
+        Handle protected resource metadata discovery response.
+
+        Per SEP-985, supports fallback when discovery fails at one URL.
+
+        Returns:
+            True if metadata was successfully discovered, False if we should try next URL
+        """
         if response.status_code == 200:
             try:
                 content = await response.aread()
@@ -266,10 +330,18 @@ class OAuthClientProvider(httpx.Auth):
                 self.context.protected_resource_metadata = metadata
                 if metadata.authorization_servers:
                     self.context.auth_server_url = str(metadata.authorization_servers[0])
+                return True
 
             except ValidationError:
-                pass
+                # Invalid metadata - try next URL
+                logger.warning(f"Invalid protected resource metadata at {response.request.url}")
+                return False
+        elif response.status_code == 404:
+            # Not found - try next URL in fallback chain
+            logger.debug(f"Protected resource metadata not found at {response.request.url}, trying next URL")
+            return False
         else:
+            # Other error - fail immediately
             raise OAuthFlowError(f"Protected Resource Metadata request failed: {response.status_code}")
 
     def _select_scopes(self, init_response: httpx.Response) -> None:
@@ -547,11 +619,25 @@ class OAuthClientProvider(httpx.Auth):
             if response.status_code == 401:
                 # Perform full OAuth flow
                 try:
+                    # Reset discovery state for new OAuth flow
+                    self.context.reset_discovery_state()
+
                     # OAuth flow must be inline due to generator constraints
-                    # Step 1: Discover protected resource metadata (RFC9728 with WWW-Authenticate support)
-                    discovery_request = await self._discover_protected_resource(response)
-                    discovery_response = yield discovery_request
-                    await self._handle_protected_resource_response(discovery_response)
+                    # Step 1: Discover protected resource metadata (SEP-985 with fallback support)
+                    # Try discovery URLs in order until one succeeds
+                    discovery_success = False
+                    while not discovery_success:
+                        discovery_request = await self._discover_protected_resource(response)
+                        discovery_response = yield discovery_request
+                        discovery_success = await self._handle_protected_resource_response(discovery_response)
+
+                        if not discovery_success:
+                            # Try next URL in fallback chain
+                            self.context.discovery_index += 1
+                            if self.context.discovery_index >= len(self.context.discovery_urls):
+                                raise OAuthFlowError(
+                                    "Protected resource metadata discovery failed: no valid metadata found"
+                                )
 
                     # Step 2: Apply scope selection strategy
                     self._select_scopes(response)
