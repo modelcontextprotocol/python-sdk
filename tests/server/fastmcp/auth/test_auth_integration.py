@@ -100,7 +100,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
         if old_access_token is None:
             return None
         token_info = self.tokens.get(old_access_token)
-        if token_info is None:
+        if token_info is None:  # pragma: no cover
             return None
 
         # Create a RefreshToken object that matches what is expected in later code
@@ -174,17 +174,17 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
         match token:
-            case RefreshToken():
+            case RefreshToken():  # pragma: no cover
                 # Remove the refresh token
                 del self.refresh_tokens[token.token]
 
-            case AccessToken():
+            case AccessToken():  # pragma: no branch
                 # Remove the access token
                 del self.tokens[token.token]
 
                 # Also remove any refresh tokens that point to this access token
                 for refresh_token, access_token in list(self.refresh_tokens.items()):
-                    if access_token == token.token:
+                    if access_token == token.token:  # pragma: no branch
                         del self.refresh_tokens[refresh_token]
 
 
@@ -283,7 +283,7 @@ async def auth_code(
     }
 
     # Override with any parameters from the test
-    if hasattr(request, "param") and request.param:
+    if hasattr(request, "param") and request.param:  # pragma: no cover
         auth_params.update(request.param)
 
     response = await test_client.get("/authorize", params=auth_params)
@@ -319,24 +319,24 @@ async def tokens(
                             [{"code_verifier": "wrong_verifier"}],
                             indirect=True)
     """
-    # Default token request params
-    token_params = {
-        "grant_type": "authorization_code",
-        "client_id": registered_client["client_id"],
-        "client_secret": registered_client["client_secret"],
-        "code": auth_code["code"],
-        "code_verifier": pkce_challenge["code_verifier"],
-        "redirect_uri": auth_code["redirect_uri"],
-    }
+    # Default token request params  # pragma: no cover
+    token_params = {  # pragma: no cover
+        "grant_type": "authorization_code",  # pragma: no cover
+        "client_id": registered_client["client_id"],  # pragma: no cover
+        "client_secret": registered_client["client_secret"],  # pragma: no cover
+        "code": auth_code["code"],  # pragma: no cover
+        "code_verifier": pkce_challenge["code_verifier"],  # pragma: no cover
+        "redirect_uri": auth_code["redirect_uri"],  # pragma: no cover
+    }  # pragma: no cover
 
-    # Override with any parameters from the test
-    if hasattr(request, "param") and request.param:
+    # Override with any parameters from the test  # pragma: no cover
+    if hasattr(request, "param") and request.param:  # pragma: no cover
         token_params.update(request.param)
 
-    response = await test_client.post("/token", data=token_params)
+    response = await test_client.post("/token", data=token_params)  # pragma: no cover
 
     # Don't assert success here since some tests will intentionally cause errors
-    return {
+    return {  # pragma: no cover
         "response": response,
         "params": token_params,
     }
@@ -422,8 +422,8 @@ class TestAuthEndpoints:
         # Find the auth code object
         code_value = auth_code["code"]
         found_code = None
-        for code_obj in mock_oauth_provider.auth_codes.values():
-            if code_obj.code == code_value:
+        for code_obj in mock_oauth_provider.auth_codes.values():  # pragma: no branch
+            if code_obj.code == code_value:  # pragma: no branch
                 found_code = code_obj
                 break
 

@@ -22,13 +22,13 @@ class MockTokenStorage:
         self._client_info: OAuthClientInformationFull | None = None
 
     async def get_tokens(self) -> OAuthToken | None:
-        return self._tokens
+        return self._tokens  # pragma: no cover
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
         self._tokens = tokens
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
-        return self._client_info
+        return self._client_info  # pragma: no cover
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
         self._client_info = client_info
@@ -64,11 +64,11 @@ def valid_tokens():
 def oauth_provider(client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage):
     async def redirect_handler(url: str) -> None:
         """Mock redirect handler."""
-        pass
+        pass  # pragma: no cover
 
     async def callback_handler() -> tuple[str, str | None]:
         """Mock callback handler."""
-        return "test_auth_code", "test_state"
+        return "test_auth_code", "test_state"  # pragma: no cover
 
     return OAuthClientProvider(
         server_url="https://api.example.com/v1/mcp",
@@ -247,10 +247,10 @@ class TestOAuthFlow:
         """Test protected resource metadata discovery URL building with fallback."""
 
         async def redirect_handler(url: str) -> None:
-            pass
+            pass  # pragma: no cover
 
         async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
+            return "test_auth_code", "test_state"  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com",
@@ -663,7 +663,7 @@ class TestRegistrationResponse:
 
             @property
             def text(self):
-                if not self._aread_called:
+                if not self._aread_called:  # pragma: no cover
                     raise RuntimeError("Response.text accessed before response.aread()")
                 return self._text
 
@@ -846,10 +846,10 @@ class TestAuthFlow:
         # In the buggy version, this would yield the request AGAIN unconditionally
         # In the fixed version, this should end the generator
         try:
-            await auth_flow.asend(response)  # extra request
-            request_yields += 1
-            # If we reach here, the bug is present
-            pytest.fail(
+            await auth_flow.asend(response)  # extra request  # pragma: no cover
+            request_yields += 1  # pragma: no cover
+            # If we reach here, the bug is present  # pragma: no cover
+            pytest.fail(  # pragma: no cover
                 f"Unnecessary retry detected! Request was yielded {request_yields} times. "
                 f"This indicates the retry logic bug that caused 2x performance degradation. "
                 f"The request should only be yielded once for successful responses."
@@ -949,7 +949,7 @@ class TestAuthFlow:
         success_response = httpx.Response(200, request=final_request)
         try:
             await auth_flow.asend(success_response)
-            pytest.fail("Should have stopped after successful response")
+            pytest.fail("Should have stopped after successful response")  # pragma: no cover
         except StopAsyncIteration:
             pass  # Expected
 
@@ -1269,10 +1269,10 @@ class TestWWWAuthenticate:
         """Test extraction of various fields from valid WWW-Authenticate headers."""
 
         async def redirect_handler(url: str) -> None:
-            pass
+            pass  # pragma: no cover
 
         async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
+            return "test_auth_code", "test_state"  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -1317,10 +1317,10 @@ class TestWWWAuthenticate:
         """Test extraction returns None for invalid cases."""
 
         async def redirect_handler(url: str) -> None:
-            pass
+            pass  # pragma: no cover
 
         async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
+            return "test_auth_code", "test_state"  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
