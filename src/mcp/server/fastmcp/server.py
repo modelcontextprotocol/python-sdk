@@ -1225,7 +1225,9 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     @property
     def client_id(self) -> str | None:
         """Get the client ID if available."""
-        return getattr(self.request_context.meta, "client_id", None) if self.request_context.meta else None  # pragma: no cover
+        return (
+            getattr(self.request_context.meta, "client_id", None) if self.request_context.meta else None
+        )  # pragma: no cover
 
     @property
     def request_id(self) -> str:

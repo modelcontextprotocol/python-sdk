@@ -46,7 +46,9 @@ RequestId = str | int
 class ProgressFnT(Protocol):
     """Protocol for progress notification callbacks."""
 
-    async def __call__(self, progress: float, total: float | None, message: str | None) -> None: ...  # pragma: no branch
+    async def __call__(
+        self, progress: float, total: float | None, message: str | None
+    ) -> None: ...  # pragma: no branch
 
 
 class RequestResponder(Generic[ReceiveRequestT, SendResultT]):

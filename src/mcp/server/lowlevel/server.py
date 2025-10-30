@@ -679,7 +679,9 @@ class Server(Generic[LifespanResultT, RequestT]):
             try:
                 # Extract request context from message metadata
                 request_data = None
-                if message.message_metadata is not None and isinstance(message.message_metadata, ServerMessageMetadata):  # pragma: no cover
+                if message.message_metadata is not None and isinstance(
+                    message.message_metadata, ServerMessageMetadata
+                ):  # pragma: no cover
                     request_data = message.message_metadata.request_context
 
                 # Set our global state that can be retrieved via

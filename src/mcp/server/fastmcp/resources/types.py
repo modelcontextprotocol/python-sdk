@@ -171,7 +171,7 @@ class DirectoryResource(Resource):
 
     @pydantic.field_validator("path")
     @classmethod
-    def validate_absolute_path(cls, path: Path) -> Path: # pragma: no cover
+    def validate_absolute_path(cls, path: Path) -> Path:  # pragma: no cover
         """Ensure path is absolute."""
         if not path.is_absolute():
             raise ValueError("Path must be absolute")

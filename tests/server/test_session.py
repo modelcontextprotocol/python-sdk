@@ -58,7 +58,9 @@ async def test_server_session_initialize():
                 if isinstance(message, Exception):  # pragma: no cover
                     raise message
 
-                if isinstance(message, ClientNotification) and isinstance(message.root, InitializedNotification):  # pragma: no branch
+                if isinstance(message, ClientNotification) and isinstance(
+                    message.root, InitializedNotification
+                ):  # pragma: no branch
                     received_initialized = True
                     return
 
@@ -154,7 +156,9 @@ async def test_server_session_initialize_with_older_protocol_version():
                 if isinstance(message, Exception):  # pragma: no cover
                     raise message
 
-                if isinstance(message, types.ClientNotification) and isinstance(message.root, InitializedNotification):  # pragma: no branch
+                if isinstance(message, types.ClientNotification) and isinstance(
+                    message.root, InitializedNotification
+                ):  # pragma: no branch
                     received_initialized = True
                     return
 
@@ -239,7 +243,9 @@ async def test_ping_request_before_initialization():
                     raise message
 
                 # We should receive a ping request before initialization
-                if isinstance(message, RequestResponder) and isinstance(message.request.root, types.PingRequest):  # pragma: no branch
+                if isinstance(message, RequestResponder) and isinstance(
+                    message.request.root, types.PingRequest
+                ):  # pragma: no branch
                     # Respond to the ping
                     with message:
                         await message.respond(types.ServerResult(types.EmptyResult()))

@@ -71,7 +71,9 @@ async def test_stdio_elicitation():
     create_ask_user_tool(mcp)
 
     # Create a custom handler for elicitation requests
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):  # pragma: no cover
+    async def elicitation_callback(
+        context: RequestContext[ClientSession, None], params: ElicitRequestParams
+    ):  # pragma: no cover
         if params.message == "Tool wants to ask: What is your name?":
             return ElicitResult(action="accept", content={"answer": "Test User"})
         else:
@@ -126,7 +128,9 @@ async def test_elicitation_schema_validation():
     create_validation_tool("nested_model", InvalidNestedSchema)
 
     # Dummy callback (won't be called due to validation failure)
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):  # pragma: no cover
+    async def elicitation_callback(
+        context: RequestContext[ClientSession, None], params: ElicitRequestParams
+    ):  # pragma: no cover
         return ElicitResult(action="accept", content={})
 
     async with create_connected_server_and_client_session(
@@ -203,7 +207,9 @@ async def test_elicitation_with_optional_fields():
         except TypeError as e:
             return f"Validation failed: {str(e)}"
 
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):  # pragma: no cover
+    async def elicitation_callback(
+        context: RequestContext[ClientSession, None], params: ElicitRequestParams
+    ):  # pragma: no cover
         return ElicitResult(action="accept", content={})
 
     await call_tool_and_assert(

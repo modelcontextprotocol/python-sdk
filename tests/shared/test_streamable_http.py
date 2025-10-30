@@ -254,7 +254,9 @@ class ServerTest(Server):  # pragma: no cover
             return [TextContent(type="text", text=f"Called {name}")]
 
 
-def create_app(is_json_response_enabled: bool = False, event_store: EventStore | None = None) -> Starlette:  # pragma: no cover
+def create_app(
+    is_json_response_enabled: bool = False, event_store: EventStore | None = None
+) -> Starlette:  # pragma: no cover
     """Create a Starlette application for testing using the session manager.
 
     Args:
@@ -287,7 +289,9 @@ def create_app(is_json_response_enabled: bool = False, event_store: EventStore |
     return app
 
 
-def run_server(port: int, is_json_response_enabled: bool = False, event_store: EventStore | None = None) -> None:  # pragma: no cover
+def run_server(
+    port: int, is_json_response_enabled: bool = False, event_store: EventStore | None = None
+) -> None:  # pragma: no cover
     """Run the test server.
 
     Args:
@@ -1014,7 +1018,7 @@ async def test_streamablehttp_client_session_termination(basic_server: None, bas
             tools = await session.list_tools()
             assert len(tools.tools) == 6
 
-    headers: dict[str, str] = {} # pragma: no cover
+    headers: dict[str, str] = {}  # pragma: no cover
     if captured_session_id:  # pragma: no cover
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
 
@@ -1080,7 +1084,7 @@ async def test_streamablehttp_client_session_termination_204(
             tools = await session.list_tools()
             assert len(tools.tools) == 6
 
-    headers: dict[str, str] = {} # pragma: no cover
+    headers: dict[str, str] = {}  # pragma: no cover
     if captured_session_id:  # pragma: no cover
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
 
@@ -1169,18 +1173,18 @@ async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventS
                 tg.cancel_scope.cancel()
 
     # Verify we received exactly one notification
-    assert len(captured_notifications) == 1 # pragma: no cover
+    assert len(captured_notifications) == 1  # pragma: no cover
     assert isinstance(captured_notifications[0].root, types.LoggingMessageNotification)  # pragma: no cover
-    assert captured_notifications[0].root.params.data == "First notification before lock" # pragma: no cover
+    assert captured_notifications[0].root.params.data == "First notification before lock"  # pragma: no cover
 
     # Clear notifications for the second phase
     captured_notifications = []  # pragma: no cover
 
     # Now resume the session with the same mcp-session-id and protocol version
     headers: dict[str, Any] = {}  # pragma: no cover
-    if captured_session_id: # pragma: no cover
+    if captured_session_id:  # pragma: no cover
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
-    if captured_protocol_version: # pragma: no cover
+    if captured_protocol_version:  # pragma: no cover
         headers[MCP_PROTOCOL_VERSION_HEADER] = captured_protocol_version
     async with streamablehttp_client(f"{server_url}/mcp", headers=headers) as (
         read_stream,
@@ -1443,7 +1447,7 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
                 contexts.append(context_data)
 
     # Verify each request had its own context
-    assert len(contexts) == 3 # pragma: no cover
+    assert len(contexts) == 3  # pragma: no cover
     for i, ctx in enumerate(contexts):  # pragma: no cover
         assert ctx["request_id"] == f"request-{i}"
         assert ctx["headers"].get("x-request-id") == f"request-{i}"
