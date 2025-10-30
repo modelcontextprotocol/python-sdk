@@ -48,7 +48,7 @@ async def run_tool_test(
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
 
     # Message handler for client
-    async def message_handler(
+    async def message_handler(  # pragma: no cover
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
@@ -119,7 +119,7 @@ async def test_content_only_without_output_schema():
     async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         if name == "echo":
             return [TextContent(type="text", text=f"Echo: {arguments['message']}")]
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -155,7 +155,7 @@ async def test_dict_only_without_output_schema():
     async def call_tool_handler(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if name == "get_info":
             return {"status": "ok", "data": {"value": 42}}
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -194,7 +194,7 @@ async def test_both_content_and_dict_without_output_schema():
             content = [TextContent(type="text", text="Processing complete")]
             data = {"result": "success", "count": 10}
             return (content, data)
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -282,7 +282,7 @@ async def test_valid_dict_with_output_schema():
             x = arguments["x"]
             y = arguments["y"]
             return {"sum": x + y, "product": x * y}
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -326,7 +326,7 @@ async def test_invalid_dict_with_output_schema():
         if name == "user_info":
             # Missing required 'age' field
             return {"name": "Alice"}
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -374,7 +374,7 @@ async def test_both_content_and_valid_dict_with_output_schema():
             content = [TextContent(type="text", text=f"Analysis of: {arguments['text']}")]
             data = {"sentiment": "positive", "confidence": 0.95}
             return (content, data)
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -413,7 +413,7 @@ async def test_tool_call_result():
                 structuredContent={"status": "ok", "data": {"value": 42}},
                 _meta={"some": "metadata"},
             )
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -459,7 +459,7 @@ async def test_output_schema_type_validation():
         if name == "stats":
             # Wrong type for 'count' - should be integer
             return {"count": "five", "average": 2.5, "items": ["a", "b"]}
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:

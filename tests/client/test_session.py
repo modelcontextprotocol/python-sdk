@@ -82,7 +82,7 @@ async def test_client_session_initialize():
             )
 
     # Create a message handler to catch exceptions
-    async def message_handler(
+    async def message_handler(  # pragma: no cover
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
@@ -426,7 +426,7 @@ async def test_client_capabilities_with_custom_callbacks():
 
     received_capabilities = None
 
-    async def custom_sampling_callback(
+    async def custom_sampling_callback(  # pragma: no cover
         context: RequestContext["ClientSession", Any],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.ErrorData:
@@ -436,7 +436,7 @@ async def test_client_capabilities_with_custom_callbacks():
             model="test-model",
         )
 
-    async def custom_list_roots_callback(
+    async def custom_list_roots_callback(  # pragma: no cover
         context: RequestContext["ClientSession", Any],
     ) -> types.ListRootsResult | types.ErrorData:
         return types.ListRootsResult(roots=[])

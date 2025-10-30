@@ -44,17 +44,17 @@ def resources(mcp: FastMCP, test_dir: Path) -> FastMCP:
     @mcp.resource("file://test_dir/readme.md")
     def read_readme_md() -> str:
         """Read the readme.md file"""
-        try:
+        try:  # pragma: no cover
             return (test_dir / "readme.md").read_text()
-        except FileNotFoundError:
+        except FileNotFoundError:  # pragma: no cover
             return "File not found"
 
     @mcp.resource("file://test_dir/config.json")
     def read_config_json() -> str:
         """Read the config.json file"""
-        try:
+        try:  # pragma: no cover
             return (test_dir / "config.json").read_text()
-        except FileNotFoundError:
+        except FileNotFoundError:  # pragma: no cover
             return "File not found"
 
     return mcp
@@ -65,7 +65,7 @@ def tools(mcp: FastMCP, test_dir: Path) -> FastMCP:
     @mcp.tool()
     def delete_file(path: str) -> bool:
         # ensure path is in test_dir
-        if Path(path).resolve().parent != test_dir:
+        if Path(path).resolve().parent != test_dir:  # pragma: no cover
             raise ValueError(f"Path must be in test_dir: {path}")
         Path(path).unlink()
         return True

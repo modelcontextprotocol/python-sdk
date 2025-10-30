@@ -110,7 +110,7 @@ async def test_lifespan_cleanup_executed():
 
         # Give server a moment to complete cleanup
         with anyio.move_on_after(5.0):
-            while not Path(cleanup_marker).exists():
+            while not Path(cleanup_marker).exists():  # pragma: no cover
                 await anyio.sleep(0.1)
 
         # Verify cleanup marker was created - this works now that stdio_client
@@ -121,9 +121,9 @@ async def test_lifespan_cleanup_executed():
     finally:
         # Clean up files
         for path in [server_script, startup_marker, cleanup_marker]:
-            try:
+            try:  # pragma: no cover
                 Path(path).unlink()
-            except FileNotFoundError:
+            except FileNotFoundError:  # pragma: no cover
                 pass
 
 
@@ -213,27 +213,27 @@ async def test_stdin_close_triggers_cleanup():
                 await anyio.sleep(0.1)
 
         # Check if process is still running
-        if hasattr(process, "returncode") and process.returncode is not None:
+        if hasattr(process, "returncode") and process.returncode is not None:  # pragma: no cover
             pytest.fail(f"Server process exited with code {process.returncode}")
 
         assert Path(startup_marker).exists(), "Server startup marker not created"
 
         # Close stdin to signal shutdown
-        if process.stdin:
+        if process.stdin:  # pragma: no branch
             await process.stdin.aclose()
 
         # Wait for process to exit gracefully
         try:
             with anyio.fail_after(5.0):  # Increased from 2.0 to 5.0
                 await process.wait()
-        except TimeoutError:
+        except TimeoutError:  # pragma: no cover
             # If it doesn't exit after stdin close, terminate it
             process.terminate()
             await process.wait()
 
         # Check if cleanup ran
         with anyio.move_on_after(5.0):
-            while not Path(cleanup_marker).exists():
+            while not Path(cleanup_marker).exists():  # pragma: no cover
                 await anyio.sleep(0.1)
 
         # Verify the cleanup ran - stdin closure enables graceful shutdown
@@ -243,7 +243,7 @@ async def test_stdin_close_triggers_cleanup():
     finally:
         # Clean up files
         for path in [server_script, startup_marker, cleanup_marker]:
-            try:
+            try:  # pragma: no cover
                 Path(path).unlink()
-            except FileNotFoundError:
+            except FileNotFoundError:  # pragma: no cover
                 pass

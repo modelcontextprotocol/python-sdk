@@ -15,7 +15,7 @@ class TestResourceTemplate:
     def test_template_creation(self):
         """Test creating a template from a function."""
 
-        def my_func(key: str, value: int) -> dict[str, Any]:
+        def my_func(key: str, value: int) -> dict[str, Any]:  # pragma: no cover
             return {"key": key, "value": value}
 
         template = ResourceTemplate.from_function(
@@ -31,7 +31,7 @@ class TestResourceTemplate:
     def test_template_matches(self):
         """Test matching URIs against a template."""
 
-        def my_func(key: str, value: int) -> dict[str, Any]:
+        def my_func(key: str, value: int) -> dict[str, Any]:  # pragma: no cover
             return {"key": key, "value": value}
 
         template = ResourceTemplate.from_function(
@@ -196,7 +196,7 @@ class TestResourceTemplateAnnotations:
     def test_template_with_annotations(self):
         """Test creating a template with annotations."""
 
-        def get_user_data(user_id: str) -> str:
+        def get_user_data(user_id: str) -> str:  # pragma: no cover
             return f"User {user_id}"
 
         annotations = Annotations(priority=0.9)
@@ -211,7 +211,7 @@ class TestResourceTemplateAnnotations:
     def test_template_without_annotations(self):
         """Test that annotations are optional for templates."""
 
-        def get_user_data(user_id: str) -> str:
+        def get_user_data(user_id: str) -> str:  # pragma: no cover
             return f"User {user_id}"
 
         template = ResourceTemplate.from_function(fn=get_user_data, uri_template="resource://users/{user_id}")
@@ -225,7 +225,7 @@ class TestResourceTemplateAnnotations:
         mcp = FastMCP()
 
         @mcp.resource("resource://dynamic/{id}", annotations=Annotations(audience=["user"], priority=0.7))
-        def get_dynamic(id: str) -> str:
+        def get_dynamic(id: str) -> str:  # pragma: no cover
             """A dynamic annotated resource."""
             return f"Data for {id}"
 
@@ -239,7 +239,7 @@ class TestResourceTemplateAnnotations:
     async def test_template_created_resources_inherit_annotations(self):
         """Test that resources created from templates inherit annotations."""
 
-        def get_item(item_id: str) -> str:
+        def get_item(item_id: str) -> str:  # pragma: no cover
             return f"Item {item_id}"
 
         annotations = Annotations(priority=0.6)

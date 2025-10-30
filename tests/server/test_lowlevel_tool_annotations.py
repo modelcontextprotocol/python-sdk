@@ -20,7 +20,7 @@ async def test_lowlevel_server_tool_annotations():
 
     # Create a tool with annotations
     @server.list_tools()
-    async def list_tools():
+    async def list_tools():  # pragma: no cover
         return [
             Tool(
                 name="echo",
@@ -47,7 +47,7 @@ async def test_lowlevel_server_tool_annotations():
     async def message_handler(
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
     # Server task

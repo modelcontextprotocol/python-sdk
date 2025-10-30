@@ -12,7 +12,7 @@ class TestResourceValidation:
     def test_resource_uri_validation(self):
         """Test URI validation."""
 
-        def dummy_func() -> str:
+        def dummy_func() -> str:  # pragma: no cover
             return "data"
 
         # Valid URI
@@ -42,7 +42,7 @@ class TestResourceValidation:
     def test_resource_name_from_uri(self):
         """Test name is extracted from URI if not provided."""
 
-        def dummy_func() -> str:
+        def dummy_func() -> str:  # pragma: no cover
             return "data"
 
         resource = FunctionResource(
@@ -54,7 +54,7 @@ class TestResourceValidation:
     def test_resource_name_validation(self):
         """Test name validation."""
 
-        def dummy_func() -> str:
+        def dummy_func() -> str:  # pragma: no cover
             return "data"
 
         # Must provide either name or URI
@@ -74,7 +74,7 @@ class TestResourceValidation:
     def test_resource_mime_type(self):
         """Test mime type handling."""
 
-        def dummy_func() -> str:
+        def dummy_func() -> str:  # pragma: no cover
             return "data"
 
         # Default mime type
@@ -109,7 +109,7 @@ class TestResourceAnnotations:
     def test_resource_with_annotations(self):
         """Test creating a resource with annotations."""
 
-        def get_data() -> str:
+        def get_data() -> str:  # pragma: no cover
             return "data"
 
         annotations = Annotations(audience=["user"], priority=0.8)
@@ -123,7 +123,7 @@ class TestResourceAnnotations:
     def test_resource_without_annotations(self):
         """Test that annotations are optional."""
 
-        def get_data() -> str:
+        def get_data() -> str:  # pragma: no cover
             return "data"
 
         resource = FunctionResource.from_function(fn=get_data, uri="resource://test")
@@ -137,7 +137,7 @@ class TestResourceAnnotations:
         mcp = FastMCP()
 
         @mcp.resource("resource://annotated", annotations=Annotations(audience=["assistant"], priority=0.5))
-        def get_annotated() -> str:
+        def get_annotated() -> str:  # pragma: no cover
             """An annotated resource."""
             return "annotated data"
 
@@ -154,7 +154,7 @@ class TestResourceAnnotations:
         mcp = FastMCP()
 
         @mcp.resource("resource://both", annotations=Annotations(audience=["user", "assistant"], priority=1.0))
-        def get_both() -> str:
+        def get_both() -> str:  # pragma: no cover
             return "for everyone"
 
         resources = await mcp.list_resources()

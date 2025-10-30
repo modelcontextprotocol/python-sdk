@@ -24,7 +24,7 @@ from mcp.types import ClientNotification, RootsListChangedNotification
 from tests.test_helpers import wait_for_server
 
 
-def create_non_sdk_server_app() -> Starlette:
+def create_non_sdk_server_app() -> Starlette:  # pragma: no cover
     """Create a minimal server that doesn't follow SDK conventions."""
 
     async def handle_mcp_request(request: Request) -> Response:
@@ -67,7 +67,7 @@ def create_non_sdk_server_app() -> Starlette:
     return app
 
 
-def run_non_sdk_server(port: int) -> None:
+def run_non_sdk_server(port: int) -> None:  # pragma: no cover
     """Run the non-SDK server in a separate process."""
     app = create_non_sdk_server_app()
     config = uvicorn.Config(
@@ -95,9 +95,9 @@ def non_sdk_server(non_sdk_server_port: int) -> Generator[None, None, None]:
     proc.start()
 
     # Wait for server to be ready
-    try:
+    try:  # pragma: no cover
         wait_for_server(non_sdk_server_port, timeout=10.0)
-    except TimeoutError:
+    except TimeoutError:  # pragma: no cover
         proc.kill()
         proc.join(timeout=2)
         pytest.fail("Server failed to start within 10 seconds")
@@ -120,7 +120,7 @@ async def test_non_compliant_notification_response(non_sdk_server: None, non_sdk
     server_url = f"http://127.0.0.1:{non_sdk_server_port}/mcp"
     returned_exception = None
 
-    async def message_handler(
+    async def message_handler(  # pragma: no cover
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ):
         nonlocal returned_exception
@@ -141,5 +141,5 @@ async def test_non_compliant_notification_response(non_sdk_server: None, non_sdk
                 ClientNotification(RootsListChangedNotification(method="notifications/roots/list_changed"))
             )
 
-    if returned_exception:
+    if returned_exception:  # pragma: no cover
         pytest.fail(f"Server encountered an exception: {returned_exception}")

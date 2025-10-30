@@ -50,7 +50,7 @@ async def run_tool_test(
     async def message_handler(
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
     # Server task
@@ -122,7 +122,7 @@ async def test_valid_tool_call():
         if name == "add":
             result = arguments["a"] + arguments["b"]
             return [TextContent(type="text", text=f"Result: {result}")]
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -143,7 +143,7 @@ async def test_valid_tool_call():
 async def test_invalid_tool_call_missing_required():
     """Test that missing required arguments fail validation."""
 
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:  # pragma: no cover
         # This should not be reached due to validation
         raise RuntimeError("Should not reach here")
 
@@ -166,7 +166,7 @@ async def test_invalid_tool_call_missing_required():
 async def test_invalid_tool_call_wrong_type():
     """Test that wrong argument types fail validation."""
 
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:  # pragma: no cover
         # This should not be reached due to validation
         raise RuntimeError("Should not reach here")
 
@@ -207,7 +207,7 @@ async def test_cache_refresh_on_missing_tool():
         if name == "multiply":
             result = arguments["x"] * arguments["y"]
             return [TextContent(type="text", text=f"Result: {result}")]
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -244,7 +244,7 @@ async def test_enum_constraint_validation():
         )
     ]
 
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:  # pragma: no cover
         # This should not be reached due to validation failure
         raise RuntimeError("Should not reach here")
 
@@ -286,7 +286,7 @@ async def test_tool_not_in_list_logs_warning(caplog: pytest.LogCaptureFixture):
         if name == "unknown_tool":
             # Even with invalid arguments, this should execute since validation is skipped
             return [TextContent(type="text", text="Unknown tool executed without validation")]
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:

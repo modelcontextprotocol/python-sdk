@@ -121,7 +121,7 @@ async def test_untyped_request_param_is_deprecated() -> None:
     """Test: def foo(req) - should call without request."""
     called = False
 
-    async def handler(req):  # type: ignore[no-untyped-def]  # pyright: ignore[reportMissingParameterType]
+    async def handler(req):  # type: ignore[no-untyped-def]  # pyright: ignore[reportMissingParameterType]  # pragma: no cover
         nonlocal called
         called = True
         return ["test"]
@@ -139,7 +139,7 @@ async def test_untyped_request_param_is_deprecated() -> None:
 async def test_any_typed_request_param_is_deprecated() -> None:
     """Test: def foo(req: Any) - should call without request."""
 
-    async def handler(req: Any) -> list[str]:
+    async def handler(req: Any) -> list[str]:  # pragma: no cover
         return ["test"]
 
     wrapper = create_call_wrapper(handler, ListPromptsRequest)
@@ -155,7 +155,7 @@ async def test_any_typed_request_param_is_deprecated() -> None:
 async def test_generic_typed_request_param_is_deprecated() -> None:
     """Test: def foo(req: Generic[T]) - should call without request."""
 
-    async def handler(req: Generic[T]) -> list[str]:  # pyright: ignore[reportGeneralTypeIssues]
+    async def handler(req: Generic[T]) -> list[str]:  # pyright: ignore[reportGeneralTypeIssues]  # pragma: no cover
         return ["test"]
 
     wrapper = create_call_wrapper(handler, ListPromptsRequest)
@@ -171,7 +171,7 @@ async def test_generic_typed_request_param_is_deprecated() -> None:
 async def test_wrong_typed_request_param_is_deprecated() -> None:
     """Test: def foo(req: str) - should call without request."""
 
-    async def handler(req: str) -> list[str]:
+    async def handler(req: str) -> list[str]:  # pragma: no cover
         return ["test"]
 
     wrapper = create_call_wrapper(handler, ListPromptsRequest)
@@ -188,7 +188,7 @@ async def test_required_param_before_typed_request_attempts_to_pass() -> None:
     """Test: def foo(thing: int, req: ListPromptsRequest) - attempts to pass request (will fail at runtime)."""
     received_request = None
 
-    async def handler(thing: int, req: ListPromptsRequest) -> list[str]:
+    async def handler(thing: int, req: ListPromptsRequest) -> list[str]:  # pragma: no cover
         nonlocal received_request
         received_request = req
         return ["test"]
@@ -280,7 +280,7 @@ async def test_different_request_types() -> None:
 async def test_mixed_params_with_typed_request() -> None:
     """Test: def foo(a: str, req: ListPromptsRequest, b: int = 5) - attempts to pass request."""
 
-    async def handler(a: str, req: ListPromptsRequest, b: int = 5) -> list[str]:
+    async def handler(a: str, req: ListPromptsRequest, b: int = 5) -> list[str]:  # pragma: no cover
         return ["test"]
 
     wrapper = create_call_wrapper(handler, ListPromptsRequest)

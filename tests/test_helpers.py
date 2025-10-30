@@ -28,4 +28,4 @@ def wait_for_server(port: int, timeout: float = 5.0) -> None:
         except (ConnectionRefusedError, OSError):
             # Server not ready yet, retry quickly
             time.sleep(0.01)
-    raise TimeoutError(f"Server on port {port} did not start within {timeout} seconds")
+    raise TimeoutError(f"Server on port {port} did not start within {timeout} seconds")  # pragma: no cover
