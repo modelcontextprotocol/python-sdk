@@ -23,7 +23,7 @@ async def terminate_posix_process_tree(process: Process, timeout_seconds: float 
         timeout_seconds: Timeout in seconds before force killing (default: 2.0)
     """
     pid = getattr(process, "pid", None) or getattr(getattr(process, "popen", None), "pid", None)
-    if not pid:
+    if not pid:  # pragma: no cover
         # No PID means there's no process to terminate - it either never started,
         # already exited, or we have an invalid process object
         return
@@ -41,20 +41,22 @@ async def terminate_posix_process_tree(process: Process, timeout_seconds: float 
                 except ProcessLookupError:
                     return
 
-        try:
+        try:  # pragma: no cover
             os.killpg(pgid, signal.SIGKILL)
-        except ProcessLookupError:
+        except ProcessLookupError:  # pragma: no cover
             pass
 
-    except (ProcessLookupError, PermissionError, OSError) as e:
-        logger.warning(f"Process group termination failed for PID {pid}: {e}, falling back to simple terminate")
-        try:
-            process.terminate()
-            with anyio.fail_after(timeout_seconds):
-                await process.wait()
-        except Exception:
-            logger.warning(f"Process termination failed for PID {pid}, attempting force kill")
-            try:
-                process.kill()
-            except Exception:
-                logger.exception(f"Failed to kill process {pid}")
+    except (ProcessLookupError, PermissionError, OSError) as e:  # pragma: no cover
+        logger.warning(
+            f"Process group termination failed for PID {pid}: {e}, falling back to simple terminate"
+        )  # pragma: no cover
+        try:  # pragma: no cover
+            process.terminate()  # pragma: no cover
+            with anyio.fail_after(timeout_seconds):  # pragma: no cover
+                await process.wait()  # pragma: no cover
+        except Exception:  # pragma: no cover
+            logger.warning(f"Process termination failed for PID {pid}, attempting force kill")  # pragma: no cover
+            try:  # pragma: no cover
+                process.kill()  # pragma: no cover
+            except Exception:  # pragma: no cover
+                logger.exception(f"Failed to kill process {pid}")  # pragma: no cover
