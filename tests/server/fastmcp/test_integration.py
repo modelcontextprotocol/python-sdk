@@ -30,6 +30,7 @@ from examples.snippets.servers import (
     notifications,
     sampling,
     structured_output,
+    task_based_tool,
     tool_progress,
 )
 from mcp.client.session import ClientSession
@@ -37,6 +38,7 @@ from mcp.client.sse import sse_client
 from mcp.client.streamable_http import GetSessionIdCallback, streamablehttp_client
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
+from mcp.shared.request import TaskHandlerOptions
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     ClientResult,
@@ -45,6 +47,7 @@ from mcp.types import (
     ElicitRequestParams,
     ElicitResult,
     GetPromptResult,
+    GetTaskResult,
     InitializeResult,
     LoggingMessageNotification,
     LoggingMessageNotificationParams,
@@ -124,6 +127,8 @@ def run_server_with_transport(module_name: str, port: int, transport: str) -> No
         mcp = fastmcp_quickstart.mcp
     elif module_name == "structured_output":
         mcp = structured_output.mcp
+    elif module_name == "task_based_tool":
+        mcp = task_based_tool.mcp
     else:
         raise ImportError(f"Unknown module: {module_name}")
 
@@ -215,6 +220,7 @@ async def sampling_callback(
     context: RequestContext[ClientSession, None], params: CreateMessageRequestParams
 ) -> CreateMessageResult:
     """Sampling callback for tests."""
+    del context, params  # Unused but required by protocol
     return CreateMessageResult(
         role="assistant",
         content=TextContent(
@@ -227,6 +233,7 @@ async def sampling_callback(
 
 async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
     """Elicitation callback for tests."""
+    del context  # Unused but required by protocol
     # For restaurant booking test
     if "No tables available" in params.message:
         return ElicitResult(
@@ -686,3 +693,59 @@ async def test_structured_output(server_transport: str, server_url: str) -> None
             assert "sunny" in result_text  # condition
             assert "45" in result_text  # humidity
             assert "5.2" in result_text  # wind_speed
+
+
+# Test task-based execution
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "server_transport",
+    [
+        ("task_based_tool", "sse"),
+        ("task_based_tool", "streamable-http"),
+    ],
+    indirect=True,
+)
+async def test_task_based_tool(server_transport: str, server_url: str) -> None:
+    """Test task-based execution with begin_call_tool."""
+    transport = server_transport
+    client_cm = create_client_for_transport(transport, server_url)
+
+    async with client_cm as client_streams:
+        read_stream, write_stream = unpack_streams(client_streams)
+        async with ClientSession(read_stream, write_stream) as session:
+            # Test initialization
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "Task-Based Tool Example"
+
+            # Track callback invocations
+            task_created_called = False
+            task_status_updates: list[str] = []
+
+            async def on_task_created() -> None:
+                nonlocal task_created_called
+                task_created_called = True
+
+            async def on_task_status(task_result: GetTaskResult) -> None:
+                task_status_updates.append(task_result.status)
+
+            # Test begin_call_tool for task-based execution
+            pending_request = session.begin_call_tool(
+                "long_running_computation",
+                arguments={"data": "test_data", "delay_seconds": 0.1},
+            )
+
+            # Wait for the result with callbacks
+            tool_result = await pending_request.result(
+                TaskHandlerOptions(on_task_created=on_task_created, on_task_status=on_task_status)
+            )
+
+            # Verify the result
+            assert len(tool_result.content) == 1
+            assert isinstance(tool_result.content[0], TextContent)
+            assert "Processed: TEST_DATA" in tool_result.content[0].text
+            assert "0.1s" in tool_result.content[0].text
+
+            # Note: Due to the race between direct result and task-based polling,
+            # callbacks may or may not be called depending on timing.
+            # The important thing is that task-based execution is supported and works correctly.

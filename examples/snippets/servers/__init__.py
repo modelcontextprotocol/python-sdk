@@ -22,7 +22,7 @@ def run_server():
         print("Usage: server <server-name> [transport]")
         print("Available servers: basic_tool, basic_resource, basic_prompt, tool_progress,")
         print("                   sampling, elicitation, completion, notifications,")
-        print("                   fastmcp_quickstart, structured_output, images")
+        print("                   fastmcp_quickstart, structured_output, images, task_based_tool")
         print("Available transports: stdio (default), sse, streamable-http")
         sys.exit(1)
 

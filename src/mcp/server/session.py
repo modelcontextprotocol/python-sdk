@@ -43,7 +43,7 @@ from typing import Any, TypeVar
 import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl
+from pydantic import AnyUrl, BaseModel
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
@@ -52,6 +52,7 @@ from mcp.shared.session import (
     BaseSession,
     RequestResponder,
 )
+from mcp.shared.task import TaskStore
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 
@@ -61,6 +62,7 @@ class InitializationState(Enum):
     Initialized = 3
 
 
+ServerResultT = TypeVar("ServerResultT", BaseModel, types.ServerResult)
 ServerSessionT = TypeVar("ServerSessionT", bound="ServerSession")
 
 ServerRequestResponder = (
@@ -86,8 +88,11 @@ class ServerSession(
         write_stream: MemoryObjectSendStream[SessionMessage],
         init_options: InitializationOptions,
         stateless: bool = False,
+        task_store: TaskStore | None = None,
     ) -> None:
-        super().__init__(read_stream, write_stream, types.ClientRequest, types.ClientNotification)
+        super().__init__(
+            read_stream, write_stream, types.ClientRequest, types.ClientNotification, task_store=task_store
+        )
         self._initialization_state = (
             InitializationState.Initialized if stateless else InitializationState.NotInitialized
         )
@@ -140,6 +145,24 @@ class ServerSession(
             await super()._receive_loop()
 
     async def _received_request(self, responder: RequestResponder[types.ClientRequest, types.ServerResult]):
+        # Handle task creation if task metadata is present
+        if responder.request_meta and responder.request_meta.task and self._task_store:
+            task_meta = responder.request_meta.task
+            # Create the task in the task store
+            await self._task_store.create_task(task_meta, responder.request_id, responder.request.root)  # type: ignore[arg-type]
+            # Send task created notification with related task metadata
+            notification_params = types.TaskCreatedNotificationParams(
+                _meta=types.NotificationParams.Meta(
+                    **{types.RELATED_TASK_META_KEY: types.RelatedTaskMetadata(taskId=task_meta.taskId)}
+                )
+            )
+            await self.send_notification(
+                types.ServerNotification(
+                    types.TaskCreatedNotification(method="notifications/tasks/created", params=notification_params)
+                ),
+                related_request_id=responder.request_id,
+            )
+
         match responder.request.root:
             case types.InitializeRequest(params=params):
                 requested_version = params.protocolVersion
@@ -167,6 +190,91 @@ class ServerSession(
             case types.PingRequest():
                 # Ping requests are allowed at any time
                 pass
+            case types.GetTaskRequest(params=params):
+                # Handle get task requests if task store is available
+                if self._task_store:
+                    task = await self._task_store.get_task(params.taskId)
+                    if task is None:
+                        with responder:
+                            await responder.respond(
+                                types.ErrorData(
+                                    code=types.INVALID_PARAMS, message="Failed to retrieve task: Task not found"
+                                )
+                            )
+                    else:
+                        with responder:
+                            result = types.GetTaskResult(
+                                taskId=task.taskId,
+                                status=task.status,
+                                keepAlive=task.keepAlive,
+                                pollFrequency=task.pollFrequency,
+                                error=task.error,
+                                _meta={types.RELATED_TASK_META_KEY: {"taskId": params.taskId}},
+                            )
+                            await responder.respond(types.ServerResult(result))
+                else:
+                    with responder:
+                        await responder.respond(
+                            types.ErrorData(code=types.INVALID_REQUEST, message="Task store not configured")
+                        )
+            case types.GetTaskPayloadRequest(params=params):
+                # Handle get task result requests if task store is available
+                if self._task_store:
+                    task = await self._task_store.get_task(params.taskId)
+                    if task is None:
+                        with responder:
+                            await responder.respond(
+                                types.ErrorData(
+                                    code=types.INVALID_PARAMS, message="Failed to retrieve task: Task not found"
+                                )
+                            )
+                    elif task.status != "completed":
+                        with responder:
+                            await responder.respond(
+                                types.ErrorData(
+                                    code=types.INVALID_PARAMS,
+                                    message=f"Cannot retrieve result: Task status is '{task.status}', not 'completed'",
+                                )
+                            )
+                    else:
+                        result = await self._task_store.get_task_result(params.taskId)
+                        # Add related-task metadata
+                        result_dict = result.model_dump(by_alias=True, mode="json", exclude_none=True)
+                        if "_meta" not in result_dict:
+                            result_dict["_meta"] = {}
+                        result_dict["_meta"][types.RELATED_TASK_META_KEY] = {"taskId": params.taskId}
+                        with responder:
+                            await responder.respond(types.ServerResult.model_validate(result_dict))
+                else:
+                    with responder:
+                        await responder.respond(
+                            types.ErrorData(code=types.INVALID_REQUEST, message="Task store not configured")
+                        )
+            case types.ListTasksRequest(params=params):
+                # Handle list tasks requests if task store is available
+                if self._task_store:
+                    try:
+                        result = await self._task_store.list_tasks(params.cursor if params else None)
+                        with responder:
+                            await responder.respond(
+                                types.ServerResult(
+                                    types.ListTasksResult(
+                                        tasks=result["tasks"],  # type: ignore[arg-type]
+                                        nextCursor=result.get("nextCursor"),  # type: ignore[arg-type]
+                                        _meta={},
+                                    )
+                                )
+                            )
+                    except Exception as e:
+                        with responder:
+                            await responder.respond(
+                                types.ErrorData(code=types.INVALID_PARAMS, message=f"Failed to list tasks: {e}")
+                            )
+                else:
+                    with responder:
+                        await responder.respond(
+                            types.ErrorData(code=types.INVALID_REQUEST, message="Task store not configured")
+                        )
             case _:
                 if self._initialization_state != InitializationState.Initialized:
                     raise RuntimeError("Received request before initialization was complete")
@@ -323,6 +431,33 @@ class ServerSession(
     async def send_prompt_list_changed(self) -> None:
         """Send a prompt list changed notification."""
         await self.send_notification(types.ServerNotification(types.PromptListChangedNotification()))
+
+    async def get_task(self, task_id: str) -> types.GetTaskResult:
+        """Get the current status of a task."""
+        return await self.send_request(
+            types.ServerRequest(types.GetTaskRequest(method="tasks/get", params=types.GetTaskParams(taskId=task_id))),
+            types.GetTaskResult,
+        )
+
+    async def get_task_result(self, task_id: str, result_type: type[ServerResultT]) -> ServerResultT:
+        """Retrieve the result of a completed task."""
+        return await self.send_request(
+            types.ServerRequest(
+                types.GetTaskPayloadRequest(method="tasks/result", params=types.GetTaskPayloadParams(taskId=task_id))
+            ),
+            result_type,
+        )
+
+    async def list_tasks(self, cursor: str | None = None) -> types.ListTasksResult:
+        """List tasks, optionally starting from a pagination cursor."""
+        return await self.send_request(
+            types.ServerRequest(
+                types.ListTasksRequest(
+                    method="tasks/list", params=types.PaginatedRequestParams(cursor=cursor) if cursor else None
+                )
+            ),
+            types.ListTasksResult,
+        )
 
     async def _handle_incoming(self, req: ServerRequestResponder) -> None:
         await self._incoming_message_stream_writer.send(req)

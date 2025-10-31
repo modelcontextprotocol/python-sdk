@@ -3,7 +3,7 @@ from collections.abc import Callable
 from contextlib import AsyncExitStack
 from datetime import timedelta
 from types import TracebackType
-from typing import Any, Generic, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
 import anyio
 import httpx
@@ -13,25 +13,36 @@ from typing_extensions import Self
 
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.task import TaskStore
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
+    RELATED_TASK_META_KEY,
+    TASK_META_KEY,
     CancelledNotification,
     ClientNotification,
     ClientRequest,
     ClientResult,
     ErrorData,
+    GetTaskResult,
     JSONRPCError,
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    ListTasksResult,
     ProgressNotification,
+    RelatedTaskMetadata,
     RequestParams,
     ServerNotification,
     ServerRequest,
     ServerResult,
+    TaskCreatedNotification,
+    TaskMetadata,
 )
+
+if TYPE_CHECKING:
+    from mcp.shared.request import PendingRequest
 
 SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
 SendResultT = TypeVar("SendResultT", ClientResult, ServerResult)
@@ -177,6 +188,9 @@ class BaseSession(
     _request_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
     _progress_callbacks: dict[RequestId, ProgressFnT]
+    _pending_task_creations: dict[str, anyio.Event]
+    _request_id_to_task_id: dict[RequestId, str]
+    _task_store: TaskStore | None
 
     def __init__(
         self,
@@ -186,6 +200,7 @@ class BaseSession(
         receive_notification_type: type[ReceiveNotificationT],
         # If none, reading will never time out
         read_timeout_seconds: timedelta | None = None,
+        task_store: TaskStore | None = None,
     ) -> None:
         self._read_stream = read_stream
         self._write_stream = write_stream
@@ -196,6 +211,9 @@ class BaseSession(
         self._session_read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
         self._progress_callbacks = {}
+        self._pending_task_creations = {}
+        self._request_id_to_task_id = {}
+        self._task_store = task_store
         self._exit_stack = AsyncExitStack()
 
     async def __aenter__(self) -> Self:
@@ -224,6 +242,8 @@ class BaseSession(
         request_read_timeout_seconds: timedelta | None = None,
         metadata: MessageMetadata = None,
         progress_callback: ProgressFnT | None = None,
+        task: TaskMetadata | None = None,
+        related_task: RelatedTaskMetadata | None = None,
     ) -> ReceiveResultT:
         """
         Sends a request and wait for a response. Raises an McpError if the
@@ -232,6 +252,15 @@ class BaseSession(
 
         Do not use this method to emit notifications! Use send_notification()
         instead.
+
+        Args:
+            request: The request to send
+            result_type: The expected result type
+            request_read_timeout_seconds: Optional timeout for reading response
+            metadata: Optional message metadata
+            progress_callback: Optional callback for progress notifications
+            task: Optional task metadata for task-based execution
+            related_task: Optional related task metadata
         """
         request_id = self._request_id
         self._request_id = request_id + 1
@@ -250,6 +279,26 @@ class BaseSession(
             request_data["params"]["_meta"]["progressToken"] = request_id
             # Store the callback for this request
             self._progress_callbacks[request_id] = progress_callback
+
+        # Inject task metadata if provided
+        if task is not None:
+            if "params" not in request_data:
+                request_data["params"] = {}
+            if "_meta" not in request_data["params"]:
+                request_data["params"]["_meta"] = {}
+            request_data["params"]["_meta"][TASK_META_KEY] = task.model_dump(by_alias=True, exclude_none=True)
+            # Track this request's task ID
+            self._request_id_to_task_id[request_id] = task.taskId
+
+        # Inject related task metadata if provided
+        if related_task is not None:
+            if "params" not in request_data:
+                request_data["params"] = {}
+            if "_meta" not in request_data["params"]:
+                request_data["params"]["_meta"] = {}
+            request_data["params"]["_meta"][RELATED_TASK_META_KEY] = related_task.model_dump(
+                by_alias=True, exclude_none=True
+            )
 
         try:
             jsonrpc_request = JSONRPCRequest(
@@ -290,8 +339,68 @@ class BaseSession(
         finally:
             self._response_streams.pop(request_id, None)
             self._progress_callbacks.pop(request_id, None)
+            # Clean up task tracking
+            task_id = self._request_id_to_task_id.pop(request_id, None)
+            if task_id:
+                self._pending_task_creations.pop(task_id, None)
             await response_stream.aclose()
             await response_stream_reader.aclose()
+
+    def begin_send_request(
+        self,
+        request: SendRequestT,
+        result_type: type[ReceiveResultT],
+        request_read_timeout_seconds: timedelta | None = None,
+        metadata: MessageMetadata = None,
+        progress_callback: ProgressFnT | None = None,
+        task: TaskMetadata | None = None,
+        related_task: RelatedTaskMetadata | None = None,
+    ) -> "PendingRequest[ReceiveResultT]":
+        """
+        Begin a request and return a PendingRequest for granular control over task-based execution.
+
+        This is useful when you want to create a task for a long-running request and poll for results later.
+
+        Args:
+            request: The request to send
+            result_type: The expected result type
+            request_read_timeout_seconds: Optional timeout for reading response
+            metadata: Optional message metadata
+            progress_callback: Optional callback for progress notifications
+            task: Optional task metadata for task-based execution
+            related_task: Optional related task metadata
+
+        Returns:
+            A PendingRequest object that can be used to wait for the result
+        """
+        from mcp.shared.request import PendingRequest
+
+        # Create an event for task creation notification if task is provided
+        task_created_event = anyio.Event()
+        if task:
+            self._pending_task_creations[task.taskId] = task_created_event
+
+        # Create the actual request coroutine
+        result_coro = self.send_request(
+            request,
+            result_type,
+            request_read_timeout_seconds,
+            metadata,
+            progress_callback,
+            task,
+            related_task,
+        )
+
+        async def wait_for_task_creation() -> None:
+            await task_created_event.wait()
+
+        return PendingRequest(
+            session=self,
+            task_created_handle=wait_for_task_creation(),
+            result_handle=result_coro,
+            result_type=result_type,
+            task_id=task.taskId if task else None,
+        )
 
     async def send_notification(
         self,
@@ -381,28 +490,14 @@ class BaseSession(
                             )
                             # Handle cancellation notifications
                             if isinstance(notification.root, CancelledNotification):
-                                cancelled_id = notification.root.params.requestId
-                                if cancelled_id in self._in_flight:
-                                    await self._in_flight[cancelled_id].cancel()
+                                await self._handle_cancellation_notification(notification.root.params.requestId)
                             else:
                                 # Handle progress notifications callback
                                 if isinstance(notification.root, ProgressNotification):
-                                    progress_token = notification.root.params.progressToken
-                                    # If there is a progress callback for this token,
-                                    # call it with the progress information
-                                    if progress_token in self._progress_callbacks:
-                                        callback = self._progress_callbacks[progress_token]
-                                        try:
-                                            await callback(
-                                                notification.root.params.progress,
-                                                notification.root.params.total,
-                                                notification.root.params.message,
-                                            )
-                                        except Exception as e:
-                                            logging.error(
-                                                "Progress callback raised an exception: %s",
-                                                e,
-                                            )
+                                    await self._handle_progress_notification(notification.root)
+                                # Handle task created notifications
+                                elif isinstance(notification.root, TaskCreatedNotification):
+                                    await self._handle_task_created_notification(notification.root)
                                 await self._received_notification(notification)
                                 await self._handle_incoming(notification)
                         except Exception as e:
@@ -450,6 +545,40 @@ class BaseSession(
         forwarded on to the message stream.
         """
 
+    async def _handle_cancellation_notification(self, cancelled_id: RequestId) -> None:
+        """Handle a cancellation notification for a request."""
+        if cancelled_id in self._in_flight:
+            await self._in_flight[cancelled_id].cancel()
+        # If this request had a task, mark it as cancelled in storage
+        task_id: str | None = self._request_id_to_task_id.get(cancelled_id)
+        if task_id and self._task_store:
+            try:
+                await self._task_store.update_task_status(task_id, "cancelled")
+            except Exception as e:
+                logging.error(f"Failed to cancel task {task_id}: {e}")
+
+    async def _handle_progress_notification(self, notification: ProgressNotification) -> None:
+        """Handle a progress notification by calling the registered callback."""
+        progress_token = notification.params.progressToken
+        # If there is a progress callback for this token, call it with the progress information
+        if progress_token in self._progress_callbacks:
+            callback = self._progress_callbacks[progress_token]
+            try:
+                await callback(
+                    notification.params.progress,
+                    notification.params.total,
+                    notification.params.message,
+                )
+            except Exception as e:
+                logging.error("Progress callback raised an exception: %s", e)
+
+    async def _handle_task_created_notification(self, notification: TaskCreatedNotification) -> None:
+        """Handle a task created notification by signaling pending task creations."""
+        if notification.params.meta and notification.params.meta.related_task:
+            task_id = notification.params.meta.related_task.taskId
+            if task_id in self._pending_task_creations:
+                self._pending_task_creations[task_id].set()
+
     async def _received_notification(self, notification: ReceiveNotificationT) -> None:
         """
         Can be overridden by subclasses to handle a notification without needing
@@ -467,6 +596,18 @@ class BaseSession(
         Sends a progress notification for a request that is currently being
         processed.
         """
+
+    async def get_task(self, task_id: str) -> GetTaskResult:
+        """Get the current status of a task."""
+        ...
+
+    async def get_task_result(self, task_id: str, result_type: type[ReceiveResultT]) -> ReceiveResultT:
+        """Retrieve the result of a completed task."""
+        ...
+
+    async def list_tasks(self, cursor: str | None = None) -> ListTasksResult:
+        """List tasks, optionally starting from a pagination cursor."""
+        ...
 
     async def _handle_incoming(
         self,
