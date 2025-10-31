@@ -135,6 +135,14 @@ class ClientSession(
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
 
+    def _create_metadata_for_extra_headers(self, extra_headers: dict[str, str] | None):
+        """Create metadata for passing extra headers to the transport layer."""
+        if extra_headers:
+            from mcp.shared.message import ClientMessageMetadata
+
+            return ClientMessageMetadata(extra_headers=extra_headers)
+        return None
+
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
         elicitation = (
@@ -202,7 +210,9 @@ class ClientSession(
             )
         )
 
-    async def set_logging_level(self, level: types.LoggingLevel) -> types.EmptyResult:
+    async def set_logging_level(
+        self, level: types.LoggingLevel, *, extra_headers: dict[str, str] | None = None
+    ) -> types.EmptyResult:
         """Send a logging/setLevel request."""
         return await self.send_request(
             types.ClientRequest(
@@ -211,6 +221,7 @@ class ClientSession(
                 )
             ),
             types.EmptyResult,
+            metadata=self._create_metadata_for_extra_headers(extra_headers),
         )
 
     @overload
@@ -218,22 +229,26 @@ class ClientSession(
     async def list_resources(self, cursor: str | None) -> types.ListResourcesResult: ...
 
     @overload
-    async def list_resources(self, *, params: types.PaginatedRequestParams | None) -> types.ListResourcesResult: ...
+    async def list_resources(
+        self, *, params: types.PaginatedRequestParams | None, extra_headers: dict[str, str] | None = None
+    ) -> types.ListResourcesResult: ...
 
     @overload
-    async def list_resources(self) -> types.ListResourcesResult: ...
+    async def list_resources(self, *, extra_headers: dict[str, str] | None = None) -> types.ListResourcesResult: ...
 
     async def list_resources(
         self,
         cursor: str | None = None,
         *,
         params: types.PaginatedRequestParams | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> types.ListResourcesResult:
         """Send a resources/list request.
 
         Args:
             cursor: Simple cursor string for pagination (deprecated, use params instead)
             params: Full pagination parameters including cursor and any future fields
+            extra_headers: Additional HTTP headers to include in this specific request.
         """
         if params is not None and cursor is not None:
             raise ValueError("Cannot specify both cursor and params")
@@ -248,6 +263,7 @@ class ClientSession(
         return await self.send_request(
             types.ClientRequest(types.ListResourcesRequest(params=request_params)),
             types.ListResourcesResult,
+            metadata=self._create_metadata_for_extra_headers(extra_headers),
         )
 
     @overload
@@ -256,23 +272,27 @@ class ClientSession(
 
     @overload
     async def list_resource_templates(
-        self, *, params: types.PaginatedRequestParams | None
+        self, *, params: types.PaginatedRequestParams | None, extra_headers: dict[str, str] | None = None
     ) -> types.ListResourceTemplatesResult: ...
 
     @overload
-    async def list_resource_templates(self) -> types.ListResourceTemplatesResult: ...
+    async def list_resource_templates(
+        self, *, extra_headers: dict[str, str] | None = None
+    ) -> types.ListResourceTemplatesResult: ...
 
     async def list_resource_templates(
         self,
         cursor: str | None = None,
         *,
         params: types.PaginatedRequestParams | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> types.ListResourceTemplatesResult:
         """Send a resources/templates/list request.
 
         Args:
             cursor: Simple cursor string for pagination (deprecated, use params instead)
             params: Full pagination parameters including cursor and any future fields
+            extra_headers: Additional HTTP headers to include in this specific request.
         """
         if params is not None and cursor is not None:
             raise ValueError("Cannot specify both cursor and params")
@@ -287,9 +307,12 @@ class ClientSession(
         return await self.send_request(
             types.ClientRequest(types.ListResourceTemplatesRequest(params=request_params)),
             types.ListResourceTemplatesResult,
+            metadata=self._create_metadata_for_extra_headers(extra_headers),
         )
 
-    async def read_resource(self, uri: AnyUrl) -> types.ReadResourceResult:
+    async def read_resource(
+        self, uri: AnyUrl, *, extra_headers: dict[str, str] | None = None
+    ) -> types.ReadResourceResult:
         """Send a resources/read request."""
         return await self.send_request(
             types.ClientRequest(
@@ -298,9 +321,12 @@ class ClientSession(
                 )
             ),
             types.ReadResourceResult,
+            metadata=self._create_metadata_for_extra_headers(extra_headers),
         )
 
-    async def subscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+    async def subscribe_resource(
+        self, uri: AnyUrl, *, extra_headers: dict[str, str] | None = None
+    ) -> types.EmptyResult:
         """Send a resources/subscribe request."""
         return await self.send_request(
             types.ClientRequest(
@@ -309,9 +335,12 @@ class ClientSession(
                 )
             ),
             types.EmptyResult,
+            metadata=self._create_metadata_for_extra_headers(extra_headers),
         )
 
-    async def unsubscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+    async def unsubscribe_resource(
+        self, uri: AnyUrl, *, extra_headers: dict[str, str] | None = None
+    ) -> types.EmptyResult:
         """Send a resources/unsubscribe request."""
         return await self.send_request(
             types.ClientRequest(
@@ -320,6 +349,7 @@ class ClientSession(
                 )
             ),
             types.EmptyResult,
+            metadata=self._create_metadata_for_extra_headers(extra_headers),
         )
 
     async def call_tool(
@@ -330,8 +360,21 @@ class ClientSession(
         progress_callback: ProgressFnT | None = None,
         *,
         meta: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> types.CallToolResult:
-        """Send a tools/call request with optional progress callback support."""
+        """Send a tools/call request with optional progress callback support.
+
+        Args:
+            name: The name of the tool to call.
+            arguments: The arguments to pass to the tool.
+            read_timeout_seconds: Optional timeout for reading the response.
+            progress_callback: Optional callback for progress notifications.
+            meta: Optional meta parameters for the request.
+            extra_headers: Additional HTTP headers to include in this specific request.
+                          These are merged with connection-level headers, with extra_headers
+                          taking precedence for duplicate keys. Useful for per-request
+                          authentication, tracing, debugging, A/B testing, and more.
+        """
 
         _meta: types.RequestParams.Meta | None = None
         if meta is not None:
@@ -345,6 +388,7 @@ class ClientSession(
             ),
             types.CallToolResult,
             request_read_timeout_seconds=read_timeout_seconds,
+            metadata=self._create_metadata_for_extra_headers(extra_headers),
             progress_callback=progress_callback,
         )
 
@@ -380,22 +424,26 @@ class ClientSession(
     async def list_prompts(self, cursor: str | None) -> types.ListPromptsResult: ...
 
     @overload
-    async def list_prompts(self, *, params: types.PaginatedRequestParams | None) -> types.ListPromptsResult: ...
+    async def list_prompts(
+        self, *, params: types.PaginatedRequestParams | None, extra_headers: dict[str, str] | None = None
+    ) -> types.ListPromptsResult: ...
 
     @overload
-    async def list_prompts(self) -> types.ListPromptsResult: ...
+    async def list_prompts(self, *, extra_headers: dict[str, str] | None = None) -> types.ListPromptsResult: ...
 
     async def list_prompts(
         self,
         cursor: str | None = None,
         *,
         params: types.PaginatedRequestParams | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> types.ListPromptsResult:
         """Send a prompts/list request.
 
         Args:
             cursor: Simple cursor string for pagination (deprecated, use params instead)
             params: Full pagination parameters including cursor and any future fields
+            extra_headers: Additional HTTP headers to include in this specific request.
         """
         if params is not None and cursor is not None:
             raise ValueError("Cannot specify both cursor and params")
@@ -410,9 +458,12 @@ class ClientSession(
         return await self.send_request(
             types.ClientRequest(types.ListPromptsRequest(params=request_params)),
             types.ListPromptsResult,
+            metadata=self._create_metadata_for_extra_headers(extra_headers),
         )
 
-    async def get_prompt(self, name: str, arguments: dict[str, str] | None = None) -> types.GetPromptResult:
+    async def get_prompt(
+        self, name: str, arguments: dict[str, str] | None = None, *, extra_headers: dict[str, str] | None = None
+    ) -> types.GetPromptResult:
         """Send a prompts/get request."""
         return await self.send_request(
             types.ClientRequest(
@@ -421,6 +472,7 @@ class ClientSession(
                 )
             ),
             types.GetPromptResult,
+            metadata=self._create_metadata_for_extra_headers(extra_headers),
         )
 
     async def complete(
@@ -452,22 +504,26 @@ class ClientSession(
     async def list_tools(self, cursor: str | None) -> types.ListToolsResult: ...
 
     @overload
-    async def list_tools(self, *, params: types.PaginatedRequestParams | None) -> types.ListToolsResult: ...
+    async def list_tools(
+        self, *, params: types.PaginatedRequestParams | None, extra_headers: dict[str, str] | None = None
+    ) -> types.ListToolsResult: ...
 
     @overload
-    async def list_tools(self) -> types.ListToolsResult: ...
+    async def list_tools(self, *, extra_headers: dict[str, str] | None = None) -> types.ListToolsResult: ...
 
     async def list_tools(
         self,
         cursor: str | None = None,
         *,
         params: types.PaginatedRequestParams | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> types.ListToolsResult:
         """Send a tools/list request.
 
         Args:
             cursor: Simple cursor string for pagination (deprecated, use params instead)
             params: Full pagination parameters including cursor and any future fields
+            extra_headers: Additional HTTP headers to include in this specific request.
         """
         if params is not None and cursor is not None:
             raise ValueError("Cannot specify both cursor and params")
@@ -482,6 +538,7 @@ class ClientSession(
         result = await self.send_request(
             types.ClientRequest(types.ListToolsRequest(params=request_params)),
             types.ListToolsResult,
+            metadata=self._create_metadata_for_extra_headers(extra_headers),
         )
 
         # Cache tool output schemas for future validation
