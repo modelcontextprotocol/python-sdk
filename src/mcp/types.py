@@ -1304,7 +1304,7 @@ class ElicitResult(Result):
     - "cancel": User dismissed without making an explicit choice
     """
 
-    content: dict[str, str | int | float | bool | None] | None = None
+    content: dict[str, str | int | float | bool | list[str] | None] | None = None
     """
     The submitted form data, only present when action is "accept".
     Contains values matching the requested schema.
