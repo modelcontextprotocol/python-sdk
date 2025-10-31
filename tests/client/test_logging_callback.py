@@ -60,8 +60,7 @@ async def test_logging_callback():
             level=level,
             message=message,
             logger_name=logger,
-            extra_string=extra_string,
-            extra_dict=extra_dict,
+            extra={"extra_string": extra_string, "extra_dict": extra_dict},
         )
         return True
 
