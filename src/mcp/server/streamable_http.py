@@ -886,11 +886,16 @@ class StreamableHTTPServerTransport:
                                 # Stream might be closed, remove from registry
                                 self._request_streams.pop(request_stream_id, None)
                         else:
-                            logging.debug(
+                            logger.debug(
                                 f"""Request stream {request_stream_id} not found 
                                 for message. Still processing message as the client
                                 might reconnect and replay."""
                             )
+                except anyio.ClosedResourceError:
+                    if self._terminated:
+                        logger.debug("Read stream closed by client")
+                    else:
+                        logger.exception("Unexpected closure of read stream in message router")
                 except Exception:
                     logger.exception("Error in message router")
 
