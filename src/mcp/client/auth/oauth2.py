@@ -269,8 +269,6 @@ class OAuthClientProvider(httpx.Auth):
 
             except ValidationError:
                 pass
-        else:
-            raise OAuthFlowError(f"Protected Resource Metadata request failed: {response.status_code}")
 
     def _select_scopes(self, init_response: httpx.Response) -> None:
         """Select scopes as outlined in the 'Scope Selection Strategy in the MCP spec."""
