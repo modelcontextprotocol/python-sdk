@@ -67,7 +67,6 @@ async def test_client_session_initialize():
                 SessionMessage(
                     JSONRPCMessage(
                         JSONRPCResponse(
-                            jsonrpc="2.0",
                             id=jsonrpc_request.root.id,
                             result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                         )
@@ -148,7 +147,6 @@ async def test_client_session_custom_client_info():
                 SessionMessage(
                     JSONRPCMessage(
                         JSONRPCResponse(
-                            jsonrpc="2.0",
                             id=jsonrpc_request.root.id,
                             result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                         )
@@ -209,7 +207,6 @@ async def test_client_session_default_client_info():
                 SessionMessage(
                     JSONRPCMessage(
                         JSONRPCResponse(
-                            jsonrpc="2.0",
                             id=jsonrpc_request.root.id,
                             result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                         )
@@ -270,7 +267,6 @@ async def test_client_session_version_negotiation_success():
                 SessionMessage(
                     JSONRPCMessage(
                         JSONRPCResponse(
-                            jsonrpc="2.0",
                             id=jsonrpc_request.root.id,
                             result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                         )
@@ -329,7 +325,6 @@ async def test_client_session_version_negotiation_failure():
                 SessionMessage(
                     JSONRPCMessage(
                         JSONRPCResponse(
-                            jsonrpc="2.0",
                             id=jsonrpc_request.root.id,
                             result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                         )
@@ -388,7 +383,6 @@ async def test_client_capabilities_default():
                 SessionMessage(
                     JSONRPCMessage(
                         JSONRPCResponse(
-                            jsonrpc="2.0",
                             id=jsonrpc_request.root.id,
                             result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                         )
@@ -466,7 +460,6 @@ async def test_client_capabilities_with_custom_callbacks():
                 SessionMessage(
                     JSONRPCMessage(
                         JSONRPCResponse(
-                            jsonrpc="2.0",
                             id=jsonrpc_request.root.id,
                             result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                         )
