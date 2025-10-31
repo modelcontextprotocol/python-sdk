@@ -20,7 +20,7 @@ jobs:
           enable-cache: true
           version: 0.9.5
       - name: Install dependencies
-        run: uv sync --frozen --all-extras --python 3.10
+        run: uv sync --frozen --python 3.10
 
       - uses: pre-commit/action@v3.0.1
         with:
@@ -53,7 +53,7 @@ jobs:
           version: 0.9.5
 
       - name: Install the project
-        run: uv sync ${{ matrix.dep-resolution.install-flags }} --all-extras --python ${{ matrix.python-version }}
+        run: uv sync ${{ matrix.dep-resolution.install-flags }} --python ${{ matrix.python-version }}
 
       - name: Run pytest
         run: uv run ${{ matrix.dep-resolution.install-flags }} --no-sync pytest
@@ -71,7 +71,7 @@ jobs:
           version: 0.9.5
 
       - name: Install dependencies
-        run: uv sync --frozen --all-extras --python 3.10
+        run: uv sync --frozen --python 3.10
 
       - name: Check README snippets are up to date
         run: uv run --frozen scripts/update_readme_snippets.py --check

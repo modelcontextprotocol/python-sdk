@@ -60,6 +60,11 @@ dev = [
     "pytest-pretty>=1.2.0",
     "inline-snapshot>=0.23.0",
     "dirty-equals>=0.9.0",
+    # Optional dependencies needed for testing
+    "rich>=13.9.4",
+    "typer>=0.16.0",
+    "python-dotenv>=1.0.0",
+    "websockets>=15.0.1",
 ]
 docs = [
     "mkdocs>=1.6.1",
