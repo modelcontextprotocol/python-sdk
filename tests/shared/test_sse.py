@@ -32,6 +32,7 @@ from mcp.types import (
     TextResourceContents,
     Tool,
 )
+from tests.test_helpers import wait_for_server
 
 SERVER_NAME = "test_server_for_SSE"
 
@@ -123,19 +124,8 @@ def server(server_port: int) -> Generator[None, None, None]:
     proc.start()
 
     # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
     print("waiting for server to start")
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+    wait_for_server(server_port)
 
     yield
 
@@ -262,19 +252,8 @@ def mounted_server(server_port: int) -> Generator[None, None, None]:
     proc.start()
 
     # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
     print("waiting for server to start")
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+    wait_for_server(server_port)
 
     yield
 
@@ -377,19 +356,8 @@ def context_server(server_port: int) -> Generator[None, None, None]:
     proc.start()
 
     # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
     print("waiting for context server to start")
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Context server failed to start after {max_attempts} attempts")
+    wait_for_server(server_port)
 
     yield
 

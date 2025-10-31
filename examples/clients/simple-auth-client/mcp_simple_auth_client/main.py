@@ -187,7 +187,7 @@ class SimpleAuthClient:
 
             # Create OAuth authentication handler using the new interface
             oauth_auth = OAuthClientProvider(
-                server_url=self.server_url.replace("/mcp", ""),
+                server_url=self.server_url,
                 client_metadata=OAuthClientMetadata.model_validate(client_metadata_dict),
                 storage=InMemoryTokenStorage(),
                 redirect_handler=_default_redirect_handler,
