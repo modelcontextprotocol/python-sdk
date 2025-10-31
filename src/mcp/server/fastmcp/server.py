@@ -61,7 +61,17 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
-from mcp.types import Annotations, AnyFunction, ContentBlock, GetPromptResult, Icon, ToolAnnotations
+from mcp.types import (
+    Annotations,
+    AnyFunction,
+    BlobResourceContents,
+    ContentBlock,
+    GetPromptResult,
+    Icon,
+    ResourceContents,
+    TextResourceContents,
+    ToolAnnotations,
+)
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
@@ -363,7 +373,9 @@ class FastMCP(Generic[LifespanResultT]):
             for template in templates
         ]
 
-    async def read_resource(self, uri: AnyUrl | str) -> Iterable[ReadResourceContents]:
+    async def read_resource(
+        self, uri: AnyUrl | str
+    ) -> Iterable[ReadResourceContents | TextResourceContents | BlobResourceContents]:
         """Read a resource by URI."""
 
         context = self.get_context()
@@ -373,7 +385,10 @@ class FastMCP(Generic[LifespanResultT]):
 
         try:
             content = await resource.read()
-            return [ReadResourceContents(content=content, mime_type=resource.mime_type)]
+            if isinstance(content, ResourceContents):
+                return [content]
+            else:
+                return [ReadResourceContents(content=content, mime_type=resource.mime_type)]
         except Exception as e:
             logger.exception(f"Error reading resource {uri}")
             raise ResourceError(str(e))
@@ -1154,7 +1169,9 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             message=message,
         )
 
-    async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:
+    async def read_resource(
+        self, uri: str | AnyUrl
+    ) -> Iterable[ReadResourceContents | TextResourceContents | BlobResourceContents]:
         """Read a resource by URI.
 
         Args:
