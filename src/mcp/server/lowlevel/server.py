@@ -90,6 +90,7 @@ from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
+from mcp.shared.task import TaskStore
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             [Server[LifespanResultT, RequestT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        task_store: TaskStore | None = None,
     ):
         self.name = name
         self.version = version
@@ -149,6 +151,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         self.website_url = website_url
         self.icons = icons
         self.lifespan = lifespan
+        self.task_store = task_store
         self.request_handlers: dict[type, Callable[..., Awaitable[types.ServerResult]]] = {
             types.PingRequest: _ping_handler,
         }
@@ -621,6 +624,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     write_stream,
                     initialization_options,
                     stateless=stateless,
+                    task_store=self.task_store,
                 )
             )
 

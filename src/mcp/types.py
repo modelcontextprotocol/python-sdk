@@ -33,6 +33,9 @@ https://modelcontextprotocol.io/specification
 """
 DEFAULT_NEGOTIATED_VERSION = "2025-03-26"
 
+TASK_META_KEY = "modelcontextprotocol.io/task"
+RELATED_TASK_META_KEY = "modelcontextprotocol.io/related-task"
+
 ProgressToken = str | int
 Cursor = str
 Role = Literal["user", "assistant"]
@@ -40,8 +43,36 @@ RequestId = Annotated[int, Field(strict=True)] | str
 AnyFunction: TypeAlias = Callable[..., Any]
 
 
+class TaskMetadata(BaseModel):
+    """Task creation metadata, used to ask that the server create a task to represent a request."""
+
+    taskId: str
+    """The task ID to use as a reference to the created task."""
+
+    keepAlive: int | None = None
+    """Time in milliseconds to ask to keep task results available after completion. Only used with taskId."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class RelatedTaskMetadata(BaseModel):
+    """Task association metadata, used to signal which task a message originated from."""
+
+    taskId: str
+    """The task ID this message is related to."""
+
+    model_config = ConfigDict(extra="allow")
+
+
 class RequestParams(BaseModel):
     class Meta(BaseModel):
+        """
+        Request metadata that can contain various optional fields.
+
+        Includes typed access to task-related metadata fields that are serialized
+        with their full keys in the wire format.
+        """
+
         progressToken: ProgressToken | None = None
         """
         If specified, the caller requests out-of-band progress notifications for
@@ -49,6 +80,12 @@ class RequestParams(BaseModel):
         parameter is an opaque token that will be attached to any subsequent
         notifications. The receiver is not obligated to provide these notifications.
         """
+
+        task: TaskMetadata | None = Field(alias=TASK_META_KEY, default=None)
+        """Task creation metadata for task-based execution."""
+
+        related_task: RelatedTaskMetadata | None = Field(alias=RELATED_TASK_META_KEY, default=None)
+        """Related task metadata for linking requests to parent tasks."""
 
         model_config = ConfigDict(extra="allow")
 
@@ -65,6 +102,16 @@ class PaginatedRequestParams(RequestParams):
 
 class NotificationParams(BaseModel):
     class Meta(BaseModel):
+        """
+        Notification metadata that can contain various optional fields.
+
+        Includes typed access to related task metadata that is serialized
+        with its full key in the wire format.
+        """
+
+        related_task: RelatedTaskMetadata | None = Field(alias=RELATED_TASK_META_KEY, default=None)
+        """Related task metadata for linking notifications to parent tasks."""
+
         model_config = ConfigDict(extra="allow")
 
     meta: Meta | None = Field(alias="_meta", default=None)
@@ -414,6 +461,127 @@ class ProgressNotification(Notification[ProgressNotificationParams, Literal["not
 
     method: Literal["notifications/progress"] = "notifications/progress"
     params: ProgressNotificationParams
+
+
+# Tasks
+
+
+class Task(BaseModel):
+    """A pollable state object associated with a request."""
+
+    taskId: str
+    """The unique identifier for this task."""
+
+    status: Literal["submitted", "working", "input_required", "completed", "failed", "cancelled", "unknown"]
+    """
+    The current status of the task:
+    - submitted: Task has been created and queued
+    - working: Task is actively being processed
+    - input_required: Task is waiting for additional input (e.g., from elicitation)
+    - completed: Task finished successfully
+    - failed: Task encountered an error
+    - cancelled: Task was cancelled by the client
+    - unknown: Task status could not be determined (terminal state, rarely occurs)
+    """
+
+    keepAlive: int | None
+    """
+    Time in milliseconds to keep task results available after completion.
+    None means the task will not be automatically cleaned up.
+    """
+
+    pollFrequency: int | None = None
+    """Recommended polling frequency in milliseconds for checking task status."""
+
+    error: str | None = None
+    """Error message if status is 'failed' or 'cancelled'."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TaskCreatedNotificationParams(NotificationParams):
+    """Parameters for task created notification."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TaskCreatedNotification(Notification[TaskCreatedNotificationParams, Literal["notifications/tasks/created"]]):
+    """An out-of-band notification used to inform the receiver of a task being created."""
+
+    method: Literal["notifications/tasks/created"] = "notifications/tasks/created"
+    params: TaskCreatedNotificationParams
+
+
+class GetTaskParams(RequestParams):
+    """Parameters for getting task status."""
+
+    taskId: str
+    """The task identifier."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class GetTaskRequest(Request[GetTaskParams, Literal["tasks/get"]]):
+    """A request to get the state of a specific task."""
+
+    method: Literal["tasks/get"] = "tasks/get"
+    params: GetTaskParams
+
+
+class GetTaskResult(Result):
+    """The response to a tasks/get request."""
+
+    taskId: str
+    """The unique identifier for this task."""
+
+    status: Literal["submitted", "working", "input_required", "completed", "failed", "cancelled", "unknown"]
+    """The current status of the task."""
+
+    keepAlive: int | None = None
+    """Time in milliseconds to keep task results available after completion."""
+
+    pollFrequency: int | None = None
+    """Recommended polling frequency in milliseconds for checking task status."""
+
+    error: str | None = None
+    """Error message if status is 'failed' or 'cancelled'."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class GetTaskPayloadParams(RequestParams):
+    """Parameters for getting task result payload."""
+
+    taskId: str
+    """The task identifier."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class GetTaskPayloadRequest(Request[GetTaskPayloadParams, Literal["tasks/result"]]):
+    """A request to get the result of a specific task."""
+
+    method: Literal["tasks/result"] = "tasks/result"
+    params: GetTaskPayloadParams
+
+
+class ListTasksRequest(PaginatedRequest[Literal["tasks/list"]]):
+    """A request to list tasks."""
+
+    method: Literal["tasks/list"] = "tasks/list"
+    params: PaginatedRequestParams | None = None
+
+
+class ListTasksResult(Result):
+    """The response to a tasks/list request."""
+
+    tasks: list[Task]
+    """List of tasks."""
+
+    nextCursor: Cursor | None = None
+    """Opaque token for pagination."""
+
+    model_config = ConfigDict(extra="allow")
 
 
 class ListResourcesRequest(PaginatedRequest[Literal["resources/list"]]):
@@ -1262,13 +1430,22 @@ class ClientRequest(
         | UnsubscribeRequest
         | CallToolRequest
         | ListToolsRequest
+        | GetTaskRequest
+        | GetTaskPayloadRequest
+        | ListTasksRequest
     ]
 ):
     pass
 
 
 class ClientNotification(
-    RootModel[CancelledNotification | ProgressNotification | InitializedNotification | RootsListChangedNotification]
+    RootModel[
+        CancelledNotification
+        | ProgressNotification
+        | InitializedNotification
+        | RootsListChangedNotification
+        | TaskCreatedNotification
+    ]
 ):
     pass
 
@@ -1311,11 +1488,23 @@ class ElicitResult(Result):
     """
 
 
-class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult]):
+class ClientResult(
+    RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult | GetTaskResult | ListTasksResult]
+):
     pass
 
 
-class ServerRequest(RootModel[PingRequest | CreateMessageRequest | ListRootsRequest | ElicitRequest]):
+class ServerRequest(
+    RootModel[
+        PingRequest
+        | CreateMessageRequest
+        | ListRootsRequest
+        | ElicitRequest
+        | GetTaskRequest
+        | GetTaskPayloadRequest
+        | ListTasksRequest
+    ]
+):
     pass
 
 
@@ -1328,6 +1517,7 @@ class ServerNotification(
         | ResourceListChangedNotification
         | ToolListChangedNotification
         | PromptListChangedNotification
+        | TaskCreatedNotification
     ]
 ):
     pass
@@ -1345,6 +1535,8 @@ class ServerResult(
         | ReadResourceResult
         | CallToolResult
         | ListToolsResult
+        | GetTaskResult
+        | ListTasksResult
     ]
 ):
     pass
