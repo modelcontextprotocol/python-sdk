@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import types
+from enum import Enum, StrEnum
 from typing import Generic, Literal, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel
@@ -37,7 +38,7 @@ ElicitationResult = AcceptedElicitation[ElicitSchemaModelT] | DeclinedElicitatio
 
 
 # Primitive types allowed in elicitation schemas
-_ELICITATION_PRIMITIVE_TYPES = (str, int, float, bool)
+_ELICITATION_PRIMITIVE_TYPES = (str, int, float, bool, StrEnum)
 
 
 def _validate_elicitation_schema(schema: type[BaseModel]) -> None:
@@ -69,6 +70,10 @@ def _is_primitive_field(field_info: FieldInfo) -> bool:
         args = get_args(annotation)
         # All args must be primitive types or None
         return all(arg is types.NoneType or arg in _ELICITATION_PRIMITIVE_TYPES for arg in args)
+
+    # Handle Enum types
+    if isinstance(annotation, type) and issubclass(annotation, str) and issubclass(annotation, Enum):
+        return True
 
     return False
 
