@@ -10,6 +10,7 @@ This is only intended for writing tests for the SSE transport.
 
 import typing
 from typing import Any, cast
+from typing import Callable, Awaitable
 
 import anyio
 import anyio.abc
@@ -65,6 +66,8 @@ class StreamingASGITransport(AsyncBaseTransport):
     ) -> Response:
         assert isinstance(request.stream, AsyncByteStream)
 
+        disconnect_event = anyio.Event()
+
         # ASGI scope.
         scope = {
             "type": "http",
@@ -97,11 +100,17 @@ class StreamingASGITransport(AsyncBaseTransport):
         content_send_channel, content_receive_channel = anyio.create_memory_object_stream[bytes](100)
 
         # ASGI callables.
+        async def send_disconnect() -> None:
+            disconnect_event.set()
+
         async def receive() -> dict[str, Any]:
             nonlocal request_complete
 
+            if disconnect_event.is_set():
+                return {"type": "http.disconnect"}
+
             if request_complete:
-                await response_complete.wait()
+                await disconnect_event.wait()
                 return {"type": "http.disconnect"}
 
             try:
@@ -140,7 +149,9 @@ class StreamingASGITransport(AsyncBaseTransport):
                 async with asgi_receive_channel:
                     async for message in asgi_receive_channel:
                         if message["type"] == "http.response.start":
-                            assert not response_started
+                            if response_started:
+                                # Ignore duplicate response.start from ASGI app during SSE disconnect
+                                continue
                             status_code = message["status"]
                             response_headers = message.get("headers", [])
                             response_started = True
@@ -163,7 +174,7 @@ class StreamingASGITransport(AsyncBaseTransport):
                 # Ensure events are set even if there's an error
                 initial_response_ready.set()
                 response_complete.set()
-                await content_send_channel.aclose()
+
 
         # Create tasks for running the app and processing messages
         self.task_group.start_soon(run_app)
@@ -176,7 +187,7 @@ class StreamingASGITransport(AsyncBaseTransport):
         return Response(
             status_code,
             headers=response_headers,
-            stream=StreamingASGIResponseStream(content_receive_channel),
+            stream = StreamingASGIResponseStream(content_receive_channel, send_disconnect),
         )
 
 
@@ -192,12 +203,18 @@ class StreamingASGIResponseStream(AsyncByteStream):
     def __init__(
         self,
         receive_channel: anyio.streams.memory.MemoryObjectReceiveStream[bytes],
+        send_disconnect: Callable[[], Awaitable[None]],
     ) -> None:
         self.receive_channel = receive_channel
+        self.send_disconnect = send_disconnect
 
     async def __aiter__(self) -> typing.AsyncIterator[bytes]:
         try:
             async for chunk in self.receive_channel:
                 yield chunk
         finally:
-            await self.receive_channel.aclose()
+            await self.aclose()
+
+    async def aclose(self) -> None:
+        await self.receive_channel.aclose()
+        await self.send_disconnect()
