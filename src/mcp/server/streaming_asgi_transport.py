@@ -188,7 +188,7 @@ class StreamingASGITransport(AsyncBaseTransport):
         return Response(
             status_code,
             headers=response_headers,
-            stream = StreamingASGIResponseStream(content_receive_channel, send_disconnect),
+            stream=StreamingASGIResponseStream(content_receive_channel, send_disconnect),
         )
 
 
