@@ -41,13 +41,13 @@ class OAuthClientMetadata(BaseModel):
     for the full specification.
     """
 
-    redirect_uris: list[AnyUrl] = Field(..., min_length=1)
-    # token_endpoint_auth_method: this implementation only supports none &
-    # client_secret_post;
-    # ie: we do not support client_secret_basic
-    token_endpoint_auth_method: Literal["none", "client_secret_post"] = "client_secret_post"
-    # grant_types: this implementation only supports authorization_code & refresh_token
-    grant_types: list[Literal["authorization_code", "refresh_token"] | str] = [
+    redirect_uris: list[AnyUrl] | None = Field(..., min_length=1)
+    # supported auth methods for the token endpoint
+    token_endpoint_auth_method: Literal["none", "client_secret_post", "private_key_jwt"] = "client_secret_post"
+    # supported grant_types of this implementation
+    grant_types: list[
+        Literal["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"] | str
+    ] = [
         "authorization_code",
         "refresh_token",
     ]
@@ -82,10 +82,10 @@ class OAuthClientMetadata(BaseModel):
     def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
         if redirect_uri is not None:
             # Validate redirect_uri against client's registered redirect URIs
-            if redirect_uri not in self.redirect_uris:
+            if self.redirect_uris is None or redirect_uri not in self.redirect_uris:
                 raise InvalidRedirectUriError(f"Redirect URI '{redirect_uri}' not registered for client")
             return redirect_uri
-        elif len(self.redirect_uris) == 1:
+        elif self.redirect_uris is not None and len(self.redirect_uris) == 1:
             return self.redirect_uris[0]
         else:
             raise InvalidRedirectUriError("redirect_uri must be specified when client has multiple registered URIs")
@@ -97,7 +97,7 @@ class OAuthClientInformationFull(OAuthClientMetadata):
     (client information plus metadata).
     """
 
-    client_id: str
+    client_id: str | None = None
     client_secret: str | None = None
     client_id_issued_at: int | None = None
     client_secret_expires_at: int | None = None

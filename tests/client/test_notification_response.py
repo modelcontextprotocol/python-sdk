@@ -8,7 +8,6 @@ that don't follow SDK conventions.
 import json
 import multiprocessing
 import socket
-import time
 from collections.abc import Generator
 
 import pytest
@@ -22,6 +21,7 @@ from mcp import ClientSession, types
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.session import RequestResponder
 from mcp.types import ClientNotification, RootsListChangedNotification
+from tests.test_helpers import wait_for_server
 
 
 def create_non_sdk_server_app() -> Starlette:
@@ -95,14 +95,9 @@ def non_sdk_server(non_sdk_server_port: int) -> Generator[None, None, None]:
     proc.start()
 
     # Wait for server to be ready
-    start_time = time.time()
-    while time.time() - start_time < 10:
-        try:
-            with socket.create_connection(("127.0.0.1", non_sdk_server_port), timeout=0.1):
-                break
-        except (TimeoutError, ConnectionRefusedError):
-            time.sleep(0.1)
-    else:
+    try:
+        wait_for_server(non_sdk_server_port, timeout=10.0)
+    except TimeoutError:
         proc.kill()
         proc.join(timeout=2)
         pytest.fail("Server failed to start within 10 seconds")
