@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import types
 from collections.abc import Sequence
+from enum import Enum, StrEnum
 from typing import Generic, Literal, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel
@@ -46,7 +47,7 @@ UrlElicitationResult = AcceptedUrlElicitation | DeclinedElicitation | CancelledE
 
 
 # Primitive types allowed in elicitation schemas
-_ELICITATION_PRIMITIVE_TYPES = (str, int, float, bool)
+_ELICITATION_PRIMITIVE_TYPES = (str, int, float, bool, StrEnum)
 
 
 def _validate_elicitation_schema(schema: type[BaseModel]) -> None:
@@ -98,6 +99,10 @@ def _is_primitive_field(annotation: type) -> bool:
         return all(
             arg is types.NoneType or arg in _ELICITATION_PRIMITIVE_TYPES or _is_string_sequence(arg) for arg in args
         )
+
+    # Handle Enum types
+    if issubclass(annotation, str) and issubclass(annotation, Enum):
+        return True
 
     return False
 

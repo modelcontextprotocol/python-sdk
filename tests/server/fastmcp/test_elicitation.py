@@ -2,6 +2,7 @@
 Test the elicitation feature using stdio transport.
 """
 
+from enum import StrEnum
 from typing import Any
 
 import pytest
@@ -146,6 +147,39 @@ async def test_elicitation_schema_validation():
             assert isinstance(result.content[0], TextContent)
             assert "Validation failed as expected" in result.content[0].text
             assert field_name in result.content[0].text
+
+    # Test valid Enum types (should not fail validation)
+    class Status(StrEnum):
+        ACTIVE = "active"
+        INACTIVE = "inactive"
+
+    class ValidStrEnumSchema(BaseModel):
+        status: Status = Field(description="Status using StrEnum")
+
+    def create_valid_validation_tool(name: str, schema_class: type[BaseModel]):
+        @mcp.tool(name=name, description=f"Tool testing {name}")
+        async def tool(ctx: Context[ServerSession, None]) -> str:
+            # This should succeed without validation error
+            result = await ctx.elicit(message="Test valid schema", schema=schema_class)
+            return f"Success: {result.action}"
+
+        return tool
+
+    create_valid_validation_tool("valid_strenum", ValidStrEnumSchema)
+
+    async def enum_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+        # Return the required status field
+        return ElicitResult(action="accept", content={"status": "active"})
+
+    async with create_connected_server_and_client_session(
+        mcp._mcp_server, elicitation_callback=enum_callback
+    ) as client_session:
+        await client_session.initialize()
+
+        result = await client_session.call_tool("valid_strenum", {})
+        assert len(result.content) == 1
+        assert isinstance(result.content[0], TextContent)
+        assert "Success: accept" == result.content[0].text
 
 
 @pytest.mark.anyio
