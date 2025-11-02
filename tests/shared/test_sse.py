@@ -22,6 +22,7 @@ from mcp.client.sse import sse_client
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.streaming_asgi_transport import StreamingASGITransport
 from mcp.shared.exceptions import McpError
 from mcp.types import (
     EmptyResult,
@@ -367,9 +368,32 @@ def context_server(server_port: int) -> Generator[None, None, None]:
     if proc.is_alive():
         print("context server process failed to terminate")
 
+@pytest.fixture()
+async def context_app() -> Starlette:
+    """Fixture that provides the context server app"""
+    security_settings = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*", "testserver"], 
+        allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://testserver"]
+    )
+    sse = SseServerTransport("/messages/", security_settings=security_settings)
+    context_server = RequestContextServer()
+
+    async def handle_sse(request: Request) -> Response:
+        async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
+            await context_server.run(streams[0], streams[1], context_server.create_initialization_options())
+        return Response()
+
+    app = Starlette(
+        routes=[
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages/", app=sse.handle_post_message),
+        ]
+    )
+    return app
+
 
 @pytest.mark.anyio
-async def test_request_context_propagation(context_server: None, server_url: str) -> None:
+async def test_request_context_propagation(context_app: Starlette) -> None:
     """Test that request context is properly propagated through SSE transport."""
     # Test with custom headers
     custom_headers = {
@@ -378,27 +402,42 @@ async def test_request_context_propagation(context_server: None, server_url: str
         "X-Trace-Id": "trace-123",
     }
 
-    async with sse_client(server_url + "/sse", headers=custom_headers) as (
-        read_stream,
-        write_stream,
-    ):
-        async with ClientSession(read_stream, write_stream) as session:
-            # Initialize the session
-            result = await session.initialize()
-            assert isinstance(result, InitializeResult)
+    async with anyio.create_task_group() as tg:
+        def create_test_client(
+            headers: dict[str, str] | None = None,
+            timeout: httpx.Timeout | None = None,
+            auth: httpx.Auth | None = None,
+        ) -> httpx.AsyncClient:
+            transport = StreamingASGITransport(app=context_app, task_group=tg)
+            return httpx.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+                headers=headers,
+                timeout=timeout,
+                auth=auth,
+                follow_redirects=True,
+            )
 
-            # Call the tool that echoes headers back
-            tool_result = await session.call_tool("echo_headers", {})
+        async with sse_client("http://testserver/sse", headers=custom_headers, httpx_client_factory=create_test_client) as (
+            read_stream,
+            write_stream,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                # Initialize the session
+                result = await session.initialize()
+                assert isinstance(result, InitializeResult)
 
-            # Parse the JSON response
+                # Call the tool that echoes headers back
+                tool_result = await session.call_tool("echo_headers", {})
 
-            assert len(tool_result.content) == 1
-            headers_data = json.loads(tool_result.content[0].text if tool_result.content[0].type == "text" else "{}")
+                # Parse the JSON response
+                assert len(tool_result.content) == 1
+                headers_data = json.loads(tool_result.content[0].text if tool_result.content[0].type == "text" else "{}")
 
-            # Verify headers were propagated
-            assert headers_data.get("authorization") == "Bearer test-token"
-            assert headers_data.get("x-custom-header") == "test-value"
-            assert headers_data.get("x-trace-id") == "trace-123"
+                # Verify headers were propagated
+                assert headers_data.get("authorization") == "Bearer test-token"
+                assert headers_data.get("x-custom-header") == "test-value"
+                assert headers_data.get("x-trace-id") == "trace-123"
 
 
 @pytest.mark.anyio
