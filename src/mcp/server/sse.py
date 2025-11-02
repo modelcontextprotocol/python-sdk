@@ -196,7 +196,19 @@ class SseServerTransport:
             tg.start_soon(response_wrapper, scope, receive, send)
 
             logger.debug("Yielding read and write streams")
-            yield (read_stream, write_stream)
+            try:
+                yield (read_stream, write_stream)
+            finally:
+                # Close all remaining stream ends
+                for stream, name in [
+                    (read_stream, "read_stream"),
+                    (write_stream, "write_stream"),
+                    (sse_stream_reader, "sse_stream_reader"),
+                ]:
+                    try:
+                        await stream.aclose()
+                    except Exception as e:
+                        logger.debug(f"Error closing {name}: {e}")
 
     async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:
         logger.debug("Handling POST message")
