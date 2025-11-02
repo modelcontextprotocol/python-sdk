@@ -2,7 +2,7 @@
 Test the elicitation feature using stdio transport.
 """
 
-from enum import StrEnum
+from enum import Enum
 from typing import Any
 
 import pytest
@@ -149,7 +149,7 @@ async def test_elicitation_schema_validation():
             assert field_name in result.content[0].text
 
     # Test valid Enum types (should not fail validation)
-    class Status(StrEnum):
+    class Status(str, Enum):
         ACTIVE = "active"
         INACTIVE = "inactive"
 

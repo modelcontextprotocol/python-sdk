@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import types
 from collections.abc import Sequence
-from enum import Enum, StrEnum
+from enum import Enum
 from typing import Generic, Literal, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel
@@ -47,7 +47,7 @@ UrlElicitationResult = AcceptedUrlElicitation | DeclinedElicitation | CancelledE
 
 
 # Primitive types allowed in elicitation schemas
-_ELICITATION_PRIMITIVE_TYPES = (str, int, float, bool, StrEnum)
+_ELICITATION_PRIMITIVE_TYPES = (str, int, float, bool, Enum)
 
 
 def _validate_elicitation_schema(schema: type[BaseModel]) -> None:
