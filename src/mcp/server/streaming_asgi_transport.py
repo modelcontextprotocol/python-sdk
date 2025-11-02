@@ -174,6 +174,7 @@ class StreamingASGITransport(AsyncBaseTransport):
                 # Ensure events are set even if there's an error
                 initial_response_ready.set()
                 response_complete.set()
+                await content_send_channel.aclose()
 
 
         # Create tasks for running the app and processing messages
