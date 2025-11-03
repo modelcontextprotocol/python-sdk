@@ -190,25 +190,14 @@ class SseServerTransport:
                 )
                 await read_stream_writer.aclose()
                 await write_stream_reader.aclose()
+                await sse_stream_reader.aclose()
                 logging.debug(f"Client session disconnected {session_id}")
 
             logger.debug("Starting SSE response task")
             tg.start_soon(response_wrapper, scope, receive, send)
 
             logger.debug("Yielding read and write streams")
-            try:
-                yield (read_stream, write_stream)
-            finally:
-                # Close all remaining stream ends
-                for stream, name in [
-                    (read_stream, "read_stream"),
-                    (write_stream, "write_stream"),
-                    (sse_stream_reader, "sse_stream_reader"),
-                ]:
-                    try:
-                        await stream.aclose()
-                    except Exception as e:
-                        logger.debug(f"Error closing {name}: {e}")
+            yield (read_stream, write_stream)
 
     async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:
         logger.debug("Handling POST message")
