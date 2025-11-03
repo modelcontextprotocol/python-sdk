@@ -21,6 +21,7 @@ from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
+    INVALID_REQUEST,
     ErrorData,
     InitializeResult,
     JSONRPCError,
@@ -267,6 +268,14 @@ class StreamableHTTPTransport:
                 logger.debug("Received 202 Accepted")
                 return
 
+            if response.status_code == 400:
+                if isinstance(message.root, JSONRPCRequest):
+                    await self._send_invalid_request_error(
+                        ctx.read_stream_writer,
+                        message.root.id,
+                    )
+                return
+
             if response.status_code == 404:
                 if isinstance(message.root, JSONRPCRequest):
                     await self._send_session_terminated_error(
@@ -359,6 +368,20 @@ class StreamableHTTPTransport:
             jsonrpc="2.0",
             id=request_id,
             error=ErrorData(code=32600, message="Session terminated"),
+        )
+        session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
+        await read_stream_writer.send(session_message)
+
+    async def _send_invalid_request_error(
+        self,
+        read_stream_writer: StreamWriter,
+        request_id: RequestId,
+    ) -> None:
+        """Send an invalid request error response."""
+        jsonrpc_error = JSONRPCError(
+            jsonrpc="2.0",
+            id=request_id,
+            error=ErrorData(code=INVALID_REQUEST, message="Invalid request"),
         )
         session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
         await read_stream_writer.send(session_message)
