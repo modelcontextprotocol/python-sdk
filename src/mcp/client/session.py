@@ -167,6 +167,9 @@ class ClientSession(
             types.InitializeResult,
         )
 
+        if self._client_info is DEFAULT_CLIENT_INFO:
+            self._client_info = result.serverInfo
+
         if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
             raise RuntimeError(f"Unsupported protocol version from the server: {result.protocolVersion}")
 
