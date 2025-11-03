@@ -368,12 +368,13 @@ def context_server(server_port: int) -> Generator[None, None, None]:
     if proc.is_alive():
         print("context server process failed to terminate")
 
+
 @pytest.fixture()
 async def context_app() -> Starlette:
     """Fixture that provides the context server app"""
     security_settings = TransportSecuritySettings(
-        allowed_hosts=["127.0.0.1:*", "localhost:*", "testserver"], 
-        allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://testserver"]
+        allowed_hosts=["127.0.0.1:*", "localhost:*", "testserver"],
+        allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://testserver"],
     )
     sse = SseServerTransport("/messages/", security_settings=security_settings)
     context_server = RequestContextServer()
@@ -403,6 +404,7 @@ async def test_request_context_propagation(context_app: Starlette) -> None:
     }
 
     async with anyio.create_task_group() as tg:
+
         def create_test_client(
             headers: dict[str, str] | None = None,
             timeout: httpx.Timeout | None = None,
@@ -418,10 +420,12 @@ async def test_request_context_propagation(context_app: Starlette) -> None:
                 follow_redirects=True,
             )
 
-        async with sse_client("http://testserver/sse", 
-        headers=custom_headers, 
-        httpx_client_factory=create_test_client,
-        sse_read_timeout=0.5) as (
+        async with sse_client(
+            "http://testserver/sse",
+            headers=custom_headers,
+            httpx_client_factory=create_test_client,
+            sse_read_timeout=0.5,
+        ) as (
             read_stream,
             write_stream,
         ):

@@ -176,7 +176,6 @@ class StreamingASGITransport(AsyncBaseTransport):
                 response_complete.set()
                 await content_send_channel.aclose()
 
-
         # Create tasks for running the app and processing messages
         self.task_group.start_soon(run_app)
         self.task_group.start_soon(process_messages)
