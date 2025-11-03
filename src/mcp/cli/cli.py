@@ -67,7 +67,7 @@ def _build_uv_command(
     with_editable: Path | None = None,
     with_packages: list[str] | None = None,
 ) -> list[str]:
-    """Build the uv run command that runs a MCP server through mcp run."""
+    """Build the uv run command that runs an MCP server through mcp run."""
     cmd = ["uv"]
 
     cmd.extend(["run", "--with", "mcp"])
@@ -117,7 +117,7 @@ def _parse_file_path(file_spec: str) -> tuple[Path, str | None]:
 
 
 def _import_server(file: Path, server_object: str | None = None):
-    """Import a MCP server from a file.
+    """Import an MCP server from a file.
 
     Args:
         file: Path to the file
@@ -244,7 +244,7 @@ def dev(
         ),
     ] = [],
 ) -> None:
-    """Run a MCP server with the MCP Inspector."""
+    """Run an MCP server with the MCP Inspector."""
     file, server_object = _parse_file_path(file_spec)
 
     logger.debug(
@@ -317,7 +317,7 @@ def run(
         ),
     ] = None,
 ) -> None:
-    """Run a MCP server.
+    """Run an MCP server.
 
     The server can be specified in two ways:\n
     1. Module approach: server.py - runs the module directly, expecting a server.run() call.\n
@@ -412,7 +412,7 @@ def install(
         ),
     ] = None,
 ) -> None:
-    """Install a MCP server in the Claude desktop app.
+    """Install an MCP server in the Claude desktop app.
 
     Environment variables are preserved once added and only updated if new values
     are explicitly provided.
