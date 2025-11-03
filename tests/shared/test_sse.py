@@ -21,8 +21,8 @@ from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
-from mcp.server.transport_security import TransportSecuritySettings
 from mcp.server.streaming_asgi_transport import StreamingASGITransport
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import McpError
 from mcp.types import (
     EmptyResult,
@@ -418,7 +418,10 @@ async def test_request_context_propagation(context_app: Starlette) -> None:
                 follow_redirects=True,
             )
 
-        async with sse_client("http://testserver/sse", headers=custom_headers, httpx_client_factory=create_test_client) as (
+        async with sse_client("http://testserver/sse", 
+        headers=custom_headers, 
+        httpx_client_factory=create_test_client,
+        sse_read_timeout=0.5) as (
             read_stream,
             write_stream,
         ):
@@ -432,7 +435,8 @@ async def test_request_context_propagation(context_app: Starlette) -> None:
 
                 # Parse the JSON response
                 assert len(tool_result.content) == 1
-                headers_data = json.loads(tool_result.content[0].text if tool_result.content[0].type == "text" else "{}")
+                content_item = tool_result.content[0]
+                headers_data = json.loads(content_item.text if content_item.type == "text" else "{}")
 
                 # Verify headers were propagated
                 assert headers_data.get("authorization") == "Bearer test-token"

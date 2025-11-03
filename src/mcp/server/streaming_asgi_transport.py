@@ -9,8 +9,8 @@ This is only intended for writing tests for the SSE transport.
 """
 
 import typing
+from collections.abc import Awaitable, Callable
 from typing import Any, cast
-from typing import Callable, Awaitable
 
 import anyio
 import anyio.abc
