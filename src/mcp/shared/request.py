@@ -7,8 +7,9 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 import anyio
 from pydantic import BaseModel
 
+from mcp.shared.exceptions import McpError
 from mcp.shared.task import is_terminal
-from mcp.types import GetTaskResult
+from mcp.types import INVALID_PARAMS, GetTaskResult
 
 if TYPE_CHECKING:
     from mcp.shared.session import BaseSession
@@ -110,9 +111,15 @@ class PendingRequest(Generic[ReceiveResultT]):
 
         async def _wait_for_result_task() -> ReceiveResultT:
             assert self.task_id
-            return await self._task_handler(self.task_id, on_task_created, on_task_status)
+            return await self._task_handler(self.task_id, on_task_status)
+
+        async def _wait_for_task_creation() -> None:
+            # Wait for task creation notification
+            await self.task_created_handle
+            await on_task_created()
 
         async with anyio.create_task_group() as tg:
+            tg.start_soon(_wait_for_task_creation)
             tg.start_soon(wrapper, _wait_for_result_task)
             tg.start_soon(wrapper, self._wait_for_result)
 
@@ -141,7 +148,6 @@ class PendingRequest(Generic[ReceiveResultT]):
     async def _task_handler(
         self,
         task_id: str,
-        on_task_created: Callable[[], Awaitable[None]],
         on_task_status: Callable[[GetTaskResult], Awaitable[None]],
     ) -> ReceiveResultT:
         """
@@ -149,7 +155,6 @@ class PendingRequest(Generic[ReceiveResultT]):
 
         Args:
             task_id: The task ID to poll
-            on_task_created: Callback invoked when task is created
             on_task_status: Callback invoked on each status poll
 
         Returns:
@@ -158,14 +163,16 @@ class PendingRequest(Generic[ReceiveResultT]):
         Raises:
             Exception: If task polling or result retrieval fails
         """
-        # Wait for task creation notification
-        await self.task_created_handle
-        await on_task_created()
-
         # Poll for completion
         task: GetTaskResult
         while True:
-            task = await self.session.get_task(task_id)
+            try:
+                task = await self.session.get_task(task_id)
+            except McpError as e:
+                if e.error.code == INVALID_PARAMS:
+                    # Task may not exist yet
+                    continue
+                raise
             await on_task_status(task)
 
             if is_terminal(task.status):
