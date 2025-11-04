@@ -461,16 +461,12 @@ class OAuthClientProvider(BaseOAuthProvider):
             token_url = urljoin(auth_base_url, "/token")
         return token_url
 
-<<<<<<< HEAD:src/mcp/client/auth.py
-        token_data = {
-            "grant_type": "authorization_code",
-            "code": auth_code,
-            "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
-            "code_verifier": code_verifier,
-        }
-=======
     async def _exchange_token_authorization_code(
-        self, auth_code: str, code_verifier: str, *, token_data: dict[str, Any] | None = {}
+        self,
+        auth_code: str,
+        code_verifier: str,
+        *,
+        token_data: dict[str, Any] | None = None,
     ) -> httpx.Request:
         """Build token exchange request for authorization_code flow."""
         if self.context.client_metadata.redirect_uris is None:
@@ -489,7 +485,6 @@ class OAuthClientProvider(BaseOAuthProvider):
                 "code_verifier": code_verifier,
             }
         )
->>>>>>> upstream/main:src/mcp/client/auth/oauth2.py
 
         # Only include resource param if conditions are met
         if self.context.should_include_resource_param(self.context.protocol_version):
@@ -671,7 +666,6 @@ class OAuthClientProvider(BaseOAuthProvider):
                         logger.exception("OAuth flow error")
                         raise
 
-<<<<<<< HEAD:src/mcp/client/auth.py
                     # Retry with new tokens
                     self._add_auth_header(request)
                     yield request
@@ -950,8 +944,3 @@ class TokenExchangeProvider(BaseOAuthProvider):
         response = yield request
         if response.status_code == 401:
             self._current_tokens = None
-=======
-                # Retry with new tokens
-                self._add_auth_header(request)
-                yield request
->>>>>>> upstream/main:src/mcp/client/auth/oauth2.py

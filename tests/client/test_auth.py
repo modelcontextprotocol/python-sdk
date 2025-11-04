@@ -478,13 +478,9 @@ class TestOAuthFallback:
         )
 
         # Mock the authorization process to minimize unnecessary state in this test
-<<<<<<< HEAD
-        oauth_provider._perform_authorization = AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
-=======
-        oauth_provider._perform_authorization_code_grant = mock.AsyncMock(
+        oauth_provider._perform_authorization_code_grant = AsyncMock(
             return_value=("test_auth_code", "test_code_verifier")
         )
->>>>>>> upstream/main
 
         # Next request should fall back to legacy behavior: register then obtain token
         registration_request = await auth_flow.asend(oauth_metadata_response_3)
@@ -881,13 +877,9 @@ class TestAuthFlow:
         )
 
         # Mock the authorization process
-<<<<<<< HEAD
-        oauth_provider._perform_authorization = AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
-=======
-        oauth_provider._perform_authorization_code_grant = mock.AsyncMock(
+        oauth_provider._perform_authorization_code_grant = AsyncMock(
             return_value=("test_auth_code", "test_code_verifier")
         )
->>>>>>> upstream/main
 
         # Next request should be to exchange token
         token_request = await auth_flow.asend(registration_response)

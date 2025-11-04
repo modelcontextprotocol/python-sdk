@@ -83,21 +83,8 @@ async def test_notification_validation_error(tmp_path: Path):
         write_stream: MemoryObjectSendStream[SessionMessage],
         scope: anyio.CancelScope,
     ):
-<<<<<<< HEAD
-        # Use a timeout that's:
-        # - Long enough for fast operations (>10ms)
-        # - Short enough for slow operations (<200ms)
-        # - Not too short to avoid flakiness
-        async with ClientSession(
-            read_stream,
-            write_stream,
-            # Increased to 150ms to avoid flakiness on slower platforms
-            read_timeout_seconds=timedelta(milliseconds=150),
-        ) as session:
-=======
         # No session-level timeout to avoid race conditions with fast operations
         async with ClientSession(read_stream, write_stream) as session:
->>>>>>> upstream/main
             await session.initialize()
 
             # First call should work (fast operation, no timeout)
