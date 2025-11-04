@@ -25,6 +25,7 @@ from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.exceptions import McpError
+from mcp.shared.session import ProgressFnT
 
 
 class SseServerParameters(BaseModel):
@@ -172,11 +173,25 @@ class ClientSessionGroup:
         """Returns the tools as a dictionary of names to tools."""
         return self._tools
 
-    async def call_tool(self, name: str, args: dict[str, Any]) -> types.CallToolResult:
+    async def call_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+        read_timeout_seconds: timedelta | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        meta: dict[str, Any] | None = None,
+    ) -> types.CallToolResult:
         """Executes a tool given its name and arguments."""
         session = self._tool_to_session[name]
         session_tool_name = self.tools[name].name
-        return await session.call_tool(session_tool_name, args)
+        return await session.call_tool(
+            session_tool_name,
+            args,
+            read_timeout_seconds=read_timeout_seconds,
+            progress_callback=progress_callback,
+            meta=meta,
+        )
 
     async def disconnect_from_server(self, session: mcp.ClientSession) -> None:
         """Disconnects from a single MCP server."""
