@@ -11,6 +11,7 @@ hook.
 import contextlib
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import timedelta
 from types import TracebackType
 from typing import Any, TypeAlias, overload
@@ -26,6 +27,8 @@ from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.exceptions import McpError
 from mcp.shared.session import ProgressFnT
+
+from .session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 
 
 class SseServerParameters(BaseModel):
@@ -64,6 +67,21 @@ class StreamableHttpParameters(BaseModel):
 
 
 ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | StreamableHttpParameters
+
+
+# Use dataclass instead of pydantic BaseModel
+# because pydantic BaseModel cannot handle Protocol fields.
+@dataclass
+class ClientSessionParameters:
+    """Parameters for establishing a client session to an MCP server."""
+
+    read_timeout_seconds: timedelta | None = None
+    sampling_callback: SamplingFnT | None = None
+    elicitation_callback: ElicitationFnT | None = None
+    list_roots_callback: ListRootsFnT | None = None
+    logging_callback: LoggingFnT | None = None
+    message_handler: MessageHandlerFnT | None = None
+    client_info: types.Implementation | None = None
 
 
 class ClientSessionGroup:
@@ -264,13 +282,16 @@ class ClientSessionGroup:
     async def connect_to_server(
         self,
         server_params: ServerParameters,
+        session_params: ClientSessionParameters | None = None,
     ) -> mcp.ClientSession:
         """Connects to a single MCP server."""
-        server_info, session = await self._establish_session(server_params)
+        server_info, session = await self._establish_session(server_params, session_params)
         return await self.connect_with_session(server_info, session)
 
     async def _establish_session(
-        self, server_params: ServerParameters
+        self,
+        server_params: ServerParameters,
+        session_params: ClientSessionParameters | None = None,
     ) -> tuple[types.Implementation, mcp.ClientSession]:
         """Establish a client session to an MCP server."""
 
@@ -298,7 +319,23 @@ class ClientSessionGroup:
                 )
                 read, write, _ = await session_stack.enter_async_context(client)
 
-            session = await session_stack.enter_async_context(mcp.ClientSession(read, write))
+            if session_params is None:
+                session = await session_stack.enter_async_context(mcp.ClientSession(read, write))
+            else:
+                session = await session_stack.enter_async_context(
+                    mcp.ClientSession(
+                        read,
+                        write,
+                        read_timeout_seconds=session_params.read_timeout_seconds,
+                        sampling_callback=session_params.sampling_callback,
+                        elicitation_callback=session_params.elicitation_callback,
+                        list_roots_callback=session_params.list_roots_callback,
+                        logging_callback=session_params.logging_callback,
+                        message_handler=session_params.message_handler,
+                        client_info=session_params.client_info,
+                    )
+                )
+
             result = await session.initialize()
 
             # Session successfully initialized.
