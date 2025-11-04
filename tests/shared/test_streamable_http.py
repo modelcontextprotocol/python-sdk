@@ -7,11 +7,8 @@ Contains tests for both server and client sides of the StreamableHTTP transport.
 import json
 import multiprocessing
 import socket
-<<<<<<< HEAD
 import sys
 import time
-=======
->>>>>>> upstream/main
 from collections.abc import Generator
 from typing import Any
 

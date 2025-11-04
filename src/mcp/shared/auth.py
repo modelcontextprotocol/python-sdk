@@ -42,14 +42,11 @@ class OAuthClientMetadata(BaseModel):
     for the full specification.
     """
 
-<<<<<<< HEAD
-    redirect_uris: list[AnyUrl] = Field(..., min_length=1)
-    # token_endpoint_auth_method: this implementation only supports none &
-    # client_secret_post;
-    # ie: we do not support client_secret_basic
-    token_endpoint_auth_method: Literal["none", "client_secret_post"] = "client_secret_post"
+    redirect_uris: list[AnyUrl] | None = Field(default=None, min_length=1)
+    # supported auth methods for the token endpoint
+    token_endpoint_auth_method: Literal["none", "client_secret_post", "private_key_jwt"] = "client_secret_post"
     # grant_types: this implementation supports authorization_code, refresh_token, client_credentials, token_exchange,
-    # and allows additional grant types provided by the client (e.g. device code)
+    # and allows additional grant types provided by the client (e.g. device code or JWT bearer)
     grant_types: list[
         Literal[
             "authorization_code",
@@ -57,15 +54,9 @@ class OAuthClientMetadata(BaseModel):
             "client_credentials",
             "token_exchange",
             "device_code",
+            "urn:ietf:params:oauth:grant-type:jwt-bearer",
         ]
-=======
-    redirect_uris: list[AnyUrl] | None = Field(..., min_length=1)
-    # supported auth methods for the token endpoint
-    token_endpoint_auth_method: Literal["none", "client_secret_post", "private_key_jwt"] = "client_secret_post"
-    # supported grant_types of this implementation
-    grant_types: list[
-        Literal["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"] | str
->>>>>>> upstream/main
+        | str
     ] = [
         "authorization_code",
         "refresh_token",
