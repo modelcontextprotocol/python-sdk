@@ -73,6 +73,9 @@ class TestClientSessionGroup:
         mock_session.call_tool.assert_called_once_with(
             "my_tool",
             {"name": "value1", "args": {}},
+            read_timeout_seconds=None,
+            progress_callback=None,
+            meta=None,
         )
 
     async def test_connect_to_server(self, mock_exit_stack: contextlib.AsyncExitStack):
