@@ -13,11 +13,11 @@ import logging
 from collections.abc import Callable
 from datetime import timedelta
 from types import TracebackType
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, overload
 
 import anyio
 from pydantic import BaseModel
-from typing_extensions import Self
+from typing_extensions import Self, deprecated
 
 import mcp
 from mcp import types
@@ -173,21 +173,45 @@ class ClientSessionGroup:
         """Returns the tools as a dictionary of names to tools."""
         return self._tools
 
+    @overload
     async def call_tool(
         self,
         name: str,
-        args: dict[str, Any],
+        arguments: dict[str, Any],
         read_timeout_seconds: timedelta | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
         meta: dict[str, Any] | None = None,
+    ) -> types.CallToolResult: ...
+
+    @overload
+    @deprecated("The 'args' parameter is deprecated. Use 'arguments' instead.")
+    async def call_tool(
+        self,
+        name: str,
+        *,
+        args: dict[str, Any],
+        read_timeout_seconds: timedelta | None = None,
+        progress_callback: ProgressFnT | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> types.CallToolResult: ...
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: timedelta | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        meta: dict[str, Any] | None = None,
+        args: dict[str, Any] | None = None,
     ) -> types.CallToolResult:
         """Executes a tool given its name and arguments."""
         session = self._tool_to_session[name]
         session_tool_name = self.tools[name].name
         return await session.call_tool(
             session_tool_name,
-            args,
+            arguments if args is None else args,
             read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
             meta=meta,
