@@ -732,7 +732,7 @@ async def test_task_based_tool(server_transport: str, server_url: str) -> None:
             # Test begin_call_tool for task-based execution
             pending_request = session.begin_call_tool(
                 "long_running_computation",
-                arguments={"data": "test_data", "delay_seconds": 0.1},
+                arguments={"data": "test_data", "delay_seconds": 1},
             )
 
             # Wait for the result with callbacks
@@ -744,8 +744,25 @@ async def test_task_based_tool(server_transport: str, server_url: str) -> None:
             assert len(tool_result.content) == 1
             assert isinstance(tool_result.content[0], TextContent)
             assert "Processed: TEST_DATA" in tool_result.content[0].text
-            assert "0.1s" in tool_result.content[0].text
+            assert "1s" in tool_result.content[0].text or "1.0s" in tool_result.content[0].text
 
-            # Note: Due to the race between direct result and task-based polling,
-            # callbacks may or may not be called depending on timing.
-            # The important thing is that task-based execution is supported and works correctly.
+            # Verify callbacks were invoked
+            assert task_created_called, "on_task_created callback was not invoked"
+            assert len(task_status_updates) > 0, "on_task_status callback was never invoked"
+
+            # Due to the race between direct result and task polling:
+            # - With 1s delay and 5s default polling interval, direct result usually wins
+            # - We should see at least one status update (typically "submitted")
+            # - We may or may not see "completed" depending on timing
+
+            # Verify we got at least one valid status
+            valid_statuses = ["submitted", "working", "completed"]
+            assert all(status in valid_statuses for status in task_status_updates), (
+                f"Got invalid status in updates: {task_status_updates}"
+            )
+
+            # If direct result won the race, we may only see submitted/working; if polling won, we'll see completed
+            last_status = task_status_updates[-1]
+            assert last_status in ["submitted", "working", "completed"], (
+                f"Unexpected last status: {last_status} from {task_status_updates}"
+            )
