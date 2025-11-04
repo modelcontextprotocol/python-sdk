@@ -7,8 +7,11 @@ Contains tests for both server and client sides of the StreamableHTTP transport.
 import json
 import multiprocessing
 import socket
+<<<<<<< HEAD
 import sys
 import time
+=======
+>>>>>>> upstream/main
 from collections.abc import Generator
 from typing import Any
 
@@ -44,6 +47,7 @@ from mcp.shared.exceptions import McpError
 from mcp.shared.message import ClientMessageMetadata
 from mcp.shared.session import RequestResponder
 from mcp.types import InitializeResult, TextContent, TextResourceContents, Tool
+from tests.test_helpers import wait_for_server
 
 # Test constants
 SERVER_NAME = "test_streamable_http_server"
@@ -345,18 +349,7 @@ def basic_server(basic_server_port: int) -> Generator[None, None, None]:
     proc.start()
 
     # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", basic_server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+    wait_for_server(basic_server_port)
 
     yield
 
@@ -392,18 +385,7 @@ def event_server(
     proc.start()
 
     # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", event_server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+    wait_for_server(event_server_port)
 
     yield event_store, f"http://127.0.0.1:{event_server_port}"
 
@@ -423,18 +405,7 @@ def json_response_server(json_server_port: int) -> Generator[None, None, None]:
     proc.start()
 
     # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", json_server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+    wait_for_server(json_server_port)
 
     yield
 
@@ -1415,18 +1386,7 @@ def context_aware_server(basic_server_port: int) -> Generator[None, None, None]:
     proc.start()
 
     # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", basic_server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Context-aware server failed to start after {max_attempts} attempts")
+    wait_for_server(basic_server_port)
 
     yield
 

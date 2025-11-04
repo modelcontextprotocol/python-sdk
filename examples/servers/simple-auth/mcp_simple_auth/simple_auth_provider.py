@@ -73,6 +73,8 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
 
     async def register_client(self, client_info: OAuthClientInformationFull):
         """Register a new OAuth client."""
+        if not client_info.client_id:
+            raise ValueError("No client_id provided")
         self.clients[client_info.client_id] = client_info
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
@@ -209,6 +211,8 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
         """Exchange authorization code for tokens."""
         if authorization_code.code not in self.auth_codes:
             raise ValueError("Invalid authorization code")
+        if not client.client_id:
+            raise ValueError("No client_id provided")
 
         # Generate MCP access token
         mcp_token = f"mcp_{secrets.token_hex(32)}"

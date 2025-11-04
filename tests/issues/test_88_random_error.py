@@ -27,6 +27,10 @@ async def test_notification_validation_error(tmp_path: Path):
     2. The server can still handle new requests
     3. The client can make new requests
     4. No resources are leaked
+
+    Uses per-request timeouts to avoid race conditions:
+    - Fast operations use no timeout (reliable in any environment)
+    - Slow operations use minimal timeout (10ms) for quick test execution
     """
 
     server = Server(name="test")
@@ -79,6 +83,7 @@ async def test_notification_validation_error(tmp_path: Path):
         write_stream: MemoryObjectSendStream[SessionMessage],
         scope: anyio.CancelScope,
     ):
+<<<<<<< HEAD
         # Use a timeout that's:
         # - Long enough for fast operations (>10ms)
         # - Short enough for slow operations (<200ms)
@@ -89,24 +94,31 @@ async def test_notification_validation_error(tmp_path: Path):
             # Increased to 150ms to avoid flakiness on slower platforms
             read_timeout_seconds=timedelta(milliseconds=150),
         ) as session:
+=======
+        # No session-level timeout to avoid race conditions with fast operations
+        async with ClientSession(read_stream, write_stream) as session:
+>>>>>>> upstream/main
             await session.initialize()
 
-            # First call should work (fast operation)
-            result = await session.call_tool("fast")
+            # First call should work (fast operation, no timeout)
+            result = await session.call_tool("fast", read_timeout_seconds=None)
             assert result.content == [TextContent(type="text", text="fast 1")]
             assert not slow_request_lock.is_set()
 
-            # Second call should timeout (slow operation)
+            # Second call should timeout (slow operation with minimal timeout)
+            # Use 10ms timeout to trigger quickly without waiting
             with pytest.raises(McpError) as exc_info:
-                await session.call_tool("slow")
+                await session.call_tool(
+                    "slow", read_timeout_seconds=timedelta(microseconds=1)
+                )  # artificial timeout that always fails
             assert "Timed out while waiting" in str(exc_info.value)
 
             # release the slow request not to have hanging process
             slow_request_lock.set()
 
-            # Third call should work (fast operation),
+            # Third call should work (fast operation, no timeout),
             # proving server is still responsive
-            result = await session.call_tool("fast")
+            result = await session.call_tool("fast", read_timeout_seconds=None)
             assert result.content == [TextContent(type="text", text="fast 3")]
         scope.cancel()
 

@@ -478,7 +478,13 @@ class TestOAuthFallback:
         )
 
         # Mock the authorization process to minimize unnecessary state in this test
+<<<<<<< HEAD
         oauth_provider._perform_authorization = AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
+=======
+        oauth_provider._perform_authorization_code_grant = mock.AsyncMock(
+            return_value=("test_auth_code", "test_code_verifier")
+        )
+>>>>>>> upstream/main
 
         # Next request should fall back to legacy behavior: register then obtain token
         registration_request = await auth_flow.asend(oauth_metadata_response_3)
@@ -609,7 +615,7 @@ class TestOAuthFallback:
         assert request is None
 
     @pytest.mark.anyio
-    async def test_token_exchange_request(self, oauth_provider: OAuthClientProvider):
+    async def test_token_exchange_request_authorization_code(self, oauth_provider: OAuthClientProvider):
         """Test token exchange request building."""
         # Set up required context
         oauth_provider.context.client_info = OAuthClientInformationFull(
@@ -618,7 +624,7 @@ class TestOAuthFallback:
             redirect_uris=[AnyUrl("http://localhost:3030/callback")],
         )
 
-        request = await oauth_provider._exchange_token("test_auth_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_auth_code", "test_verifier")
 
         assert request.method == "POST"
         assert str(request.url) == "https://api.example.com/token"
@@ -672,7 +678,7 @@ class TestProtectedResourceMetadata:
         )
 
         # Test in token exchange
-        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" in content
         # Check URL-encoded resource parameter
@@ -703,7 +709,7 @@ class TestProtectedResourceMetadata:
         )
 
         # Test in token exchange
-        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" not in content
 
@@ -733,7 +739,7 @@ class TestProtectedResourceMetadata:
         )
 
         # Test in token exchange
-        request = await oauth_provider._exchange_token("test_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" in content
 
@@ -806,7 +812,7 @@ class TestAuthFlow:
             pass  # Expected
 
     @pytest.mark.anyio
-    async def test_auth_flow_with_no_tokens(self, oauth_provider: OAuthClientProvider):
+    async def test_auth_flow_with_no_tokens(self, oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage):
         """Test auth flow when no tokens are available, triggering the full OAuth flow."""
         # Ensure no tokens are stored
         oauth_provider.context.current_tokens = None
@@ -875,7 +881,13 @@ class TestAuthFlow:
         )
 
         # Mock the authorization process
+<<<<<<< HEAD
         oauth_provider._perform_authorization = AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
+=======
+        oauth_provider._perform_authorization_code_grant = mock.AsyncMock(
+            return_value=("test_auth_code", "test_code_verifier")
+        )
+>>>>>>> upstream/main
 
         # Next request should be to exchange token
         token_request = await auth_flow.asend(registration_response)
