@@ -68,7 +68,19 @@ class RegistrationHandler:
                     ),
                     status_code=400,
                 )
+
+        # Validate redirect_uris is provided for authorization_code grant type
         grant_types_set: set[str] = set(client_metadata.grant_types)
+        if "authorization_code" in grant_types_set and (
+            client_metadata.redirect_uris is None or len(client_metadata.redirect_uris) == 0
+        ):
+            return PydanticJSONResponse(
+                content=RegistrationErrorResponse(
+                    error="invalid_client_metadata",
+                    error_description="redirect_uris: Field required",
+                ),
+                status_code=400,
+            )
         required_sets = [
             {"authorization_code", "refresh_token"},
             {"client_credentials"},
