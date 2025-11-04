@@ -14,7 +14,7 @@
 
 ## Server Instructions
 
-When a server initializes, it can send instructions tot he client explaining how the tools can be used as a collective group, this can be thought of like an instructions manual for the consumer of a given server.
+When a server initializes, it can send instructions to the client explaining how the tools can be used as a collective group, this can be thought of like an instructions manual for the consumer of a given server.
 
 ### Basic Usage
 
