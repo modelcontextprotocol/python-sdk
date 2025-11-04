@@ -9,6 +9,7 @@ import multiprocessing
 import socket
 import time
 from collections.abc import Generator
+from datetime import timedelta
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -25,7 +26,11 @@ from starlette.routing import Mount
 
 import mcp.types as types
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
+from mcp.client.streamable_http import (
+    StreamableHTTPTransport,
+    streamable_http_client,
+    streamablehttp_client,  # pyright: ignore[reportDeprecated]
+)
 from mcp.server import Server
 from mcp.server.streamable_http import (
     MCP_PROTOCOL_VERSION_HEADER,
@@ -2356,3 +2361,36 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_streamable_http_transport_deprecated_params_ignored(basic_server: None, basic_server_url: str) -> None:
+    """Test that deprecated parameters passed to StreamableHTTPTransport are properly ignored."""
+    with pytest.warns(DeprecationWarning):
+        transport = StreamableHTTPTransport(  # pyright: ignore[reportDeprecated]
+            url=f"{basic_server_url}/mcp",
+            headers={"X-Should-Be-Ignored": "ignored"},
+            timeout=999,
+            sse_read_timeout=timedelta(seconds=999),
+            auth=None,
+        )
+
+    headers = transport._prepare_headers()
+    assert "X-Should-Be-Ignored" not in headers
+    assert headers["accept"] == "application/json, text/event-stream"
+    assert headers["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_client_deprecation_warning(basic_server: None, basic_server_url: str) -> None:
+    """Test that the old streamablehttp_client() function issues a deprecation warning."""
+    with pytest.warns(DeprecationWarning, match="Use `streamable_http_client` instead"):
+        async with streamablehttp_client(f"{basic_server_url}/mcp") as (  # pyright: ignore[reportDeprecated]
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                tools = await session.list_tools()
+                assert len(tools.tools) > 0
