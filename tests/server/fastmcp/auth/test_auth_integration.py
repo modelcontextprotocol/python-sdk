@@ -160,6 +160,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
         )
 
     async def exchange_client_credentials(self, client: OAuthClientInformationFull, scopes: list[str]) -> OAuthToken:
+        assert client.client_id is not None
         access_token = f"access_{secrets.token_hex(32)}"
         self.tokens[access_token] = AccessToken(
             token=access_token,
@@ -188,6 +189,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
         if subject_token == "bad_token":
             raise TokenError("invalid_grant", "invalid subject token")
 
+        assert client.client_id is not None
         access_token = f"exchanged_{secrets.token_hex(32)}"
         self.tokens[access_token] = AccessToken(
             token=access_token,

@@ -244,6 +244,8 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
 
     async def exchange_client_credentials(self, client: OAuthClientInformationFull, scopes: list[str]) -> OAuthToken:
         """Exchange client credentials for an MCP access token."""
+        if not client.client_id:
+            raise ValueError("No client_id provided")
         mcp_token = f"mcp_{secrets.token_hex(32)}"
         self.tokens[mcp_token] = AccessToken(
             token=mcp_token,
@@ -272,6 +274,8 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
         """Exchange an external token for an MCP access token."""
         if not subject_token:
             raise ValueError("Invalid subject token")
+        if not client.client_id:
+            raise ValueError("No client_id provided")
 
         mcp_token = f"mcp_{secrets.token_hex(32)}"
         self.tokens[mcp_token] = AccessToken(
