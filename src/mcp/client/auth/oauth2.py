@@ -256,6 +256,8 @@ class BaseOAuthProvider(httpx.Auth):
         headers: dict[str, str],
         client_info: OAuthClientInformationFull,
     ) -> None:
+        if not client_info.client_id:
+            raise OAuthFlowError("Client ID is required")
         auth_method = "client_secret_post"
         if self._metadata and self._metadata.token_endpoint_auth_methods_supported:
             supported = self._metadata.token_endpoint_auth_methods_supported
