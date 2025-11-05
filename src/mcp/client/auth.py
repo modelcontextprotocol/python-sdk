@@ -139,7 +139,7 @@ class OAuthContext:
             return False
 
         # If no expected issuer is configured, behave as before
-        if not getattr(self, "expected_issuer", None):
+        if not self.expected_issuer:
             return True
 
         # If expected_issuer is set, ensure token issuer matches
