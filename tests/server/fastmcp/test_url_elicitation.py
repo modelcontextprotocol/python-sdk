@@ -3,7 +3,7 @@
 import pytest
 
 from mcp.client.session import ClientSession
-from mcp.server.elicitation import AcceptedUrlElicitation, CancelledElicitation, DeclinedElicitation
+from mcp.server.elicitation import AcceptedUrlElicitation, DeclinedElicitation
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
@@ -140,10 +140,9 @@ async def test_url_elicitation_helper_function():
             return "Accepted"
         elif isinstance(result, DeclinedElicitation):
             return "Declined"
-        elif isinstance(result, CancelledElicitation):
-            return "Cancelled"
         else:
-            return "Unknown"
+            # Must be CancelledElicitation
+            return "Cancelled"
 
     async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         return ElicitResult(action="accept")
