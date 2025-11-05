@@ -146,9 +146,13 @@ class JSONRPCResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+# MCP-specific error codes
+ELICITATION_REQUIRED = -32000
+"""Error code indicating that an elicitation is required before the request can be processed."""
+
 # SDK error codes
-CONNECTION_CLOSED = -32000
-# REQUEST_TIMEOUT = -32001  # the typescript sdk uses this
+CONNECTION_CLOSED = -32001
+# REQUEST_TIMEOUT = -32002  # the typescript sdk uses this
 
 # Standard JSON-RPC error codes
 PARSE_ERROR = -32700
@@ -256,8 +260,29 @@ class SamplingCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class FormElicitationCapability(BaseModel):
+    """Capability for form mode elicitation."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class UrlElicitationCapability(BaseModel):
+    """Capability for URL mode elicitation."""
+
+    model_config = ConfigDict(extra="allow")
+
+
 class ElicitationCapability(BaseModel):
-    """Capability for elicitation operations."""
+    """Capability for elicitation operations.
+
+    Clients must support at least one mode (form or url).
+    """
+
+    form: FormElicitationCapability | None = None
+    """Present if the client supports form mode elicitation."""
+
+    url: UrlElicitationCapability | None = None
+    """Present if the client supports URL mode elicitation."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -1247,6 +1272,22 @@ class CancelledNotification(Notification[CancelledNotificationParams, Literal["n
     params: CancelledNotificationParams
 
 
+class ElicitTrackRequestParams(RequestParams):
+    """Parameters for elicitation tracking requests."""
+
+    elicitationId: str
+    """The unique identifier of the elicitation to track."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ElicitTrackRequest(Request[ElicitTrackRequestParams, Literal["elicitation/track"]]):
+    """A request from the client to track progress of a URL mode elicitation."""
+
+    method: Literal["elicitation/track"] = "elicitation/track"
+    params: ElicitTrackRequestParams
+
+
 class ClientRequest(
     RootModel[
         PingRequest
@@ -1262,6 +1303,7 @@ class ClientRequest(
         | UnsubscribeRequest
         | CallToolRequest
         | ListToolsRequest
+        | ElicitTrackRequest
     ]
 ):
     pass
@@ -1279,10 +1321,30 @@ ElicitRequestedSchema: TypeAlias = dict[str, Any]
 
 
 class ElicitRequestParams(RequestParams):
-    """Parameters for elicitation requests."""
+    """Parameters for elicitation requests.
+
+    The mode field determines the type of elicitation:
+    - "form": In-band structured data collection with optional schema validation
+    - "url": Out-of-band interaction via URL navigation
+    """
+
+    mode: Literal["form", "url"]
+    """The mode of elicitation (form or url)."""
 
     message: str
-    requestedSchema: ElicitRequestedSchema
+    """A human-readable message explaining why the interaction is needed."""
+
+    # Form mode fields
+    requestedSchema: ElicitRequestedSchema | None = None
+    """JSON Schema defining the structure of expected response (form mode only)."""
+
+    # URL mode fields
+    url: str | None = None
+    """The URL that the user should navigate to (url mode only)."""
+
+    elicitationId: str | None = None
+    """A unique identifier for the elicitation (url mode only)."""
+
     model_config = ConfigDict(extra="allow")
 
 
@@ -1299,19 +1361,64 @@ class ElicitResult(Result):
     action: Literal["accept", "decline", "cancel"]
     """
     The user action in response to the elicitation.
-    - "accept": User submitted the form/confirmed the action
+    - "accept": User submitted the form/confirmed the action (or consented to URL navigation)
     - "decline": User explicitly declined the action
     - "cancel": User dismissed without making an explicit choice
     """
 
     content: dict[str, str | int | float | bool | None] | None = None
     """
-    The submitted form data, only present when action is "accept".
+    The submitted form data, only present when action is "accept" in form mode.
     Contains values matching the requested schema.
+    For URL mode, this field is omitted.
     """
 
 
-class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult]):
+class ElicitTrackResult(Result):
+    """The server's response to an elicitation tracking request."""
+
+    status: Literal["pending", "complete"]
+    """
+    The status of the elicitation.
+    - "pending": The elicitation is still in progress
+    - "complete": The elicitation has been completed
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+
+class UrlElicitationInfo(BaseModel):
+    """Information about a URL mode elicitation embedded in an ElicitationRequired error."""
+
+    mode: Literal["url"] = "url"
+    """The mode of elicitation (must be "url")."""
+
+    elicitationId: str
+    """A unique identifier for the elicitation."""
+
+    url: str
+    """The URL that the user should navigate to."""
+
+    message: str
+    """A human-readable message explaining why the interaction is needed."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ElicitationRequiredErrorData(BaseModel):
+    """Error data for ElicitationRequired errors.
+
+    Servers return this when a request cannot be processed until one or more
+    URL mode elicitations are completed.
+    """
+
+    elicitations: list[UrlElicitationInfo]
+    """List of URL mode elicitations that must be completed."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult | ElicitTrackResult]):
     pass
 
 

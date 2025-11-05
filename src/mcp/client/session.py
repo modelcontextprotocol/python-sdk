@@ -139,7 +139,12 @@ class ClientSession(
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
         elicitation = (
-            types.ElicitationCapability() if self._elicitation_callback is not _default_elicitation_callback else None
+            types.ElicitationCapability(
+                form=types.FormElicitationCapability(),
+                url=types.UrlElicitationCapability(),
+            )
+            if self._elicitation_callback is not _default_elicitation_callback
+            else None
         )
         roots = (
             # TODO: Should this be based on whether we
@@ -502,6 +507,29 @@ class ClientSession(
             self._tool_output_schemas[tool.name] = tool.outputSchema
 
         return result
+
+    async def track_elicitation(
+        self,
+        elicitation_id: str,
+        progress_token: types.ProgressToken | None = None,
+    ) -> types.ElicitTrackResult:
+        """Send an elicitation/track request to monitor URL mode elicitation progress.
+
+        Args:
+            elicitation_id: The unique identifier of the elicitation to track
+            progress_token: Optional token for receiving progress notifications
+
+        Returns:
+            ElicitTrackResult indicating the status of the elicitation
+        """
+        params = types.ElicitTrackRequestParams(elicitationId=elicitation_id)
+        if progress_token is not None:
+            params.meta = types.RequestParams.Meta(progressToken=progress_token)
+
+        return await self.send_request(
+            types.ClientRequest(types.ElicitTrackRequest(params=params)),
+            types.ElicitTrackResult,
+        )
 
     async def send_roots_list_changed(self) -> None:  # pragma: no cover
         """Send a roots/list_changed notification."""
