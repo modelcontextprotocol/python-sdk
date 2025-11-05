@@ -1,10 +1,8 @@
 """Test URL mode elicitation feature (SEP 1036)."""
 
-from typing import Any
-
 import pytest
 
-from mcp.client.session import ClientSession, ElicitationFnT
+from mcp.client.session import ClientSession
 from mcp.server.elicitation import AcceptedUrlElicitation, CancelledElicitation, DeclinedElicitation
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
