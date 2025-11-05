@@ -579,6 +579,15 @@ class ClientSession(
             types.ListTasksResult,
         )
 
+    async def delete_task(self, task_id: str) -> types.EmptyResult:
+        """Delete a specific task."""
+        return await self.send_request(
+            types.ClientRequest(
+                types.DeleteTaskRequest(method="tasks/delete", params=types.DeleteTaskParams(taskId=task_id))
+            ),
+            types.EmptyResult,
+        )
+
     async def _received_request(self, responder: RequestResponder[types.ServerRequest, types.ClientResult]) -> None:
         ctx = RequestContext[ClientSession, Any](
             request_id=responder.request_id,

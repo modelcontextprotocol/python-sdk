@@ -99,6 +99,19 @@ class TaskStore(ABC):
         """
         ...
 
+    @abstractmethod
+    async def delete_task(self, task_id: str) -> None:
+        """
+        Delete a task from storage.
+
+        Args:
+            task_id: The task identifier
+
+        Raises:
+            Exception: If task not found
+        """
+        ...
+
 
 def is_terminal(status: TaskStatus) -> bool:
     """

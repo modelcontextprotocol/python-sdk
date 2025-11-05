@@ -144,7 +144,9 @@ class ServerSession(
         async with self._incoming_message_stream_writer:
             await super()._receive_loop()
 
-    async def _received_request(self, responder: RequestResponder[types.ClientRequest, types.ServerResult]):
+    async def _received_request(  # noqa: PLR0912
+        self, responder: RequestResponder[types.ClientRequest, types.ServerResult]
+    ):
         # Handle task creation if task metadata is present
         if responder.request_meta and responder.request_meta.task and self._task_store:
             task_meta = responder.request_meta.task
@@ -269,6 +271,23 @@ class ServerSession(
                         with responder:
                             await responder.respond(
                                 types.ErrorData(code=types.INVALID_PARAMS, message=f"Failed to list tasks: {e}")
+                            )
+                else:
+                    with responder:
+                        await responder.respond(
+                            types.ErrorData(code=types.INVALID_REQUEST, message="Task store not configured")
+                        )
+            case types.DeleteTaskRequest(params=params):
+                # Handle delete task requests if task store is available
+                if self._task_store:
+                    try:
+                        await self._task_store.delete_task(params.taskId)
+                        with responder:
+                            await responder.respond(types.ServerResult(types.EmptyResult(_meta={})))
+                    except Exception as e:
+                        with responder:
+                            await responder.respond(
+                                types.ErrorData(code=types.INVALID_PARAMS, message=f"Failed to delete task: {e}")
                             )
                 else:
                     with responder:
@@ -457,6 +476,15 @@ class ServerSession(
                 )
             ),
             types.ListTasksResult,
+        )
+
+    async def delete_task(self, task_id: str) -> types.EmptyResult:
+        """Delete a specific task."""
+        return await self.send_request(
+            types.ServerRequest(
+                types.DeleteTaskRequest(method="tasks/delete", params=types.DeleteTaskParams(taskId=task_id))
+            ),
+            types.EmptyResult,
         )
 
     async def _handle_incoming(self, req: ServerRequestResponder) -> None:

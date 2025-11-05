@@ -134,6 +134,17 @@ class InMemoryTaskStore(TaskStore):
 
         return {"tasks": tasks, "nextCursor": next_cursor}
 
+    async def delete_task(self, task_id: str) -> None:
+        """Delete a task from storage."""
+        if task_id not in self._tasks:
+            raise ValueError(f"Task with ID {task_id} not found")
+
+        # Cancel any scheduled cleanup
+        self._cancel_cleanup(task_id)
+
+        # Remove the task
+        self._tasks.pop(task_id)
+
     def _schedule_cleanup(self, task_id: str, delay_seconds: float) -> None:
         """Schedule automatic cleanup of a task after the specified delay."""
 

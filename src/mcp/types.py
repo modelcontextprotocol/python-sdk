@@ -584,6 +584,22 @@ class ListTasksResult(Result):
     model_config = ConfigDict(extra="allow")
 
 
+class DeleteTaskParams(RequestParams):
+    """Parameters for deleting a task."""
+
+    taskId: str
+    """The task identifier."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class DeleteTaskRequest(Request[DeleteTaskParams, Literal["tasks/delete"]]):
+    """A request to delete a specific task."""
+
+    method: Literal["tasks/delete"] = "tasks/delete"
+    params: DeleteTaskParams
+
+
 class ListResourcesRequest(PaginatedRequest[Literal["resources/list"]]):
     """Sent from the client to request a list of resources the server has."""
 
@@ -1433,6 +1449,7 @@ class ClientRequest(
         | GetTaskRequest
         | GetTaskPayloadRequest
         | ListTasksRequest
+        | DeleteTaskRequest
     ]
 ):
     pass
@@ -1503,6 +1520,7 @@ class ServerRequest(
         | GetTaskRequest
         | GetTaskPayloadRequest
         | ListTasksRequest
+        | DeleteTaskRequest
     ]
 ):
     pass
