@@ -251,6 +251,13 @@ class StreamableHTTPTransport:
                     await event_source.response.aclose()
                     break
 
+    async def _send_error_response(self, ctx: RequestContext, error: Exception) -> None:
+        """Send an error response to the client."""
+        error_data = ErrorData(code=32000, message=str(error))
+        jsonrpc_error = JSONRPCError(jsonrpc="2.0", id=ctx.session_message.message.root.id, error=error_data)
+        session_message = SessionMessage(message=JSONRPCMessage(jsonrpc_error))
+        await ctx.read_stream_writer.send(session_message)
+
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
         headers = self._prepare_request_headers(ctx.headers)
@@ -321,23 +328,23 @@ class StreamableHTTPTransport:
         is_initialization: bool = False,
     ) -> None:
         """Handle SSE response from the server."""
-        try:
-            event_source = EventSource(response)
-            async for sse in event_source.aiter_sse():
-                is_complete = await self._handle_sse_event(
-                    sse,
-                    ctx.read_stream_writer,
-                    resumption_callback=(ctx.metadata.on_resumption_token_update if ctx.metadata else None),
-                    is_initialization=is_initialization,
-                )
-                # If the SSE event indicates completion, like returning respose/error
-                # break the loop
-                if is_complete:
-                    await response.aclose()
-                    break
-        except Exception as e:
-            logger.exception("Error reading SSE stream:")
-            await ctx.read_stream_writer.send(e)
+        event_source = EventSource(response)
+        finished = False
+        async for sse in event_source.aiter_sse():
+            is_complete = await self._handle_sse_event(
+                sse,
+                ctx.read_stream_writer,
+                resumption_callback=(ctx.metadata.on_resumption_token_update if ctx.metadata else None),
+                is_initialization=is_initialization,
+            )
+            # If the SSE event indicates completion, like returning respose/error
+            # break the loop
+            if is_complete:
+                finished = True
+                await response.aclose()
+                break
+        if not finished:
+            raise Exception("SSE stream ended without completing")
 
     async def _handle_unexpected_content_type(
         self,
@@ -403,10 +410,13 @@ class StreamableHTTPTransport:
                     )
 
                     async def handle_request_async():
-                        if is_resumption:
-                            await self._handle_resumption_request(ctx)
-                        else:
-                            await self._handle_post_request(ctx)
+                        try:
+                            if is_resumption:
+                                await self._handle_resumption_request(ctx)
+                            else:
+                                await self._handle_post_request(ctx)
+                        except Exception as e:
+                            await self._send_error_response(ctx, e)
 
                     # If this is a request, start a new task to handle it
                     if isinstance(message.root, JSONRPCRequest):
