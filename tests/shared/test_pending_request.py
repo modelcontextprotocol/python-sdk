@@ -99,9 +99,9 @@ class TestPendingRequestTaskPolling:
 
         # Set up task status progression
         mock_session.get_task.side_effect = [
-            GetTaskResult(taskId="task-1", status="submitted", pollFrequency=100),
-            GetTaskResult(taskId="task-1", status="working", pollFrequency=100),
-            GetTaskResult(taskId="task-1", status="completed", pollFrequency=100),
+            GetTaskResult(taskId="task-1", status="submitted", pollInterval=100),
+            GetTaskResult(taskId="task-1", status="working", pollInterval=100),
+            GetTaskResult(taskId="task-1", status="completed", pollInterval=100),
         ]
         mock_session.get_task_result.return_value = sample_result
 
@@ -142,8 +142,8 @@ class TestPendingRequestTaskPolling:
 
         # Set up task status progression
         task_statuses = [
-            GetTaskResult(taskId="task-2", status="submitted", pollFrequency=50),
-            GetTaskResult(taskId="task-2", status="completed", pollFrequency=50),
+            GetTaskResult(taskId="task-2", status="submitted", pollInterval=50),
+            GetTaskResult(taskId="task-2", status="completed", pollInterval=50),
         ]
         mock_session.get_task.side_effect = task_statuses
         mock_session.get_task_result.return_value = sample_result
@@ -176,7 +176,7 @@ class TestPendingRequestTaskPolling:
     async def test_polling_interval_respects_poll_frequency(
         self, mock_session: MagicMock, sample_result: CallToolResult
     ):
-        """Test that polling interval respects pollFrequency from task."""
+        """Test that polling interval respects pollInterval from task."""
         task_created_event = asyncio.Event()
         task_created_event.set()
 
@@ -193,9 +193,9 @@ class TestPendingRequestTaskPolling:
         async def mock_get_task(task_id: str):
             poll_times.append(asyncio.get_event_loop().time())
             if len(poll_times) == 1:
-                return GetTaskResult(taskId=task_id, status="submitted", pollFrequency=100)  # 100ms
+                return GetTaskResult(taskId=task_id, status="submitted", pollInterval=100)  # 100ms
             else:
-                return GetTaskResult(taskId=task_id, status="completed", pollFrequency=100)
+                return GetTaskResult(taskId=task_id, status="completed", pollInterval=100)
 
         mock_session.get_task.side_effect = mock_get_task
         mock_session.get_task_result.return_value = sample_result
@@ -220,7 +220,7 @@ class TestPendingRequestTaskPolling:
     async def test_polling_uses_default_interval_when_not_specified(
         self, mock_session: MagicMock, sample_result: CallToolResult
     ):
-        """Test that default polling interval is used when pollFrequency is None."""
+        """Test that default polling interval is used when pollInterval is None."""
         task_created_event = asyncio.Event()
         task_created_event.set()
 
@@ -236,9 +236,9 @@ class TestPendingRequestTaskPolling:
         async def mock_get_task(task_id: str):
             poll_times.append(asyncio.get_event_loop().time())
             if len(poll_times) == 1:
-                return GetTaskResult(taskId=task_id, status="submitted", pollFrequency=None)
+                return GetTaskResult(taskId=task_id, status="submitted", pollInterval=None)
             else:
-                return GetTaskResult(taskId=task_id, status="completed", pollFrequency=None)
+                return GetTaskResult(taskId=task_id, status="completed", pollInterval=None)
 
         mock_session.get_task.side_effect = mock_get_task
         mock_session.get_task_result.return_value = sample_result
@@ -279,7 +279,7 @@ class TestPendingRequestRaceCondition:
         # Set up task polling to be slow
         async def slow_get_task(task_id: str):
             await asyncio.sleep(0.2)
-            return GetTaskResult(taskId=task_id, status="submitted", pollFrequency=100)
+            return GetTaskResult(taskId=task_id, status="submitted", pollInterval=100)
 
         mock_session.get_task.side_effect = slow_get_task
 
@@ -319,7 +319,7 @@ class TestPendingRequestRaceCondition:
             return sample_result
 
         # Set up task polling to complete quickly
-        mock_session.get_task.return_value = GetTaskResult(taskId="task-6", status="completed", pollFrequency=100)
+        mock_session.get_task.return_value = GetTaskResult(taskId="task-6", status="completed", pollInterval=100)
         mock_session.get_task_result.return_value = sample_result
 
         pending = PendingRequest(
@@ -420,7 +420,7 @@ class TestPendingRequestErrorHandling:
             raise RuntimeError("Direct result also failed")
 
         # Task polling succeeds but result retrieval fails
-        mock_session.get_task.return_value = GetTaskResult(taskId="task-9", status="completed", pollFrequency=100)
+        mock_session.get_task.return_value = GetTaskResult(taskId="task-9", status="completed", pollInterval=100)
         mock_session.get_task_result.side_effect = RuntimeError("Failed to retrieve result")
 
         pending = PendingRequest(
@@ -454,7 +454,7 @@ class TestPendingRequestCancellation:
         # Set up task polling to never complete
         async def never_complete_get_task(task_id: str):
             await asyncio.sleep(10)
-            return GetTaskResult(taskId=task_id, status="submitted", pollFrequency=100)
+            return GetTaskResult(taskId=task_id, status="submitted", pollInterval=100)
 
         mock_session.get_task.side_effect = never_complete_get_task
 
@@ -494,7 +494,7 @@ class TestPendingRequestCancellation:
             nonlocal get_task_cancelled
             try:
                 await asyncio.sleep(10)  # Will be cancelled
-                return GetTaskResult(taskId=task_id, status="submitted", pollFrequency=100)
+                return GetTaskResult(taskId=task_id, status="submitted", pollInterval=100)
             except asyncio.CancelledError:
                 get_task_cancelled = True
                 raise
@@ -542,7 +542,7 @@ class TestPendingRequestStatusTransitions:
             await asyncio.Future()  # Never completes
             return sample_result
 
-        mock_session.get_task.return_value = GetTaskResult(taskId="task-12", status="completed", pollFrequency=100)
+        mock_session.get_task.return_value = GetTaskResult(taskId="task-12", status="completed", pollInterval=100)
         mock_session.get_task_result.return_value = sample_result
 
         pending = PendingRequest(
@@ -572,8 +572,8 @@ class TestPendingRequestStatusTransitions:
             return sample_result
 
         mock_session.get_task.side_effect = [
-            GetTaskResult(taskId="task-13", status="submitted", pollFrequency=50),
-            GetTaskResult(taskId="task-13", status="failed", pollFrequency=50, error="Something went wrong"),
+            GetTaskResult(taskId="task-13", status="submitted", pollInterval=50),
+            GetTaskResult(taskId="task-13", status="failed", pollInterval=50, error="Something went wrong"),
         ]
         mock_session.get_task_result.return_value = sample_result
 
@@ -604,8 +604,8 @@ class TestPendingRequestStatusTransitions:
             return sample_result
 
         mock_session.get_task.side_effect = [
-            GetTaskResult(taskId="task-14", status="working", pollFrequency=50),
-            GetTaskResult(taskId="task-14", status="cancelled", pollFrequency=50, error="User cancelled"),
+            GetTaskResult(taskId="task-14", status="working", pollInterval=50),
+            GetTaskResult(taskId="task-14", status="cancelled", pollInterval=50, error="User cancelled"),
         ]
         mock_session.get_task_result.return_value = sample_result
 

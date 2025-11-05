@@ -43,7 +43,7 @@ class TestCreateTask:
         assert task.taskId == "test-task-123"
         assert task.status == "submitted"
         assert task.keepAlive == 5000
-        assert task.pollFrequency == 500  # Default value
+        assert task.pollInterval == 500  # Default value
 
     @pytest.mark.anyio
     async def test_create_task_without_keep_alive(self, task_store: InMemoryTaskStore, sample_request: CallToolRequest):

@@ -490,7 +490,7 @@ class Task(BaseModel):
     None means the task will not be automatically cleaned up.
     """
 
-    pollFrequency: int | None = None
+    pollInterval: int | None = None
     """Recommended polling frequency in milliseconds for checking task status."""
 
     error: str | None = None
@@ -540,7 +540,7 @@ class GetTaskResult(Result):
     keepAlive: int | None = None
     """Time in milliseconds to keep task results available after completion."""
 
-    pollFrequency: int | None = None
+    pollInterval: int | None = None
     """Recommended polling frequency in milliseconds for checking task status."""
 
     error: str | None = None

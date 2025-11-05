@@ -636,7 +636,7 @@ class ClientSession(
                                 taskId=task.taskId,
                                 status=task.status,
                                 keepAlive=task.keepAlive,
-                                pollFrequency=task.pollFrequency,
+                                pollInterval=task.pollInterval,
                                 error=task.error,
                                 _meta={types.RELATED_TASK_META_KEY: {"taskId": params.taskId}},
                             )

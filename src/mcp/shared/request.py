@@ -179,7 +179,7 @@ class PendingRequest(Generic[ReceiveResultT]):
                 break
 
             # Wait before polling again
-            poll_frequency = task.pollFrequency if task.pollFrequency is not None else DEFAULT_POLLING_INTERVAL * 1000
+            poll_frequency = task.pollInterval if task.pollInterval is not None else DEFAULT_POLLING_INTERVAL * 1000
             await anyio.sleep(poll_frequency / 1000.0)
 
         # Retrieve and return the result

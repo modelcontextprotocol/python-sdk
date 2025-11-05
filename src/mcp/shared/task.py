@@ -37,7 +37,7 @@ class TaskStore(ABC):
             task_id: The task identifier
 
         Returns:
-            The task state including status, keepAlive, pollFrequency, and optional error,
+            The task state including status, keepAlive, pollInterval, and optional error,
             or None if task not found
         """
         ...

@@ -52,7 +52,7 @@ class InMemoryTaskStore(TaskStore):
             taskId=task_id,
             status="submitted",
             keepAlive=task.keepAlive,
-            pollFrequency=500,  # Default 500ms poll frequency
+            pollInterval=500,  # Default 500ms poll frequency
         )
 
         self._tasks[task_id] = StoredTask(task=task_obj, request=request, request_id=request_id)
