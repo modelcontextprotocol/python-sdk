@@ -14,7 +14,7 @@ from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
-from src.mcp.client.transport_session import TransportSession
+from mcp.client.transport_session import TransportSession
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
