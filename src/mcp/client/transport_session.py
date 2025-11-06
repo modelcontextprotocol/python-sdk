@@ -81,16 +81,6 @@ class TransportSession(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def _validate_tool_result(
-        self,
-        name: str,
-        result: types.CallToolResult,
-    ) -> None:
-        """Validate the structured content of a tool result against its output
-        schema."""
-        raise NotImplementedError
-
-    @abstractmethod
     async def list_prompts(
         self,
         cursor: str | None = None,
