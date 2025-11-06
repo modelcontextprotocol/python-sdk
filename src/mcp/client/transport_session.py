@@ -17,7 +17,7 @@ class TransportSession(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def send_ping(self):
+    async def send_ping(self) -> types.EmptyResult:
         raise NotImplementedError
 
     @abstractmethod
