@@ -115,8 +115,11 @@ def update_claude_config(
 
         # Convert file path to absolute before adding to command
         # Split off any :object suffix first
-        if ":" in file_spec:
-            file_path, server_object = file_spec.rsplit(":", 1)
+        # Use rfind to get the last colon, and check it's not a Windows drive letter (position 1)
+        colon_index = file_spec.rfind(":")
+        if colon_index > 1:  # Position 0 invalid, position 1 would be drive letter like C:
+            file_path = file_spec[:colon_index]
+            server_object = file_spec[colon_index + 1 :]
             file_spec = f"{Path(file_path).resolve()}:{server_object}"
         else:
             file_spec = str(Path(file_spec).resolve())
