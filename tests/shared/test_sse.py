@@ -138,7 +138,6 @@ async def sse_client_session(tg: TaskGroup, server_app: Starlette) -> AsyncGener
 
     async with sse_client(
         f"{TEST_SERVER_BASE_URL}/sse",
-        sse_read_timeout=0.5,
         httpx_client_factory=asgi_client_factory,
     ) as streams:
         async with ClientSession(*streams) as session:
