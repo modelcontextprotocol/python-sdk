@@ -116,28 +116,24 @@ def server_app() -> Starlette:
 
 
 @pytest.fixture()
-async def tg() -> AsyncGenerator[TaskGroup, None]:
-    async with anyio.create_task_group() as tg:
-        yield tg
-
-
-@pytest.fixture()
-async def http_client(tg: TaskGroup, server_app: Starlette) -> AsyncGenerator[httpx.AsyncClient, None]:
+async def http_client(server_app: Starlette) -> AsyncGenerator[httpx.AsyncClient, None]:
     """Create test client using StreamingASGITransport"""
-    transport = StreamingASGITransport(app=server_app, task_group=tg)
-    async with httpx.AsyncClient(transport=transport, base_url=TEST_SERVER_BASE_URL) as client:
-        yield client
+    async with anyio.create_task_group() as tg:
+        transport = StreamingASGITransport(app=server_app, task_group=tg)
+        async with httpx.AsyncClient(transport=transport, base_url=TEST_SERVER_BASE_URL) as client:
+            yield client
 
 
 @pytest.fixture()
-async def sse_client_session(tg: TaskGroup, server_app: Starlette) -> AsyncGenerator[ClientSession, None]:
-    asgi_client_factory = create_asgi_client_factory(server_app, tg)
+async def sse_client_session(server_app: Starlette) -> AsyncGenerator[ClientSession, None]:
+    async with anyio.create_task_group() as tg:
+        asgi_client_factory = create_asgi_client_factory(server_app, tg)
 
-    async with sse_client(
-        f"{TEST_SERVER_BASE_URL}/sse", sse_read_timeout=0.5, httpx_client_factory=asgi_client_factory
-    ) as streams:
-        async with ClientSession(*streams) as session:
-            yield session
+        async with sse_client(
+            f"{TEST_SERVER_BASE_URL}/sse", sse_read_timeout=0.5, httpx_client_factory=asgi_client_factory
+        ) as streams:
+            async with ClientSession(*streams) as session:
+                yield session
 
 
 # Tests
@@ -232,16 +228,15 @@ async def mounted_server_app(server_app: Starlette) -> Starlette:
 
 
 @pytest.fixture()
-async def sse_client_mounted_server_app_session(
-    tg: TaskGroup, mounted_server_app: Starlette
-) -> AsyncGenerator[ClientSession, None]:
-    asgi_client_factory = create_asgi_client_factory(mounted_server_app, tg)
+async def sse_client_mounted_server_app_session(mounted_server_app: Starlette) -> AsyncGenerator[ClientSession, None]:
+    async with anyio.create_task_group() as tg:
+        asgi_client_factory = create_asgi_client_factory(mounted_server_app, tg)
 
-    async with sse_client(
-        f"{TEST_SERVER_BASE_URL}/mounted_app/sse", sse_read_timeout=0.5, httpx_client_factory=asgi_client_factory
-    ) as streams:
-        async with ClientSession(*streams) as session:
-            yield session
+        async with sse_client(
+            f"{TEST_SERVER_BASE_URL}/mounted_app/sse", sse_read_timeout=0.5, httpx_client_factory=asgi_client_factory
+        ) as streams:
+            async with ClientSession(*streams) as session:
+                yield session
 
 
 @pytest.mark.anyio
@@ -308,7 +303,7 @@ async def context_server_app() -> Starlette:
 
 
 @pytest.mark.anyio
-async def test_request_context_propagation(tg: TaskGroup, context_server_app: Starlette) -> None:
+async def test_request_context_propagation(context_server_app: Starlette) -> None:
     """Test that request context is properly propagated through SSE transport."""
     # Test with custom headers
     custom_headers = {
@@ -317,61 +312,63 @@ async def test_request_context_propagation(tg: TaskGroup, context_server_app: St
         "X-Trace-Id": "trace-123",
     }
 
-    asgi_client_factory = create_asgi_client_factory(context_server_app, tg)
+    async with anyio.create_task_group() as tg:
+        asgi_client_factory = create_asgi_client_factory(context_server_app, tg)
 
-    async with sse_client(
-        f"{TEST_SERVER_BASE_URL}/sse",
-        headers=custom_headers,
-        httpx_client_factory=asgi_client_factory,
-        sse_read_timeout=0.5,
-    ) as streams:
-        async with ClientSession(*streams) as session:
-            # Initialize the session
-            result = await session.initialize()
-            assert isinstance(result, InitializeResult)
+        async with sse_client(
+            f"{TEST_SERVER_BASE_URL}/sse",
+            headers=custom_headers,
+            httpx_client_factory=asgi_client_factory,
+            sse_read_timeout=0.5,
+        ) as streams:
+            async with ClientSession(*streams) as session:
+                # Initialize the session
+                result = await session.initialize()
+                assert isinstance(result, InitializeResult)
 
-            # Call the tool that echoes headers back
-            tool_result = await session.call_tool("echo_headers", {})
+                # Call the tool that echoes headers back
+                tool_result = await session.call_tool("echo_headers", {})
 
-            # Parse the JSON response
-            assert len(tool_result.content) == 1
-            content_item = tool_result.content[0]
-            headers_data = json.loads(content_item.text if content_item.type == "text" else "{}")
+                # Parse the JSON response
+                assert len(tool_result.content) == 1
+                content_item = tool_result.content[0]
+                headers_data = json.loads(content_item.text if content_item.type == "text" else "{}")
 
-            # Verify headers were propagated
-            assert headers_data.get("authorization") == "Bearer test-token"
-            assert headers_data.get("x-custom-header") == "test-value"
-            assert headers_data.get("x-trace-id") == "trace-123"
+                # Verify headers were propagated
+                assert headers_data.get("authorization") == "Bearer test-token"
+                assert headers_data.get("x-custom-header") == "test-value"
+                assert headers_data.get("x-trace-id") == "trace-123"
 
 
 @pytest.mark.anyio
-async def test_request_context_isolation(tg: TaskGroup, context_server_app: Starlette) -> None:
+async def test_request_context_isolation(context_server_app: Starlette) -> None:
     """Test that request contexts are isolated between different SSE clients."""
     contexts: list[dict[str, Any]] = []
 
-    asgi_client_factory = create_asgi_client_factory(context_server_app, tg)
+    async with anyio.create_task_group() as tg:
+        asgi_client_factory = create_asgi_client_factory(context_server_app, tg)
 
-    # Create multiple clients with different headers
-    for i in range(3):
-        headers = {"X-Request-Id": f"request-{i}", "X-Custom-Value": f"value-{i}"}
+        # Create multiple clients with different headers
+        for i in range(3):
+            headers = {"X-Request-Id": f"request-{i}", "X-Custom-Value": f"value-{i}"}
 
-        async with sse_client(
-            f"{TEST_SERVER_BASE_URL}/sse", headers=headers, httpx_client_factory=asgi_client_factory
-        ) as (
-            read_stream,
-            write_stream,
-        ):
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
+            async with sse_client(
+                f"{TEST_SERVER_BASE_URL}/sse", headers=headers, httpx_client_factory=asgi_client_factory
+            ) as (
+                read_stream,
+                write_stream,
+            ):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
 
-                # Call the tool that echoes context
-                tool_result = await session.call_tool("echo_context", {"request_id": f"request-{i}"})
+                    # Call the tool that echoes context
+                    tool_result = await session.call_tool("echo_context", {"request_id": f"request-{i}"})
 
-                assert len(tool_result.content) == 1
-                context_data = json.loads(
-                    tool_result.content[0].text if tool_result.content[0].type == "text" else "{}"
-                )
-                contexts.append(context_data)
+                    assert len(tool_result.content) == 1
+                    context_data = json.loads(
+                        tool_result.content[0].text if tool_result.content[0].type == "text" else "{}"
+                    )
+                    contexts.append(context_data)
 
     # Verify each request had its own context
     assert len(contexts) == 3
