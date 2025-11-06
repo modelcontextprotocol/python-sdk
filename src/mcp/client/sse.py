@@ -1,11 +1,11 @@
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, AsyncExitStack
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import anyio
 import httpx
-from anyio.abc import TaskStatus
+from anyio.abc import TaskStatus, TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import aconnect_sse
 from httpx_sse._exceptions import SSEError
@@ -29,6 +29,7 @@ async def sse_client(
     sse_read_timeout: float = 60 * 5,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
+    maybe_task_group: TaskGroup | None = None,
 ):
     """
     Client transport for SSE.
@@ -52,7 +53,15 @@ async def sse_client(
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-    async with anyio.create_task_group() as tg:
+    async with AsyncExitStack() as stack:
+        # Only create a task group if one wasn't provided
+        if maybe_task_group is None:
+            tg = await stack.enter_async_context(anyio.create_task_group())
+        else:
+            tg = maybe_task_group
+        
+        owns_task_group = maybe_task_group is None
+            
         try:
             logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
             async with httpx_client_factory(
@@ -142,7 +151,8 @@ async def sse_client(
                     try:
                         yield read_stream, write_stream
                     finally:
-                        tg.cancel_scope.cancel()
+                        if owns_task_group:
+                            tg.cancel_scope.cancel()
         finally:
             await read_stream_writer.aclose()
             await write_stream.aclose()
