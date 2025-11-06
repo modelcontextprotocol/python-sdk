@@ -1165,6 +1165,14 @@ class ToolAnnotations(BaseModel):
     of a memory tool is not.
     Default: true
     """
+
+    taskHint: bool | None = None
+    """
+    If true, this tool is expected to support task-augmented execution.
+    This allows clients to handle long-running operations through polling
+    the task system.
+    Default: false
+    """
     model_config = ConfigDict(extra="allow")
 
 
