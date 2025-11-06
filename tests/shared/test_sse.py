@@ -8,6 +8,7 @@ import pytest
 from anyio.abc import TaskGroup
 from inline_snapshot import snapshot
 from pydantic import AnyUrl
+from sse_starlette.sse import AppStatus
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
@@ -31,6 +32,19 @@ from mcp.types import (
     TextResourceContents,
     Tool,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_sse_app_status():
+    """Reset sse-starlette's global AppStatus singleton before each test.
+
+    This is necessary because AppStatus.should_exit_event (a global anyio.Event) gets bound
+    to one event loop but accessed from others during parallel test execution (xdist workers),
+    causing RuntimeError("bound to a different event loop"), which prevents the SSE server
+    from responding (leaving status at 499) and causes ClosedResourceError during teardown.
+    """
+    AppStatus.should_exit_event = anyio.Event()
+
 
 SERVER_NAME = "test_server_for_SSE"
 TEST_SERVER_HOST = "testserver"
@@ -106,8 +120,6 @@ def create_sse_app(server: Server) -> Starlette:
 
 
 # Test fixtures
-
-
 @pytest.fixture()
 def server_app() -> Starlette:
     """Create test Starlette app with SSE transport"""
@@ -243,7 +255,6 @@ async def sse_client_mounted_server_app_session(
 
     async with sse_client(
         f"{TEST_SERVER_BASE_URL}/mounted_app/sse",
-        sse_read_timeout=0.5,
         httpx_client_factory=asgi_client_factory,
     ) as streams:
         async with ClientSession(*streams) as session:
@@ -329,7 +340,6 @@ async def test_request_context_propagation(tg: TaskGroup, context_server_app: St
         f"{TEST_SERVER_BASE_URL}/sse",
         headers=custom_headers,
         httpx_client_factory=asgi_client_factory,
-        sse_read_timeout=0.5,
     ) as streams:
         async with ClientSession(*streams) as session:
             # Initialize the session
