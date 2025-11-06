@@ -4,7 +4,9 @@ from tempfile import NamedTemporaryFile
 import pytest
 from pydantic import AnyUrl, FileUrl
 
+from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.resources import FileResource, FunctionResource, ResourceManager, ResourceTemplate
+from mcp.types import RESOURCE_NOT_FOUND
 
 
 @pytest.fixture
@@ -113,8 +115,10 @@ class TestResourceManager:
     async def test_get_unknown_resource(self):
         """Test getting a non-existent resource."""
         manager = ResourceManager()
-        with pytest.raises(ValueError, match="Unknown resource"):
+        with pytest.raises(ResourceError) as exc_info:
             await manager.get_resource(AnyUrl("unknown://test"))
+        assert exc_info.value.error.code == RESOURCE_NOT_FOUND
+        assert "Unknown resource" in str(exc_info.value)
 
     def test_list_resources(self, temp_file: Path):
         """Test listing all resources."""
