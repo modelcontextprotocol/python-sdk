@@ -7,8 +7,6 @@ from anyio.streams.memory import MemoryObjectReceiveStream
 from pydantic import AnyUrl
 
 import mcp.types as types
-from mcp.server.session import ServerRequestResponder
-
 
 class TransportSession(abc.ABC):
     """Abstract base class for transport sessions."""
@@ -102,12 +100,4 @@ class TransportSession(abc.ABC):
     @abc.abstractmethod
     async def send_prompt_list_changed(self) -> None:
         """Send a prompt list changed notification."""
-        raise NotImplementedError
-
-    @property
-    @abc.abstractmethod
-    def incoming_messages(
-        self,
-    ) -> MemoryObjectReceiveStream[ServerRequestResponder]:
-        """Incoming messages stream."""
         raise NotImplementedError
