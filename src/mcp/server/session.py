@@ -54,7 +54,7 @@ from mcp.shared.session import (
 )
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
-from src.mcp.server.transport_session import TransportSession
+from mcp.server.transport_session import TransportSession
 
 
 class InitializationState(Enum):
