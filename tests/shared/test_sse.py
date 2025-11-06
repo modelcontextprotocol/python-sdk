@@ -134,7 +134,9 @@ async def sse_client_session(tg: TaskGroup, server_app: Starlette) -> AsyncGener
     asgi_client_factory = create_asgi_client_factory(server_app, tg)
 
     async with sse_client(
-        f"{TEST_SERVER_BASE_URL}/sse", sse_read_timeout=0.5, httpx_client_factory=asgi_client_factory, 
+        f"{TEST_SERVER_BASE_URL}/sse",
+        sse_read_timeout=0.5,
+        httpx_client_factory=asgi_client_factory,
     ) as streams:
         async with ClientSession(*streams) as session:
             yield session
@@ -238,7 +240,9 @@ async def sse_client_mounted_server_app_session(
     asgi_client_factory = create_asgi_client_factory(mounted_server_app, tg)
 
     async with sse_client(
-        f"{TEST_SERVER_BASE_URL}/mounted_app/sse", sse_read_timeout=0.5, httpx_client_factory=asgi_client_factory, 
+        f"{TEST_SERVER_BASE_URL}/mounted_app/sse",
+        sse_read_timeout=0.5,
+        httpx_client_factory=asgi_client_factory,
     ) as streams:
         async with ClientSession(*streams) as session:
             yield session
@@ -324,7 +328,6 @@ async def test_request_context_propagation(tg: TaskGroup, context_server_app: St
         headers=custom_headers,
         httpx_client_factory=asgi_client_factory,
         sse_read_timeout=0.5,
-        
     ) as streams:
         async with ClientSession(*streams) as session:
             # Initialize the session
@@ -357,7 +360,9 @@ async def test_request_context_isolation(tg: TaskGroup, context_server_app: Star
         headers = {"X-Request-Id": f"request-{i}", "X-Custom-Value": f"value-{i}"}
 
         async with sse_client(
-            f"{TEST_SERVER_BASE_URL}/sse", headers=headers, httpx_client_factory=asgi_client_factory,
+            f"{TEST_SERVER_BASE_URL}/sse",
+            headers=headers,
+            httpx_client_factory=asgi_client_factory,
         ) as streams:
             async with ClientSession(*streams) as session:
                 await session.initialize()

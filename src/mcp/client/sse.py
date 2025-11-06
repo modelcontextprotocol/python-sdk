@@ -1,11 +1,11 @@
 import logging
-from contextlib import asynccontextmanager, AsyncExitStack
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import anyio
 import httpx
-from anyio.abc import TaskStatus, TaskGroup
+from anyio.abc import TaskGroup, TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import aconnect_sse
 from httpx_sse._exceptions import SSEError
@@ -59,9 +59,9 @@ async def sse_client(
             tg = await stack.enter_async_context(anyio.create_task_group())
         else:
             tg = maybe_task_group
-        
+
         owns_task_group = maybe_task_group is None
-            
+
         try:
             logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
             async with httpx_client_factory(
