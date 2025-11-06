@@ -11,17 +11,6 @@ import mcp.types as types
 class TransportSession(abc.ABC):
     """Abstract base class for transport sessions."""
 
-    @property
-    @abc.abstractmethod
-    def client_params(self) -> types.InitializeRequestParams | None:
-        """Client initialization parameters."""
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def check_client_capability(self, capability: types.ClientCapabilities) -> bool:
-        """Check if the client supports a specific capability."""
-        raise NotImplementedError
-
     @abc.abstractmethod
     async def send_log_message(
         self,
@@ -36,23 +25,6 @@ class TransportSession(abc.ABC):
     @abc.abstractmethod
     async def send_resource_updated(self, uri: AnyUrl) -> None:
         """Send a resource updated notification."""
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    async def create_message(
-        self,
-        messages: list[types.SamplingMessage],
-        *,
-        max_tokens: int,
-        system_prompt: str | None = None,
-        include_context: types.IncludeContext | None = None,
-        temperature: float | None = None,
-        stop_sequences: list[str] | None = None,
-        metadata: dict[str, Any] | None = None,
-        model_preferences: types.ModelPreferences | None = None,
-        related_request_id: types.RequestId | None = None,
-    ) -> types.CreateMessageResult:
-        """Send a sampling/create_message request."""
         raise NotImplementedError
 
     @abc.abstractmethod
