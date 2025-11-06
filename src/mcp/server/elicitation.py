@@ -8,7 +8,7 @@ from typing import Generic, Literal, TypeVar, Union, get_args, get_origin
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
-from mcp.server.transport_session import TransportSession
+from mcp.server.session import ServerSession
 from mcp.types import RequestId
 
 ElicitSchemaModelT = TypeVar("ElicitSchemaModelT", bound=BaseModel)
@@ -74,7 +74,7 @@ def _is_primitive_field(field_info: FieldInfo) -> bool:
 
 
 async def elicit_with_validation(
-    session: TransportSession,
+    session: ServerSession,
     message: str,
     schema: type[ElicitSchemaModelT],
     related_request_id: RequestId | None = None,
