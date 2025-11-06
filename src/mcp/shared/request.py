@@ -165,12 +165,14 @@ class PendingRequest(Generic[ReceiveResultT]):
         """
         # Poll for completion
         task: GetTaskResult
+        poll_interval = DEFAULT_POLLING_INTERVAL * 1000.0
         while True:
             try:
                 task = await self.session.get_task(task_id)
             except McpError as e:
                 if e.error.code == INVALID_PARAMS:
                     # Task may not exist yet
+                    await anyio.sleep(poll_interval / 1000.0)
                     continue
                 raise
             await on_task_status(task)
@@ -179,8 +181,8 @@ class PendingRequest(Generic[ReceiveResultT]):
                 break
 
             # Wait before polling again
-            poll_frequency = task.pollInterval if task.pollInterval is not None else DEFAULT_POLLING_INTERVAL * 1000
-            await anyio.sleep(poll_frequency / 1000.0)
+            poll_interval = task.pollInterval if task.pollInterval is not None else DEFAULT_POLLING_INTERVAL * 1000
+            await anyio.sleep(poll_interval / 1000.0)
 
         # Retrieve and return the result
         return await self.session.get_task_result(task_id, self.result_type)
