@@ -327,17 +327,14 @@ class FastMCP(Generic[LifespanResultT]):
         return Context(request_context=request_context, fastmcp=self)
 
     async def call_tool(
-        self, name: str, arguments: dict[str, Any],
-        request_context: RequestContext | None = None
+        self, name: str, arguments: dict[str, Any], request_context: RequestContext | None = None
     ) -> Sequence[ContentBlock] | dict[str, Any]:
         """Call a tool by name with arguments."""
         if request_context:
             context = Context(request_context=request_context, fastmcp=self)
         else:
             context = self.get_context()
-        return await self._tool_manager.call_tool(name, arguments,
-                                                  context=context,
-                                                  convert_result=True)
+        return await self._tool_manager.call_tool(name, arguments, context=context, convert_result=True)
 
     async def list_resources(self) -> list[MCPResource]:
         """List all available resources."""
