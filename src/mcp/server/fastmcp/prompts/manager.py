@@ -19,6 +19,10 @@ class PromptManager:
     """Manages FastMCP prompts."""
 
     def __init__(self, warn_on_duplicate_prompts: bool = True):
+        # TODO: Multi-tenancy - Prompts are stored in a shared dictionary without tenant scoping.
+        # Need to either: (1) add tenant_id parameter to all methods and scope storage by tenant
+        # (e.g., dict[tuple[tenant_id, prompt_name], Prompt]), or (2) create separate PromptManager
+        # instances per tenant. Prompts registered by one tenant should not be accessible to others.
         self._prompts: dict[str, Prompt] = {}
         self.warn_on_duplicate_prompts = warn_on_duplicate_prompts
 

@@ -17,6 +17,9 @@ class AuthorizationParams(BaseModel):
 
 
 class AuthorizationCode(BaseModel):
+    # TODO: Multi-tenancy - AuthorizationCode lacks tenant_id field. Need to add tenant_id
+    # to track which tenant this authorization code belongs to, ensuring codes cannot be
+    # exchanged across tenant boundaries.
     code: str
     scopes: list[str]
     expires_at: float
@@ -28,6 +31,9 @@ class AuthorizationCode(BaseModel):
 
 
 class RefreshToken(BaseModel):
+    # TODO: Multi-tenancy - RefreshToken lacks tenant_id field. Need to add tenant_id
+    # to ensure refresh tokens are scoped to specific tenants and cannot be used to
+    # obtain access tokens for other tenants.
     token: str
     client_id: str
     scopes: list[str]
@@ -35,6 +41,9 @@ class RefreshToken(BaseModel):
 
 
 class AccessToken(BaseModel):
+    # TODO: Multi-tenancy - AccessToken lacks tenant_id field. This is critical - need to add
+    # tenant_id to ensure access tokens are scoped to specific tenants. All resource/tool/prompt
+    # access should be filtered by the tenant_id from the access token to prevent cross-tenant access.
     token: str
     client_id: str
     scopes: list[str]

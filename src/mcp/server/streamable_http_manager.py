@@ -69,6 +69,9 @@ class StreamableHTTPSessionManager:
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
+        # TODO: Multi-tenancy - Server instances are tracked globally by session_id without tenant scoping.
+        # Need to ensure sessions are isolated per tenant. Consider using composite key (tenant_id, session_id)
+        # or partitioning _server_instances by tenant_id to prevent cross-tenant session access.
         self._server_instances: dict[str, StreamableHTTPServerTransport] = {}
 
         # The task group will be set during lifespan

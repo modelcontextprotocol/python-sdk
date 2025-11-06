@@ -3,6 +3,13 @@ Integration tests for FastMCP server functionality.
 
 These tests validate the proper functioning of FastMCP features using focused,
 single-feature servers across different transports (SSE and StreamableHTTP).
+
+TODO: Multi-tenancy - Add test coverage for multi-tenant scenarios including:
+  - Multiple tenants with isolated resources, tools, and prompts
+  - Tenant-scoped authentication and authorization
+  - Cross-tenant isolation verification (tenant A cannot access tenant B's data)
+  - Session management with tenant context
+  - Configuration isolation between tenants
 """
 # TODO(Marcelo): The `examples` package is not being imported as package. We need to solve this.
 # pyright: reportUnknownMemberType=false

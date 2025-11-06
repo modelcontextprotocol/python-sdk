@@ -108,6 +108,9 @@ class ClientSession(
         types.ServerNotification,
     ]
 ):
+    # TODO: Multi-tenancy - ClientSession does not track or send tenant_id. Need to add tenant_id
+    # field and pass it to the server during initialization and with each request (either in request
+    # metadata or as a header). This allows the server to process requests in the correct tenant context.
     def __init__(
         self,
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -137,6 +140,9 @@ class ClientSession(
         self._server_capabilities: types.ServerCapabilities | None = None
 
     async def initialize(self) -> types.InitializeResult:
+        # TODO: Multi-tenancy - Client initialization does not send tenant_id to server.
+        # Need to add tenant_id parameter to initialize() and include it in InitializeRequestParams
+        # or as part of clientInfo metadata. Server must know which tenant context to use.
         sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
         elicitation = (
             types.ElicitationCapability() if self._elicitation_callback is not _default_elicitation_callback else None

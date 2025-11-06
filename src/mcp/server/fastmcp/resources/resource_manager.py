@@ -24,6 +24,11 @@ class ResourceManager:
     """Manages FastMCP resources."""
 
     def __init__(self, warn_on_duplicate_resources: bool = True):
+        # TODO: Multi-tenancy - Resources and templates are stored in shared dictionaries
+        # without tenant scoping. Need to either: (1) add tenant_id parameter to all methods
+        # and scope storage by tenant (e.g., dict[tuple[tenant_id, uri], Resource]), or
+        # (2) create separate ResourceManager instances per tenant. Resources registered by
+        # one tenant should not be accessible to other tenants.
         self._resources: dict[str, Resource] = {}
         self._templates: dict[str, ResourceTemplate] = {}
         self.warn_on_duplicate_resources = warn_on_duplicate_resources

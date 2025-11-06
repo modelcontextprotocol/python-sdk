@@ -78,6 +78,9 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     For example, FASTMCP_DEBUG=true will set debug=True.
     """
 
+    # TODO: Multi-tenancy - Settings are loaded from environment variables without tenant scoping.
+    # For multi-tenant deployments, need to support tenant-specific configuration overrides,
+    # potentially loading from tenant-scoped config sources (e.g., database, per-tenant env files).
     model_config = SettingsConfigDict(
         env_prefix="FASTMCP_",
         env_file=".env",
@@ -198,6 +201,10 @@ class FastMCP(Generic[LifespanResultT]):
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
+        # TODO: Multi-tenancy - These managers maintain shared state across all tenants.
+        # Need to either: (1) make managers tenant-aware by accepting tenant_id in all operations,
+        # or (2) create separate manager instances per tenant with tenant-scoped storage.
+        # Tools, resources, and prompts registered should be scoped to tenant context.
         self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
         self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
@@ -210,15 +217,23 @@ class FastMCP(Generic[LifespanResultT]):
         elif auth_server_provider or token_verifier:
             raise ValueError("Cannot specify auth_server_provider or token_verifier without auth settings")
 
+        # TODO: Multi-tenancy - Auth providers and token verifiers are shared across all tenants.
+        # Need to support tenant-specific auth configurations, or at minimum ensure tokens
+        # include tenant_id claims that are validated. AccessToken should include tenant_id field.
         self._auth_server_provider = auth_server_provider
         self._token_verifier = token_verifier
 
         # Create token verifier from provider if needed (backwards compatibility)
         if auth_server_provider and not token_verifier:
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
+        # TODO: Multi-tenancy - Event store is shared across tenants. Events should be
+        # scoped by tenant_id to prevent cross-tenant data leakage in resumable sessions.
         self._event_store = event_store
         self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
+        # TODO: Multi-tenancy - Session manager tracks sessions globally without tenant scoping.
+        # Sessions should be partitioned by tenant_id to isolate tenant data and prevent
+        # cross-tenant session access. Consider tenant_id as part of session key.
         self._session_manager: StreamableHTTPSessionManager | None = None
 
         # Set up MCP protocol handlers

@@ -17,6 +17,9 @@ def get_access_token() -> AccessToken | None:
     Returns:
         The access token if an authenticated user is available, None otherwise.
     """
+    # TODO: Multi-tenancy - Need to add get_tenant_id() helper function that extracts
+    # tenant_id from the AccessToken in the current auth context. All data access operations
+    # should use this tenant_id to scope queries and prevent cross-tenant data access.
     auth_user = auth_context_var.get()
     return auth_user.access_token if auth_user else None
 

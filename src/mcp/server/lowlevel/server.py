@@ -149,10 +149,15 @@ class Server(Generic[LifespanResultT, RequestT]):
         self.website_url = website_url
         self.icons = icons
         self.lifespan = lifespan
+        # TODO: Multi-tenancy - Request handlers are shared across all tenants. Handlers should
+        # receive tenant context and scope their operations accordingly. Consider tenant_id as part
+        # of the request context to enable tenant-aware data access.
         self.request_handlers: dict[type, Callable[..., Awaitable[types.ServerResult]]] = {
             types.PingRequest: _ping_handler,
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
+        # TODO: Multi-tenancy - Tool cache is shared across all tenants. Need to scope cache by
+        # tenant_id or maintain separate caches per tenant to prevent cross-tenant data leakage.
         self._tool_cache: dict[str, types.Tool] = {}
         logger.debug("Initializing server %r", name)
 

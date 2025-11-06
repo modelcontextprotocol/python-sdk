@@ -77,6 +77,9 @@ class ServerSession(
         types.ClientNotification,
     ]
 ):
+    # TODO: Multi-tenancy - ServerSession does not track tenant_id. Need to add tenant_id field
+    # to identify which tenant this session belongs to. This is critical for isolating tenant data
+    # and ensuring requests are processed in the correct tenant context.
     _initialized: InitializationState = InitializationState.NotInitialized
     _client_params: types.InitializeRequestParams | None = None
 

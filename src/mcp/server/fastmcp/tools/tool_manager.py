@@ -25,6 +25,10 @@ class ToolManager:
         *,
         tools: list[Tool] | None = None,
     ):
+        # TODO: Multi-tenancy - Tools are stored in a shared dictionary without tenant scoping.
+        # Need to either: (1) add tenant_id parameter to all methods and scope storage by tenant
+        # (e.g., dict[tuple[tenant_id, tool_name], Tool]), or (2) create separate ToolManager
+        # instances per tenant. Tools registered by one tenant should not be accessible to others.
         self._tools: dict[str, Tool] = {}
         if tools is not None:
             for tool in tools:
