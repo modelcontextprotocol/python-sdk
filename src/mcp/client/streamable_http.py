@@ -328,23 +328,27 @@ class StreamableHTTPTransport:
         is_initialization: bool = False,
     ) -> None:
         """Handle SSE response from the server."""
-        event_source = EventSource(response)
-        finished = False
-        async for sse in event_source.aiter_sse():
-            is_complete = await self._handle_sse_event(
-                sse,
-                ctx.read_stream_writer,
-                resumption_callback=(ctx.metadata.on_resumption_token_update if ctx.metadata else None),
-                is_initialization=is_initialization,
-            )
-            # If the SSE event indicates completion, like returning respose/error
-            # break the loop
-            if is_complete:
-                finished = True
-                await response.aclose()
-                break
-        if not finished:
-            raise Exception("SSE stream ended without completing")
+        try:
+            event_source = EventSource(response)
+            finished = False
+            async for sse in event_source.aiter_sse():
+                is_complete = await self._handle_sse_event(
+                    sse,
+                    ctx.read_stream_writer,
+                    resumption_callback=(ctx.metadata.on_resumption_token_update if ctx.metadata else None),
+                    is_initialization=is_initialization,
+                )
+                # If the SSE event indicates completion, like returning respose/error
+                # break the loop
+                if is_complete:
+                    finished = True
+                    await response.aclose()
+                    break
+            if not finished:
+                raise Exception("SSE stream ended without completing")
+        except Exception as exc:
+            logger.exception("Error handling SSE response")
+            await self._send_error_response(ctx, exc)
 
     async def _handle_unexpected_content_type(
         self,
@@ -410,13 +414,10 @@ class StreamableHTTPTransport:
                     )
 
                     async def handle_request_async():
-                        try:
-                            if is_resumption:
-                                await self._handle_resumption_request(ctx)
-                            else:
-                                await self._handle_post_request(ctx)
-                        except Exception as e:
-                            await self._send_error_response(ctx, e)
+                        if is_resumption:
+                            await self._handle_resumption_request(ctx)
+                        else:
+                            await self._handle_post_request(ctx)
 
                     # If this is a request, start a new task to handle it
                     if isinstance(message.root, JSONRPCRequest):
