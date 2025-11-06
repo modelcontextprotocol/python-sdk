@@ -6,8 +6,8 @@ from typing import Any
 from anyio.streams.memory import MemoryObjectReceiveStream
 from pydantic import AnyUrl
 
-import mcp_grpc.types as types
-from mcp_grpc.server.session import ServerRequestResponder
+import mcp.types as types
+from mcp.server.session import ServerRequestResponder
 
 
 class TransportSession(abc.ABC):
