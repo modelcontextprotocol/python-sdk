@@ -47,14 +47,13 @@ from pydantic import AnyUrl
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
+from mcp.server.transport_session import TransportSession
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (
     BaseSession,
     RequestResponder,
 )
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
-
-from mcp.server.transport_session import TransportSession
 
 
 class InitializationState(Enum):

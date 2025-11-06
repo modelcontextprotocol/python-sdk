@@ -9,12 +9,11 @@ from pydantic import AnyUrl, TypeAdapter
 from typing_extensions import deprecated
 
 import mcp.types as types
+from mcp.client.transport_session import TransportSession
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
-
-from mcp.client.transport_session import TransportSession
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
