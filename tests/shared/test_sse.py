@@ -118,7 +118,10 @@ def server_app() -> Starlette:
 @pytest.fixture()
 async def tg() -> AsyncGenerator[TaskGroup, None]:
     async with anyio.create_task_group() as tg:
-        yield tg
+        try:
+            yield tg
+        finally:
+            tg.cancel_scope.cancel()
 
 
 @pytest.fixture()
