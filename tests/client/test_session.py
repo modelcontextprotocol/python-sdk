@@ -505,6 +505,141 @@ async def test_client_capabilities_with_custom_callbacks():
 
 
 @pytest.mark.anyio
+async def test_client_capabilities_without_task_store():
+    """Test that client does not announce tasks capability without task_store"""
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    received_capabilities = None
+
+    async def mock_server():
+        nonlocal received_capabilities
+
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        request = ClientRequest.model_validate(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(request.root, InitializeRequest)
+        received_capabilities = request.root.params.capabilities
+
+        result = ServerResult(
+            InitializeResult(
+                protocolVersion=LATEST_PROTOCOL_VERSION,
+                capabilities=ServerCapabilities(),
+                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+            )
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=jsonrpc_request.root.id,
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                        )
+                    )
+                )
+            )
+            # Receive initialized notification
+            await client_to_server_receive.receive()
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+        await session.initialize()
+
+    # Assert that tasks capability is not announced without task_store
+    assert received_capabilities is not None
+    assert received_capabilities.tasks is None
+
+
+@pytest.mark.anyio
+async def test_client_capabilities_with_task_store():
+    """Test that client announces tasks capability with task_store"""
+    from examples.shared.in_memory_task_store import InMemoryTaskStore
+
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    received_capabilities = None
+
+    async def mock_server():
+        nonlocal received_capabilities
+
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        request = ClientRequest.model_validate(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(request.root, InitializeRequest)
+        received_capabilities = request.root.params.capabilities
+
+        result = ServerResult(
+            InitializeResult(
+                protocolVersion=LATEST_PROTOCOL_VERSION,
+                capabilities=ServerCapabilities(),
+                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+            )
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=jsonrpc_request.root.id,
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                        )
+                    )
+                )
+            )
+            # Receive initialized notification
+            await client_to_server_receive.receive()
+
+    task_store = InMemoryTaskStore()
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            task_store=task_store,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+        await session.initialize()
+
+    # Assert that tasks capability is announced with task_store
+    assert received_capabilities is not None
+    assert received_capabilities.tasks is not None
+    assert isinstance(received_capabilities.tasks, types.ClientTasksCapability)
+    assert received_capabilities.tasks.requests is not None
+    # Verify all expected request capabilities are present
+    assert received_capabilities.tasks.requests.sampling is not None
+    assert received_capabilities.tasks.requests.elicitation is not None
+    assert received_capabilities.tasks.requests.roots is not None
+    assert received_capabilities.tasks.requests.tasks is not None
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(argnames="meta", argvalues=[None, {"toolMeta": "value"}])
 async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
     """Test that client tool call requests can include metadata"""

@@ -15,6 +15,7 @@ import mcp.types as types
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
+from mcp.shared.task import TaskStore
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 if TYPE_CHECKING:
@@ -126,6 +127,7 @@ class ClientSession(
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
+        task_store: TaskStore | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -133,6 +135,7 @@ class ClientSession(
             types.ServerRequest,
             types.ServerNotification,
             read_timeout_seconds=read_timeout_seconds,
+            task_store=task_store,
         )
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
@@ -156,6 +159,18 @@ class ClientSession(
             else None
         )
 
+        # Build tasks capability - only if task store is configured
+        tasks = None
+        if self._task_store is not None:
+            tasks = types.ClientTasksCapability(
+                requests=types.ClientTasksRequestsCapability(
+                    sampling=types.TaskSamplingCapability(createMessage=True),
+                    elicitation=types.TaskElicitationCapability(create=True),
+                    roots=types.TaskRootsCapability(list=True),
+                    tasks=types.TasksOperationsCapability(get=True, list=True, result=True, delete=True),
+                )
+            )
+
         result = await self.send_request(
             types.ClientRequest(
                 types.InitializeRequest(
@@ -166,6 +181,7 @@ class ClientSession(
                             elicitation=elicitation,
                             experimental=None,
                             roots=roots,
+                            tasks=tasks,
                         ),
                         clientInfo=self._client_info,
                     ),

@@ -20,6 +20,7 @@ import uvicorn
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 
+from examples.shared.in_memory_task_store import InMemoryTaskStore
 from examples.snippets.servers import (
     basic_prompt,
     basic_resource,
@@ -712,7 +713,9 @@ async def test_task_based_tool(server_transport: str, server_url: str) -> None:
 
     async with client_cm as client_streams:
         read_stream, write_stream = unpack_streams(client_streams)
-        async with ClientSession(read_stream, write_stream) as session:
+        # Create a task store for the client to support task-based execution
+        task_store = InMemoryTaskStore()
+        async with ClientSession(read_stream, write_stream, task_store=task_store) as session:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)

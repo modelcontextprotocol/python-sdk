@@ -107,6 +107,52 @@ class ServerSession(
     def client_params(self) -> types.InitializeRequestParams | None:
         return self._client_params
 
+    def _check_tasks_capability(
+        self, required: types.ClientTasksCapability, client: types.ClientTasksCapability
+    ) -> bool:
+        """Check if client supports required tasks capabilities."""
+        if required.requests is None:
+            return True
+        if client.requests is None:
+            return False
+
+        req_cap = required.requests
+        client_req_cap = client.requests
+
+        # Check sampling requests
+        if req_cap.sampling is not None and (
+            client_req_cap.sampling is None
+            or (req_cap.sampling.createMessage and not client_req_cap.sampling.createMessage)
+        ):
+            return False
+
+        # Check elicitation requests
+        if req_cap.elicitation is not None and (
+            client_req_cap.elicitation is None or (req_cap.elicitation.create and not client_req_cap.elicitation.create)
+        ):
+            return False
+
+        # Check roots requests
+        if req_cap.roots is not None and (
+            client_req_cap.roots is None or (req_cap.roots.list and not client_req_cap.roots.list)
+        ):
+            return False
+
+        # Check tasks operations
+        if req_cap.tasks is not None:
+            if client_req_cap.tasks is None:
+                return False
+            tasks_checks = [
+                not req_cap.tasks.get or client_req_cap.tasks.get,
+                not req_cap.tasks.list or client_req_cap.tasks.list,
+                not req_cap.tasks.result or client_req_cap.tasks.result,
+                not req_cap.tasks.delete or client_req_cap.tasks.delete,
+            ]
+            if not all(tasks_checks):
+                return False
+
+        return True
+
     def check_client_capability(self, capability: types.ClientCapabilities) -> bool:
         """Check if the client supports a specific capability."""
         if self._client_params is None:
@@ -137,6 +183,12 @@ class ServerSession(
             for exp_key, exp_value in capability.experimental.items():
                 if exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value:
                     return False
+
+        if capability.tasks is not None:
+            if client_caps.tasks is None:
+                return False
+            if not self._check_tasks_capability(capability.tasks, client_caps.tasks):
+                return False
 
         return True
 
@@ -193,8 +245,17 @@ class ServerSession(
                 # Ping requests are allowed at any time
                 pass
             case types.GetTaskRequest(params=params):
+                # Check if client has announced tasks capability
+                if self._client_params is None or self._client_params.capabilities.tasks is None:
+                    with responder:
+                        await responder.respond(
+                            types.ErrorData(
+                                code=types.INVALID_REQUEST,
+                                message="Client has not announced tasks capability",
+                            )
+                        )
                 # Handle get task requests if task store is available
-                if self._task_store:
+                elif self._task_store:
                     task = await self._task_store.get_task(params.taskId)
                     if task is None:
                         with responder:
@@ -220,8 +281,17 @@ class ServerSession(
                             types.ErrorData(code=types.INVALID_REQUEST, message="Task store not configured")
                         )
             case types.GetTaskPayloadRequest(params=params):
+                # Check if client has announced tasks capability
+                if self._client_params is None or self._client_params.capabilities.tasks is None:
+                    with responder:
+                        await responder.respond(
+                            types.ErrorData(
+                                code=types.INVALID_REQUEST,
+                                message="Client has not announced tasks capability",
+                            )
+                        )
                 # Handle get task result requests if task store is available
-                if self._task_store:
+                elif self._task_store:
                     task = await self._task_store.get_task(params.taskId)
                     if task is None:
                         with responder:
@@ -253,8 +323,17 @@ class ServerSession(
                             types.ErrorData(code=types.INVALID_REQUEST, message="Task store not configured")
                         )
             case types.ListTasksRequest(params=params):
+                # Check if client has announced tasks capability
+                if self._client_params is None or self._client_params.capabilities.tasks is None:
+                    with responder:
+                        await responder.respond(
+                            types.ErrorData(
+                                code=types.INVALID_REQUEST,
+                                message="Client has not announced tasks capability",
+                            )
+                        )
                 # Handle list tasks requests if task store is available
-                if self._task_store:
+                elif self._task_store:
                     try:
                         result = await self._task_store.list_tasks(params.cursor if params else None)
                         with responder:
@@ -278,8 +357,17 @@ class ServerSession(
                             types.ErrorData(code=types.INVALID_REQUEST, message="Task store not configured")
                         )
             case types.DeleteTaskRequest(params=params):
+                # Check if client has announced tasks capability
+                if self._client_params is None or self._client_params.capabilities.tasks is None:
+                    with responder:
+                        await responder.respond(
+                            types.ErrorData(
+                                code=types.INVALID_REQUEST,
+                                message="Client has not announced tasks capability",
+                            )
+                        )
                 # Handle delete task requests if task store is available
-                if self._task_store:
+                elif self._task_store:
                     try:
                         await self._task_store.delete_task(params.taskId)
                         with responder:

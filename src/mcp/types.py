@@ -309,6 +309,66 @@ class ElicitationCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class TasksOperationsCapability(BaseModel):
+    """Capability for task operations shared by client and server."""
+
+    get: bool | None = None
+    """Whether tasks/get is supported."""
+    list: bool | None = None
+    """Whether tasks/list is supported."""
+    result: bool | None = None
+    """Whether tasks/result is supported."""
+    delete: bool | None = None
+    """Whether tasks/delete is supported."""
+    model_config = ConfigDict(extra="allow")
+
+
+class TaskSamplingCapability(BaseModel):
+    """Capability for sampling requests within tasks."""
+
+    createMessage: bool | None = None
+    """Whether sampling/createMessage can be requested during task execution."""
+    model_config = ConfigDict(extra="allow")
+
+
+class TaskElicitationCapability(BaseModel):
+    """Capability for elicitation requests within tasks."""
+
+    create: bool | None = None
+    """Whether elicitation/create can be requested during task execution."""
+    model_config = ConfigDict(extra="allow")
+
+
+class TaskRootsCapability(BaseModel):
+    """Capability for roots requests within tasks."""
+
+    list: bool | None = None
+    """Whether roots/list can be requested during task execution."""
+    model_config = ConfigDict(extra="allow")
+
+
+class ClientTasksRequestsCapability(BaseModel):
+    """Requests that the client can make when executing tasks."""
+
+    sampling: TaskSamplingCapability | None = None
+    """Sampling requests capability during task execution."""
+    elicitation: TaskElicitationCapability | None = None
+    """Elicitation requests capability during task execution."""
+    roots: TaskRootsCapability | None = None
+    """Roots requests capability during task execution."""
+    tasks: TasksOperationsCapability | None = None
+    """Task operations capability."""
+    model_config = ConfigDict(extra="allow")
+
+
+class ClientTasksCapability(BaseModel):
+    """Capability for client task operations."""
+
+    requests: ClientTasksRequestsCapability | None = None
+    """Requests the client can make when executing tasks."""
+    model_config = ConfigDict(extra="allow")
+
+
 class ClientCapabilities(BaseModel):
     """Capabilities a client may support."""
 
@@ -320,6 +380,8 @@ class ClientCapabilities(BaseModel):
     """Present if the client supports elicitation from the user."""
     roots: RootsCapability | None = None
     """Present if the client supports listing roots."""
+    tasks: ClientTasksCapability | None = None
+    """Present if the client supports task operations."""
     model_config = ConfigDict(extra="allow")
 
 
@@ -361,6 +423,58 @@ class CompletionsCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class TaskToolsCapability(BaseModel):
+    """Capability for tools requests within tasks."""
+
+    call: bool | None = None
+    """Whether tools/call can be requested during task execution."""
+    list: bool | None = None
+    """Whether tools/list can be requested during task execution."""
+    model_config = ConfigDict(extra="allow")
+
+
+class TaskResourcesCapability(BaseModel):
+    """Capability for resources requests within tasks."""
+
+    read: bool | None = None
+    """Whether resources/read can be requested during task execution."""
+    list: bool | None = None
+    """Whether resources/list can be requested during task execution."""
+    model_config = ConfigDict(extra="allow")
+
+
+class TaskPromptsCapability(BaseModel):
+    """Capability for prompts requests within tasks."""
+
+    get: bool | None = None
+    """Whether prompts/get can be requested during task execution."""
+    list: bool | None = None
+    """Whether prompts/list can be requested during task execution."""
+    model_config = ConfigDict(extra="allow")
+
+
+class ServerTasksRequestsCapability(BaseModel):
+    """Requests that the server can provide when executing tasks."""
+
+    tools: TaskToolsCapability | None = None
+    """Tools requests capability during task execution."""
+    resources: TaskResourcesCapability | None = None
+    """Resources requests capability during task execution."""
+    prompts: TaskPromptsCapability | None = None
+    """Prompts requests capability during task execution."""
+    tasks: TasksOperationsCapability | None = None
+    """Task operations capability."""
+    model_config = ConfigDict(extra="allow")
+
+
+class ServerTasksCapability(BaseModel):
+    """Capability for server task operations."""
+
+    requests: ServerTasksRequestsCapability | None = None
+    """Requests the server can provide when executing tasks."""
+    model_config = ConfigDict(extra="allow")
+
+
 class ServerCapabilities(BaseModel):
     """Capabilities that a server may support."""
 
@@ -376,6 +490,8 @@ class ServerCapabilities(BaseModel):
     """Present if the server offers any tools to call."""
     completions: CompletionsCapability | None = None
     """Present if the server offers autocompletion suggestions for prompts and resources."""
+    tasks: ServerTasksCapability | None = None
+    """Present if the server supports task operations."""
     model_config = ConfigDict(extra="allow")
 
 

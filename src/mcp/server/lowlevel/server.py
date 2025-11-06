@@ -112,10 +112,12 @@ class NotificationOptions:
         prompts_changed: bool = False,
         resources_changed: bool = False,
         tools_changed: bool = False,
+        tasks_changed: bool = False,
     ):
         self.prompts_changed = prompts_changed
         self.resources_changed = resources_changed
         self.tools_changed = tools_changed
+        self.tasks_changed = tasks_changed
 
 
 @asynccontextmanager
@@ -199,6 +201,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         tools_capability = None
         logging_capability = None
         completions_capability = None
+        tasks_capability = None
 
         # Set prompt capabilities if handler exists
         if types.ListPromptsRequest in self.request_handlers:
@@ -222,6 +225,51 @@ class Server(Generic[LifespanResultT, RequestT]):
         if types.CompleteRequest in self.request_handlers:
             completions_capability = types.CompletionsCapability()
 
+        # Set tasks capabilities if task store is configured
+        if self.task_store is not None:
+            # Build nested request capabilities based on available handlers
+            tools_req_cap = None
+            resources_req_cap = None
+            prompts_req_cap = None
+            tasks_ops_cap = None
+
+            # Check for tool capabilities
+            has_call_tool = types.CallToolRequest in self.request_handlers
+            has_list_tools = types.ListToolsRequest in self.request_handlers
+            if has_call_tool or has_list_tools:
+                tools_req_cap = types.TaskToolsCapability(
+                    call=True if has_call_tool else None, list=True if has_list_tools else None
+                )
+
+            # Check for resource capabilities
+            has_read_resource = types.ReadResourceRequest in self.request_handlers
+            has_list_resources = types.ListResourcesRequest in self.request_handlers
+            if has_read_resource or has_list_resources:
+                resources_req_cap = types.TaskResourcesCapability(
+                    read=True if has_read_resource else None, list=True if has_list_resources else None
+                )
+
+            # Check for prompt capabilities
+            has_get_prompt = types.GetPromptRequest in self.request_handlers
+            has_list_prompts = types.ListPromptsRequest in self.request_handlers
+            if has_get_prompt or has_list_prompts:
+                prompts_req_cap = types.TaskPromptsCapability(
+                    get=True if has_get_prompt else None, list=True if has_list_prompts else None
+                )
+
+            # Task operations are always available if task_store is configured
+            tasks_ops_cap = types.TasksOperationsCapability(get=True, list=True, result=True, delete=True)
+
+            # Build the nested tasks capability
+            tasks_capability = types.ServerTasksCapability(
+                requests=types.ServerTasksRequestsCapability(
+                    tools=tools_req_cap,
+                    resources=resources_req_cap,
+                    prompts=prompts_req_cap,
+                    tasks=tasks_ops_cap,
+                )
+            )
+
         return types.ServerCapabilities(
             prompts=prompts_capability,
             resources=resources_capability,
@@ -229,6 +277,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             logging=logging_capability,
             experimental=experimental_capabilities,
             completions=completions_capability,
+            tasks=tasks_capability,
         )
 
     @property
