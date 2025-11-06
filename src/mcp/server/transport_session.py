@@ -7,6 +7,7 @@ from pydantic import AnyUrl
 
 import mcp.types as types
 
+
 class TransportSession(abc.ABC):
     """Abstract base class for transport sessions."""
 

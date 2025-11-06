@@ -78,7 +78,7 @@ class ServerSession(
         types.ServerResult,
         types.ClientRequest,
         types.ClientNotification,
-    ]
+    ],
 ):
     _initialized: InitializationState = InitializationState.NotInitialized
     _client_params: types.InitializeRequestParams | None = None
