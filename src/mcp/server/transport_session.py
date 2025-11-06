@@ -3,7 +3,6 @@
 import abc
 from typing import Any
 
-from anyio.streams.memory import MemoryObjectReceiveStream
 from pydantic import AnyUrl
 
 import mcp.types as types
