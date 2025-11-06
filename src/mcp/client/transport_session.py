@@ -18,6 +18,7 @@ class TransportSession(ABC):
 
     @abstractmethod
     async def send_ping(self) -> types.EmptyResult:
+        """Send a ping request."""
         raise NotImplementedError
 
     @abstractmethod
@@ -28,6 +29,7 @@ class TransportSession(ABC):
         total: float | None = None,
         message: str | None = None,
     ) -> None:
+        """Send a progress notification."""
         raise NotImplementedError
 
     @abstractmethod
