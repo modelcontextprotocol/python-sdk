@@ -5,10 +5,11 @@ from typing import Any
 import anyio
 import httpx
 import pytest
+import sse_starlette
 from anyio.abc import TaskGroup
 from inline_snapshot import snapshot
+from packaging import version
 from pydantic import AnyUrl
-from sse_starlette.sse import AppStatus
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
@@ -33,17 +34,40 @@ from mcp.types import (
     Tool,
 )
 
+SSE_STARLETTE_VERSION = version.parse(sse_starlette.__version__)
+NEEDS_RESET = SSE_STARLETTE_VERSION < version.parse("3.0.0")
+
 
 @pytest.fixture(autouse=True)
 def reset_sse_app_status():
     """Reset sse-starlette's global AppStatus singleton before each test.
 
-    This is necessary because AppStatus.should_exit_event (a global anyio.Event) gets bound
-    to one event loop but accessed from others during parallel test execution (xdist workers),
-    causing RuntimeError("bound to a different event loop"), which prevents the SSE server
-    from responding (leaving status at 499) and causes ClosedResourceError during teardown.
+    AppStatus.should_exit_event is a global asyncio.Event that gets bound to
+    an event loop. This ensures each test gets a fresh Event and prevents
+    RuntimeError("bound to a different event loop") during parallel test
+    execution with pytest-xdist.
+
+    NOTE: This fixture is only necessary for sse-starlette < 3.0.0.
+    Version 3.0+ eliminated the global state issue entirely by using
+    context-local events instead of module-level singletons, providing
+    automatic test isolation without manual cleanup.
+
+    See <https://github.com/sysid/sse-starlette/pull/141> for more details.
     """
-    AppStatus.should_exit_event = anyio.Event()
+    if not NEEDS_RESET:
+        yield
+        return
+
+    # lazy import to avoid import errors
+    from sse_starlette.sse import AppStatus
+
+    # Setup: Reset before test
+    AppStatus.should_exit_event = anyio.Event()  # type: ignore[attr-defined]
+
+    yield
+
+    # Teardown: Reset after test to prevent contamination
+    AppStatus.should_exit_event = anyio.Event()  # type: ignore[attr-defined]
 
 
 SERVER_NAME = "test_server_for_SSE"
