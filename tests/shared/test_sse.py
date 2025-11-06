@@ -1,12 +1,11 @@
 import json
 from collections.abc import AsyncGenerator
-from anyio.abc import TaskGroup
 from typing import Any
 
 import anyio
 import httpx
-from mcp.shared._httpx_utils import McpHttpClientFactory
 import pytest
+from anyio.abc import TaskGroup
 from inline_snapshot import snapshot
 from pydantic import AnyUrl
 from starlette.applications import Starlette
@@ -21,6 +20,7 @@ from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.server.streaming_asgi_transport import StreamingASGITransport
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._httpx_utils import McpHttpClientFactory
 from mcp.shared.exceptions import McpError
 from mcp.types import (
     EmptyResult,
@@ -67,8 +67,10 @@ class ServerTest(Server):
         async def handle_call_tool(name: str, args: dict[str, Any]) -> list[TextContent]:
             return [TextContent(type="text", text=f"Called {name}")]
 
+
 def create_asgi_client_factory(app: Starlette, tg: TaskGroup) -> McpHttpClientFactory:
     """Factory function to create httpx clients with StreamingASGITransport"""
+
     def asgi_client_factory(
         headers: dict[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
@@ -76,13 +78,11 @@ def create_asgi_client_factory(app: Starlette, tg: TaskGroup) -> McpHttpClientFa
     ) -> httpx.AsyncClient:
         transport = StreamingASGITransport(app=app, task_group=tg)
         return httpx.AsyncClient(
-            transport=transport, 
-            base_url=TEST_SERVER_BASE_URL, 
-            headers=headers, 
-            timeout=timeout, 
-            auth=auth
+            transport=transport, base_url=TEST_SERVER_BASE_URL, headers=headers, timeout=timeout, auth=auth
         )
+
     return asgi_client_factory
+
 
 def create_sse_app(server: Server) -> Starlette:
     """Helper to create SSE app with given server"""
@@ -107,11 +107,13 @@ def create_sse_app(server: Server) -> Starlette:
 
 # Test fixtures
 
+
 @pytest.fixture()
 def server_app() -> Starlette:
     """Create test Starlette app with SSE transport"""
     app = create_sse_app(ServerTest())
     return app
+
 
 @pytest.fixture()
 async def tg() -> AsyncGenerator[TaskGroup, None]:
@@ -126,11 +128,14 @@ async def http_client(tg: TaskGroup, server_app: Starlette) -> AsyncGenerator[ht
     async with httpx.AsyncClient(transport=transport, base_url=TEST_SERVER_BASE_URL) as client:
         yield client
 
+
 @pytest.fixture()
 async def sse_client_session(tg: TaskGroup, server_app: Starlette) -> AsyncGenerator[ClientSession, None]:
     asgi_client_factory = create_asgi_client_factory(server_app, tg)
-    
-    async with sse_client(f"{TEST_SERVER_BASE_URL}/sse", sse_read_timeout=0.5, httpx_client_factory=asgi_client_factory) as streams:
+
+    async with sse_client(
+        f"{TEST_SERVER_BASE_URL}/sse", sse_read_timeout=0.5, httpx_client_factory=asgi_client_factory
+    ) as streams:
         async with ClientSession(*streams) as session:
             yield session
 
@@ -139,7 +144,7 @@ async def sse_client_session(tg: TaskGroup, server_app: Starlette) -> AsyncGener
 @pytest.mark.anyio
 async def test_raw_sse_connection(http_client: httpx.AsyncClient) -> None:
     """Test the SSE connection establishment simply with an HTTP client."""
-        
+
     async def connection_test() -> None:
         async with http_client.stream("GET", "/sse") as response:
             assert response.status_code == 200
@@ -227,12 +232,17 @@ async def mounted_server_app(server_app: Starlette) -> Starlette:
 
 
 @pytest.fixture()
-async def sse_client_mounted_server_app_session(tg: TaskGroup, mounted_server_app: Starlette) -> AsyncGenerator[ClientSession, None]:
+async def sse_client_mounted_server_app_session(
+    tg: TaskGroup, mounted_server_app: Starlette
+) -> AsyncGenerator[ClientSession, None]:
     asgi_client_factory = create_asgi_client_factory(mounted_server_app, tg)
-    
-    async with sse_client(f"{TEST_SERVER_BASE_URL}/mounted_app/sse", sse_read_timeout=0.5, httpx_client_factory=asgi_client_factory) as streams:
+
+    async with sse_client(
+        f"{TEST_SERVER_BASE_URL}/mounted_app/sse", sse_read_timeout=0.5, httpx_client_factory=asgi_client_factory
+    ) as streams:
         async with ClientSession(*streams) as session:
             yield session
+
 
 @pytest.mark.anyio
 async def test_sse_client_basic_connection_mounted_app(sse_client_mounted_server_app_session: ClientSession) -> None:
@@ -296,6 +306,7 @@ async def context_server_app() -> Starlette:
     app = create_sse_app(RequestContextServer())
     return app
 
+
 @pytest.mark.anyio
 async def test_request_context_propagation(tg: TaskGroup, context_server_app: Starlette) -> None:
     """Test that request context is properly propagated through SSE transport."""
@@ -337,14 +348,16 @@ async def test_request_context_propagation(tg: TaskGroup, context_server_app: St
 async def test_request_context_isolation(tg: TaskGroup, context_server_app: Starlette) -> None:
     """Test that request contexts are isolated between different SSE clients."""
     contexts: list[dict[str, Any]] = []
-    
+
     asgi_client_factory = create_asgi_client_factory(context_server_app, tg)
 
     # Create multiple clients with different headers
     for i in range(3):
         headers = {"X-Request-Id": f"request-{i}", "X-Custom-Value": f"value-{i}"}
 
-        async with sse_client(f"{TEST_SERVER_BASE_URL}/sse", headers=headers, httpx_client_factory=asgi_client_factory) as (
+        async with sse_client(
+            f"{TEST_SERVER_BASE_URL}/sse", headers=headers, httpx_client_factory=asgi_client_factory
+        ) as (
             read_stream,
             write_stream,
         ):
