@@ -14,6 +14,8 @@ from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
+from src.mcp.client.transport_session import TransportSession
+
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
 logger = logging.getLogger("client")
@@ -100,6 +102,7 @@ ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(
 
 
 class ClientSession(
+    TransportSession,
     BaseSession[
         types.ClientRequest,
         types.ClientNotification,

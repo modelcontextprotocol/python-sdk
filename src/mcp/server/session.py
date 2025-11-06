@@ -54,6 +54,8 @@ from mcp.shared.session import (
 )
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
+from src.mcp.server.transport_session import TransportSession
+
 
 class InitializationState(Enum):
     NotInitialized = 1
@@ -69,6 +71,7 @@ ServerRequestResponder = (
 
 
 class ServerSession(
+    TransportSession,
     BaseSession[
         types.ServerRequest,
         types.ServerNotification,
