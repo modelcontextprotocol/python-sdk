@@ -7,10 +7,11 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import AnyUrl
 
+from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.resources.base import Resource
 from mcp.server.fastmcp.resources.templates import ResourceTemplate
 from mcp.server.fastmcp.utilities.logging import get_logger
-from mcp.types import Annotations, Icon
+from mcp.types import RESOURCE_NOT_FOUND, Annotations, Icon
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -98,9 +99,9 @@ class ResourceManager:
                 try:
                     return await template.create_resource(uri_str, params, context=context)
                 except Exception as e:
-                    raise ValueError(f"Error creating resource from template: {e}")
+                    raise ResourceError(f"Error creating resource from template: {e}")
 
-        raise ValueError(f"Unknown resource: {uri}")
+        raise ResourceError(f"Unknown resource: {uri}", code=RESOURCE_NOT_FOUND)
 
     def list_resources(self) -> list[Resource]:
         """List all registered resources."""
