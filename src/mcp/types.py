@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
+from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel, UrlConstraints
 from typing_extensions import deprecated
 
 """
@@ -430,7 +430,7 @@ class Annotations(BaseModel):
 class Resource(BaseMetadata):
     """A known resource that the server is capable of reading."""
 
-    uri: str
+    Annotated[str, UrlConstraints(host_required=False)]
     """The URI of this resource."""
     description: str | None = None
     """A description of what this resource represents."""
@@ -501,7 +501,7 @@ class ListResourceTemplatesResult(PaginatedResult):
 class ReadResourceRequestParams(RequestParams):
     """Parameters for reading a resource."""
 
-    uri: str
+    Annotated[str, UrlConstraints(host_required=False)]
     """
     The URI of the resource to read. The URI can use any protocol; it is up to the
     server how to interpret it.
@@ -519,7 +519,7 @@ class ReadResourceRequest(Request[ReadResourceRequestParams, Literal["resources/
 class ResourceContents(BaseModel):
     """The contents of a specific resource or sub-resource."""
 
-    uri: str
+    Annotated[str, UrlConstraints(host_required=False)]
     """The URI of this resource."""
     mimeType: str | None = None
     """The MIME type of this resource, if known."""
@@ -569,7 +569,7 @@ class ResourceListChangedNotification(
 class SubscribeRequestParams(RequestParams):
     """Parameters for subscribing to a resource."""
 
-    uri: str
+    Annotated[str, UrlConstraints(host_required=False)]
     """
     The URI of the resource to subscribe to. The URI can use any protocol; it is up to
     the server how to interpret it.
@@ -590,7 +590,7 @@ class SubscribeRequest(Request[SubscribeRequestParams, Literal["resources/subscr
 class UnsubscribeRequestParams(RequestParams):
     """Parameters for unsubscribing from a resource."""
 
-    uri: str
+    Annotated[str, UrlConstraints(host_required=False)]
     """The URI of the resource to unsubscribe from."""
     model_config = ConfigDict(extra="allow")
 
@@ -608,7 +608,7 @@ class UnsubscribeRequest(Request[UnsubscribeRequestParams, Literal["resources/un
 class ResourceUpdatedNotificationParams(NotificationParams):
     """Parameters for resource update notifications."""
 
-    uri: str
+    Annotated[str, UrlConstraints(host_required=False)]
     """
     The URI of the resource that has been updated. This might be a sub-resource of the
     one that the client actually subscribed to.
@@ -1084,7 +1084,7 @@ class ResourceTemplateReference(BaseModel):
     """A reference to a resource or resource template definition."""
 
     type: Literal["ref/resource"]
-    uri: str
+    Annotated[str, UrlConstraints(host_required=False)]
     """The URI or URI template of the resource."""
     model_config = ConfigDict(extra="allow")
 

@@ -37,7 +37,7 @@ def main(port: int, transport: str) -> int:
     async def list_resources() -> list[types.Resource]:
         return [
             types.Resource(
-                uri=FileUrl(f"file:///{name}.txt"),
+                uri=f"file:///{name}.txt",
                 name=name,
                 title=SAMPLE_RESOURCES[name]["title"],
                 description=f"A sample text resource named {name}",

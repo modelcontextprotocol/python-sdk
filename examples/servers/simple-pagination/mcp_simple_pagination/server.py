@@ -27,7 +27,7 @@ SAMPLE_TOOLS = [
 
 SAMPLE_RESOURCES = [
     types.Resource(
-        uri=AnyUrl(f"file:///path/to/resource_{i}.txt"),
+        uri=f"file:///path/to/resource_{i}.txt",
         name=f"resource_{i}",
         description=f"This is sample resource number {i}",
     )
