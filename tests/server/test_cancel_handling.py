@@ -6,10 +6,10 @@ import anyio
 import pytest
 
 import mcp.types as types
+from mcp.client.session import ClientSession
 from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import create_connected_server_and_client_session
-from mcp.client.session import ClientSession
 from mcp.types import (
     CallToolRequest,
     CallToolRequestParams,
@@ -58,6 +58,7 @@ async def test_server_remains_functional_after_cancel():
     async with create_connected_server_and_client_session(server) as client:
         # First request (will be cancelled)
         assert isinstance(client, ClientSession)
+
         async def first_request():
             try:
                 await client.send_request(
