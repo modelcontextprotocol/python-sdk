@@ -291,7 +291,7 @@ class ClientSessionGroup:
         prompts_temp: dict[str, types.Prompt] = {}
         resources_temp: dict[str, types.Resource] = {}
         tools_temp: dict[str, types.Tool] = {}
-        tool_to_session_temp: dict[str, "mcp.ClientTransportSession"] = {}
+        tool_to_session_temp: dict[str, mcp.ClientTransportSession] = {}
 
         # Query the server for its prompts and aggregate to list.
         try:
