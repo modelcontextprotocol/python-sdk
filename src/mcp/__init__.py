@@ -5,6 +5,7 @@ from .server.session import ServerSession
 from .server.stdio import stdio_server
 from .shared.exceptions import McpError
 from .types import (
+    AssistantMessage,
     CallToolRequest,
     ClientCapabilities,
     ClientNotification,
@@ -42,6 +43,7 @@ from .types import (
     ResourceUpdatedNotification,
     RootsCapability,
     SamplingMessage,
+    SamplingToolsCapability,
     ServerCapabilities,
     ServerNotification,
     ServerRequest,
@@ -50,14 +52,19 @@ from .types import (
     StopReason,
     SubscribeRequest,
     Tool,
+    ToolChoice,
+    ToolResultContent,
     ToolsCapability,
+    ToolUseContent,
     UnsubscribeRequest,
+    UserMessage,
 )
 from .types import (
     Role as SamplingRole,
 )
 
 __all__ = [
+    "AssistantMessage",
     "CallToolRequest",
     "ClientCapabilities",
     "ClientNotification",
@@ -65,6 +72,7 @@ __all__ = [
     "ClientResult",
     "ClientSession",
     "ClientSessionGroup",
+    "CompleteRequest",
     "CreateMessageRequest",
     "CreateMessageResult",
     "ErrorData",
@@ -77,6 +85,7 @@ __all__ = [
     "InitializedNotification",
     "JSONRPCError",
     "JSONRPCRequest",
+    "JSONRPCResponse",
     "ListPromptsRequest",
     "ListPromptsResult",
     "ListResourcesRequest",
@@ -91,12 +100,13 @@ __all__ = [
     "PromptsCapability",
     "ReadResourceRequest",
     "ReadResourceResult",
+    "Resource",
     "ResourcesCapability",
     "ResourceUpdatedNotification",
-    "Resource",
     "RootsCapability",
     "SamplingMessage",
     "SamplingRole",
+    "SamplingToolsCapability",
     "ServerCapabilities",
     "ServerNotification",
     "ServerRequest",
@@ -107,10 +117,12 @@ __all__ = [
     "StopReason",
     "SubscribeRequest",
     "Tool",
+    "ToolChoice",
+    "ToolResultContent",
     "ToolsCapability",
+    "ToolUseContent",
     "UnsubscribeRequest",
+    "UserMessage",
     "stdio_client",
     "stdio_server",
-    "CompleteRequest",
-    "JSONRPCResponse",
 ]
