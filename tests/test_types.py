@@ -12,7 +12,7 @@ from mcp.types import (
     InitializeRequestParams,
     JSONRPCMessage,
     JSONRPCRequest,
-    SamplingCapabilityNested,
+    SamplingCapability,
     SamplingMessage,
     TextContent,
     Tool,
@@ -257,12 +257,12 @@ async def test_client_capabilities_with_sampling_tools():
     }
     capabilities = ClientCapabilities.model_validate(capabilities_data)
     assert capabilities.sampling is not None
-    assert isinstance(capabilities.sampling, SamplingCapabilityNested)
+    assert isinstance(capabilities.sampling, SamplingCapability)
     assert capabilities.sampling.tools is not None
 
     # With both context and tools
     full_capabilities_data = {"sampling": {"context": {}, "tools": {}}}
     full_caps = ClientCapabilities.model_validate(full_capabilities_data)
-    assert isinstance(full_caps.sampling, SamplingCapabilityNested)
+    assert isinstance(full_caps.sampling, SamplingCapability)
     assert full_caps.sampling.context is not None
     assert full_caps.sampling.tools is not None

@@ -250,8 +250,13 @@ class RootsCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class SamplingCapability(BaseModel):
-    """Capability for sampling operations."""
+class SamplingContextCapability(BaseModel):
+    """
+    Capability for context inclusion during sampling.
+
+    Indicates support for non-'none' values in the includeContext parameter.
+    SOFT-DEPRECATED: New implementations should use tools parameter instead.
+    """
 
     model_config = ConfigDict(extra="allow")
 
@@ -273,12 +278,12 @@ class ElicitationCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class SamplingCapabilityNested(BaseModel):
+class SamplingCapability(BaseModel):
     """
-    Nested structure for sampling capabilities, allowing fine-grained capability advertisement.
+    Sampling capability structure, allowing fine-grained capability advertisement.
     """
 
-    context: SamplingCapability | None = None
+    context: SamplingContextCapability | None = None
     """
     Present if the client supports non-'none' values for includeContext parameter.
     SOFT-DEPRECATED: New implementations should use tools parameter instead.
@@ -296,11 +301,10 @@ class ClientCapabilities(BaseModel):
 
     experimental: dict[str, dict[str, Any]] | None = None
     """Experimental, non-standard capabilities that the client supports."""
-    sampling: SamplingCapabilityNested | SamplingCapability | None = None
+    sampling: SamplingCapability | None = None
     """
     Present if the client supports sampling from an LLM.
-    Can be a structured object (SamplingCapabilityNested) with fine-grained capabilities,
-    or a simple marker object (SamplingCapability) for backward compatibility.
+    Can contain fine-grained capabilities like context and tools support.
     """
     elicitation: ElicitationCapability | None = None
     """Present if the client supports elicitation from the user."""
