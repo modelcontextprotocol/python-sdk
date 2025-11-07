@@ -12,7 +12,7 @@ from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute
 from starlette.websockets import WebSocket
 
-from mcp.client.session import ClientSession
+from mcp.client.session import ClientSession, ClientTransportSession
 from mcp.client.websocket import websocket_client
 from mcp.server import Server
 from mcp.server.websocket import websocket_server
@@ -125,7 +125,7 @@ def server(server_port: int) -> Generator[None, None, None]:
 
 
 @pytest.fixture()
-async def initialized_ws_client_session(server: None, server_url: str) -> AsyncGenerator[ClientSession, None]:
+async def initialized_ws_client_session(server: None, server_url: str) -> AsyncGenerator[ClientTransportSession, None]:
     """Create and initialize a WebSocket client session"""
     async with websocket_client(server_url + "/ws") as streams:
         async with ClientSession(*streams) as session:

@@ -8,7 +8,7 @@ import json
 import multiprocessing
 import socket
 from collections.abc import Generator
-from typing import Any, cast
+from typing import Any
 
 import anyio
 import httpx
@@ -199,7 +199,8 @@ class ServerTest(Server):  # pragma: no cover
 
             elif name == "test_sampling_tool":
                 # Test sampling by requesting the client to sample a message
-                session = cast(ServerSession, ctx.session)
+                session = ctx.session
+                assert isinstance(session, ServerSession)
                 sampling_result = await session.create_message(
                     messages=[
                         types.SamplingMessage(

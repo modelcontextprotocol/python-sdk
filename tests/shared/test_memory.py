@@ -2,7 +2,7 @@ import pytest
 from pydantic import AnyUrl
 from typing_extensions import AsyncGenerator
 
-from mcp.client.session import ClientSession
+from mcp.client.session import ClientSession, ClientTransportSession
 from mcp.server import Server
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import EmptyResult, Resource
@@ -28,7 +28,7 @@ def mcp_server() -> Server:
 @pytest.fixture
 async def client_connected_to_server(
     mcp_server: Server,
-) -> AsyncGenerator[ClientSession, None]:
+) -> AsyncGenerator[ClientTransportSession, None]:
     async with create_connected_server_and_client_session(mcp_server) as client_session:
         yield client_session
 

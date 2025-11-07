@@ -5,7 +5,7 @@ import anyio
 import pytest
 
 import mcp.types as types
-from mcp.client.session import ClientSession
+from mcp.client.session import ClientSession, ClientTransportSession
 from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import create_client_server_memory_streams, create_connected_server_and_client_session
@@ -27,19 +27,20 @@ def mcp_server() -> Server:
 @pytest.fixture
 async def client_connected_to_server(
     mcp_server: Server,
-) -> AsyncGenerator[ClientSession, None]:
+) -> AsyncGenerator[ClientTransportSession, None]:
     async with create_connected_server_and_client_session(mcp_server) as client_session:
         yield client_session
 
 
 @pytest.mark.anyio
 async def test_in_flight_requests_cleared_after_completion(
-    client_connected_to_server: ClientSession,
+    client_connected_to_server: ClientTransportSession,
 ):
     """Verify that _in_flight is empty after all requests complete."""
     # Send a request and wait for response
     response = await client_connected_to_server.send_ping()
     assert isinstance(response, EmptyResult)
+    assert isinstance(client_connected_to_server, ClientSession)
 
     # Verify _in_flight is empty
     assert len(client_connected_to_server._in_flight) == 0
@@ -101,6 +102,7 @@ async def test_request_cancellation():
 
     async with create_connected_server_and_client_session(make_server()) as client_session:
         async with anyio.create_task_group() as tg:
+            assert isinstance(client_session, ClientSession)
             tg.start_soon(make_request, client_session)
 
             # Wait for the request to be in-flight

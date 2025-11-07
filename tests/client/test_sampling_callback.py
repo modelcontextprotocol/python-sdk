@@ -1,5 +1,3 @@
-from typing import cast
-
 import pytest
 
 from mcp.client.session import ClientTransportSession
@@ -37,7 +35,8 @@ async def test_sampling_callback():
 
     @server.tool("test_sampling")
     async def test_sampling_tool(message: str):
-        session = cast(ServerSession, server.get_context().session)
+        session = server.get_context().session
+        assert isinstance(session, ServerSession)
         value = await session.create_message(
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
             max_tokens=100,

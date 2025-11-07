@@ -96,10 +96,10 @@ class ClientSessionGroup:
     _tools: dict[str, types.Tool]
 
     # Client-server connection management.
-    _sessions: dict["mcp.ClientTransportSession", _ComponentNames]
-    _tool_to_session: dict[str, "mcp.ClientTransportSession"]
+    _sessions: dict[mcp.ClientTransportSession, _ComponentNames]
+    _tool_to_session: dict[str, mcp.ClientTransportSession]
     _exit_stack: contextlib.AsyncExitStack
-    _session_exit_stacks: dict["mcp.ClientTransportSession", contextlib.AsyncExitStack]
+    _session_exit_stacks: dict[mcp.ClientTransportSession, contextlib.AsyncExitStack]
 
     # Optional fn consuming (component_name, serverInfo) for custom names.
     # This is provide a means to mitigate naming conflicts across servers.
@@ -153,7 +153,7 @@ class ClientSessionGroup:
                 tg.start_soon(exit_stack.aclose)
 
     @property
-    def sessions(self) -> list["mcp.ClientTransportSession"]:
+    def sessions(self) -> list[mcp.ClientTransportSession]:
         """Returns the list of sessions being managed."""
         return list(self._sessions.keys())  # pragma: no cover
 
@@ -178,7 +178,7 @@ class ClientSessionGroup:
         session_tool_name = self.tools[name].name
         return await session.call_tool(session_tool_name, args)
 
-    async def disconnect_from_server(self, session: "mcp.ClientTransportSession") -> None:
+    async def disconnect_from_server(self, session: mcp.ClientTransportSession) -> None:
         """Disconnects from a single MCP server."""
 
         session_known_for_components = session in self._sessions
@@ -216,8 +216,8 @@ class ClientSessionGroup:
             await session_stack_to_close.aclose()  # pragma: no cover
 
     async def connect_with_session(
-        self, server_info: types.Implementation, session: "mcp.ClientTransportSession"
-    ) -> "mcp.ClientTransportSession":
+        self, server_info: types.Implementation, session: mcp.ClientTransportSession
+    ) -> mcp.ClientTransportSession:
         """Connects to a single MCP server."""
         await self._aggregate_components(server_info, session)
         return session
@@ -225,14 +225,14 @@ class ClientSessionGroup:
     async def connect_to_server(
         self,
         server_params: ServerParameters,
-    ) -> "mcp.ClientTransportSession":
+    ) -> mcp.ClientTransportSession:
         """Connects to a single MCP server."""
         server_info, session = await self._establish_session(server_params)
         return await self.connect_with_session(server_info, session)
 
     async def _establish_session(
         self, server_params: ServerParameters
-    ) -> tuple[types.Implementation, "mcp.ClientTransportSession"]:
+    ) -> tuple[types.Implementation, mcp.ClientTransportSession]:
         """Establish a client session to an MCP server."""
 
         session_stack = contextlib.AsyncExitStack()
@@ -277,7 +277,7 @@ class ClientSessionGroup:
             raise
 
     async def _aggregate_components(
-        self, server_info: types.Implementation, session: "mcp.ClientTransportSession"
+        self, server_info: types.Implementation, session: mcp.ClientTransportSession
     ) -> None:
         """Aggregates prompts, resources, and tools from a given session."""
 

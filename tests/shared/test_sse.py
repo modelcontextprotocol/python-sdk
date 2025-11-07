@@ -17,7 +17,7 @@ from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 import mcp.types as types
-from mcp.client.session import ClientSession
+from mcp.client.session import ClientSession, ClientTransportSession
 from mcp.client.sse import sse_client
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
@@ -185,7 +185,7 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
 
 
 @pytest.fixture
-async def initialized_sse_client_session(server: None, server_url: str) -> AsyncGenerator[ClientSession, None]:
+async def initialized_sse_client_session(server: None, server_url: str) -> AsyncGenerator[ClientTransportSession, None]:
     async with sse_client(server_url + "/sse", sse_read_timeout=0.5) as streams:
         async with ClientSession(*streams) as session:
             await session.initialize()
