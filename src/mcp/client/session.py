@@ -9,7 +9,7 @@ from pydantic import AnyUrl, TypeAdapter
 from typing_extensions import deprecated
 
 import mcp.types as types
-from mcp.client.transport_session import TransportSession
+from mcp.client.transport_session import ClientTransportSession
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
@@ -101,7 +101,7 @@ ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(
 
 
 class ClientSession(
-    TransportSession,
+    ClientTransportSession,
     BaseSession[
         types.ClientRequest,
         types.ClientNotification,

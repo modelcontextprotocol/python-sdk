@@ -8,7 +8,7 @@ from mcp import types
 from mcp.shared.session import ProgressFnT
 
 
-class TransportSession(ABC):
+class ClientTransportSession(ABC):
     """Abstract base class for communication transports."""
 
     @abstractmethod

@@ -47,7 +47,7 @@ from pydantic import AnyUrl
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
-from mcp.server.transport_session import TransportSession
+from mcp.server.transport_session import ServerTransportSession
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (
     BaseSession,
@@ -70,7 +70,7 @@ ServerRequestResponder = (
 
 
 class ServerSession(
-    TransportSession,
+    ServerTransportSession,
     BaseSession[
         types.ServerRequest,
         types.ServerNotification,

@@ -1,6 +1,6 @@
 """Abstract base class for transport sessions."""
 
-import abc
+from abc import ABC, abstractmethod
 from typing import Any
 
 from pydantic import AnyUrl
@@ -8,10 +8,10 @@ from pydantic import AnyUrl
 import mcp.types as types
 
 
-class TransportSession(abc.ABC):
+class ServerTransportSession(ABC):
     """Abstract base class for transport sessions."""
 
-    @abc.abstractmethod
+    @abstractmethod
     async def send_log_message(
         self,
         level: types.LoggingLevel,
@@ -22,17 +22,17 @@ class TransportSession(abc.ABC):
         """Send a log message notification."""
         raise NotImplementedError
 
-    @abc.abstractmethod
+    @abstractmethod
     async def send_resource_updated(self, uri: AnyUrl) -> None:
         """Send a resource updated notification."""
         raise NotImplementedError
 
-    @abc.abstractmethod
+    @abstractmethod
     async def list_roots(self) -> types.ListRootsResult:
         """Send a roots/list request."""
         raise NotImplementedError
 
-    @abc.abstractmethod
+    @abstractmethod
     async def elicit(
         self,
         message: str,
@@ -42,12 +42,12 @@ class TransportSession(abc.ABC):
         """Send an elicitation/create request."""
         raise NotImplementedError
 
-    @abc.abstractmethod
+    @abstractmethod
     async def send_ping(self) -> types.EmptyResult:
         """Send a ping request."""
         raise NotImplementedError
 
-    @abc.abstractmethod
+    @abstractmethod
     async def send_progress_notification(
         self,
         progress_token: str | int,
@@ -59,17 +59,17 @@ class TransportSession(abc.ABC):
         """Send a progress notification."""
         raise NotImplementedError
 
-    @abc.abstractmethod
+    @abstractmethod
     async def send_resource_list_changed(self) -> None:
         """Send a resource list changed notification."""
         raise NotImplementedError
 
-    @abc.abstractmethod
+    @abstractmethod
     async def send_tool_list_changed(self) -> None:
         """Send a tool list changed notification."""
         raise NotImplementedError
 
-    @abc.abstractmethod
+    @abstractmethod
     async def send_prompt_list_changed(self) -> None:
         """Send a prompt list changed notification."""
         raise NotImplementedError
