@@ -2,8 +2,6 @@
 Example of implementing pagination with MCP server decorators.
 """
 
-from pydantic import AnyUrl
-
 import mcp.types as types
 from mcp.server.lowlevel import Server
 

@@ -22,7 +22,6 @@ Using the MCP client, you can retrieve resources like this using the STDIO trans
 
 ```python
 import asyncio
-from mcp.types import AnyUrl
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -39,7 +38,7 @@ async def main():
             print(resources)
 
             # Get a specific resource
-            resource = await session.read_resource(AnyUrl("file:///greeting.txt"))
+            resource = await session.read_resource("file:///greeting.txt")
             print(resource)
 
 

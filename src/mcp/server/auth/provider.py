@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Generic, Literal, Protocol, TypeVar
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-from pydantic import AnyUrl, BaseModel
+from pydantic import BaseModel
 
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
@@ -11,7 +11,7 @@ class AuthorizationParams(BaseModel):
     state: str | None
     scopes: list[str] | None
     code_challenge: str
-    redirect_uri: AnyUrl
+    redirect_uri: str
     redirect_uri_provided_explicitly: bool
     resource: str | None = None  # RFC 8707 resource indicator
 
@@ -22,7 +22,7 @@ class AuthorizationCode(BaseModel):
     expires_at: float
     client_id: str
     code_challenge: str
-    redirect_uri: AnyUrl
+    redirect_uri: str
     redirect_uri_provided_explicitly: bool
     resource: str | None = None  # RFC 8707 resource indicator
 

@@ -1032,7 +1032,7 @@ async def notify_data_update(resource_uri: str, ctx: Context) -> str:
     # Perform data update logic here
     
     # Notify clients that this specific resource changed
-    await ctx.session.send_resource_updated(AnyUrl(resource_uri))
+    await ctx.session.send_resource_updated(resource_uri)
     
     # If this affects the overall resource list, notify about that too
     await ctx.session.send_resource_list_changed()
@@ -1923,8 +1923,6 @@ For servers that need to handle large datasets, the low-level server provides pa
 Example of implementing pagination with MCP server decorators.
 """
 
-from pydantic import AnyUrl
-
 import mcp.types as types
 from mcp.server.lowlevel import Server
 
@@ -1949,7 +1947,7 @@ async def list_resources_paginated(request: types.ListResourcesRequest) -> types
 
     # Get page of resources
     page_items = [
-        types.Resource(uri=AnyUrl(f"resource://items/{item}"), name=item, description=f"Description for {item}")
+        types.Resource(uri=f"resource://items/{item}", name=item, description=f"Description for {item}")
         for item in ITEMS[start:end]
     ]
 
@@ -2035,8 +2033,6 @@ cd to the `examples/snippets/clients` directory and run:
 import asyncio
 import os
 
-from pydantic import AnyUrl
-
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 from mcp.shared.context import RequestContext
@@ -2089,7 +2085,7 @@ async def run():
             print(f"Available tools: {[t.name for t in tools.tools]}")
 
             # Read a resource (greeting resource from fastmcp_quickstart)
-            resource_content = await session.read_resource(AnyUrl("greeting://World"))
+            resource_content = await session.read_resource("greeting://World")
             content_block = resource_content.contents[0]
             if isinstance(content_block, types.TextContent):
                 print(f"Resource content: {content_block.text}")
@@ -2256,8 +2252,6 @@ cd to the `examples/snippets` directory and run:
 import asyncio
 from urllib.parse import parse_qs, urlparse
 
-from pydantic import AnyUrl
-
 from mcp import ClientSession
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.streamable_http import streamablehttp_client
@@ -2304,7 +2298,7 @@ async def main():
         server_url="http://localhost:8001",
         client_metadata=OAuthClientMetadata(
             client_name="Example MCP Client",
-            redirect_uris=[AnyUrl("http://localhost:3000/callback")],
+            redirect_uris=["http://localhost:3000/callback"],
             grant_types=["authorization_code", "refresh_token"],
             response_types=["code"],
             scope="user",

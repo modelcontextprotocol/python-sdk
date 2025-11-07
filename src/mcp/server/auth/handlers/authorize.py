@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import AnyUrl, BaseModel, Field, RootModel, ValidationError
+from pydantic import BaseModel, Field, RootModel, ValidationError
 from starlette.datastructures import FormData, QueryParams
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class AuthorizationRequest(BaseModel):
     # See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1
     client_id: str = Field(..., description="The client ID")
-    redirect_uri: AnyUrl | None = Field(None, description="URL to redirect to after authorization")
+    redirect_uri: str | None = Field(None, description="URL to redirect to after authorization")
 
     # see OAuthClientMetadata; we only support `code`
     response_type: Literal["code"] = Field(..., description="Must be 'code' for authorization code flow")
@@ -44,7 +44,7 @@ class AuthorizationRequest(BaseModel):
 class AuthorizationErrorResponse(BaseModel):
     error: AuthorizationErrorCode
     error_description: str | None
-    error_uri: AnyUrl | None = None
+    error_uri: str | None = None
     # must be set if provided in the request
     state: str | None = None
 
@@ -106,9 +106,7 @@ class AuthorizationHandler:
                     if params is not None and "redirect_uri" not in params:
                         raw_redirect_uri = None
                     else:
-                        raw_redirect_uri = AnyUrlModel.model_validate(
-                            best_effort_extract_string("redirect_uri", params)
-                        ).root
+                        raw_redirect_uri = best_effort_extract_string("redirect_uri", params)
                     redirect_uri = client.validate_redirect_uri(raw_redirect_uri)
                 except (ValidationError, InvalidRedirectUriError):
                     # if the redirect URI is invalid, ignore it & just return the

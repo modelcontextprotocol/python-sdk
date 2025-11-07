@@ -10,8 +10,6 @@ cd to the `examples/snippets` directory and run:
 import asyncio
 from urllib.parse import parse_qs, urlparse
 
-from pydantic import AnyUrl
-
 from mcp import ClientSession
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.streamable_http import streamablehttp_client
@@ -58,7 +56,7 @@ async def main():
         server_url="http://localhost:8001",
         client_metadata=OAuthClientMetadata(
             client_name="Example MCP Client",
-            redirect_uris=[AnyUrl("http://localhost:3000/callback")],
+            redirect_uris=["http://localhost:3000/callback"],
             grant_types=["authorization_code", "refresh_token"],
             response_types=["code"],
             scope="user",
