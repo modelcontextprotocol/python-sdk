@@ -8,7 +8,7 @@ import json
 import multiprocessing
 import socket
 from collections.abc import Generator
-from typing import Any
+from typing import Any, cast
 
 import anyio
 import httpx
@@ -22,6 +22,7 @@ from starlette.routing import Mount
 
 import mcp.types as types
 from mcp.client.session import ClientSession, ClientTransportSession
+from mcp.server.session import ServerSession
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.server import Server
 from mcp.server.streamable_http import (
@@ -198,7 +199,8 @@ class ServerTest(Server):  # pragma: no cover
 
             elif name == "test_sampling_tool":
                 # Test sampling by requesting the client to sample a message
-                sampling_result = await ctx.session.create_message(
+                session = cast(ServerSession, ctx.session)
+                sampling_result = await session.create_message(
                     messages=[
                         types.SamplingMessage(
                             role="user",

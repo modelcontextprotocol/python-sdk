@@ -1,6 +1,8 @@
 import pytest
 
 from mcp.client.session import ClientTransportSession
+from mcp.server.session import ServerSession
+from typing import cast
 from mcp.shared.context import RequestContext
 from mcp.shared.memory import (
     create_connected_server_and_client_session as create_session,
@@ -34,7 +36,8 @@ async def test_sampling_callback():
 
     @server.tool("test_sampling")
     async def test_sampling_tool(message: str):
-        value = await server.get_context().session.create_message(
+        session = cast(ServerSession, server.get_context().session)
+        value = await session.create_message(
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
             max_tokens=100,
         )

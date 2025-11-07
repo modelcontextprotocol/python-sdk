@@ -85,7 +85,7 @@ import mcp.types as types
 from mcp.server.lowlevel.func_inspection import create_call_wrapper
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
-from mcp.server.session import ServerSession
+from mcp.server.session import ServerSession, ServerTransportSession
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
@@ -102,7 +102,7 @@ UnstructuredContent: TypeAlias = Iterable[types.ContentBlock]
 CombinationContent: TypeAlias = tuple[UnstructuredContent, StructuredContent]
 
 # This will be properly typed in each Server instance's context
-request_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any, Any]] = contextvars.ContextVar("request_ctx")
+request_ctx: contextvars.ContextVar[RequestContext[ServerTransportSession, Any, Any]] = contextvars.ContextVar("request_ctx")
 
 
 class NotificationOptions:
@@ -231,7 +231,7 @@ class Server(Generic[LifespanResultT, RequestT]):
     @property
     def request_context(
         self,
-    ) -> RequestContext[ServerSession, LifespanResultT, RequestT]:
+    ) -> RequestContext[ServerTransportSession, LifespanResultT, RequestT]:
         """If called outside of a request context, this will raise a LookupError."""
         return request_ctx.get()
 

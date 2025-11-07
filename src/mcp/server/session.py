@@ -62,7 +62,7 @@ class InitializationState(Enum):
     Initialized = 3
 
 
-ServerSessionT = TypeVar("ServerSessionT", bound="ServerSession")
+ServerSessionT = TypeVar("ServerSessionT", bound="ServerTransportSession")
 
 ServerRequestResponder = (
     RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception
