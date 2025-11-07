@@ -208,7 +208,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.session import ServerSession
+from mcp.server.session import ServerTransportSession
 
 
 # Mock database class for example
@@ -254,7 +254,7 @@ mcp = FastMCP("My App", lifespan=app_lifespan)
 
 # Access type-safe lifespan context in tools
 @mcp.tool()
-def query_db(ctx: Context[ServerSession, AppContext]) -> str:
+def query_db(ctx: Context[ServerTransportSession, AppContext]) -> str:
     """Tool that uses initialized resources."""
     db = ctx.request_context.lifespan_context.db
     return db.query()
@@ -326,13 +326,13 @@ Tools can optionally receive a Context object by including a parameter with the 
 <!-- snippet-source examples/snippets/servers/tool_progress.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.session import ServerSession
+from mcp.server.session import ServerTransportSession
 
 mcp = FastMCP(name="Progress Example")
 
 
 @mcp.tool()
-async def long_running_task(task_name: str, ctx: Context[ServerSession, None], steps: int = 5) -> str:
+async def long_running_task(task_name: str, ctx: Context[ServerTransportSession, None], steps: int = 5) -> str:
     """Execute a task with progress updates."""
     await ctx.info(f"Starting: {task_name}")
 
@@ -674,13 +674,13 @@ The Context object provides the following capabilities:
 <!-- snippet-source examples/snippets/servers/tool_progress.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.session import ServerSession
+from mcp.server.session import ServerTransportSession
 
 mcp = FastMCP(name="Progress Example")
 
 
 @mcp.tool()
-async def long_running_task(task_name: str, ctx: Context[ServerSession, None], steps: int = 5) -> str:
+async def long_running_task(task_name: str, ctx: Context[ServerTransportSession, None], steps: int = 5) -> str:
     """Execute a task with progress updates."""
     await ctx.info(f"Starting: {task_name}")
 
@@ -798,7 +798,7 @@ Request additional information from users. This example shows an Elicitation dur
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.session import ServerSession
+from mcp.server.session import ServerTransportSession
 
 mcp = FastMCP(name="Elicitation Example")
 
@@ -814,7 +814,7 @@ class BookingPreferences(BaseModel):
 
 
 @mcp.tool()
-async def book_table(date: str, time: str, party_size: int, ctx: Context[ServerSession, None]) -> str:
+async def book_table(date: str, time: str, party_size: int, ctx: Context[ServerTransportSession, None]) -> str:
     """Book a table with date availability check."""
     # Check if date is available
     if date == "2024-12-25":
@@ -888,13 +888,13 @@ Tools can send logs and notifications through the context:
 <!-- snippet-source examples/snippets/servers/notifications.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.session import ServerSession
+from mcp.server.session import ServerTransportSession
 
 mcp = FastMCP(name="Notifications Example")
 
 
 @mcp.tool()
-async def process_data(data: str, ctx: Context[ServerSession, None]) -> str:
+async def process_data(data: str, ctx: Context[ServerTransportSession, None]) -> str:
     """Process data with logging."""
     # Different log levels
     await ctx.debug(f"Debug: Processing '{data}'")
@@ -2038,6 +2038,7 @@ import os
 from pydantic import AnyUrl
 
 from mcp import ClientSession, StdioServerParameters, types
+from mcp.client.session import ClientTransportSession
 from mcp.client.stdio import stdio_client
 from mcp.shared.context import RequestContext
 
@@ -2051,7 +2052,7 @@ server_params = StdioServerParameters(
 
 # Optional: create a sampling callback
 async def handle_sampling_message(
-    context: RequestContext[ClientSession, None], params: types.CreateMessageRequestParams
+    context: RequestContext[ClientTransportSession, None], params: types.CreateMessageRequestParams
 ) -> types.CreateMessageResult:
     print(f"Sampling request: {params.messages}")
     return types.CreateMessageResult(
@@ -2169,6 +2170,7 @@ import os
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.transport_session import ClientTransportSession
 from mcp.shared.metadata_utils import get_display_name
 
 # Create server parameters for stdio connection
@@ -2179,7 +2181,7 @@ server_params = StdioServerParameters(
 )
 
 
-async def display_tools(session: ClientSession):
+async def display_tools(session: ClientTransportSession):
     """Display available tools with human-readable names"""
     tools_response = await session.list_tools()
 
@@ -2191,7 +2193,7 @@ async def display_tools(session: ClientSession):
             print(f"   {tool.description}")
 
 
-async def display_resources(session: ClientSession):
+async def display_resources(session: ClientTransportSession):
     """Display available resources with human-readable names"""
     resources_response = await session.list_resources()
 
