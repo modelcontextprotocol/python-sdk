@@ -1,11 +1,10 @@
 from abc import ABC, abstractmethod
 from datetime import timedelta
-from typing import Any, overload
+from typing import Any
 
 from pydantic import AnyUrl
-from typing_extensions import deprecated
 
-from mcp import types
+import mcp.types as types
 from mcp.shared.session import ProgressFnT
 
 
@@ -110,15 +109,8 @@ class ClientTransportSession(ABC):
         """Send a completion/complete request."""
         raise NotImplementedError
 
-    @overload
-    @deprecated("Use list_tools(params=PaginatedRequestParams(...)) instead")
-    async def list_tools(self, cursor: str | None) -> types.ListToolsResult: ...
 
-    @overload
-    async def list_tools(self, *, params: types.PaginatedRequestParams | None) -> types.ListToolsResult: ...
-
-    @overload
-    async def list_tools(self) -> types.ListToolsResult: ...
+        
 
     @abstractmethod
     async def list_tools(
