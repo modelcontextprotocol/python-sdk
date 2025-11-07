@@ -608,7 +608,7 @@ class UnsubscribeRequest(Request[UnsubscribeRequestParams, Literal["resources/un
 class ResourceUpdatedNotificationParams(NotificationParams):
     """Parameters for resource update notifications."""
 
-    uri: Annotated[str, UrlConstraints(host_required=False)]
+    uri: str
     """
     The URI of the resource that has been updated. This might be a sub-resource of the
     one that the client actually subscribed to.
