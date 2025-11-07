@@ -3,7 +3,6 @@
 import logging
 import multiprocessing
 import socket
-import time
 
 import httpx
 import pytest
@@ -17,6 +16,7 @@ from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import Tool
+from tests.test_helpers import wait_for_server
 
 logger = logging.getLogger(__name__)
 SERVER_NAME = "test_sse_security_server"
@@ -70,8 +70,8 @@ def start_server_process(port: int, security_settings: TransportSecuritySettings
     """Start server in a separate process."""
     process = multiprocessing.Process(target=run_server_with_settings, args=(port, security_settings))
     process.start()
-    # Give server time to start
-    time.sleep(1)
+    # Wait for server to be ready to accept connections
+    wait_for_server(port)
     return process
 
 
