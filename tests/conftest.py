@@ -9,10 +9,6 @@ def anyio_backend():
     return "asyncio"
 
 
-SSE_STARLETTE_VERSION = version.parse(sse_starlette.__version__)
-NEEDS_RESET = SSE_STARLETTE_VERSION < version.parse("3.0.0")
-
-
 @pytest.fixture(autouse=True)
 def reset_sse_app_status():
     """Reset sse-starlette's global AppStatus singleton before each test.
@@ -29,6 +25,10 @@ def reset_sse_app_status():
 
     See <https://github.com/sysid/sse-starlette/pull/141> for more details.
     """
+
+    SSE_STARLETTE_VERSION = version.parse(sse_starlette.__version__)
+    NEEDS_RESET = SSE_STARLETTE_VERSION < version.parse("3.0.0")
+
     if not NEEDS_RESET:
         yield
         return
