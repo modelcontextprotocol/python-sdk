@@ -1,8 +1,9 @@
+from typing import cast
+
 import pytest
 
 from mcp.client.session import ClientTransportSession
 from mcp.server.session import ServerSession
-from typing import cast
 from mcp.shared.context import RequestContext
 from mcp.shared.memory import (
     create_connected_server_and_client_session as create_session,

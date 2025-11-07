@@ -102,7 +102,9 @@ UnstructuredContent: TypeAlias = Iterable[types.ContentBlock]
 CombinationContent: TypeAlias = tuple[UnstructuredContent, StructuredContent]
 
 # This will be properly typed in each Server instance's context
-request_ctx: contextvars.ContextVar[RequestContext[ServerTransportSession, Any, Any]] = contextvars.ContextVar("request_ctx")
+request_ctx: contextvars.ContextVar[RequestContext[ServerTransportSession, Any, Any]] = contextvars.ContextVar(
+    "request_ctx"
+)
 
 
 class NotificationOptions:
