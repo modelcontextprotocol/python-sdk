@@ -109,9 +109,6 @@ class ClientTransportSession(ABC):
         """Send a completion/complete request."""
         raise NotImplementedError
 
-
-        
-
     @abstractmethod
     async def list_tools(
         self,
