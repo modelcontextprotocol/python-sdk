@@ -10,7 +10,6 @@ from inline_snapshot import snapshot
 from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 import mcp.types as types
@@ -31,6 +30,7 @@ from mcp.types import (
     TextResourceContents,
     Tool,
 )
+from tests.test_helpers import NoopASGI
 
 SERVER_NAME = "test_server_for_SSE"
 TEST_SERVER_HOST = "testserver"
@@ -92,10 +92,10 @@ def create_sse_app(server: Server) -> Starlette:
     )
     sse = SseServerTransport("/messages/", security_settings=security_settings)
 
-    async def handle_sse(request: Request) -> Response:
+    async def handle_sse(request: Request) -> NoopASGI:
         async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
             await server.run(streams[0], streams[1], server.create_initialization_options())
-        return Response()
+        return NoopASGI()
 
     return Starlette(
         routes=[
@@ -135,7 +135,7 @@ async def sse_client_session(tg: TaskGroup, server_app: Starlette) -> AsyncGener
     asgi_client_factory = create_asgi_client_factory(server_app, tg)
 
     async with sse_client(
-        f"{TEST_SERVER_BASE_URL}/sse",
+        "/sse",
         httpx_client_factory=asgi_client_factory,
     ) as streams:
         async with ClientSession(*streams) as session:
@@ -240,7 +240,7 @@ async def sse_client_mounted_server_app_session(
     asgi_client_factory = create_asgi_client_factory(mounted_server_app, tg)
 
     async with sse_client(
-        f"{TEST_SERVER_BASE_URL}/mounted_app/sse",
+        "/mounted_app/sse",
         httpx_client_factory=asgi_client_factory,
     ) as streams:
         async with ClientSession(*streams) as session:
@@ -323,7 +323,7 @@ async def test_request_context_propagation(tg: TaskGroup, context_server_app: St
     asgi_client_factory = create_asgi_client_factory(context_server_app, tg)
 
     async with sse_client(
-        f"{TEST_SERVER_BASE_URL}/sse",
+        "/sse",
         headers=custom_headers,
         httpx_client_factory=asgi_client_factory,
     ) as streams:
@@ -358,7 +358,7 @@ async def test_request_context_isolation(tg: TaskGroup, context_server_app: Star
         headers = {"X-Request-Id": f"request-{i}", "X-Custom-Value": f"value-{i}"}
 
         async with sse_client(
-            f"{TEST_SERVER_BASE_URL}/sse",
+            "/sse",
             headers=headers,
             httpx_client_factory=asgi_client_factory,
         ) as streams:
