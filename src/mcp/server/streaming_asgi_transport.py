@@ -149,9 +149,7 @@ class StreamingASGITransport(AsyncBaseTransport):
                 async with asgi_receive_channel:
                     async for message in asgi_receive_channel:
                         if message["type"] == "http.response.start":
-                            if response_started:
-                                # Ignore duplicate response.start from ASGI app during SSE disconnect
-                                continue
+                            assert not response_started
                             status_code = message["status"]
                             response_headers = message.get("headers", [])
                             response_started = True
