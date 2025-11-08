@@ -56,6 +56,7 @@ def create_server_app_with_settings(security_settings: TransportSecuritySettings
         except ValueError as e:
             # Validation error was already handled inside connect_sse
             logger.debug(f"SSE connection failed validation: {e}")
+        # connect_sse already responded; return a no-op ASGI endpoint
         return NoopASGI()
 
     routes = [

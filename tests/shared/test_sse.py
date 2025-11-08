@@ -95,6 +95,7 @@ def create_sse_app(server: Server) -> Starlette:
     async def handle_sse(request: Request) -> NoopASGI:
         async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
             await server.run(streams[0], streams[1], server.create_initialization_options())
+        # connect_sse already responded; return a no-op ASGI endpoint
         return NoopASGI()
 
     return Starlette(
