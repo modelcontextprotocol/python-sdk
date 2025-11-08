@@ -58,6 +58,9 @@ class MessageHandlerFnT(Protocol):
 async def _default_message_handler(
     message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
 ) -> None:
+    if isinstance(message, Exception):
+        logging.exception("Exception in MCP client message handler")
+        raise message
     await anyio.lowlevel.checkpoint()
 
 

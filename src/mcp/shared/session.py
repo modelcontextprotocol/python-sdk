@@ -415,8 +415,9 @@ class BaseSession(
                         if stream:
                             await stream.send(message.message.root)
                         else:
-                            await self._handle_incoming(
-                                RuntimeError(f"Received response with an unknown request ID: {message}")
+                            logging.warning(
+                                f"Received response for unknown request ID {message.message.root.id}. "
+                                f"Response was: {message.message.root}"
                             )
 
             except anyio.ClosedResourceError:
