@@ -1,74 +1,3 @@
-"""
-StatefulMCP — a higher-level MCP server with a session-scoped state machine.
-
-This class extends FastMCP and swaps selected public handlers for state-aware
-variants that consult a user-defined state machine.
-
-What it wires up
-----------------
-- A session-scoped StateMachine (or global, if configured).
-- State-aware managers for tools, resources, and prompts.
-  Each manager filters visibility by the machine's *current state* and executes
-  calls inside two coordinated scopes:
-    1) **AsyncTransactionScope (outer)** — prepares outcome-qualified transactions
-       for (state, kind, name, "success"/"error") **before** any operation runs.
-       - If PREPARE fails → no transition emission, no operation executed.
-       - On exit: COMMIT the taken outcome; ABORT the other.
-    2) **AsyncTransitionScope (inner)** — emits exact-match SUCCESS/ERROR edges,
-       runs effects fire-and-forget (warn on failure), and resets to initial when
-       entering a terminal state.
-
-Transactions (optional)
------------------------
-If a TransactionManager is present and the app registered transaction payload
-providers via the DSL, managers prepare **both** outcome paths for the current
-(state, kind, name). Keys are strict 4-tuples: (state, kind, name, result).
-Derived `transaction_id`s include the outcome; commit/abort always use the
-client-returned IDs.
-
-You define states and transitions through the public DSL; the server builds &
-validates the graph at startup.
-
-Usage
------
-    app = StatefulMCP(name="My Stateful Server")
-
-    # Decorator style
-    @app.statebuilder.state("start", is_initial=True)
-    def _(s: StateAPI):
-        (s.on_tool("login")
-           .on_success("home")                      # optional: effect=..., transaction=...
-           .build_edge()
-         .on_tool("alt_login")
-           .on_success("alt_home")
-           .build_edge())
-
-    @app.tool()
-    async def login(ctx: Context) -> str:
-        return "ok"
-
-    app.run("stdio")
-
-Fluent alternative
-------------------
-    (app.statebuilder
-         .define_state("start", is_initial=True)
-            .on_prompt("confirm")
-                .on_success("end")
-                .on_error("start")
-                .build_edge()
-         .define_state("end", is_terminal=True)
-            .buildState())
-
-Notes
------
-- Transitions are **exact-match only**; there is no DEFAULT fallback.
-- Transition effects are non-semantic: they never affect state changes.
-- Use `on_success(..., transaction=provider)` / `on_error(..., transaction=provider)`
-  to register outcome-qualified transactions directly in the DSL.
-- Exit the binding scope with `build_edge()`; finish a state block with `buildState()`.
-"""
-
 from __future__ import annotations
 
 from typing import Any, Iterable, Literal, Sequence
@@ -94,7 +23,6 @@ from mcp.server.state.prompts.state_aware_prompt_manager import StateAwarePrompt
 from mcp.server.state.resources.state_aware_resource_manager import StateAwareResourceManager
 from mcp.server.state.tools.state_aware_tool_manager import StateAwareToolManager
 from mcp.server.state.transaction.manager import TransactionManager
-from mcp.server.state.types import FastMCPContext
 
 
 logger = get_logger(f"{__name__}.StatefulMCP")
@@ -125,7 +53,6 @@ class StatefulMCP(FastMCP[LifespanResultT]):
     def __init__(
             self, 
             *args: Any,
-            global_mode: bool = False, 
             **kwargs: Any
         ) -> None:
         # Parent initialization sets up _mcp_server and native managers
@@ -138,9 +65,6 @@ class StatefulMCP(FastMCP[LifespanResultT]):
         self._state_definition = StateMachineDefinition(
             self._tool_manager, self._resource_manager, self._prompt_manager, self._tx_manager)
 
-        # user defined configs
-        self._global_mode = global_mode # runs state machine with shared/global state
-
         # Session-scoped state machine runtime (built in run())
         self._state_machine: StateMachine | None = None
 
@@ -150,48 +74,47 @@ class StatefulMCP(FastMCP[LifespanResultT]):
         self._stateful_prompts: StateAwarePromptManager | None = None
 
 
-
-    ### Public surface
+    # ----------------------------
+    # Public surface
+    # ----------------------------
 
     @property
     def statebuilder(self) -> StateMachineDefinition:
         """Finite-state machine DSL (public).
 
-        Declare states and attach (tool|prompt|resource) bindings with **outcome-specific**
-        transitions. Use `on_success(...)` / `on_error(...)` to wire edges, optionally
-        passing `effect=` and/or `transaction=`. Call `build_edge()` to return to the state
-        scope and `buildState()` to finish the state block. The server builds & validates
-        the graph at startup—do not call internal build methods yourself.
+        Declare states and edges; attach (tool|prompt|resource) bindings with **outcome-specific**
+        edges. Use `on_success(...)` / `on_error(...)` to wire edges, optionally passing
+        `terminal=`, `effect=`, and/or `transaction=`. The server builds & validates the graph
+        at startup—do not call internal build methods yourself.
 
         Decorator style::
 
             @app.statebuilder.state("start", is_initial=True)
             def _(s: StateAPI):
-                s.on_tool("login") \
-                .on_success("home") \
-                .build_edge() \
-                .on_tool("alt_login") \
-                .on_success("alt_home") \
+                s.on_tool("login")
+                .on_success("home", terminal=True)
+                .build_edge()
+                .on_tool("alt_login")
+                .on_error("start")
                 .build_edge()
 
         Fluent style::
 
-            app.statebuilder \
-                .define_state("start", is_initial=True) \
-                .on_prompt("confirm") \
-                    .on_success("end") \
-                    .on_error("start") \
-                    .build_edge() \
-                .define_state("end", is_terminal=True) \
-                .buildState()
+            app.statebuilder
+                .define_state("start", is_initial=True)
+                .on_prompt("confirm")
+                    .on_success("end", terminal=True)
+                    .build_edge()
+                .on_tool("help")
+                    .on_success("faq")
+                    .build_edge()
 
-        Returns:
-            StateMachineDefinition: The DSL facade.
         """
         return self._state_definition
 
-
-    ### Server lifecycle
+    # ----------------------------
+    # Server lifecycle
+    # ----------------------------
 
     def run(
         self,
@@ -199,17 +122,16 @@ class StatefulMCP(FastMCP[LifespanResultT]):
         mount_path: str | None = None,
     ) -> None:
         """Run the server. Build state machine and initialize state-aware managers once."""
-        self._build_state_machine_once()
-        self._init_stateful_managers_once()
+        self._build_state_machine()
+        self._init_state_aware_managers()
         return super().run(transport=transport, mount_path=mount_path)
 
-    def _build_state_machine_once(self) -> None:
-        """Startup-only state machine bootstrap.
+    def _build_state_machine(self) -> None:
+        """Startup-only bootstrap for the state machine (single, session-aware instance).
 
-        Create a session-scoped machine using a resolver that reads the current
-        session id from the request context (falls back to global when none).
-
-        Build & validate the machine once after all user registrations.
+        Builds the machine exactly once after all user registrations via the DSL.
+        Validation is performed by the builder during `build()`. The resulting
+        StateMachine is session-aware through the `ctx` parameter on its API.
         """
         if self._state_machine is not None:
             return
@@ -217,21 +139,10 @@ class StatefulMCP(FastMCP[LifespanResultT]):
         logger.debug("State machine bootstrap: begin building and validating from DSL")
 
         internal = self._state_definition._to_internal_builder()  # pyright: ignore[reportPrivateUsage]
-
-        # Pretty important stuff. This resolver is necessary to run a session scoped state machine.
-        def _resolve_context() -> FastMCPContext | None:
-            try:
-                return self.get_context()
-            except Exception as e:
-                logger.warning("State machine resolver: could not resolve context; falling back to global mode: %s", e)
-                return None
-
-        self._state_machine = internal.build(context_resolver=_resolve_context) if self._global_mode \
-            else internal.build_session_scoped(context_resolver=_resolve_context)
-
+        self._state_machine = internal.build()
         logger.debug("State machine bootstrap: build complete and ready")
 
-    def _init_stateful_managers_once(self) -> None:
+    def _init_state_aware_managers(self) -> None:
         """Instantiate state-aware managers once the state machine exists."""
         if self._state_machine is None:
             raise RuntimeError("State machine must be built before initializing stateful managers")
@@ -260,7 +171,9 @@ class StatefulMCP(FastMCP[LifespanResultT]):
                 tx_manager=self._tx_manager
             )
 
-    ### Overridden FastMCP methods (delegating to state-aware managers)
+    # ----------------------------
+    # Overridden FastMCP methods (delegating to state-aware managers)
+    # ----------------------------
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Sequence[ContentBlock] | dict[str, Any]:
         """Override FastMCP.

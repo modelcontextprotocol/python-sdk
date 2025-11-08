@@ -84,7 +84,7 @@ async def app_branch_cycle_machine() -> StatefulMCP:
             # s1
             .define_state("s1")
                 .on_tool("t_next").on_success("s2").build_edge()
-                .on_tool("t_abort").on_error("sT").build_edge()
+                .on_tool("t_abort").on_error("sT", terminal=True).build_edge()
                 .build_state()
 
             # sA branch merging into s2
@@ -95,11 +95,7 @@ async def app_branch_cycle_machine() -> StatefulMCP:
             # s2 with cycle back to s1 and terminal to sT
             .define_state("s2")
                 .on_tool("t_back").on_success("s1").build_edge()
-                .on_tool("t_finish").on_success("sT").build_edge()
-                .build_state()
-
-            # sT explicit terminal (no outgoing transitions)
-            .define_state("sT", is_terminal=True)
+                .on_tool("t_finish").on_success("sT", terminal=True).build_edge()
                 .build_state()
     )
 
@@ -107,11 +103,11 @@ async def app_branch_cycle_machine() -> StatefulMCP:
 
 
     # Build (validation happens here)
-    app._build_state_machine_once()
-    app._init_stateful_managers_once()
+    app._build_state_machine()
+    app._init_state_aware_managers()
 
     sm = app._state_machine
-    assert sm is not None and sm.current_state == "s0"
+    assert sm is not None and sm.current_state(None) == "s0"
     return app
 
 
@@ -127,43 +123,43 @@ async def test_path_A_cycle_then_terminal(app_branch_cycle_machine: StatefulMCP)
     """
     app = app_branch_cycle_machine
     sm = app._state_machine
-    assert sm is not None and sm.current_state == "s0"
+    assert sm is not None and sm.current_state(None) == "s0"
 
-    async with sm.transition_scope(
+    async with sm.step(
         success_symbol=InputSymbol.for_tool("t_login", ToolResultType.SUCCESS),
         error_symbol=InputSymbol.for_tool("t_login", ToolResultType.ERROR),
     ):
         pass
-    assert sm.current_state == "s1"
+    assert sm.current_state(None) == "s1"
 
-    async with sm.transition_scope(
+    async with sm.step(
         success_symbol=InputSymbol.for_tool("t_next", ToolResultType.SUCCESS),
         error_symbol=InputSymbol.for_tool("t_next", ToolResultType.ERROR),
     ):
         pass
-    assert sm.current_state == "s2"
+    assert sm.current_state(None) == "s2"
 
-    async with sm.transition_scope(
+    async with sm.step(
         success_symbol=InputSymbol.for_tool("t_back", ToolResultType.SUCCESS),
         error_symbol=InputSymbol.for_tool("t_back", ToolResultType.ERROR),
     ):
         pass
-    assert sm.current_state == "s1"  # cycle back
+    assert sm.current_state(None) == "s1"  # cycle back
 
-    async with sm.transition_scope(
+    async with sm.step(
         success_symbol=InputSymbol.for_tool("t_next", ToolResultType.SUCCESS),
         error_symbol=InputSymbol.for_tool("t_next", ToolResultType.ERROR),
     ):
         pass
-    assert sm.current_state == "s2"
+    assert sm.current_state(None) == "s2"
 
-    async with sm.transition_scope(
+    async with sm.step(
         success_symbol=InputSymbol.for_tool("t_finish", ToolResultType.SUCCESS),
         error_symbol=InputSymbol.for_tool("t_finish", ToolResultType.ERROR),
     ):
         pass
     # sT is terminal → auto-reset
-    assert sm.current_state == "s0"
+    assert sm.current_state(None) == "s0"
 
 
 @pytest.mark.anyio
@@ -176,28 +172,28 @@ async def test_path_B_branch_merge_then_terminal(app_branch_cycle_machine: State
     """
     app = app_branch_cycle_machine
     sm = app._state_machine
-    assert sm is not None and sm.current_state == "s0"
+    assert sm is not None and sm.current_state(None) == "s0"
 
-    async with sm.transition_scope(
+    async with sm.step(
         success_symbol=InputSymbol.for_tool("t_alt", ToolResultType.SUCCESS),
         error_symbol=InputSymbol.for_tool("t_alt", ToolResultType.ERROR),
     ):
         pass
-    assert sm.current_state == "sA"
+    assert sm.current_state(None) == "sA"
 
-    async with sm.transition_scope(
+    async with sm.step(
         success_symbol=InputSymbol.for_tool("t_merge", ToolResultType.SUCCESS),
         error_symbol=InputSymbol.for_tool("t_merge", ToolResultType.ERROR),
     ):
         pass
-    assert sm.current_state == "s2"
+    assert sm.current_state(None) == "s2"
 
-    async with sm.transition_scope(
+    async with sm.step(
         success_symbol=InputSymbol.for_tool("t_finish", ToolResultType.SUCCESS),
         error_symbol=InputSymbol.for_tool("t_finish", ToolResultType.ERROR),
     ):
         pass
-    assert sm.current_state == "s0"  # reset after terminal
+    assert sm.current_state(None) == "s0"  # reset after terminal
 
 
 @pytest.mark.anyio
@@ -209,20 +205,20 @@ async def test_path_C_abort_from_s1_to_terminal(app_branch_cycle_machine: Statef
     """
     app = app_branch_cycle_machine
     sm = app._state_machine
-    assert sm is not None and sm.current_state == "s0"
+    assert sm is not None and sm.current_state(None) == "s0"
 
-    async with sm.transition_scope(
+    async with sm.step(
         success_symbol=InputSymbol.for_tool("t_login", ToolResultType.SUCCESS),
         error_symbol=InputSymbol.for_tool("t_login", ToolResultType.ERROR),
     ):
         pass
-    assert sm.current_state == "s1"
+    assert sm.current_state(None) == "s1"
 
     with pytest.raises(ValueError):
-        async with sm.transition_scope(
+        async with sm.step(
             success_symbol=InputSymbol.for_tool("t_abort", ToolResultType.SUCCESS),
             error_symbol=InputSymbol.for_tool("t_abort", ToolResultType.ERROR),
         ):
             raise ValueError()
 
-    assert sm.current_state == "s0"  # reset after terminal
+    assert sm.current_state(None) == "s0"  # reset after terminal

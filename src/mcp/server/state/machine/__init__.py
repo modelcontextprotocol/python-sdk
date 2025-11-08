@@ -5,17 +5,15 @@ from .state_machine import (
     StateMachine,
     ToolResultType,
     State,
-    Transition
+    Edge
 )
-from .state_machine_session_scoped import SessionScopedStateMachine
 
 __all__: list[str] = [
     "State",
-    "Transition",
+    "Edge",
     "InputSymbol",
     "PromptResultType",
     "ResourceResultType",
-    "SessionScopedStateMachine",
     "StateMachine",
     "ToolResultType",
 ]

@@ -6,116 +6,112 @@ from pytest import LogCaptureFixture
 
 from mcp.server.state.builder import _InternalStateMachineBuilder
 from mcp.server.state.machine.state_machine import InputSymbol
-from mcp.server.state.server import StatefulMCP
 from mcp.server.state.types import ToolResultType
 from mcp.server.state.transaction.manager import TransactionManager
 
 
-def test_builder_raises_on_second_initial_state():
+def test_builder_warns_on_second_initial_state(caplog: LogCaptureFixture) -> None:
     """
-    Defining a second initial state should raise immediately in the builder,
-    before validation is even invoked.
+    Defining a second initial state does NOT raise; it logs a WARNING and keeps
+    the first initial unchanged.
     """
-    app = StatefulMCP(name="double_initial_buildtime")
-
-    @app.tool()
-    async def t_ok() -> str:
-        return "ok"
-
-    # First initial is fine
-    sb = app.statebuilder
-    sb.define_state("s0", is_initial=True).build_state()
-
-    # Second initial should blow up at define-time (builder layer)
-    with pytest.raises(ValueError) as ei:
-        sb.define_state("s1", is_initial=True).build_state()
-
-    assert "Initial state already set" in str(ei.value)
-
-
-def test_builder_update_ignored_when_update_false(caplog: LogCaptureFixture):
-    """
-    add_or_update_state(): existing & update=False → config ignored, transitions preserved.
-    Also verify debug log is emitted.
-    """
-    # Bare internal builder with empty managers (they are not used here)
     b = _InternalStateMachineBuilder(
-        tool_manager=None, resource_manager=None, prompt_manager=None, tx_manager=TransactionManager())
+        tool_manager=None, resource_manager=None, prompt_manager=None, tx_manager=TransactionManager()
+    )
 
-    # Create initial state s0 (initial, non-terminal)
-    b.add_or_update_state("s0", is_initial=True, is_terminal=False)
+    # First initial is accepted
+    b.add_state("s0", is_initial=True)
 
-    # Try to flip it to terminal with update=False → should be ignored
+    # Second initial → warning, ignored
+    with caplog.at_level("WARNING"):
+        b.add_state("s1", is_initial=True)
+
+    assert b._initial == "s0"
+    assert any("Initial state already set" in rec.message for rec in caplog.records)
+
+
+def test_define_state_does_not_clear_edges(caplog: LogCaptureFixture) -> None:
+    """
+    Calling add_state() again for an existing state does not replace config or clear edges.
+    A DEBUG log should mention that the definition is ignored.
+    """
+    b = _InternalStateMachineBuilder(
+        tool_manager=None, resource_manager=None, prompt_manager=None, tx_manager=TransactionManager()
+    )
+
+    b.add_state("s0", is_initial=True)
+    b.add_state("s1")
+
+    sym = InputSymbol.for_tool("t", ToolResultType.SUCCESS)
+    b.add_edge("s0", "s1", sym)
+
+    assert len(b._states["s0"].deltas) == 1  # one edge exists
+
+    # Re-define same state → ignored, edges stay intact
     with caplog.at_level("DEBUG"):
-        b.add_or_update_state("s0", is_terminal=True, update=False)
+        b.add_state("s0", is_initial=True)
 
-    # State remains non-terminal (ignored change)
-    s0 = b._states["s0"]
-    assert s0.is_terminal is False
-    assert any("already exists; update=False" in rec.message for rec in caplog.records)
+    assert len(b._states["s0"].deltas) == 1
+    assert any("State 's0' already exists; keeping configuration." in rec.message for rec in caplog.records)
 
 
-def test_builder_update_replaces_config_and_clears_transitions():
+def test_add_terminal_marks_target_state() -> None:
     """
-    add_or_update_state(): existing & update=True → replace config and clear transitions.
+    add_terminal(to_state, symbol) marks that state's terminal symbol set.
     """
     b = _InternalStateMachineBuilder(
-        tool_manager=None, resource_manager=None, prompt_manager=None, tx_manager=TransactionManager())
+        tool_manager=None, resource_manager=None, prompt_manager=None, tx_manager=TransactionManager()
+    )
+    b.add_state("s0", is_initial=True)
+    b.add_state("s1")
 
-    # Create s0 + a transition s0 --(tool: t)-> s1
-    b.add_or_update_state("s0", is_initial=True, is_terminal=False)
-    b.add_or_update_state("s1", is_initial=False, is_terminal=False)
+    sym = InputSymbol.for_tool("login", ToolResultType.SUCCESS)
+    b.add_edge("s0", "s1", sym)
+    b.add_terminal("s1", sym)
 
-    sym = InputSymbol.for_tool("t", ToolResultType.SUCCESS)
-    b.add_transition("s0", "s1", sym)
+    assert sym in b._states["s1"].terminals
 
-    assert len(b._states["s0"].transitions) == 1
 
-    # Now replace s0 config with update=True → transitions must be cleared
-    b.add_or_update_state("s0", is_initial=True, is_terminal=True, update=True)
-
-    s0 = b._states["s0"]
-    assert s0.is_initial is True
-    assert s0.is_terminal is True
-    assert s0.transitions == []  # cleared
-
-def test_builder_duplicate_transition_warns_and_is_ignored(caplog: LogCaptureFixture):
+def test_builder_duplicate_edge_warns_and_is_ignored(caplog: LogCaptureFixture) -> None:
     """
-    add_transition(): adding the same transition twice should warn and ignore the duplicate.
+    add_edge(): adding the exact same edge twice should warn and ignore the duplicate.
     """
     b = _InternalStateMachineBuilder(
-        tool_manager=None, resource_manager=None, prompt_manager=None, tx_manager=TransactionManager())
-    b.add_or_update_state("s0")
-    b.add_or_update_state("s1")
+        tool_manager=None, resource_manager=None, prompt_manager=None, tx_manager=TransactionManager()
+    )
+    b.add_state("s0")
+    b.add_state("s1")
 
     sym = InputSymbol.for_tool("t", ToolResultType.SUCCESS)
 
     with caplog.at_level("WARNING"):
-        b.add_transition("s0", "s1", sym)
-        b.add_transition("s0", "s1", sym)  # duplicate
+        b.add_edge("s0", "s1", sym)
+        b.add_edge("s0", "s1", sym)  # duplicate
 
     s0 = b._states["s0"]
-    assert len(s0.transitions) == 1
-    assert any("already exists; new definition ignored" in rec.message for rec in caplog.records)
+    assert len(s0.deltas) == 1
+    assert any("already exists" in rec.message and "ignored" in rec.message for rec in caplog.records)
 
 
-def test_builder_ambiguous_transition_warns_and_is_ignored(caplog: LogCaptureFixture):
+def test_builder_ambiguous_edge_warns_and_is_ignored(caplog: LogCaptureFixture) -> None:
     """
-    add_transition(): same symbol to a different target should warn about ambiguity and ignore the new one.
+    add_edge(): mapping the same symbol to a different target from the same source
+    should warn about ambiguity and ignore the new edge.
     """
     b = _InternalStateMachineBuilder(
-        tool_manager=None, resource_manager=None, prompt_manager=None, tx_manager=TransactionManager())
-    b.add_or_update_state("s0")
-    b.add_or_update_state("s1")
-    b.add_or_update_state("s2")
+        tool_manager=None, resource_manager=None, prompt_manager=None, tx_manager=TransactionManager()
+    )
+    b.add_state("s0")
+    b.add_state("s1")
+    b.add_state("s2")
 
     sym = InputSymbol.for_tool("t", ToolResultType.SUCCESS)
 
     with caplog.at_level("WARNING"):
-        b.add_transition("s0", "s1", sym)
-        b.add_transition("s0", "s2", sym)  # ambiguous
+        b.add_edge("s0", "s1", sym)
+        b.add_edge("s0", "s2", sym)  # ambiguous
 
     s0 = b._states["s0"]
-    assert len(s0.transitions) == 1
-    assert s0.transitions[0].to_state == "s1"
-    assert any("Ambiguous transition" in rec.message for rec in caplog.records)
+    assert len(s0.deltas) == 1
+    assert s0.deltas[0].to_state == "s1"
+    assert any("Ambiguous edge" in rec.message for rec in caplog.records)

@@ -21,23 +21,22 @@ logger = get_logger(__name__)
 
 
 class TransactionManager:
-    """Registry + execution for per-(state, kind, name, result) transactions.
+    """Register and run transactions keyed by (state, kind, name, result).
 
-    Registry:
-    - Multiple providers may be registered per TxKey (order-preserving).
+    Store:
+    - One or more providers per key (registration order is preserved).
 
-    Execution model:
-    - `prepare_for(key)`: resolve each provider → payload (with optional context injection),
-      send transaction/prepare with a deterministic `transaction_id` derived from
-      (request_id, state, kind, name, result, ordinal), and push the returned client
-      `transactionId`s as a *batch* on a per-key LIFO stack.
-    - `commit_for(key)`: pop the last batch for **this exact key** and commit each `transactionId`.
-    - `abort_for(key)`:  pop the last batch for **this exact key** and abort  each `transactionId`
-      (best effort).
+    Run:
+    - prepare_for(key, ctx):
+        - Generates a stable transaction_id 
+        - Build payloads (inject ctx when possible) and call client.prepare.
+        - Push the returned transactionIds as a batch onto a per-key LIFO stack.
+    - commit_for(key) / abort_for(key):
+        Pop the last batch for that key and commit/abort each id.
 
     Notes:
-    - Including **result** in the key and derived ID prevents success/error collisions.
-    - We always use the client-returned `transactionId` for commit/abort.
+    - Including `result` in the key keeps SUCCESS/ERROR batches separate.
+    - Commits/aborts always use the client-returned transactionIds.
     """
 
     def __init__(self) -> None:
@@ -46,7 +45,9 @@ class TransactionManager:
         # Active batches per exact key (LIFO). Each batch is a list of client transaction_ids.
         self._active: Dict[TxKey, List[List[str]]] = {}
 
-    ### Registry
+    # ----------------------------
+    # Registry
+    # ----------------------------
 
     def register(self, *, key: TxKey, provider: TransactionPayloadProvider) -> None:
         """Append a provider to the registry for this key (duplicates allowed)."""
@@ -57,7 +58,9 @@ class TransactionManager:
         """Return a copy of all providers for the key (may be empty)."""
         return list(self._by_key.get(key, []))
 
-    ### Internal helpers
+    # ----------------------------
+    # Internal helpers
+    # ----------------------------
 
     def _derive_tx_id(self, ctx: FastMCPContext, key: TxKey, ordinal: int) -> str:
         """Stable, compact transaction_id: blake2b(request_id|state|kind|name|result|ordinal)."""
@@ -81,7 +84,9 @@ class TransactionManager:
             return val  # type: ignore[return-value]
         return provider
 
-    ### Execution 
+    # ----------------------------
+    # Execution 
+    # ----------------------------
 
     async def prepare_for(self, key: TxKey, ctx: FastMCPContext) -> int:
         """Prepare all providers for this key; push tx_id batch on the per-key LIFO stack.

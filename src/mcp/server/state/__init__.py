@@ -3,7 +3,6 @@ from .machine import (
     InputSymbol,
     PromptResultType,
     ResourceResultType,
-    SessionScopedStateMachine,
     StateMachine,
     ToolResultType,
 )
@@ -22,7 +21,6 @@ __all__: list[str] = [
     "StateAwareToolManager",
     "StateMachine",
     "StateMachineDefinition",
-    "SessionScopedStateMachine",
     "StatefulMCP",
     "ToolResultType",
     "BaseTransitionAPI",

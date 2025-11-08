@@ -1,39 +1,16 @@
-"""
-Deterministic state machine.
+from __future__ import annotations
 
-Formal model
-------------
-We use the classical definition S = (Q, Σ, δ, q0, F).
-
-- Q: set of states
-- Σ: input alphabet of symbols I ⊆ T x N x R, where
-      T ∈ {"tool", "prompt", "resource"},
-      N is the identifier space for names,
-      R is a result type (DEFAULT, SUCCESS, ERROR)
-- δ: transition function δ: Q x I → Q (captured as explicit Transition edges)
-- q0: initial state
-- F: set of terminal states
-
-Input symbols
--------------
-Each input symbol is a triple ``(type, name, result)`` and acts as a letter of the
-alphabet. In practice, available symbols per state derive from the tools, resources,
-and prompts that are enabled in that state.
-
-Callbacks
----------
-A transition may define an optional callback executed after the state update.
-It can be synchronous or awaitable; awaitables are scheduled fire-and-forget.
-"""
-from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Optional, Set, Dict
+
+import threading
 
 from mcp.server.fastmcp.utilities.logging import get_logger
+from mcp.server.state.helper.extract_session_id import extract_session_id
 from mcp.server.state.machine.async_transition_scope import AsyncTransitionScope
 from mcp.server.state.types import (
     Callback,
-    ContextResolver,
+    FastMCPContext,
     PromptResultType,
     ResourceResultType,
     ToolResultType,
@@ -41,12 +18,18 @@ from mcp.server.state.types import (
 
 logger = get_logger(__name__)
 
-### Internal Structures 
 
-@dataclass(frozen=True)  # (frozen=True) cannot be changed
+# ------ Σ (input alphabet)
+
+@dataclass(frozen=True)
 class InputSymbol:
-    """Input letter of the alphabet: (type, name, result)."""
+    """
+    Input alphabet letter: (type, name, result).
 
+    Formal role (Σ):
+      - Symbols are triples (type, name, qualifier) and distinguish
+        tools/prompts/resources and their outcomes (SUCCESS/ERROR).
+    """
     type: str
     name: str
     qualifier: str
@@ -67,112 +50,199 @@ class InputSymbol:
         return cls("resource", name, result.value)
 
 
-@dataclass(frozen=True)
-class Transition:
-    """Directed edge: on exact input symbol, move to ``to_state`` and then run optional effect."""
+# ------ δ edges
 
+@dataclass(frozen=True)
+class Edge:
+    """
+    Directed δ-edge: on an exact input symbol, move to `to_state`,
+    then optionally run `effect`.
+
+    Formal role (δ):
+      - Encodes one δ entry from the *current* state: δ(q, a) = q'.
+      - The source state is implicit via membership in a State.deltas list.
+    """
     to_state: str
     input_symbol: InputSymbol
-    effect: Callback = field(default=None, compare=False, repr=False)
+    effect: Callback | None = field(default=None, compare=False, repr=False)
 
+
+# ------ Q (states)
 
 @dataclass(frozen=True)
 class State:
-    """Named state of the machine. May be initial or terminal (never both)."""
+    """
+    Named state (element of Q).
 
+    Terminal rule (symbol-driven):
+      - A state is considered terminal for a given symbol if that symbol
+        equals `termination_symbol` configured on the state.
+      - Outgoing δ-edges are represented as `deltas` for convenience.
+        (Formally, δ lives on the automaton.)
+    """
     name: str
-    is_initial: bool = field(default=False, compare=False)
-    is_terminal: bool = field(default=False, compare=False)
-    transitions: list[Transition] = field(default_factory=list[Transition], compare=False, repr=False)  
+    deltas: list[Edge] = field(default_factory=list[Edge], compare=False, repr=False)
+    terminals: list[InputSymbol] = field(default_factory=list[InputSymbol], compare=False, repr=False)
 
-### Final Runtime State Machine
+
+# ------ DFA runtime
 
 class StateMachine:
-    """Deterministic state machine over input symbol triples.
+    """
+    Core runtime of the state machine and main API surface.
 
-    Provides an async context manager to drive transitions based on success or error outcomes.
-    The context manager is exposed via `transition_scope(...)`.
+    Summary:
+      - Deterministic DFA over input triples (type, name, result).
+      - `step(success, error, ctx)` returns an `AsyncTransitionScope` that acts as the step function.
+      - Session-aware: when `ctx` provides a usable `session_id`, state is tracked per session; otherwise global.
+
+    Formal aggregation:
+      - Q (states) via `states_by_name`
+      - Σ (alphabet) is implicit in `Edge.input_symbol`
+      - δ via the edges held on states
+      - q0 via `initial_state`
+      - F is derived at runtime via `is_terminal(symbol, ctx)` and each state's `terminals`.
     """
 
-    def __init__(
-        self,
-        initial_state: str,
-        states: dict[str, State],
-        *,
-        context_resolver: ContextResolver = None,
-    ):
+    def __init__(self, initial_state: str, states: Dict[str, "State"]) -> None:
         """Bind an initial state and the immutable state graph."""
-        self._states = states
-        self._initial = initial_state
-        self._current = initial_state
-        self._resolve_context = context_resolver
+        if initial_state not in states:
+            raise ValueError(f"Unknown initial state: {initial_state}")
+        self._states: Dict[str, "State"] = states
+        self._initial: str = initial_state
 
-    ### State Access
+        # Global (fallback) current state
+        self._current_global: str = initial_state
+
+        # Per-session state map (only used when ctx is provided and yields a session id)
+        self._current_by_session_id: Dict[str, str] = {}
+
+        # Coarse-grained lock to protect the session map and current state updates
+        self._lock = threading.RLock()
+
+    # ----------------------------
+    # State access
+    # ----------------------------
 
     @property
     def initial_state(self) -> str:
-        """Expose initial state name."""
+        """Expose initial state name (q0)."""
         return self._initial
 
-    @property
-    def current_state(self) -> str:
-        """Return the current state name."""
-        return self._current
-    
-    @property
-    def context_resolver(self) -> ContextResolver:
-        """Expose the resolver callable (may be None)."""
-        return self._resolve_context
+    def current_state(self, ctx: Optional[FastMCPContext] = None) -> str:
+        """
+        Return the current state name for the given `ctx` (per-session), or the global state if `ctx` is None
+        or does not contain a resolvable session id.
+        """
+        sid = self._resolve_session_id(ctx)
+        if sid is None:
+            with self._lock:
+                return self._current_global
+        with self._lock:
+            # Initialize lazily to q0 if unseen
+            return self._current_by_session_id.setdefault(sid, self._initial)
 
-    def set_current_state(self, new_state: str) -> None:
-        """Internal setter for current state (used by the transition scope)."""
-        self._current = new_state
+    def reset(self, ctx: Optional[FastMCPContext] = None) -> None:
+        """
+        Reset the runtime state to q0 for the given `ctx` (per-session), or the global state if `ctx` is None.
+        """
+        sid = self._resolve_session_id(ctx)
+        with self._lock:
+            if sid is None:
+                self._current_global = self._initial
+            else:
+                self._current_by_session_id[sid] = self._initial
 
-    def get_state(self, name: str) -> Optional[State]:
+    def set_current_state(self, new_state: str, ctx: Optional[FastMCPContext] = None) -> None:
+        """
+        Set the current state for the given `ctx` (per-session), or the global state if `ctx` is None.
+        """
+        if new_state not in self._states:
+            raise ValueError(f"Unknown state: {new_state}")
+        sid = self._resolve_session_id(ctx)
+        with self._lock:
+            if sid is None:
+                self._current_global = new_state
+            else:
+                self._current_by_session_id[sid] = new_state
+
+    def get_state(self, name: str) -> Optional["State"]:
         """Return a state object by name (None if unknown)."""
         return self._states.get(name)
 
-    def is_terminal(self, state_name: str) -> bool:
-        """Return True if the given state is marked terminal/final (unknown → False)."""
-        s = self._states.get(state_name)
-        return s.is_terminal if s else False
+    # ----------------------------
+    # Terminality (symbol-driven)
+    # ----------------------------
 
-    ### Transition Scope
+    def is_terminal(self, symbol: "InputSymbol", ctx: Optional[FastMCPContext] = None) -> bool:
+        """
+        Return True if the passed `symbol` equals one of the current state's `terminals`.
+        """
+        sname = self.current_state(ctx)
+        state = self._states[sname]
+        return symbol in state.terminals
 
-    def transition_scope(
+    # ----------------------------
+    # Stepping as async scope
+    # ----------------------------
+
+    def step(
         self,
         *,
-        success_symbol: InputSymbol,
-        error_symbol: InputSymbol,
-        log_exc: Callable[..., None] = logger.exception,
-        exc_mapper: Callable[[BaseException], BaseException] = lambda e: ValueError(str(e)),
+        success_symbol: "InputSymbol",
+        error_symbol: "InputSymbol",
+        ctx: Optional[FastMCPContext] = None,
     ) -> AsyncTransitionScope:
-        """Create an async transition scope bound to this machine."""
+        """
+        Create an async step scope bound to this machine.
+
+        Usage:
+            async with machine.step(success_symbol=..., error_symbol=..., ctx=...):
+                ... run user code ...
+            On normal exit → SUCCESS step; on exception → ERROR step.
+        """
         return AsyncTransitionScope(
             self,
             success_symbol=success_symbol,
             error_symbol=error_symbol,
-            log_exc=log_exc,
-            exc_mapper=exc_mapper,
+            ctx=ctx,
         )
-    
-    ### Introspection
 
-    def get_available_inputs(self) -> dict[str, set[str]]:
-        """List available tool/resource/prompt names from outgoing transitions of the current state."""
-        inputs: dict[str, set[str]] = defaultdict(set)
-        state = self._states[self.current_state]
-        for tr in state.transitions:
-            symbol = tr.input_symbol
-            if symbol.type == "tool":
-                inputs["tools"].add(symbol.name)
-            elif symbol.type == "resource":
-                inputs["resources"].add(symbol.name)
-            elif symbol.type == "prompt":
-                inputs["prompts"].add(symbol.name)
-        return {
-            "tools": inputs.get("tools", set()),
-            "resources": inputs.get("resources", set()),
-            "prompts": inputs.get("prompts", set()),
-        }
+    # ----------------------------
+    # Introspection
+    # ----------------------------
 
+    def available_symbols(self, kind: str, ctx: Optional[FastMCPContext] = None) -> Set[str]:
+        """
+        Return the set of *names* available from the current state (for `ctx` or global) for the given kind.
+
+        Args:
+            kind: one of {"tool", "resource", "prompt"}.
+
+        Returns:
+            Set of names (e.g., tool names) allowed in the current state.
+        """
+        names: Set[str] = set()
+        sname = self.current_state(ctx)
+        state = self._states[sname]
+        for edge in state.deltas:
+            sym = edge.input_symbol
+            if sym.type == kind:
+                names.add(sym.name)
+        return names
+
+    # ----------------------------
+    # helpers
+    # ----------------------------
+
+    def _resolve_session_id(self, ctx: Optional[FastMCPContext]) -> Optional[str]:
+        """
+        Extract a session id from `ctx`. Returns None if `ctx` is None or extraction fails.
+        """
+        if ctx is None:
+            return None
+        try:
+            return extract_session_id(ctx)
+        except Exception:
+            # Fail silently to global mode; noisy logs would spam for callers without sessioning.
+            return None

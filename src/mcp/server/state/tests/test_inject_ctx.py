@@ -36,22 +36,18 @@ async def test_context_injected_on_effect(caplog: LogCaptureFixture):
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .on_tool("t_test").on_success("s1", effect=ctx_effect)
+            .on_tool("t_test").on_success("s1", terminal=True, effect=ctx_effect)
             .build_edge()
     )
 
-    app._build_state_machine_once()
-    app._init_stateful_managers_once()
+    app._build_state_machine()
+    app._init_state_aware_managers()
 
     sm = app._state_machine
     assert sm is not None
 
-    # trigger the SUCCESS edge via async transition scope
-    async with sm.transition_scope(
-        success_symbol=InputSymbol.for_tool("t_test", ToolResultType.SUCCESS),
-        error_symbol=InputSymbol.for_tool("t_test", ToolResultType.ERROR),
-    ):
-        pass
+    # this does trigger the tool (stateful manager)
+    await app.call_tool("t_test", {})
 
     # let the async effect run
     for _ in range(10):
@@ -86,11 +82,11 @@ async def test_context_injected_on_prompt(caplog: LogCaptureFixture):
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .on_prompt("p_ctx").on_success("s1").build_edge()
+            .on_prompt("p_ctx").on_success("s1", terminal=True).build_edge()
     )
 
-    app._build_state_machine_once()
-    app._init_stateful_managers_once()
+    app._build_state_machine()
+    app._init_state_aware_managers()
 
     sm = app._state_machine
     assert sm is not None
@@ -123,14 +119,20 @@ async def test_context_injected_on_tool(caplog: LogCaptureFixture):
     (
         app.statebuilder
             .define_state("s0", is_initial=True)
-            .on_tool("t_ctx").on_success("s1").build_edge()
+            .on_tool("t_ctx").on_success("s1", terminal=True).build_edge()
     )
 
-    app._build_state_machine_once()
-    app._init_stateful_managers_once()
+    app._build_state_machine()
+    app._init_state_aware_managers()
 
     sm = app._state_machine
     assert sm is not None
+
+    # let the async call run
+    for _ in range(10):
+        if "ctx" in called:
+            break
+        await asyncio.sleep(0.01)
 
     # this does trigger the tool (stateful manager)
     await app.call_tool("t_ctx", {})
