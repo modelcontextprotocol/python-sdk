@@ -4,7 +4,6 @@ from typing import Any, Protocol, overload
 
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from jsonschema import SchemaError, ValidationError, validate
 from pydantic import AnyUrl, TypeAdapter
 from typing_extensions import deprecated
 
@@ -376,6 +375,8 @@ class ClientSession(
             logger.warning(f"Tool {name} not listed by server, cannot validate any structured content")
 
         if output_schema is not None:
+            from jsonschema import SchemaError, ValidationError, validate
+            
             if result.structuredContent is None:
                 raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
             try:
