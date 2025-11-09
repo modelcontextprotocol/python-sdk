@@ -642,6 +642,61 @@ class TestProtectedResourceMetadata:
         content = request.content.decode()
         assert "resource=" in content
 
+    @pytest.mark.anyio
+    async def test_reject_metadata_with_mismatched_origin(self, oauth_provider: OAuthClientProvider):
+        """Test RFC 9728 Section 3.3: reject metadata with different scheme, host, or port."""
+        # Test different scheme
+        response_wrong_scheme = httpx.Response(
+            200,
+            content=b'{"resource": "http://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}',
+        )
+        result = await oauth_provider._handle_protected_resource_response(response_wrong_scheme)
+        assert result is False
+        assert oauth_provider.context.protected_resource_metadata is None
+
+        # Test different host
+        response_wrong_host = httpx.Response(
+            200,
+            content=b'{"resource": "https://evil.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}',
+        )
+        result = await oauth_provider._handle_protected_resource_response(response_wrong_host)
+        assert result is False
+        assert oauth_provider.context.protected_resource_metadata is None
+
+        # Test different port
+        response_wrong_port = httpx.Response(
+            200,
+            content=b'{"resource": "https://api.example.com:8080/v1/mcp", "authorization_servers": ["https://auth.example.com"]}',
+        )
+        result = await oauth_provider._handle_protected_resource_response(response_wrong_port)
+        assert result is False
+
+        # Ensure no metadata was set
+        assert oauth_provider.context.protected_resource_metadata is None
+
+    @pytest.mark.anyio
+    async def test_reject_metadata_with_invalid_path_hierarchy(self, oauth_provider: OAuthClientProvider):
+        """Test RFC 9728 Section 3.3: reject metadata where resource is child of server URL."""
+
+        # Invalid: resource is child path
+        response_child_path = httpx.Response(
+            200,
+            content=b'{"resource": "https://api.example.com/v1/mcp/subpath", "authorization_servers": ["https://auth.example.com"]}',
+        )
+        result = await oauth_provider._handle_protected_resource_response(response_child_path)
+        assert result is False
+        assert oauth_provider.context.protected_resource_metadata is None
+
+        # Valid: resource is parent path
+        response_parent_path = httpx.Response(
+            200,
+            content=b'{"resource": "https://api.example.com/v1", "authorization_servers": ["https://auth.example.com"]}',
+        )
+        result = await oauth_provider._handle_protected_resource_response(response_parent_path)
+        assert result is True
+        assert oauth_provider.context.protected_resource_metadata is not None
+        assert str(oauth_provider.context.protected_resource_metadata.resource) == "https://api.example.com/v1"
+
 
 class TestRegistrationResponse:
     """Test client registration response handling."""
@@ -745,7 +800,7 @@ class TestAuthFlow:
         # Send a successful discovery response with minimal protected resource metadata
         discovery_response = httpx.Response(
             200,
-            content=b'{"resource": "https://api.example.com/mcp", "authorization_servers": ["https://auth.example.com"]}',
+            content=b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}',
             request=discovery_request,
         )
 

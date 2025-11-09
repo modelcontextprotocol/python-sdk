@@ -146,9 +146,7 @@ class OAuthContext:
 
         # If PRM provides a resource that's a valid parent, use it
         if self.protected_resource_metadata and self.protected_resource_metadata.resource:
-            prm_resource = str(self.protected_resource_metadata.resource)
-            if check_resource_allowed(requested_resource=resource, configured_resource=prm_resource):
-                resource = prm_resource
+            resource = str(self.protected_resource_metadata.resource)
 
         return resource
 
@@ -292,6 +290,13 @@ class OAuthClientProvider(httpx.Auth):
             try:
                 content = await response.aread()
                 metadata = ProtectedResourceMetadata.model_validate_json(content)
+                # Validate resource field BEFORE storing metadata per RFC 9728 Section 3.3.
+                if not check_resource_allowed(
+                    requested_resource=self.context.server_url,
+                    configured_resource=str(metadata.resource),
+                ):
+                    return False
+
                 self.context.protected_resource_metadata = metadata
                 if metadata.authorization_servers:
                     self.context.auth_server_url = str(metadata.authorization_servers[0])
