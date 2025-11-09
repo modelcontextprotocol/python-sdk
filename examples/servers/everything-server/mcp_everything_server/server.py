@@ -289,7 +289,13 @@ async def _handle_completion(
     default="INFO",
     help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
 )
-def main(port: int, log_level: str) -> int:
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio", "streamable-http"]),
+    default="streamable-http",
+    help="Transport type",
+)
+def main(port: int, log_level: str, transport: str) -> int:
     """Run the MCP Everything Server."""
     logging.basicConfig(
         level=getattr(logging, log_level.upper()),
@@ -300,7 +306,7 @@ def main(port: int, log_level: str) -> int:
     logger.info(f"Endpoint will be: http://localhost:{port}/mcp")
 
     mcp.settings.port = port
-    mcp.run(transport="streamable-http")
+    mcp.run(transport=transport)
 
     return 0
 
