@@ -35,8 +35,9 @@ class StreamableHTTPSessionManager:
 
     1. Session tracking for clients
     2. Resumability via an optional event store
-    3. Connection management and lifecycle
-    4. Request handling and transport setup
+    3. Session roaming across multiple server instances
+    4. Connection management and lifecycle
+    5. Request handling and transport setup
 
     Important: Only one StreamableHTTPSessionManager instance should be created
     per application. The instance cannot be reused after its run() context has
@@ -44,10 +45,16 @@ class StreamableHTTPSessionManager:
 
     Args:
         app: The MCP server instance
-        event_store: Optional event store for resumability support.
-                     If provided, enables resumable connections where clients
-                     can reconnect and receive missed events.
-                     If None, sessions are still tracked but not resumable.
+        event_store: Optional event store for resumability and session roaming.
+                     If provided, enables:
+                     - Event replay when clients reconnect (resumability)
+                     - Session roaming across multiple server instances
+                     When a client reconnects with a session ID not found in this
+                     instance's memory, the presence of EventStore allows creating
+                     a transport for that session (since events prove it existed).
+                     This enables distributed deployments without sticky sessions.
+                     If None, sessions are tracked locally but require sticky sessions
+                     in multi-instance deployments.
         json_response: Whether to use JSON responses instead of SSE streams
         stateless: If True, creates a completely fresh transport for each request
                    with no session tracking or state persistence between requests.
@@ -209,10 +216,38 @@ class StreamableHTTPSessionManager:
         request = Request(scope, receive)
         request_mcp_session_id = request.headers.get(MCP_SESSION_ID_HEADER)
 
-        # Existing session case
+        # Existing session case - check internal memory first
         if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:
             transport = self._server_instances[request_mcp_session_id]
             logger.debug("Session already exists, handling request directly")
+
+            await transport.handle_request(scope, receive, send)
+            return
+
+        # Session roaming - EventStore proves session existed
+        if request_mcp_session_id is not None and self.event_store is not None:
+            logger.info(f"Session {request_mcp_session_id} roaming to this instance (EventStore enables roaming)")
+
+            async with self._session_creation_lock:
+                # Double-check it wasn't created while we waited for the lock
+                if request_mcp_session_id not in self._server_instances:
+                    http_transport = StreamableHTTPServerTransport(
+                        mcp_session_id=request_mcp_session_id,  # Use provided session ID
+                        is_json_response_enabled=self.json_response,
+                        event_store=self.event_store,  # EventStore will replay events
+                        security_settings=self.security_settings,
+                    )
+
+                    self._server_instances[request_mcp_session_id] = http_transport
+                    logger.info(f"Created transport for roaming session: {request_mcp_session_id}")
+
+                    await self._start_transport_server(http_transport)
+                    transport = http_transport  # Use local reference to avoid race condition
+                else:
+                    # Another request created it while we waited for the lock
+                    transport = self._server_instances[request_mcp_session_id]
+
+            # Use the local transport reference (safe even if cleaned up from dict)
             await transport.handle_request(scope, receive, send)
             return
 
@@ -232,41 +267,8 @@ class StreamableHTTPSessionManager:
                 self._server_instances[http_transport.mcp_session_id] = http_transport
                 logger.info(f"Created new transport with session ID: {new_session_id}")
 
-                # Define the server runner
-                async def run_server(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED) -> None:
-                    async with http_transport.connect() as streams:
-                        read_stream, write_stream = streams
-                        task_status.started()
-                        try:
-                            await self.app.run(
-                                read_stream,
-                                write_stream,
-                                self.app.create_initialization_options(),
-                                stateless=False,  # Stateful mode
-                            )
-                        except Exception as e:
-                            logger.error(
-                                f"Session {http_transport.mcp_session_id} crashed: {e}",
-                                exc_info=True,
-                            )
-                        finally:
-                            # Only remove from instances if not terminated
-                            if (
-                                http_transport.mcp_session_id
-                                and http_transport.mcp_session_id in self._server_instances
-                                and not http_transport.is_terminated
-                            ):
-                                logger.info(
-                                    "Cleaning up crashed session "
-                                    f"{http_transport.mcp_session_id} from "
-                                    "active instances."
-                                )
-                                del self._server_instances[http_transport.mcp_session_id]
-
-                # Assert task group is not None for type checking
-                assert self._task_group is not None
-                # Start the server task
-                await self._task_group.start(run_server)
+                # Start the background server task
+                await self._start_transport_server(http_transport)
 
                 # Handle the HTTP request and return the response
                 await http_transport.handle_request(scope, receive, send)
@@ -277,3 +279,53 @@ class StreamableHTTPSessionManager:
                 status_code=HTTPStatus.BAD_REQUEST,
             )
             await response(scope, receive, send)
+
+    async def _transport_server_task(
+        self,
+        http_transport: StreamableHTTPServerTransport,
+        *,
+        task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
+    ) -> None:
+        """
+        Background task that runs the MCP server for a transport.
+
+        This task:
+        1. Connects the transport streams
+        2. Runs the MCP server with those streams
+        3. Handles errors and cleanup on server crash
+
+        Args:
+            http_transport: The transport to run the server for
+            task_status: anyio task status for coordination with task group
+        """
+        async with http_transport.connect() as streams:
+            read_stream, write_stream = streams
+            task_status.started()
+            try:
+                await self.app.run(
+                    read_stream,
+                    write_stream,
+                    self.app.create_initialization_options(),
+                    stateless=False,  # Stateful mode
+                )
+            except Exception:
+                logger.exception(f"Session {http_transport.mcp_session_id} crashed")
+            finally:
+                # Only remove from instances if not terminated
+                if (
+                    http_transport.mcp_session_id
+                    and http_transport.mcp_session_id in self._server_instances
+                    and not http_transport.is_terminated
+                ):
+                    logger.info(f"Cleaning up crashed session {http_transport.mcp_session_id} from active instances.")
+                    del self._server_instances[http_transport.mcp_session_id]
+
+    async def _start_transport_server(self, http_transport: StreamableHTTPServerTransport) -> None:
+        """
+        Start a background task to run the MCP server for this transport.
+
+        Args:
+            http_transport: The transport to start the server for
+        """
+        assert self._task_group is not None
+        await self._task_group.start(self._transport_server_task, http_transport)

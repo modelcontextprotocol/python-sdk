@@ -1,0 +1,91 @@
+version: "3.8"
+
+services:
+  # Redis for shared EventStore
+  redis:
+    image: redis:7-alpine
+    container_name: mcp-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # MCP Server Instance 1
+  mcp-instance-1:
+    build: .
+    container_name: mcp-instance-1
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - INSTANCE_ID=instance-1
+      - PORT=3001
+    ports:
+      - "3001:3001"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "uv run mcp-streamablehttp-roaming
+             --port 3001
+             --instance-id instance-1
+             --redis-url redis://redis:6379"
+
+  # MCP Server Instance 2
+  mcp-instance-2:
+    build: .
+    container_name: mcp-instance-2
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - INSTANCE_ID=instance-2
+      - PORT=3002
+    ports:
+      - "3002:3001"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "uv run mcp-streamablehttp-roaming
+             --port 3001
+             --instance-id instance-2
+             --redis-url redis://redis:6379"
+
+  # MCP Server Instance 3
+  mcp-instance-3:
+    build: .
+    container_name: mcp-instance-3
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - INSTANCE_ID=instance-3
+      - PORT=3003
+    ports:
+      - "3003:3001"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "uv run mcp-streamablehttp-roaming
+             --port 3001
+             --instance-id instance-3
+             --redis-url redis://redis:6379"
+
+  # NGINX Load Balancer (optional - for production-like testing)
+  nginx:
+    image: nginx:alpine
+    container_name: mcp-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - mcp-instance-1
+      - mcp-instance-2
+      - mcp-instance-3
+
+volumes:
+  redis-data:
+    driver: local
