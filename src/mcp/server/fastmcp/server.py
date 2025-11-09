@@ -61,7 +61,17 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
-from mcp.types import Annotations, AnyFunction, ContentBlock, GetPromptResult, Icon, ToolAnnotations
+from mcp.shared.exceptions import McpError
+from mcp.types import (
+    RESOURCE_NOT_FOUND,
+    Annotations,
+    AnyFunction,
+    ContentBlock,
+    ErrorData,
+    GetPromptResult,
+    Icon,
+    ToolAnnotations,
+)
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
@@ -367,9 +377,12 @@ class FastMCP(Generic[LifespanResultT]):
         """Read a resource by URI."""
 
         context = self.get_context()
-        resource = await self._resource_manager.get_resource(uri, context=context)
+        try:
+            resource = await self._resource_manager.get_resource(uri, context=context)
+        except ResourceError as e:
+            raise McpError(error=e.error)
         if not resource:
-            raise ResourceError(f"Unknown resource: {uri}")
+            raise McpError(error=ErrorData(code=RESOURCE_NOT_FOUND, message=f"Unknown resource: {uri}"))
 
         try:
             content = await resource.read()
