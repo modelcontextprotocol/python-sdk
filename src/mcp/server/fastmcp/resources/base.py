@@ -4,7 +4,6 @@ import abc
 from typing import Annotated
 
 from pydantic import (
-    AnyUrl,
     BaseModel,
     ConfigDict,
     Field,
@@ -21,7 +20,7 @@ class Resource(BaseModel, abc.ABC):
 
     model_config = ConfigDict(validate_default=True)
 
-    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)] = Field(default=..., description="URI of the resource")
+    uri: Annotated[str, UrlConstraints(host_required=False)] = Field(default=..., description="URI of the resource")
     name: str | None = Field(description="Name of the resource", default=None)
     title: str | None = Field(description="Human-readable title of the resource", default=None)
     description: str | None = Field(description="Description of the resource", default=None)

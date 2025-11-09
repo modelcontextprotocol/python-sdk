@@ -43,7 +43,6 @@ from typing import Any, TypeVar
 import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
@@ -202,7 +201,7 @@ class ServerSession(
             related_request_id,
         )
 
-    async def send_resource_updated(self, uri: AnyUrl) -> None:
+    async def send_resource_updated(self, uri: str) -> None:
         """Send a resource updated notification."""
         await self.send_notification(
             types.ServerNotification(

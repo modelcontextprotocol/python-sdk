@@ -5,7 +5,7 @@ from typing import Any, Protocol, overload
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from jsonschema import SchemaError, ValidationError, validate
-from pydantic import AnyUrl, TypeAdapter
+from pydantic import TypeAdapter
 from typing_extensions import deprecated
 
 import mcp.types as types
@@ -299,7 +299,7 @@ class ClientSession(
             types.ListResourceTemplatesResult,
         )
 
-    async def read_resource(self, uri: AnyUrl) -> types.ReadResourceResult:
+    async def read_resource(self, uri: str) -> types.ReadResourceResult:
         """Send a resources/read request."""
         return await self.send_request(
             types.ClientRequest(
@@ -310,7 +310,7 @@ class ClientSession(
             types.ReadResourceResult,
         )
 
-    async def subscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+    async def subscribe_resource(self, uri: str) -> types.EmptyResult:
         """Send a resources/subscribe request."""
         return await self.send_request(
             types.ClientRequest(
@@ -321,7 +321,7 @@ class ClientSession(
             types.EmptyResult,
         )
 
-    async def unsubscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+    async def unsubscribe_resource(self, uri: str) -> types.EmptyResult:
         """Send a resources/unsubscribe request."""
         return await self.send_request(
             types.ClientRequest(

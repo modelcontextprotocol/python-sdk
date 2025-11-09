@@ -8,7 +8,6 @@ import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Mount
@@ -74,7 +73,7 @@ def main(
 
         # This will send a resource notificaiton though standalone SSE
         # established by GET request
-        await ctx.session.send_resource_updated(uri=AnyUrl("http:///test_resource"))
+        await ctx.session.send_resource_updated(uri="http:///test_resource")
         return [
             types.TextContent(
                 type="text",
