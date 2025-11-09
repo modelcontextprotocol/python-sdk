@@ -692,8 +692,12 @@ dev = [
     { name = "pytest-flakefinder" },
     { name = "pytest-pretty" },
     { name = "pytest-xdist" },
+    { name = "python-dotenv" },
+    { name = "rich" },
     { name = "ruff" },
     { name = "trio" },
+    { name = "typer" },
+    { name = "websockets" },
 ]
 docs = [
     { name = "mkdocs" },
@@ -733,8 +737,12 @@ dev = [
     { name = "pytest-flakefinder", specifier = ">=1.1.0" },
     { name = "pytest-pretty", specifier = ">=1.2.0" },
     { name = "pytest-xdist", specifier = ">=3.6.1" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "rich", specifier = ">=13.9.4" },
     { name = "ruff", specifier = ">=0.8.5" },
     { name = "trio", specifier = ">=0.26.2" },
+    { name = "typer", specifier = ">=0.16.0" },
+    { name = "websockets", specifier = ">=15.0.1" },
 ]
 docs = [
     { name = "mkdocs", specifier = ">=1.6.1" },
