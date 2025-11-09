@@ -306,7 +306,7 @@ def main(port: int, log_level: str, transport: str) -> int:
     logger.info(f"Endpoint will be: http://localhost:{port}/mcp")
 
     mcp.settings.port = port
-    mcp.run(transport=transport)
+    mcp.run(transport="stdio" if transport == "stdio" else "streamable-http")
 
     return 0
 
