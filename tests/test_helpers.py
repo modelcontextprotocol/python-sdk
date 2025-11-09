@@ -3,6 +3,8 @@
 import socket
 import time
 
+from starlette.types import Receive, Scope, Send
+
 
 def wait_for_server(port: int, timeout: float = 5.0) -> None:
     """Wait for server to be ready to accept connections.
@@ -29,3 +31,16 @@ def wait_for_server(port: int, timeout: float = 5.0) -> None:
             # Server not ready yet, retry quickly
             time.sleep(0.01)
     raise TimeoutError(f"Server on port {port} did not start within {timeout} seconds")
+
+
+class NoopASGI:
+    """
+    This helper exists only for test SSE handlers. Production MCP servers
+    would normally expose an ASGI endpoint directly. We return this no-op
+    ASGI app instead of Response() so Starlette does not send a second
+    http.response.start, which breaks httpx.ASGITransport and
+    StreamingASGITransport.
+    """
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        return

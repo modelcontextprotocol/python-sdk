@@ -9,6 +9,7 @@ This is only intended for writing tests for the SSE transport.
 """
 
 import typing
+from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
 import anyio
@@ -65,6 +66,8 @@ class StreamingASGITransport(AsyncBaseTransport):
     ) -> Response:
         assert isinstance(request.stream, AsyncByteStream)
 
+        disconnect_event = anyio.Event()
+
         # ASGI scope.
         scope = {
             "type": "http",
@@ -97,11 +100,17 @@ class StreamingASGITransport(AsyncBaseTransport):
         content_send_channel, content_receive_channel = anyio.create_memory_object_stream[bytes](100)
 
         # ASGI callables.
+        async def send_disconnect() -> None:
+            disconnect_event.set()
+
         async def receive() -> dict[str, Any]:
             nonlocal request_complete
 
+            if disconnect_event.is_set():
+                return {"type": "http.disconnect"}
+
             if request_complete:
-                await response_complete.wait()
+                await disconnect_event.wait()
                 return {"type": "http.disconnect"}
 
             try:
@@ -176,7 +185,7 @@ class StreamingASGITransport(AsyncBaseTransport):
         return Response(
             status_code,
             headers=response_headers,
-            stream=StreamingASGIResponseStream(content_receive_channel),
+            stream=StreamingASGIResponseStream(content_receive_channel, send_disconnect),
         )
 
 
@@ -192,12 +201,18 @@ class StreamingASGIResponseStream(AsyncByteStream):
     def __init__(
         self,
         receive_channel: anyio.streams.memory.MemoryObjectReceiveStream[bytes],
+        send_disconnect: Callable[[], Awaitable[None]],
     ) -> None:
         self.receive_channel = receive_channel
+        self.send_disconnect = send_disconnect
 
     async def __aiter__(self) -> typing.AsyncIterator[bytes]:
         try:
             async for chunk in self.receive_channel:
                 yield chunk
         finally:
-            await self.receive_channel.aclose()
+            await self.aclose()
+
+    async def aclose(self) -> None:
+        await self.receive_channel.aclose()
+        await self.send_disconnect()
