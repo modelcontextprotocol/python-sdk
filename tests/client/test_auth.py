@@ -670,8 +670,6 @@ class TestProtectedResourceMetadata:
         )
         result = await oauth_provider._handle_protected_resource_response(response_wrong_port)
         assert result is False
-
-        # Ensure no metadata was set
         assert oauth_provider.context.protected_resource_metadata is None
 
     @pytest.mark.anyio

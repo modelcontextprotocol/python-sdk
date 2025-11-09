@@ -144,7 +144,6 @@ class OAuthContext:
         """
         resource = resource_url_from_server_url(self.server_url)
 
-        # If PRM provides a resource that's a valid parent, use it
         if self.protected_resource_metadata and self.protected_resource_metadata.resource:
             resource = str(self.protected_resource_metadata.resource)
 
