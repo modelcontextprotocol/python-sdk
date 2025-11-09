@@ -173,7 +173,7 @@ class ClientSession(
 
         if self._client_info is DEFAULT_CLIENT_INFO:
             self._client_info = result.serverInfo
-            
+
         self._server_capabilities = result.capabilities
 
         await self.send_notification(types.ClientNotification(types.InitializedNotification()))
