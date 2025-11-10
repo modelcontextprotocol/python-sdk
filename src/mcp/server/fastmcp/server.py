@@ -1237,6 +1237,15 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         """Access to the underlying session for advanced usage."""
         return self.request_context.session
 
+    @property
+    def session_id(self) -> str | None:
+        """Get the session ID if available.
+
+        Returns the transport-level session ID (e.g., from streamable-http),
+        or None if not available (e.g., stdio transport or stateless mode).
+        """
+        return self.request_context.session_id if self._request_context else None
+
     # Convenience methods for common log levels
     async def debug(self, message: str, **extra: Any) -> None:
         """Send a debug log message."""

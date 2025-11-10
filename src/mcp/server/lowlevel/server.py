@@ -160,6 +160,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         self,
         notification_options: NotificationOptions | None = None,
         experimental_capabilities: dict[str, dict[str, Any]] | None = None,
+        session_id: str | None = None,
     ) -> InitializationOptions:
         """Create initialization options from this server instance."""
 
@@ -183,6 +184,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             instructions=self.instructions,
             website_url=self.website_url,
             icons=self.icons,
+            session_id=session_id,
         )
 
     def get_capabilities(
@@ -691,6 +693,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                         session,
                         lifespan_context,
                         request=request_data,
+                        session_id=session.session_id,
                     )
                 )
                 response = await handler(req)

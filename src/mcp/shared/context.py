@@ -18,3 +18,4 @@ class RequestContext(Generic[SessionT, LifespanContextT, RequestT]):
     session: SessionT
     lifespan_context: LifespanContextT
     request: RequestT | None = None
+    session_id: str | None = None
