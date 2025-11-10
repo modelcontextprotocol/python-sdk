@@ -2153,6 +2153,70 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/clients/streamable_basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/streamable_basic.py)_
 <!-- /snippet-source -->
 
+### Handling Server Notifications
+
+Servers may send notifications, which derive from the `ServerNotification` class. To handle these, follow the following steps:
+
+1. For each notification type you want to support, write a callback function that follows implements the matching protocol, such as `ToolListChangedFnT` for the tool list changed notification.
+2. Pass that function to the appropriate parameter when instantiating your client, e.g. `tool_list_changed_callback` for the tool list changed notification. This will be called every time your client receives the matching notification.
+
+You can also use this pattern with the `UnknownNotificationFnT` protocol to handle notification types that aren't anticipated in the SDK or by your code. This would handle custom notification types from the server.
+
+<!-- snippet-source examples/snippets/clients/server_notification_client.py -->
+```python
+# Snippets demonstrating handling known and custom server notifications
+
+import asyncio
+
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+from mcp.types import ServerNotification
+
+# Create dummy server parameters for stdio connection
+server_params = StdioServerParameters(
+    command="uv",
+    args=["run"],
+    env={},
+)
+
+
+# Create a custom handler for the resource list changed notification
+async def custom_resource_list_changed_handler() -> None:
+    """Custom handler for resource list changed notifications."""
+    print("RESOURCE LIST CHANGED")
+
+
+# Create a fallback handler for custom notifications we aren't aware of.
+async def fallback_notification_handler(notification: ServerNotification) -> None:
+    """Fallback handler for unknown notifications."""
+    print(f"UNKNOWN notification caught: {notification.root.method}")
+
+
+async def run():
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(
+            read,
+            write,
+            resource_list_changed_callback=custom_resource_list_changed_handler,
+            unknown_notification_callback=fallback_notification_handler,
+        ) as session:
+            # Initialize the connection
+            await session.initialize()
+
+            # Do client stuff here
+
+
+if __name__ == "__main__":
+    asyncio.run(run())
+```
+
+_Full example: [examples/snippets/clients/server_notification_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/server_notification_client.py)_
+<!-- /snippet-source -->
+
+If your client expects to connect to a server that sends custom notifications, you can create your handler or handlers, then pass them in a dictionary where the key is the notification literal and the value is a reference to the handler function. This dictionary is then passed in to the `custom_notification_handlers` parameter of the `ClientSession` constructor.
+
+For a runnable example, see [examples/snippets/clients/custom_notifications_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/custom_notifications_example.py).
+
 ### Client Display Utilities
 
 When building MCP clients, the SDK provides utilities to help display human-readable names for tools, resources, and prompts:
