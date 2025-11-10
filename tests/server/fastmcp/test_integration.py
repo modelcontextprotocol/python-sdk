@@ -13,7 +13,6 @@ single-feature servers across different transports (SSE and StreamableHTTP).
 import json
 import multiprocessing
 import socket
-import time
 from collections.abc import Generator
 
 import pytest
@@ -60,6 +59,7 @@ from mcp.types import (
     TextResourceContents,
     ToolListChangedNotification,
 )
+from tests.test_helpers import wait_for_server
 
 
 class NotificationCollector:
@@ -160,19 +160,8 @@ def server_transport(request: pytest.FixtureRequest, server_port: int) -> Genera
     )
     proc.start()
 
-    # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+    # Wait for server to be ready
+    wait_for_server(server_port)
 
     yield transport
 

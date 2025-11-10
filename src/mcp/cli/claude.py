@@ -99,7 +99,7 @@ def update_claude_config(
                 env_vars = existing_env
 
         # Build uv run command
-        args = ["run"]
+        args = ["run", "--frozen"]
 
         # Collect all packages in a set to deduplicate
         packages = {MCP_PACKAGE}

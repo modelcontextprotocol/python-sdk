@@ -134,6 +134,7 @@ class ClientSession(
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
+        self._server_capabilities: types.ServerCapabilities | None = None
 
     def _create_metadata_for_extra_headers(self, extra_headers: dict[str, str] | None):
         """Create metadata for passing extra headers to the transport layer."""
@@ -178,9 +179,18 @@ class ClientSession(
         if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
             raise RuntimeError(f"Unsupported protocol version from the server: {result.protocolVersion}")
 
+        self._server_capabilities = result.capabilities
+
         await self.send_notification(types.ClientNotification(types.InitializedNotification()))
 
         return result
+
+    def get_server_capabilities(self) -> types.ServerCapabilities | None:
+        """Return the server capabilities received during initialization.
+
+        Returns None if the session has not been initialized yet.
+        """
+        return self._server_capabilities
 
     async def send_ping(self) -> types.EmptyResult:
         """Send a ping request."""

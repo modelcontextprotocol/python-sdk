@@ -77,7 +77,7 @@ class ClientSessionGroup:
     Example Usage:
         name_fn = lambda name, server_info: f"{(server_info.name)}_{name}"
         async with ClientSessionGroup(component_name_hook=name_fn) as group:
-            for server_params in server_params:
+            for server_param in server_params:
                 await group.connect_to_server(server_param)
             ...
 
