@@ -229,7 +229,7 @@ def _get_executable_command(command: str) -> str:
     if sys.platform == "win32":  # pragma: no cover
         return get_windows_executable_command(command)
     else:
-        return command
+        return command  # pragma: no cover
 
 
 async def _create_platform_compatible_process(
@@ -254,7 +254,7 @@ async def _create_platform_compatible_process(
             stderr=errlog,
             cwd=cwd,
             start_new_session=True,
-        )
+        )  # pragma: no cover
 
     return process
 
@@ -272,7 +272,7 @@ async def _terminate_process_tree(process: Process | FallbackProcess, timeout_se
     """
     if sys.platform == "win32":  # pragma: no cover
         await terminate_windows_process_tree(process, timeout_seconds)
-    else:
+    else:  # pragma: no cover
         # FallbackProcess should only be used for Windows compatibility
         assert isinstance(process, Process)
         await terminate_posix_process_tree(process, timeout_seconds)
