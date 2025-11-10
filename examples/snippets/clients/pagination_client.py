@@ -37,5 +37,10 @@ async def list_all_resources() -> None:
             print(f"Total resources: {len(all_resources)}")
 
 
-if __name__ == "__main__":
+def main():
+    """Entry point for the pagination client."""
     asyncio.run(list_all_resources())
+
+
+if __name__ == "__main__":
+    main()

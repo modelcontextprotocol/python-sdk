@@ -2005,8 +2005,13 @@ async def list_all_resources() -> None:
             print(f"Total resources: {len(all_resources)}")
 
 
-if __name__ == "__main__":
+def main():
+    """Entry point for the pagination client."""
     asyncio.run(list_all_resources())
+
+
+if __name__ == "__main__":
+    main()
 ```
 
 _Full example: [examples/snippets/clients/pagination_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/pagination_client.py)_
@@ -2146,8 +2151,13 @@ async def main():
             print(f"Available tools: {[tool.name for tool in tools.tools]}")
 
 
-if __name__ == "__main__":
+def run():
+    """Entry point for the streamable basic client."""
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    run()
 ```
 
 _Full example: [examples/snippets/clients/streamable_basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/streamable_basic.py)_
