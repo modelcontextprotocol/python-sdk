@@ -467,12 +467,16 @@ class StreamableHTTPServerTransport:
                                 event_data = self._create_event_data(event_message)
                                 await sse_stream_writer.send(event_data)
 
-                                # If response, remove from pending streams and close
+                                # Only close when we receive the response to the ORIGINAL request
+                                # Server-initiated requests (like elicitation) will have different IDs
                                 if isinstance(
                                     event_message.message.root,
                                     JSONRPCResponse | JSONRPCError,
                                 ):
-                                    break
+                                    response_id = str(event_message.message.root.id)
+                                    if response_id == request_id:
+                                        break
+                                    # Otherwise, continue streaming - this is a response to a server-initiated request
                     except Exception:
                         logger.exception("Error in SSE writer")
                     finally:
