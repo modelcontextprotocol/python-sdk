@@ -176,6 +176,7 @@ branch = true
 patch = ["subprocess"]
 concurrency = ["multiprocessing", "thread"]
 source = ["src", "tests"]
+relative_files = true
 
 # https://coverage.readthedocs.io/en/latest/config.html#report
 [tool.coverage.report]
@@ -192,4 +193,12 @@ exclude_lines = [
 ]
 exclude_also = [
     '\A(?s:.*# pragma: exclude file.*)\Z'
+]
+
+# https://coverage.readthedocs.io/en/latest/config.html#paths
+[tool.coverage.paths]
+source = [
+    "src/",
+    "/home/runner/work/python-sdk/python-sdk/src/",
+    'D:\a\python-sdk\python-sdk\src',
 ]
