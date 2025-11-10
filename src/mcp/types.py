@@ -1319,6 +1319,36 @@ class ServerRequest(RootModel[PingRequest | CreateMessageRequest | ListRootsRequ
     pass
 
 
+CLIENT_REQUEST_METHODS: frozenset[str] = frozenset(
+    {
+        "initialize",
+        "ping",
+        "resources/list",
+        "resources/templates/list",
+        "resources/read",
+        "resources/subscribe",
+        "resources/unsubscribe",
+        "prompts/list",
+        "prompts/get",
+        "tools/list",
+        "tools/call",
+        "logging/setLevel",
+        "completion/complete",
+        "roots/list",
+    }
+)
+
+
+SERVER_REQUEST_METHODS: frozenset[str] = frozenset(
+    {
+        "ping",
+        "sampling/createMessage",
+        "elicitation/create",
+        "roots/list",
+    }
+)
+
+
 class ServerNotification(
     RootModel[
         CancelledNotification

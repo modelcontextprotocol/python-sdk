@@ -14,8 +14,11 @@ from typing_extensions import Self
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.types import (
+    CLIENT_REQUEST_METHODS,
     CONNECTION_CLOSED,
     INVALID_PARAMS,
+    METHOD_NOT_FOUND,
+    SERVER_REQUEST_METHODS,
     CancelledNotification,
     ClientNotification,
     ClientRequest,
@@ -41,6 +44,8 @@ ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 ReceiveNotificationT = TypeVar("ReceiveNotificationT", ClientNotification, ServerNotification)
 
 RequestId = str | int
+
+EMPTY_REQUEST_METHODS: frozenset[str] = frozenset()
 
 
 class ProgressFnT(Protocol):
@@ -200,6 +205,14 @@ class BaseSession(
         self._progress_callbacks = {}
         self._exit_stack = AsyncExitStack()
 
+        self._known_request_methods: frozenset[str]
+        if receive_request_type is ClientRequest:
+            self._known_request_methods = CLIENT_REQUEST_METHODS
+        elif receive_request_type is ServerRequest:
+            self._known_request_methods = SERVER_REQUEST_METHODS
+        else:
+            self._known_request_methods = EMPTY_REQUEST_METHODS
+
     async def __aenter__(self) -> Self:
         self._task_group = anyio.create_task_group()
         await self._task_group.__aenter__()
@@ -340,6 +353,22 @@ class BaseSession(
                     if isinstance(message, Exception):  # pragma: no cover
                         await self._handle_incoming(message)
                     elif isinstance(message.message.root, JSONRPCRequest):
+                        method = message.message.root.method
+                        if self._known_request_methods and method not in self._known_request_methods:
+                            logging.debug("Received request with unknown method '%s'", method)
+                            error_response = JSONRPCError(
+                                jsonrpc="2.0",
+                                id=message.message.root.id,
+                                error=ErrorData(
+                                    code=METHOD_NOT_FOUND,
+                                    message="Method not found",
+                                    data=None,
+                                ),
+                            )
+                            session_message = SessionMessage(message=JSONRPCMessage(error_response))
+                            await self._write_stream.send(session_message)
+                            continue
+
                         try:
                             validated_request = self._receive_request_type.model_validate(
                                 message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True)
