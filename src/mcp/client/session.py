@@ -128,6 +128,7 @@ class ClientSession(
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
         task_store: TaskStore | None = None,
+        session_id: str | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -136,6 +137,7 @@ class ClientSession(
             types.ServerNotification,
             read_timeout_seconds=read_timeout_seconds,
             task_store=task_store,
+            session_id=session_id,
         )
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
@@ -605,6 +607,29 @@ class ClientSession(
         )
 
     async def _received_request(self, responder: RequestResponder[types.ServerRequest, types.ClientResult]) -> None:
+        # Handle task creation if task metadata is present
+        if responder.request_meta and responder.request_meta.task and self._task_store:
+            task_meta = responder.request_meta.task
+            # Create the task in the task store
+            await self._task_store.create_task(
+                task_meta,
+                responder.request_id,
+                responder.request.root,
+                session_id=self._session_id,  # type: ignore[arg-type]
+            )
+            # Send task created notification with related task metadata
+            notification_params = types.TaskCreatedNotificationParams(
+                _meta=types.NotificationParams.Meta(
+                    **{types.RELATED_TASK_META_KEY: types.RelatedTaskMetadata(taskId=task_meta.taskId)}
+                )
+            )
+            await self.send_notification(
+                types.ClientNotification(
+                    types.TaskCreatedNotification(method="notifications/tasks/created", params=notification_params)
+                ),
+                related_request_id=responder.request_id,
+            )
+
         ctx = RequestContext[ClientSession, Any](
             request_id=responder.request_id,
             meta=responder.request_meta,
@@ -638,7 +663,7 @@ class ClientSession(
             case types.GetTaskRequest(params=params):
                 # Handle get task requests if task store is available
                 if self._task_store:
-                    task = await self._task_store.get_task(params.taskId)
+                    task = await self._task_store.get_task(params.taskId, session_id=self._session_id)
                     if task is None:
                         with responder:
                             await responder.respond(
@@ -666,7 +691,7 @@ class ClientSession(
             case types.GetTaskPayloadRequest(params=params):
                 # Handle get task result requests if task store is available
                 if self._task_store:
-                    task = await self._task_store.get_task(params.taskId)
+                    task = await self._task_store.get_task(params.taskId, session_id=self._session_id)
                     if task is None:
                         with responder:
                             await responder.respond(
@@ -683,7 +708,7 @@ class ClientSession(
                                 )
                             )
                     else:
-                        result = await self._task_store.get_task_result(params.taskId)
+                        result = await self._task_store.get_task_result(params.taskId, session_id=self._session_id)
                         # Add related-task metadata
                         result_dict = result.model_dump(by_alias=True, mode="json", exclude_none=True)
                         if "_meta" not in result_dict:
@@ -701,7 +726,9 @@ class ClientSession(
                 # Handle list tasks requests if task store is available
                 if self._task_store:
                     try:
-                        result = await self._task_store.list_tasks(params.cursor if params else None)
+                        result = await self._task_store.list_tasks(
+                            params.cursor if params else None, session_id=self._session_id
+                        )
                         with responder:
                             await responder.respond(
                                 types.ClientResult(

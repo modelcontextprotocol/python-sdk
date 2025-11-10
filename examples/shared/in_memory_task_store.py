@@ -41,7 +41,9 @@ class InMemoryTaskStore(TaskStore):
         self._tasks: dict[str, StoredTask] = {}
         self._cleanup_tasks: dict[str, asyncio.Task[None]] = {}
 
-    async def create_task(self, task: TaskMetadata, request_id: RequestId, request: Request[Any, Any]) -> None:
+    async def create_task(
+        self, task: TaskMetadata, request_id: RequestId, request: Request[Any, Any], session_id: str | None = None
+    ) -> None:
         """Create a new task with the given metadata and original request."""
         task_id = task.taskId
 
@@ -61,7 +63,7 @@ class InMemoryTaskStore(TaskStore):
         if task.keepAlive is not None:
             self._schedule_cleanup(task_id, task.keepAlive / 1000.0)
 
-    async def get_task(self, task_id: str) -> Task | None:
+    async def get_task(self, task_id: str, session_id: str | None = None) -> Task | None:
         """Get the current status of a task."""
         stored = self._tasks.get(task_id)
         if stored is None:
@@ -70,7 +72,7 @@ class InMemoryTaskStore(TaskStore):
         # Return a copy to prevent external modification
         return Task(**stored.task.model_dump())
 
-    async def store_task_result(self, task_id: str, result: Result) -> None:
+    async def store_task_result(self, task_id: str, result: Result, session_id: str | None = None) -> None:
         """Store the result of a completed task."""
         stored = self._tasks.get(task_id)
         if stored is None:
@@ -84,7 +86,7 @@ class InMemoryTaskStore(TaskStore):
             self._cancel_cleanup(task_id)
             self._schedule_cleanup(task_id, stored.task.keepAlive / 1000.0)
 
-    async def get_task_result(self, task_id: str) -> Result:
+    async def get_task_result(self, task_id: str, session_id: str | None = None) -> Result:
         """Retrieve the stored result of a task."""
         stored = self._tasks.get(task_id)
         if stored is None:
@@ -95,7 +97,9 @@ class InMemoryTaskStore(TaskStore):
 
         return stored.result
 
-    async def update_task_status(self, task_id: str, status: TaskStatus, error: str | None = None) -> None:
+    async def update_task_status(
+        self, task_id: str, status: TaskStatus, error: str | None = None, session_id: str | None = None
+    ) -> None:
         """Update a task's status."""
         stored = self._tasks.get(task_id)
         if stored is None:
@@ -110,7 +114,7 @@ class InMemoryTaskStore(TaskStore):
             self._cancel_cleanup(task_id)
             self._schedule_cleanup(task_id, stored.task.keepAlive / 1000.0)
 
-    async def list_tasks(self, cursor: str | None = None) -> dict[str, Any]:
+    async def list_tasks(self, cursor: str | None = None, session_id: str | None = None) -> dict[str, Any]:
         """
         List tasks, optionally starting from a pagination cursor.
 
@@ -134,7 +138,7 @@ class InMemoryTaskStore(TaskStore):
 
         return {"tasks": tasks, "nextCursor": next_cursor}
 
-    async def delete_task(self, task_id: str) -> None:
+    async def delete_task(self, task_id: str, session_id: str | None = None) -> None:
         """Delete a task from storage."""
         if task_id not in self._tasks:
             raise ValueError(f"Task with ID {task_id} not found")

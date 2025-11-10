@@ -89,9 +89,15 @@ class ServerSession(
         init_options: InitializationOptions,
         stateless: bool = False,
         task_store: TaskStore | None = None,
+        session_id: str | None = None,
     ) -> None:
         super().__init__(
-            read_stream, write_stream, types.ClientRequest, types.ClientNotification, task_store=task_store
+            read_stream,
+            write_stream,
+            types.ClientRequest,
+            types.ClientNotification,
+            task_store=task_store,
+            session_id=session_id,
         )
         self._initialization_state = (
             InitializationState.Initialized if stateless else InitializationState.NotInitialized
@@ -203,7 +209,12 @@ class ServerSession(
         if responder.request_meta and responder.request_meta.task and self._task_store:
             task_meta = responder.request_meta.task
             # Create the task in the task store
-            await self._task_store.create_task(task_meta, responder.request_id, responder.request.root)  # type: ignore[arg-type]
+            await self._task_store.create_task(
+                task_meta,
+                responder.request_id,
+                responder.request.root,
+                session_id=self._session_id,  # type: ignore[arg-type]
+            )
             # Send task created notification with related task metadata
             notification_params = types.TaskCreatedNotificationParams(
                 _meta=types.NotificationParams.Meta(
@@ -256,7 +267,7 @@ class ServerSession(
                         )
                 # Handle get task requests if task store is available
                 elif self._task_store:
-                    task = await self._task_store.get_task(params.taskId)
+                    task = await self._task_store.get_task(params.taskId, session_id=self._session_id)
                     if task is None:
                         with responder:
                             await responder.respond(
@@ -292,7 +303,7 @@ class ServerSession(
                         )
                 # Handle get task result requests if task store is available
                 elif self._task_store:
-                    task = await self._task_store.get_task(params.taskId)
+                    task = await self._task_store.get_task(params.taskId, session_id=self._session_id)
                     if task is None:
                         with responder:
                             await responder.respond(
@@ -309,7 +320,7 @@ class ServerSession(
                                 )
                             )
                     else:
-                        result = await self._task_store.get_task_result(params.taskId)
+                        result = await self._task_store.get_task_result(params.taskId, session_id=self._session_id)
                         # Add related-task metadata
                         result_dict = result.model_dump(by_alias=True, mode="json", exclude_none=True)
                         if "_meta" not in result_dict:
@@ -335,7 +346,9 @@ class ServerSession(
                 # Handle list tasks requests if task store is available
                 elif self._task_store:
                     try:
-                        result = await self._task_store.list_tasks(params.cursor if params else None)
+                        result = await self._task_store.list_tasks(
+                            params.cursor if params else None, session_id=self._session_id
+                        )
                         with responder:
                             await responder.respond(
                                 types.ServerResult(
@@ -369,7 +382,7 @@ class ServerSession(
                 # Handle delete task requests if task store is available
                 elif self._task_store:
                     try:
-                        await self._task_store.delete_task(params.taskId)
+                        await self._task_store.delete_task(params.taskId, session_id=self._session_id)
                         with responder:
                             await responder.respond(types.ServerResult(types.EmptyResult(_meta={})))
                     except Exception as e:

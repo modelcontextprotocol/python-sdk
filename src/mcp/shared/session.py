@@ -191,6 +191,7 @@ class BaseSession(
     _pending_task_creations: dict[str, anyio.Event]
     _request_id_to_task_id: dict[RequestId, str]
     _task_store: TaskStore | None
+    _session_id: str | None
 
     def __init__(
         self,
@@ -201,6 +202,7 @@ class BaseSession(
         # If none, reading will never time out
         read_timeout_seconds: timedelta | None = None,
         task_store: TaskStore | None = None,
+        session_id: str | None = None,
     ) -> None:
         self._read_stream = read_stream
         self._write_stream = write_stream
@@ -214,6 +216,7 @@ class BaseSession(
         self._pending_task_creations = {}
         self._request_id_to_task_id = {}
         self._task_store = task_store
+        self._session_id = session_id
         self._exit_stack = AsyncExitStack()
 
     async def __aenter__(self) -> Self:
@@ -553,7 +556,7 @@ class BaseSession(
         task_id: str | None = self._request_id_to_task_id.get(cancelled_id)
         if task_id and self._task_store:
             try:
-                await self._task_store.update_task_status(task_id, "cancelled")
+                await self._task_store.update_task_status(task_id, "cancelled", session_id=self._session_id)
             except Exception as e:
                 logging.error(f"Failed to cancel task {task_id}: {e}")
 

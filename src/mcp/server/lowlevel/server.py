@@ -664,6 +664,8 @@ class Server(Generic[LifespanResultT, RequestT]):
         # the initialization lifecycle, but can do so with any available node
         # rather than requiring initialization for each connection.
         stateless: bool = False,
+        # Optional session identifier to pass to ServerSession for multi-session task stores
+        session_id: str | None = None,
     ):
         async with AsyncExitStack() as stack:
             lifespan_context = await stack.enter_async_context(self.lifespan(self))
@@ -674,6 +676,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     initialization_options,
                     stateless=stateless,
                     task_store=self.task_store,
+                    session_id=session_id,
                 )
             )
 

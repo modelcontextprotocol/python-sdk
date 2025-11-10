@@ -17,7 +17,9 @@ class TaskStore(ABC):
     """
 
     @abstractmethod
-    async def create_task(self, task: TaskMetadata, request_id: RequestId, request: Request[Any, Any]) -> None:
+    async def create_task(
+        self, task: TaskMetadata, request_id: RequestId, request: Request[Any, Any], session_id: str | None = None
+    ) -> None:
         """
         Create a new task with the given metadata and original request.
 
@@ -25,16 +27,18 @@ class TaskStore(ABC):
             task: The task creation metadata from the request
             request_id: The JSON-RPC request ID
             request: The original request that triggered task creation
+            session_id: Optional session identifier for multi-session task stores
         """
         ...
 
     @abstractmethod
-    async def get_task(self, task_id: str) -> Task | None:
+    async def get_task(self, task_id: str, session_id: str | None = None) -> Task | None:
         """
         Get the current status of a task.
 
         Args:
             task_id: The task identifier
+            session_id: Optional session identifier for multi-session task stores
 
         Returns:
             The task state including status, keepAlive, pollInterval, and optional error,
@@ -43,23 +47,25 @@ class TaskStore(ABC):
         ...
 
     @abstractmethod
-    async def store_task_result(self, task_id: str, result: Result) -> None:
+    async def store_task_result(self, task_id: str, result: Result, session_id: str | None = None) -> None:
         """
         Store the result of a completed task.
 
         Args:
             task_id: The task identifier
             result: The result to store
+            session_id: Optional session identifier for multi-session task stores
         """
         ...
 
     @abstractmethod
-    async def get_task_result(self, task_id: str) -> Result:
+    async def get_task_result(self, task_id: str, session_id: str | None = None) -> Result:
         """
         Retrieve the stored result of a task.
 
         Args:
             task_id: The task identifier
+            session_id: Optional session identifier for multi-session task stores
 
         Returns:
             The stored result
@@ -70,7 +76,9 @@ class TaskStore(ABC):
         ...
 
     @abstractmethod
-    async def update_task_status(self, task_id: str, status: TaskStatus, error: str | None = None) -> None:
+    async def update_task_status(
+        self, task_id: str, status: TaskStatus, error: str | None = None, session_id: str | None = None
+    ) -> None:
         """
         Update a task's status (e.g., to 'cancelled', 'failed', 'completed').
 
@@ -78,16 +86,20 @@ class TaskStore(ABC):
             task_id: The task identifier
             status: The new status
             error: Optional error message if status is 'failed' or 'cancelled'
+            session_id: Optional session identifier for multi-session task stores
         """
         ...
 
     @abstractmethod
-    async def list_tasks(self, cursor: str | None = None) -> dict[str, list[Task] | str | None]:
+    async def list_tasks(
+        self, cursor: str | None = None, session_id: str | None = None
+    ) -> dict[str, list[Task] | str | None]:
         """
         List tasks, optionally starting from a pagination cursor.
 
         Args:
             cursor: Optional cursor for pagination
+            session_id: Optional session identifier for multi-session task stores
 
         Returns:
             A dictionary containing:
@@ -100,12 +112,13 @@ class TaskStore(ABC):
         ...
 
     @abstractmethod
-    async def delete_task(self, task_id: str) -> None:
+    async def delete_task(self, task_id: str, session_id: str | None = None) -> None:
         """
         Delete a task from storage.
 
         Args:
             task_id: The task identifier
+            session_id: Optional session identifier for multi-session task stores
 
         Raises:
             Exception: If task not found
