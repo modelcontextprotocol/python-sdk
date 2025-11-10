@@ -716,7 +716,7 @@ requires-dist = [
     { name = "pywin32", marker = "sys_platform == 'win32'", specifier = ">=310" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.9.4" },
     { name = "sse-starlette", specifier = ">=1.6.1" },
-    { name = "starlette", specifier = ">=0.27" },
+    { name = "starlette", specifier = ">=0.49.1" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.16.0" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'", specifier = ">=0.31.1" },
     { name = "websockets", marker = "extra == 'ws'", specifier = ">=15.0.1" },
@@ -769,7 +769,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", editable = "." },
-    { name = "starlette" },
+    { name = "starlette", specifier = ">=0.49.1" },
     { name = "uvicorn" },
 ]
 
@@ -1008,7 +1008,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", editable = "." },
-    { name = "starlette" },
+    { name = "starlette", specifier = ">=0.49.1" },
     { name = "uvicorn" },
 ]
 
@@ -1045,7 +1045,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", editable = "." },
-    { name = "starlette" },
+    { name = "starlette", specifier = ">=0.49.1" },
     { name = "uvicorn" },
 ]
 
