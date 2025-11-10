@@ -239,6 +239,28 @@ async def test_elicitation_with_optional_fields():
 
     await call_tool_and_assert(mcp, multiselect_callback, "valid_multiselect_tool", {}, "Name: Test, Tags: tag1, tag2")
 
+    # Test Optional[list[str]] for optional multi-select enum
+    class OptionalMultiSelectSchema(BaseModel):
+        name: str = Field(description="Name")
+        tags: list[str] | None = Field(default=None, description="Optional tags")
+
+    @mcp.tool(description="Tool with optional list[str] field")
+    async def optional_multiselect_tool(ctx: Context[ServerSession, None]) -> str:
+        result = await ctx.elicit(message="Please provide optional tags", schema=OptionalMultiSelectSchema)
+        if result.action == "accept" and result.data:
+            tags_str = ", ".join(result.data.tags) if result.data.tags else "none"
+            return f"Name: {result.data.name}, Tags: {tags_str}"
+        return f"User {result.action}"
+
+    async def optional_multiselect_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
+        if "Please provide optional tags" in params.message:
+            return ElicitResult(action="accept", content={"name": "Test", "tags": ["tag1", "tag2"]})
+        return ElicitResult(action="decline")
+
+    await call_tool_and_assert(
+        mcp, optional_multiselect_callback, "optional_multiselect_tool", {}, "Name: Test, Tags: tag1, tag2"
+    )
+
 
 @pytest.mark.anyio
 async def test_elicitation_with_default_values():

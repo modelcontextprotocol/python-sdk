@@ -63,10 +63,15 @@ def _is_string_sequence(annotation: type) -> bool:
     """Check if annotation is a sequence of strings (list[str], Sequence[str], etc)."""
     origin = get_origin(annotation)
     # Check if it's a sequence-like type with str elements
-    if origin and issubclass(origin, Sequence):
-        args = get_args(annotation)
-        # Should have single str type arg
-        return len(args) == 1 and args[0] is str
+    if origin:
+        try:
+            if issubclass(origin, Sequence):
+                args = get_args(annotation)
+                # Should have single str type arg
+                return len(args) == 1 and args[0] is str
+        except TypeError:
+            # origin is not a class, so it can't be a subclass of Sequence
+            pass
     return False
 
 
@@ -80,8 +85,10 @@ def _is_primitive_field(annotation: type) -> bool:
     origin = get_origin(annotation)
     if origin is Union or origin is types.UnionType:
         args = get_args(annotation)
-        # All args must be primitive types or None
-        return all(arg is types.NoneType or arg in _ELICITATION_PRIMITIVE_TYPES for arg in args)
+        # All args must be primitive types, None, or string sequences
+        return all(
+            arg is types.NoneType or arg in _ELICITATION_PRIMITIVE_TYPES or _is_string_sequence(arg) for arg in args
+        )
 
     return False
 
