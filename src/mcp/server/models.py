@@ -18,3 +18,4 @@ class InitializationOptions(BaseModel):
     instructions: str | None = None
     website_url: str | None = None
     icons: list[Icon] | None = None
+    session_id: str | None = None

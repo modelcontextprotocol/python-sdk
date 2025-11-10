@@ -93,6 +93,7 @@ class ServerSession(
         )
 
         self._init_options = init_options
+        self._session_id = init_options.session_id
         self._incoming_message_stream_writer, self._incoming_message_stream_reader = anyio.create_memory_object_stream[
             ServerRequestResponder
         ](0)
@@ -101,6 +102,11 @@ class ServerSession(
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
         return self._client_params
+
+    @property
+    def session_id(self) -> str | None:
+        """Get the session ID if available."""
+        return self._session_id
 
     def check_client_capability(self, capability: types.ClientCapabilities) -> bool:
         """Check if the client supports a specific capability."""

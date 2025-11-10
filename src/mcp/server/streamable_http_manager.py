@@ -241,7 +241,7 @@ class StreamableHTTPSessionManager:
                             await self.app.run(
                                 read_stream,
                                 write_stream,
-                                self.app.create_initialization_options(),
+                                self.app.create_initialization_options(session_id=new_session_id),
                                 stateless=False,  # Stateful mode
                             )
                         except Exception as e:
