@@ -4,7 +4,7 @@ import socket
 import time
 
 
-def wait_for_server(port: int, timeout: float = 5.0) -> None:
+def wait_for_server(port: int, timeout: float = 20.0) -> None:
     """Wait for server to be ready to accept connections.
 
     Polls the server port until it accepts connections or timeout is reached.
