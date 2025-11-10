@@ -239,10 +239,27 @@ def func_metadata(
                 WithJsonSchema({"title": param.name, "type": "string"}),
             ]
 
-        field_info = FieldInfo.from_annotated_attribute(
-            _get_typed_annotation(annotation, globalns),
-            param.default if param.default is not inspect.Parameter.empty else PydanticUndefined,
-        )
+        # Check if annotation contains Field with a default
+        # This is necessary for compatibility with pydantic 2.12+ where
+        # FieldInfo.from_annotated_attribute() overwrites Field defaults with PydanticUndefined
+        has_field_default = False
+        if get_origin(annotation) is Annotated:
+            args = get_args(annotation)
+            for arg in args[1:]:  # Skip the first arg (the actual type)
+                if isinstance(arg, FieldInfo) and arg.default is not PydanticUndefined:
+                    has_field_default = True
+                    break
+
+        # Use appropriate method based on whether Field has default
+        if has_field_default:
+            # Use from_annotation to preserve the default from Field()
+            field_info = FieldInfo.from_annotation(_get_typed_annotation(annotation, globalns))
+        else:
+            # Use from_annotated_attribute to combine annotation and parameter default
+            field_info = FieldInfo.from_annotated_attribute(
+                _get_typed_annotation(annotation, globalns),
+                param.default if param.default is not inspect.Parameter.empty else PydanticUndefined,
+            )
 
         # Check if the parameter name conflicts with BaseModel attributes
         # This is necessary because Pydantic warns about shadowing parent attributes
