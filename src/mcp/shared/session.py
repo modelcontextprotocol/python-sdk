@@ -425,7 +425,7 @@ class BaseSession(
                 # This is expected when the client disconnects abruptly.
                 # Without this handler, the exception would propagate up and
                 # crash the server's task group.
-                logging.debug("Read stream closed by client")
+                logging.debug("Read stream closed by client")  # pragma: no cover
             except Exception as e:  # pragma: no cover
                 # Other exceptions are not expected and should be logged. We purposefully
                 # catch all exceptions here to avoid crashing the server.

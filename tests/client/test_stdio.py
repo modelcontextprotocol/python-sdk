@@ -303,7 +303,7 @@ class TestChildProcessCleanup:
             assert os.path.exists(parent_marker), "Parent process didn't start"
 
             # Verify child is writing
-            if os.path.exists(marker_file):
+            if os.path.exists(marker_file):  # pragma: no branch
                 initial_size = os.path.getsize(marker_file)
                 await anyio.sleep(0.3)
                 size_after_wait = os.path.getsize(marker_file)
@@ -318,7 +318,7 @@ class TestChildProcessCleanup:
 
             # Verify processes stopped
             await anyio.sleep(0.5)
-            if os.path.exists(marker_file):
+            if os.path.exists(marker_file):  # pragma: no branch
                 size_after_cleanup = os.path.getsize(marker_file)
                 await anyio.sleep(0.5)
                 final_size = os.path.getsize(marker_file)
@@ -335,7 +335,7 @@ class TestChildProcessCleanup:
             for f in [marker_file, parent_marker]:
                 try:
                     os.unlink(f)
-                except OSError:
+                except OSError:  # pragma: no cover
                     pass
 
     @pytest.mark.anyio
@@ -406,7 +406,7 @@ class TestChildProcessCleanup:
 
             # Verify all are writing
             for file_path, name in [(parent_file, "parent"), (child_file, "child"), (grandchild_file, "grandchild")]:
-                if os.path.exists(file_path):
+                if os.path.exists(file_path):  # pragma: no branch
                     initial_size = os.path.getsize(file_path)
                     await anyio.sleep(0.3)
                     new_size = os.path.getsize(file_path)
@@ -420,7 +420,7 @@ class TestChildProcessCleanup:
             # Verify all stopped
             await anyio.sleep(0.5)
             for file_path, name in [(parent_file, "parent"), (child_file, "child"), (grandchild_file, "grandchild")]:
-                if os.path.exists(file_path):
+                if os.path.exists(file_path):  # pragma: no branch
                     size1 = os.path.getsize(file_path)
                     await anyio.sleep(0.3)
                     size2 = os.path.getsize(file_path)
@@ -433,7 +433,7 @@ class TestChildProcessCleanup:
             for f in [parent_file, child_file, grandchild_file]:
                 try:
                     os.unlink(f)
-                except OSError:
+                except OSError:  # pragma: no cover
                     pass
 
     @pytest.mark.anyio
@@ -487,7 +487,7 @@ class TestChildProcessCleanup:
             await anyio.sleep(0.5)
 
             # Verify child is writing
-            if os.path.exists(marker_file):
+            if os.path.exists(marker_file):  # pragma: no cover
                 size1 = os.path.getsize(marker_file)
                 await anyio.sleep(0.3)
                 size2 = os.path.getsize(marker_file)
@@ -500,7 +500,7 @@ class TestChildProcessCleanup:
 
             # Verify child stopped
             await anyio.sleep(0.5)
-            if os.path.exists(marker_file):
+            if os.path.exists(marker_file):  # pragma: no branch
                 size3 = os.path.getsize(marker_file)
                 await anyio.sleep(0.3)
                 size4 = os.path.getsize(marker_file)
@@ -512,7 +512,7 @@ class TestChildProcessCleanup:
             # Clean up marker file
             try:
                 os.unlink(marker_file)
-            except OSError:
+            except OSError:  # pragma: no cover
                 pass
 
 
@@ -560,7 +560,7 @@ async def test_stdio_client_graceful_stdin_exit():
         pytest.fail(
             "stdio_client cleanup timed out after 5.0 seconds. "
             "Process should have exited gracefully when stdin was closed."
-        )
+        )  # pragma: no cover
 
     end_time = time.time()
     elapsed = end_time - start_time
@@ -619,7 +619,7 @@ async def test_stdio_client_stdin_close_ignored():
         pytest.fail(
             "stdio_client cleanup timed out after 7.0 seconds. "
             "Process should have been terminated via SIGTERM escalation."
-        )
+        )  # pragma: no cover
 
     end_time = time.time()
     elapsed = end_time - start_time

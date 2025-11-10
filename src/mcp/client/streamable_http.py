@@ -242,7 +242,7 @@ class StreamableHTTPTransport:
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
 
-            async for sse in event_source.aiter_sse():
+            async for sse in event_source.aiter_sse():  # pragma: no branch
                 is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
