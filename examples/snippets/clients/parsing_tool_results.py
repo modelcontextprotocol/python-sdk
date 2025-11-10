@@ -56,5 +56,10 @@ async def main():
     await parse_tool_results()
 
 
-if __name__ == "__main__":
+def run():
+    """Entry point for the parsing tool results client."""
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    run()
