@@ -422,21 +422,21 @@ class StreamableHTTPTransport:
             await read_stream_writer.aclose()
             await write_stream.aclose()
 
-    async def terminate_session(self, client: httpx.AsyncClient) -> None:
+    async def terminate_session(self, client: httpx.AsyncClient) -> None:  # pragma: no cover
         """Terminate the session by sending a DELETE request."""
-        if not self.session_id:  # pragma: no cover
-            return  # pragma: no cover
+        if not self.session_id:
+            return
 
-        try:  # pragma: no cover
-            headers = self._prepare_request_headers(self.request_headers)  # pragma: no cover
-            response = await client.delete(self.url, headers=headers)  # pragma: no cover
+        try:
+            headers = self._prepare_request_headers(self.request_headers)
+            response = await client.delete(self.url, headers=headers)
 
-            if response.status_code == 405:  # pragma: no cover
-                logger.debug("Server does not allow session termination")  # pragma: no cover
-            elif response.status_code not in (200, 204):  # pragma: no cover
-                logger.warning(f"Session termination failed: {response.status_code}")  # pragma: no cover
-        except Exception as exc:  # pragma: no cover
-            logger.warning(f"Session termination failed: {exc}")  # pragma: no cover
+            if response.status_code == 405:
+                logger.debug("Server does not allow session termination")
+            elif response.status_code not in (200, 204):
+                logger.warning(f"Session termination failed: {response.status_code}")
+        except Exception as exc:
+            logger.warning(f"Session termination failed: {exc}")
 
     def get_session_id(self) -> str | None:
         """Get the current session ID."""

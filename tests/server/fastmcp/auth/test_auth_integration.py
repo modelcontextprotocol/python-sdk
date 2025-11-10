@@ -304,44 +304,6 @@ async def auth_code(
     }
 
 
-@pytest.fixture
-async def tokens(
-    test_client: httpx.AsyncClient,
-    registered_client: dict[str, Any],
-    auth_code: dict[str, str],
-    pkce_challenge: dict[str, str],
-    request: pytest.FixtureRequest,
-):
-    """Exchange authorization code for tokens.
-
-    Parameters can be customized via indirect parameterization:
-    @pytest.mark.parametrize("tokens",
-                            [{"code_verifier": "wrong_verifier"}],
-                            indirect=True)
-    """
-    # Default token request params  # pragma: no cover
-    token_params = {  # pragma: no cover
-        "grant_type": "authorization_code",  # pragma: no cover
-        "client_id": registered_client["client_id"],  # pragma: no cover
-        "client_secret": registered_client["client_secret"],  # pragma: no cover
-        "code": auth_code["code"],  # pragma: no cover
-        "code_verifier": pkce_challenge["code_verifier"],  # pragma: no cover
-        "redirect_uri": auth_code["redirect_uri"],  # pragma: no cover
-    }  # pragma: no cover
-
-    # Override with any parameters from the test  # pragma: no cover
-    if hasattr(request, "param") and request.param:  # pragma: no cover
-        token_params.update(request.param)
-
-    response = await test_client.post("/token", data=token_params)  # pragma: no cover
-
-    # Don't assert success here since some tests will intentionally cause errors
-    return {  # pragma: no cover
-        "response": response,
-        "params": token_params,
-    }
-
-
 class TestAuthEndpoints:
     @pytest.mark.anyio
     async def test_metadata_endpoint(self, test_client: httpx.AsyncClient):
