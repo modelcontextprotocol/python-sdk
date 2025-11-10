@@ -48,6 +48,45 @@ class LoggingFnT(Protocol):
     ) -> None: ...
 
 
+class CancelledFnT(Protocol):
+    async def __call__(
+        self,
+        params: types.CancelledNotificationParams,
+    ) -> None: ...
+
+
+class ProgressNotificationFnT(Protocol):
+    async def __call__(
+        self,
+        params: types.ProgressNotificationParams,
+    ) -> None: ...
+
+
+class ResourceUpdatedFnT(Protocol):
+    async def __call__(
+        self,
+        params: types.ResourceUpdatedNotificationParams,
+    ) -> None: ...
+
+
+class ResourceListChangedFnT(Protocol):
+    async def __call__(
+        self,
+    ) -> None: ...
+
+
+class ToolListChangedFnT(Protocol):
+    async def __call__(
+        self,
+    ) -> None: ...
+
+
+class PromptListChangedFnT(Protocol):
+    async def __call__(
+        self,
+    ) -> None: ...
+
+
 class MessageHandlerFnT(Protocol):
     async def __call__(
         self,
@@ -96,6 +135,36 @@ async def _default_logging_callback(
     pass
 
 
+async def _default_cancelled_callback(
+    params: types.CancelledNotificationParams,
+) -> None:
+    pass
+
+
+async def _default_progress_callback(
+    params: types.ProgressNotificationParams,
+) -> None:
+    pass
+
+
+async def _default_resource_updated_callback(
+    params: types.ResourceUpdatedNotificationParams,
+) -> None:
+    pass
+
+
+async def _default_resource_list_changed_callback() -> None:
+    pass
+
+
+async def _default_tool_list_changed_callback() -> None:
+    pass
+
+
+async def _default_prompt_list_changed_callback() -> None:
+    pass
+
+
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
 
 
@@ -117,6 +186,12 @@ class ClientSession(
         elicitation_callback: ElicitationFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
         logging_callback: LoggingFnT | None = None,
+        cancelled_callback: CancelledFnT | None = None,
+        progress_notification_callback: ProgressNotificationFnT | None = None,
+        resource_updated_callback: ResourceUpdatedFnT | None = None,
+        resource_list_changed_callback: ResourceListChangedFnT | None = None,
+        tool_list_changed_callback: ToolListChangedFnT | None = None,
+        prompt_list_changed_callback: PromptListChangedFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
     ) -> None:
@@ -132,6 +207,12 @@ class ClientSession(
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
+        self._cancelled_callback = cancelled_callback or _default_cancelled_callback
+        self._progress_notification_callback = progress_notification_callback or _default_progress_callback
+        self._resource_updated_callback = resource_updated_callback or _default_resource_updated_callback
+        self._resource_list_changed_callback = resource_list_changed_callback or _default_resource_list_changed_callback
+        self._tool_list_changed_callback = tool_list_changed_callback or _default_tool_list_changed_callback
+        self._prompt_list_changed_callback = prompt_list_changed_callback or _default_prompt_list_changed_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._server_capabilities: types.ServerCapabilities | None = None
@@ -549,5 +630,15 @@ class ClientSession(
         match notification.root:
             case types.LoggingMessageNotification(params=params):
                 await self._logging_callback(params)
-            case _:
-                pass
+            case types.CancelledNotification(params=params):
+                await self._cancelled_callback(params)
+            case types.ProgressNotification(params=params):
+                await self._progress_notification_callback(params)
+            case types.ResourceUpdatedNotification(params=params):
+                await self._resource_updated_callback(params)
+            case types.ResourceListChangedNotification():
+                await self._resource_list_changed_callback()
+            case types.ToolListChangedNotification():
+                await self._tool_list_changed_callback()
+            case types.PromptListChangedNotification():
+                await self._prompt_list_changed_callback()
