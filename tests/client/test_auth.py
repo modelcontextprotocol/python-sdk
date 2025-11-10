@@ -1043,10 +1043,10 @@ class TestSEP985Discovery:
         """Test that client falls back to path-based well-known URI when WWW-Authenticate is absent."""
 
         async def redirect_handler(url: str) -> None:
-            pass
+            pass  # pragma: no cover
 
         async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
+            return "test_auth_code", "test_state"  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -1076,10 +1076,10 @@ class TestSEP985Discovery:
         """Test that client falls back to root-based URI when path-based returns 404."""
 
         async def redirect_handler(url: str) -> None:
-            pass
+            pass  # pragma: no cover
 
         async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
+            return "test_auth_code", "test_state"  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -1177,10 +1177,10 @@ class TestSEP985Discovery:
         """Test that WWW-Authenticate header resource_metadata takes priority over well-known URIs."""
 
         async def redirect_handler(url: str) -> None:
-            pass
+            pass  # pragma: no cover
 
         async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
+            return "test_auth_code", "test_state"  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
