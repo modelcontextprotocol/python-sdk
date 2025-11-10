@@ -251,8 +251,6 @@ class TestChildProcessCleanup:
         Test basic parent-child process cleanup.
         Parent spawns a single child process that writes continuously to a file.
         """
-        assert True
-        return
         # Create a marker file for the child process to write to
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
             marker_file = f.name
@@ -347,8 +345,6 @@ class TestChildProcessCleanup:
         Test nested process tree cleanup (parent → child → grandchild).
         Each level writes to a different file to verify all processes are terminated.
         """
-        assert True
-        return
         # Create temporary files for each process level
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as f1:
             parent_file = f1.name
@@ -448,8 +444,6 @@ class TestChildProcessCleanup:
         Tests the race condition where parent might die during our termination
         sequence but we can still clean up the children via the process group.
         """
-        assert True
-        return
         # Create a temporary file for the child
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
             marker_file = f.name
@@ -528,8 +522,6 @@ async def test_stdio_client_graceful_stdin_exit():
     Test that a process exits gracefully when stdin is closed,
     without needing SIGTERM or SIGKILL.
     """
-    assert True
-    return
     # Create a Python script that exits when stdin is closed
     script_content = textwrap.dedent(
         """
@@ -586,8 +578,6 @@ async def test_stdio_client_stdin_close_ignored():
     Test that when a process ignores stdin closure, the shutdown sequence
     properly escalates to SIGTERM.
     """
-    assert True
-    return
     # Create a Python script that ignores stdin closure but responds to SIGTERM
     script_content = textwrap.dedent(
         """
