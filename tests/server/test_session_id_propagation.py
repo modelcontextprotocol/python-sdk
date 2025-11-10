@@ -7,6 +7,7 @@ import pytest
 from starlette.types import Message
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 
@@ -20,7 +21,7 @@ async def test_session_id_propagates_to_tool_context():
     mcp = FastMCP("test-session-id-server")
 
     @mcp.tool()
-    async def get_session_info(ctx: Context) -> dict[str, Any]:
+    async def get_session_info(ctx: Context[ServerSession, None]) -> dict[str, Any]:
         """Tool that returns session information."""
         nonlocal captured_session_id
         captured_session_id = ctx.session_id
@@ -29,8 +30,8 @@ async def test_session_id_propagates_to_tool_context():
             "request_id": ctx.request_id,
         }
 
-    # Create session manager
-    manager = StreamableHTTPSessionManager(app=mcp._mcp_server, stateless=False)
+    # Create session manager with JSON response mode for easier testing
+    manager = StreamableHTTPSessionManager(app=mcp._mcp_server, stateless=False, json_response=True)
 
     async with manager.run():
         # Prepare ASGI scope and messages
@@ -122,8 +123,23 @@ async def test_session_id_propagates_to_tool_context():
 
         await manager.handle_request(scope_with_session, mock_receive_tool_call, mock_send)
 
+        # Parse the response to check if tool was called successfully
+        response_body = b""
+        for msg in sent_messages:
+            if msg["type"] == "http.response.body":
+                response_body += msg.get("body", b"")
+
+        # Verify we got a response
+        assert response_body, f"Should have received a response body, got messages: {sent_messages}"
+
+        # Decode and parse the response
+        response_text = response_body.decode()
+        print(f"Response: {response_text}")  # Debug output
+
         # Verify session_id was captured in tool context
-        assert captured_session_id is not None, "session_id should be available in Context"
+        assert captured_session_id is not None, (
+            f"session_id should be available in Context. Response was: {response_text}"
+        )
         assert captured_session_id == session_id_from_header, (
             f"session_id in Context ({captured_session_id}) should match "
             f"session ID from header ({session_id_from_header})"
@@ -140,14 +156,14 @@ async def test_session_id_is_none_for_stateless_mode():
     mcp = FastMCP("test-stateless-server")
 
     @mcp.tool()
-    async def check_session(ctx: Context) -> dict[str, Any]:
+    async def check_session(ctx: Context[ServerSession, None]) -> dict[str, Any]:
         """Tool that checks session_id."""
         nonlocal captured_session_id
         captured_session_id = ctx.session_id
         return {"has_session_id": ctx.session_id is not None}
 
-    # Create session manager in stateless mode
-    manager = StreamableHTTPSessionManager(app=mcp._mcp_server, stateless=True)
+    # Create session manager in stateless mode with JSON response for easier testing
+    manager = StreamableHTTPSessionManager(app=mcp._mcp_server, stateless=True, json_response=True)
 
     async with manager.run():
         scope = {
@@ -205,13 +221,13 @@ async def test_session_id_consistent_across_requests():
     mcp = FastMCP("test-consistency-server")
 
     @mcp.tool()
-    async def track_session(ctx: Context) -> dict[str, Any]:
+    async def track_session(ctx: Context[ServerSession, None]) -> dict[str, Any]:
         """Tool that tracks session_id."""
         seen_session_ids.append(ctx.session_id)
         return {"session_id": ctx.session_id, "call_number": len(seen_session_ids)}
 
-    # Create session manager
-    manager = StreamableHTTPSessionManager(app=mcp._mcp_server, stateless=False)
+    # Create session manager with JSON response mode for easier testing
+    manager = StreamableHTTPSessionManager(app=mcp._mcp_server, stateless=False, json_response=True)
 
     async with manager.run():
         # First request: initialize and get session ID
