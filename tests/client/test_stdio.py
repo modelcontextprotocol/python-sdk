@@ -153,7 +153,7 @@ async def test_stdio_client_universal_cleanup():
 
 @pytest.mark.anyio
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows signal handling is different")
-async def test_stdio_client_sigint_only_process():
+async def test_stdio_client_sigint_only_process():  # pragma: no cover
     """
     Test cleanup with a process that ignores SIGTERM but responds to SIGINT.
     """
