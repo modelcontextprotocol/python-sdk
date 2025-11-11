@@ -177,6 +177,12 @@ patch = ["subprocess"]
 concurrency = ["multiprocessing", "thread"]
 source = ["src", "tests"]
 relative_files = true
+omit = [
+    "src/mcp/client/__main__.py",
+    "src/mcp/server/__main__.py",
+    "src/mcp/os/posix/utilities.py",
+    "src/mcp/os/win32/utilities.py",
+]
 
 # https://coverage.readthedocs.io/en/latest/config.html#report
 [tool.coverage.report]
@@ -190,9 +196,7 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "@overload",
     "raise NotImplementedError",
-]
-exclude_also = [
-    '\A(?s:.*# pragma: exclude file.*)\Z'
+    "^\\s*\\.\\.\\.\\s*$",
 ]
 
 # https://coverage.readthedocs.io/en/latest/config.html#paths

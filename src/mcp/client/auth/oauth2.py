@@ -66,19 +66,19 @@ class TokenStorage(Protocol):
 
     async def get_tokens(self) -> OAuthToken | None:
         """Get stored tokens."""
-        ...  # pragma: no cover
+        ...
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
         """Store tokens."""
-        ...  # pragma: no cover
+        ...
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
         """Get stored client information."""
-        ...  # pragma: no cover
+        ...
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
         """Store client information."""
-        ...  # pragma: no cover
+        ...
 
 
 @dataclass

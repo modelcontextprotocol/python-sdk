@@ -1,4 +1,3 @@
-# pragma: exclude file
 import importlib.metadata
 import logging
 import sys

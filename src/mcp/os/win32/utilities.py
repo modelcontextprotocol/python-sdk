@@ -1,7 +1,6 @@
 """
 Windows-specific functionality for stdio client operations.
 """
-# pragma: exclude file
 
 import logging
 import shutil

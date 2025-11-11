@@ -75,7 +75,7 @@ def update_claude_config(
     if not config_file.exists():  # pragma: no cover
         try:
             config_file.write_text("{}")
-        except Exception:  # pragma: no cover
+        except Exception:
             logger.exception(
                 "Failed to create Claude config file",
                 extra={
