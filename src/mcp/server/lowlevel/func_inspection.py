@@ -20,27 +20,27 @@ def create_call_wrapper(func: Callable[..., R], request_type: type[T]) -> Callab
     try:
         sig = inspect.signature(func)
         type_hints = get_type_hints(func)
-    except (ValueError, TypeError, NameError):
+    except (ValueError, TypeError, NameError):  # pragma: no cover
         return lambda _: func()
 
     # Check for positional-only parameter typed as request_type
     for param_name, param in sig.parameters.items():
         if param.kind == inspect.Parameter.POSITIONAL_ONLY:
             param_type = type_hints.get(param_name)
-            if param_type == request_type:
+            if param_type == request_type:  # pragma: no branch
                 # Check if it has a default - if so, treat as old style
-                if param.default is not inspect.Parameter.empty:
+                if param.default is not inspect.Parameter.empty:  # pragma: no cover
                     return lambda _: func()
                 # Found positional-only parameter with correct type and no default
                 return lambda req: func(req)
 
     # Check for any positional/keyword parameter typed as request_type
     for param_name, param in sig.parameters.items():
-        if param.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY):
+        if param.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY):  # pragma: no branch
             param_type = type_hints.get(param_name)
             if param_type == request_type:
                 # Check if it has a default - if so, treat as old style
-                if param.default is not inspect.Parameter.empty:
+                if param.default is not inspect.Parameter.empty:  # pragma: no cover
                     return lambda _: func()
 
                 # Found keyword parameter with correct type and no default

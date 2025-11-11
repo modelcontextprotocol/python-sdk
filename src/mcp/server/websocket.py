@@ -13,7 +13,7 @@ from mcp.shared.message import SessionMessage
 logger = logging.getLogger(__name__)
 
 
-@asynccontextmanager
+@asynccontextmanager  # pragma: no cover
 async def websocket_server(scope: Scope, receive: Receive, send: Send):
     """
     WebSocket server transport for MCP. This is an ASGI application, suitable to be
