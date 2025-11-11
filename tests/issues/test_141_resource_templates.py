@@ -25,28 +25,28 @@ async def test_resource_template_edge_cases():
     with pytest.raises(ValueError, match="Mismatch between URI parameters"):
 
         @mcp.resource("resource://users/{user_id}/profile")
-        def get_user_profile(user_id: str, optional_param: str | None = None) -> str:
+        def get_user_profile(user_id: str, optional_param: str | None = None) -> str:  # pragma: no cover
             return f"Profile for user {user_id}"
 
     # Test case 3: Template with mismatched parameters
     with pytest.raises(ValueError, match="Mismatch between URI parameters"):
 
         @mcp.resource("resource://users/{user_id}/profile")
-        def get_user_profile_mismatch(different_param: str) -> str:
+        def get_user_profile_mismatch(different_param: str) -> str:  # pragma: no cover
             return f"Profile for user {different_param}"
 
     # Test case 4: Template with extra function parameters
     with pytest.raises(ValueError, match="Mismatch between URI parameters"):
 
         @mcp.resource("resource://users/{user_id}/profile")
-        def get_user_profile_extra(user_id: str, extra_param: str) -> str:
+        def get_user_profile_extra(user_id: str, extra_param: str) -> str:  # pragma: no cover
             return f"Profile for user {user_id}"
 
     # Test case 5: Template with missing function parameters
     with pytest.raises(ValueError, match="Mismatch between URI parameters"):
 
         @mcp.resource("resource://users/{user_id}/profile/{section}")
-        def get_user_profile_missing(user_id: str) -> str:
+        def get_user_profile_missing(user_id: str) -> str:  # pragma: no cover
             return f"Profile for user {user_id}"
 
     # Verify valid template works

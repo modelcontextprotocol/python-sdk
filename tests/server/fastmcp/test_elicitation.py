@@ -31,7 +31,7 @@ def create_ask_user_tool(mcp: FastMCP):
             return f"User answered: {result.data.answer}"
         elif result.action == "decline":
             return "User declined to answer"
-        else:
+        else:  # pragma: no cover
             return "User cancelled"
 
     return ask_user
@@ -57,7 +57,7 @@ async def call_tool_and_assert(
 
         if expected_text is not None:
             assert result.content[0].text == expected_text
-        elif text_contains is not None:
+        elif text_contains is not None:  # pragma: no branch
             for substring in text_contains:
                 assert substring in result.content[0].text
 
@@ -71,7 +71,9 @@ async def test_stdio_elicitation():
     create_ask_user_tool(mcp)
 
     # Create a custom handler for elicitation requests
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def elicitation_callback(
+        context: RequestContext[ClientSession, None], params: ElicitRequestParams
+    ):  # pragma: no cover
         if params.message == "Tool wants to ask: What is your name?":
             return ElicitResult(action="accept", content={"answer": "Test User"})
         else:
@@ -103,7 +105,7 @@ async def test_elicitation_schema_validation():
 
     def create_validation_tool(name: str, schema_class: type[BaseModel]):
         @mcp.tool(name=name, description=f"Tool testing {name}")
-        async def tool(ctx: Context[ServerSession, None]) -> str:
+        async def tool(ctx: Context[ServerSession, None]) -> str:  # pragma: no cover
             try:
                 await ctx.elicit(message="This should fail validation", schema=schema_class)
                 return "Should not reach here"
@@ -126,7 +128,9 @@ async def test_elicitation_schema_validation():
     create_validation_tool("nested_model", InvalidNestedSchema)
 
     # Dummy callback (won't be called due to validation failure)
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def elicitation_callback(
+        context: RequestContext[ClientSession, None], params: ElicitRequestParams
+    ):  # pragma: no cover
         return ElicitResult(action="accept", content={})
 
     async with create_connected_server_and_client_session(
@@ -166,7 +170,7 @@ async def test_elicitation_with_optional_fields():
                 info.append(f"Email: {result.data.optional_email}")
             info.append(f"Subscribe: {result.data.subscribe}")
             return ", ".join(info)
-        else:
+        else:  # pragma: no cover
             return f"User {result.action}"
 
     # Test cases with different field combinations
@@ -196,14 +200,16 @@ async def test_elicitation_with_optional_fields():
         optional_list: list[str] | None = Field(default=None, description="Invalid optional list")
 
     @mcp.tool(description="Tool with invalid optional field")
-    async def invalid_optional_tool(ctx: Context[ServerSession, None]) -> str:
+    async def invalid_optional_tool(ctx: Context[ServerSession, None]) -> str:  # pragma: no cover
         try:
             await ctx.elicit(message="This should fail", schema=InvalidOptionalSchema)
             return "Should not reach here"
         except TypeError as e:
             return f"Validation failed: {str(e)}"
 
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def elicitation_callback(
+        context: RequestContext[ClientSession, None], params: ElicitRequestParams
+    ):  # pragma: no cover
         return ElicitResult(action="accept", content={})
 
     await call_tool_and_assert(
@@ -235,7 +241,7 @@ async def test_elicitation_with_default_values():
                 f"Name: {result.data.name}, Age: {result.data.age}, "
                 f"Subscribe: {result.data.subscribe}, Email: {result.data.email}"
             )
-        else:
+        else:  # pragma: no cover
             return f"User {result.action}"
 
     # First verify that defaults are present in the JSON schema sent to clients

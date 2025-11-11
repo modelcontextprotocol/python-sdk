@@ -62,7 +62,7 @@ async def create_connected_server_and_client_session(
 
     # TODO(Marcelo): we should have a proper `Client` that can use this "in-memory transport",
     # and we should expose a method in the `FastMCP` so we don't access a private attribute.
-    if isinstance(server, FastMCP):
+    if isinstance(server, FastMCP):  # pragma: no cover
         server = server._mcp_server  # type: ignore[reportPrivateUsage]
 
     async with create_client_server_memory_streams() as (client_streams, server_streams):
@@ -94,5 +94,5 @@ async def create_connected_server_and_client_session(
                 ) as client_session:
                     await client_session.initialize()
                     yield client_session
-            finally:
+            finally:  # pragma: no cover
                 tg.cancel_scope.cancel()

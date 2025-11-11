@@ -10,7 +10,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")  # pragma: no cover
 @pytest.mark.anyio
 async def test_windows_stdio_client_with_session():
     """

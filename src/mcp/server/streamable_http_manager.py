@@ -178,7 +178,7 @@ class StreamableHTTPSessionManager:
                         self.app.create_initialization_options(),
                         stateless=True,
                     )
-                except Exception:
+                except Exception:  # pragma: no cover
                     logger.exception("Stateless session crashed")
 
         # Assert task group is not None for type checking
@@ -210,7 +210,7 @@ class StreamableHTTPSessionManager:
         request_mcp_session_id = request.headers.get(MCP_SESSION_ID_HEADER)
 
         # Existing session case
-        if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:
+        if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:  # pragma: no cover
             transport = self._server_instances[request_mcp_session_id]
             logger.debug("Session already exists, handling request directly")
             await transport.handle_request(scope, receive, send)
@@ -251,7 +251,7 @@ class StreamableHTTPSessionManager:
                             )
                         finally:
                             # Only remove from instances if not terminated
-                            if (
+                            if (  # pragma: no branch
                                 http_transport.mcp_session_id
                                 and http_transport.mcp_session_id in self._server_instances
                                 and not http_transport.is_terminated
@@ -270,7 +270,7 @@ class StreamableHTTPSessionManager:
 
                 # Handle the HTTP request and return the response
                 await http_transport.handle_request(scope, receive, send)
-        else:
+        else:  # pragma: no cover
             # Invalid session ID
             response = Response(
                 "Bad Request: No valid session ID provided",

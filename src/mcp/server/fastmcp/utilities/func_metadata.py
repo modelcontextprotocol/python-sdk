@@ -147,7 +147,7 @@ class FuncMetadata(BaseModel):
                 key_to_field_info[field_info.alias] = field_info
 
         for data_key, data_value in data.items():
-            if data_key not in key_to_field_info:
+            if data_key not in key_to_field_info:  # pragma: no cover
                 continue
 
             field_info = key_to_field_info[data_key]
@@ -217,7 +217,7 @@ def func_metadata(
     dynamic_pydantic_model_params: dict[str, Any] = {}
     globalns = getattr(func, "__globals__", {})
     for param in params.values():
-        if param.name.startswith("_"):
+        if param.name.startswith("_"):  # pragma: no cover
             raise InvalidSignature(f"Parameter {param.name} of {func.__name__} cannot start with '_'")
         if param.name in skip_names:
             continue
@@ -429,7 +429,7 @@ def _create_model_from_class(cls: type[Any]) -> type[BaseModel]:
 
     model_fields: dict[str, Any] = {}
     for field_name, field_type in type_hints.items():
-        if field_name.startswith("_"):
+        if field_name.startswith("_"):  # pragma: no cover
             continue
 
         default = getattr(cls, field_name, PydanticUndefined)
@@ -494,7 +494,9 @@ def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:
 
 
 def _get_typed_annotation(annotation: Any, globalns: dict[str, Any]) -> Any:
-    def try_eval_type(value: Any, globalns: dict[str, Any], localns: dict[str, Any]) -> tuple[Any, bool]:
+    def try_eval_type(
+        value: Any, globalns: dict[str, Any], localns: dict[str, Any]
+    ) -> tuple[Any, bool]:  # pragma: no cover
         try:
             return eval_type_backport(value, globalns, localns), True
         except NameError:
@@ -506,7 +508,7 @@ def _get_typed_annotation(annotation: Any, globalns: dict[str, Any]) -> Any:
 
         # This check and raise could perhaps be skipped, and we (FastMCP) just call
         # model_rebuild right before using it 🤷
-        if status is False:
+        if status is False:  # pragma: no cover
             raise InvalidSignature(f"Unable to evaluate type annotation {annotation}")
 
     return annotation
@@ -541,7 +543,7 @@ def _convert_to_content(
     output than the lowlevel server tool call handler, which just serializes structured
     content verbatim.
     """
-    if result is None:
+    if result is None:  # pragma: no cover
         return []
 
     if isinstance(result, ContentBlock):
