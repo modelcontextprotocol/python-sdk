@@ -433,11 +433,9 @@ class OAuthClientProvider(BaseOAuthProvider):
 
     # Discovery and registration helpers provided by BaseOAuthProvider
 
-    async def _perform_authorization(self) -> httpx.Request:
-        """Perform the authorization flow."""
-        auth_code, code_verifier = await self._perform_authorization_code_grant()
-        token_request = await self._exchange_token_authorization_code(auth_code, code_verifier)
-        return token_request
+    async def _perform_authorization(self) -> tuple[str, str]:
+        """Perform the authorization flow and return authorization code data."""
+        return await self._perform_authorization_code_grant()
 
     async def _perform_authorization_code_grant(self) -> tuple[str, str]:
         """Perform the authorization redirect and get auth code."""
@@ -687,6 +685,8 @@ class OAuthClientProvider(BaseOAuthProvider):
                             break  # Non-4XX error, stop trying
 
                     # Step 4: Register client if needed
+                    if self.context.client_info and not self._client_info:
+                        self._client_info = self.context.client_info
                     registration_request = self._create_registration_request(self._metadata)
                     if registration_request:
                         registration_response = yield registration_request
@@ -694,7 +694,9 @@ class OAuthClientProvider(BaseOAuthProvider):
                         self.context.client_info = self._client_info
 
                     # Step 5: Perform authorization and complete token exchange
-                    token_response = yield await self._perform_authorization()
+                    auth_code, code_verifier = await self._perform_authorization()
+                    token_request = await self._exchange_token_authorization_code(auth_code, code_verifier)
+                    token_response = yield token_request
                     await self._handle_token_response(token_response)
                 except Exception:  # pragma: no cover
                     logger.exception("OAuth flow error")
@@ -715,7 +717,9 @@ class OAuthClientProvider(BaseOAuthProvider):
                         self._select_scopes(response)
 
                         # Step 2b: Perform (re-)authorization and token exchange
-                        token_response = yield await self._perform_authorization()
+                        auth_code, code_verifier = await self._perform_authorization()
+                        token_request = await self._exchange_token_authorization_code(auth_code, code_verifier)
+                        token_response = yield token_request
                         await self._handle_token_response(token_response)
                     except Exception:  # pragma: no cover
                         logger.exception("OAuth flow error")
