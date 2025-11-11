@@ -431,67 +431,7 @@ class OAuthClientProvider(BaseOAuthProvider):
             # Priority 3: Omit scope parameter
             self.context.client_metadata.scope = None
 
-#<<<<<<< main
     # Discovery and registration helpers provided by BaseOAuthProvider
-#=======
-    def _get_discovery_urls(self) -> list[str]:
-        """Generate ordered list of (url, type) tuples for discovery attempts."""
-        urls: list[str] = []
-        auth_server_url = self.context.auth_server_url or self.context.server_url
-        parsed = urlparse(auth_server_url)
-        base_url = f"{parsed.scheme}://{parsed.netloc}"
-
-        # RFC 8414: Path-aware OAuth discovery
-        if parsed.path and parsed.path != "/":
-            oauth_path = f"/.well-known/oauth-authorization-server{parsed.path.rstrip('/')}"
-            urls.append(urljoin(base_url, oauth_path))
-
-        # OAuth root fallback
-        urls.append(urljoin(base_url, "/.well-known/oauth-authorization-server"))
-
-        # RFC 8414 section 5: Path-aware OIDC discovery
-        # See https://www.rfc-editor.org/rfc/rfc8414.html#section-5
-        if parsed.path and parsed.path != "/":
-            oidc_path = f"/.well-known/openid-configuration{parsed.path.rstrip('/')}"
-            urls.append(urljoin(base_url, oidc_path))
-
-        # OIDC 1.0 fallback (appends to full URL per OIDC spec)
-        oidc_fallback = f"{auth_server_url.rstrip('/')}/.well-known/openid-configuration"
-        urls.append(oidc_fallback)
-
-        return urls
-
-    async def _register_client(self) -> httpx.Request | None:
-        """Build registration request or skip if already registered."""
-        if self.context.client_info:
-            return None
-
-        if self.context.oauth_metadata and self.context.oauth_metadata.registration_endpoint:
-            registration_url = str(self.context.oauth_metadata.registration_endpoint)
-        else:
-            auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
-            registration_url = urljoin(auth_base_url, "/register")
-
-        registration_data = self.context.client_metadata.model_dump(by_alias=True, mode="json", exclude_none=True)
-
-        return httpx.Request(
-            "POST", registration_url, json=registration_data, headers={"Content-Type": "application/json"}
-        )
-
-    async def _handle_registration_response(self, response: httpx.Response) -> None:
-        """Handle registration response."""
-        if response.status_code not in (200, 201):
-            await response.aread()
-            raise OAuthRegistrationError(f"Registration failed: {response.status_code} {response.text}")
-
-        try:
-            content = await response.aread()
-            client_info = OAuthClientInformationFull.model_validate_json(content)
-            self.context.client_info = client_info
-            await self.context.storage.set_client_info(client_info)
-        except ValidationError as e:  # pragma: no cover
-            raise OAuthRegistrationError(f"Invalid registration response: {e}")
-#>>>>>>> main
 
     async def _perform_authorization(self) -> httpx.Request:
         """Perform the authorization flow."""
@@ -644,13 +584,8 @@ class OAuthClientProvider(BaseOAuthProvider):
         if self.context.should_include_resource_param(self.context.protocol_version):
             refresh_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
-#<<<<<<< main
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         self._apply_client_auth(refresh_data, headers, self.context.client_info)
-#=======
-        if self.context.client_info.client_secret:  # pragma: no branch
-            refresh_data["client_secret"] = self.context.client_info.client_secret
-#>>>>>>> main
 
         return httpx.Request("POST", token_url, data=refresh_data, headers=headers)
 
@@ -734,13 +669,10 @@ class OAuthClientProvider(BaseOAuthProvider):
                     self._select_scopes(response)
 
                     # Step 3: Discover OAuth metadata (with fallback for legacy servers)
-#<<<<<<< main
-                    discovery_urls = self._get_discovery_urls(self.context.auth_server_url or self.context.server_url)
+                    discovery_urls = self._get_discovery_urls(
+                        self.context.auth_server_url or self.context.server_url
+                    )
                     for url in discovery_urls:
-#=======
-                    discovery_urls = self._get_discovery_urls()
-                    for url in discovery_urls:  # pragma: no branch
-#>>>>>>> main
                         oauth_metadata_request = self._create_oauth_metadata_request(url)
                         oauth_metadata_response = yield oauth_metadata_request
 
