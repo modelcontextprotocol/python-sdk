@@ -5,7 +5,12 @@ import pytest
 
 import mcp
 from mcp import types
-from mcp.client.session_group import ClientSessionGroup, SseServerParameters, StreamableHttpParameters
+from mcp.client.session_group import (
+    ClientSessionGroup,
+    ClientSessionParameters,
+    SseServerParameters,
+    StreamableHttpParameters,
+)
 from mcp.client.stdio import StdioServerParameters
 from mcp.shared.exceptions import McpError
 
@@ -332,7 +337,7 @@ class TestClientSessionGroup:
                     (
                         returned_server_info,
                         returned_session,
-                    ) = await group._establish_session(server_params_instance)
+                    ) = await group._establish_session(server_params_instance, ClientSessionParameters())
 
                 # --- Assertions ---
                 # 1. Assert the correct specific client function was called
@@ -360,7 +365,17 @@ class TestClientSessionGroup:
                 mock_client_cm_instance.__aenter__.assert_awaited_once()
 
                 # 2. Assert ClientSession was called correctly
-                mock_ClientSession_class.assert_called_once_with(mock_read_stream, mock_write_stream)
+                mock_ClientSession_class.assert_called_once_with(
+                    mock_read_stream,
+                    mock_write_stream,
+                    read_timeout_seconds=None,
+                    sampling_callback=None,
+                    elicitation_callback=None,
+                    list_roots_callback=None,
+                    logging_callback=None,
+                    message_handler=None,
+                    client_info=None,
+                )
                 mock_raw_session_cm.__aenter__.assert_awaited_once()
                 mock_entered_session.initialize.assert_awaited_once()
 

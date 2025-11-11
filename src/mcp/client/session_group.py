@@ -282,7 +282,7 @@ class ClientSessionGroup:
     async def connect_to_server(
         self,
         server_params: ServerParameters,
-        session_params: ClientSessionParameters | None = None,
+        session_params: ClientSessionParameters = ClientSessionParameters(),
     ) -> mcp.ClientSession:
         """Connects to a single MCP server."""
         server_info, session = await self._establish_session(server_params, session_params)
@@ -291,7 +291,7 @@ class ClientSessionGroup:
     async def _establish_session(
         self,
         server_params: ServerParameters,
-        session_params: ClientSessionParameters | None = None,
+        session_params: ClientSessionParameters,
     ) -> tuple[types.Implementation, mcp.ClientSession]:
         """Establish a client session to an MCP server."""
 
@@ -319,22 +319,19 @@ class ClientSessionGroup:
                 )
                 read, write, _ = await session_stack.enter_async_context(client)
 
-            if session_params is None:
-                session = await session_stack.enter_async_context(mcp.ClientSession(read, write))
-            else:
-                session = await session_stack.enter_async_context(
-                    mcp.ClientSession(
-                        read,
-                        write,
-                        read_timeout_seconds=session_params.read_timeout_seconds,
-                        sampling_callback=session_params.sampling_callback,
-                        elicitation_callback=session_params.elicitation_callback,
-                        list_roots_callback=session_params.list_roots_callback,
-                        logging_callback=session_params.logging_callback,
-                        message_handler=session_params.message_handler,
-                        client_info=session_params.client_info,
-                    )
+            session = await session_stack.enter_async_context(
+                mcp.ClientSession(
+                    read,
+                    write,
+                    read_timeout_seconds=session_params.read_timeout_seconds,
+                    sampling_callback=session_params.sampling_callback,
+                    elicitation_callback=session_params.elicitation_callback,
+                    list_roots_callback=session_params.list_roots_callback,
+                    logging_callback=session_params.logging_callback,
+                    message_handler=session_params.message_handler,
+                    client_info=session_params.client_info,
                 )
+            )
 
             result = await session.initialize()
 
