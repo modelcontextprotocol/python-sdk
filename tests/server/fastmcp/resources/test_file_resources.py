@@ -100,8 +100,6 @@ class TestFileResource:
         with pytest.raises(ValueError, match="Error reading file"):
             await resource.read()
 
-#<<<<<<< main
-
 @pytest.mark.skipif(os.name == "nt", reason="File permissions behave differently on Windows")
 @pytest.mark.anyio
 async def test_permission_error(temp_file: Path):
@@ -119,20 +117,3 @@ async def test_permission_error(temp_file: Path):
             await resource.read()
     finally:
         temp_file.chmod(0o644)  # Restore permissions
-#=======
-    @pytest.mark.skipif(os.name == "nt", reason="File permissions behave differently on Windows")
-    @pytest.mark.anyio
-    async def test_permission_error(self, temp_file: Path):  # pragma: no cover
-        """Test reading a file without permissions."""
-        temp_file.chmod(0o000)  # Remove all permissions
-        try:
-            resource = FileResource(
-                uri=FileUrl(temp_file.as_uri()),
-                name="test",
-                path=temp_file,
-            )
-            with pytest.raises(ValueError, match="Error reading file"):
-                await resource.read()
-        finally:
-            temp_file.chmod(0o644)  # Restore permissions
-#>>>>>>> main

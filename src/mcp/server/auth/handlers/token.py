@@ -288,42 +288,7 @@ class TokenHandler:
 
         match token_request:
             case AuthorizationCodeRequest():
-#<<<<<<< main
                 result = await self._handle_authorization_code(client_info, token_request)
-#=======
-                auth_code = await self.provider.load_authorization_code(client_info, token_request.code)
-                if auth_code is None or auth_code.client_id != token_request.client_id:
-                    # if code belongs to different client, pretend it doesn't exist
-                    return self.response(
-                        TokenErrorResponse(
-                            error="invalid_grant",
-                            error_description="authorization code does not exist",
-                        )
-                    )
-
-                # make auth codes expire after a deadline
-                # see https://datatracker.ietf.org/doc/html/rfc6749#section-10.5
-                if auth_code.expires_at < time.time():
-                    return self.response(
-                        TokenErrorResponse(
-                            error="invalid_grant",
-                            error_description="authorization code has expired",
-                        )
-                    )
-
-                # verify redirect_uri doesn't change between /authorize and /tokens
-                # see https://datatracker.ietf.org/doc/html/rfc6749#section-10.6
-                if auth_code.redirect_uri_provided_explicitly:
-                    authorize_request_redirect_uri = auth_code.redirect_uri
-                else:  # pragma: no cover
-                    authorize_request_redirect_uri = None
-
-                # Convert both sides to strings for comparison to handle AnyUrl vs string issues
-                token_redirect_str = str(token_request.redirect_uri) if token_request.redirect_uri is not None else None
-                auth_redirect_str = (
-                    str(authorize_request_redirect_uri) if authorize_request_redirect_uri is not None else None
-                )
-#>>>>>>> main
 
             case ClientCredentialsRequest():
                 result = await self._handle_client_credentials(client_info, token_request)
@@ -331,54 +296,7 @@ class TokenHandler:
             case TokenExchangeRequest():
                 result = await self._handle_token_exchange(client_info, token_request)
 
-#<<<<<<< main
             case RefreshTokenRequest():
                 result = await self._handle_refresh_token(client_info, token_request)
 
         return self.response(result)
-#=======
-            case RefreshTokenRequest():  # pragma: no cover
-                refresh_token = await self.provider.load_refresh_token(client_info, token_request.refresh_token)
-                if refresh_token is None or refresh_token.client_id != token_request.client_id:
-                    # if token belongs to different client, pretend it doesn't exist
-                    return self.response(
-                        TokenErrorResponse(
-                            error="invalid_grant",
-                            error_description="refresh token does not exist",
-                        )
-                    )
-
-                if refresh_token.expires_at and refresh_token.expires_at < time.time():
-                    # if the refresh token has expired, pretend it doesn't exist
-                    return self.response(
-                        TokenErrorResponse(
-                            error="invalid_grant",
-                            error_description="refresh token has expired",
-                        )
-                    )
-
-                # Parse scopes if provided
-                scopes = token_request.scope.split(" ") if token_request.scope else refresh_token.scopes
-
-                for scope in scopes:
-                    if scope not in refresh_token.scopes:
-                        return self.response(
-                            TokenErrorResponse(
-                                error="invalid_scope",
-                                error_description=(f"cannot request scope `{scope}` not provided by refresh token"),
-                            )
-                        )
-
-                try:
-                    # Exchange refresh token for new tokens
-                    tokens = await self.provider.exchange_refresh_token(client_info, refresh_token, scopes)
-                except TokenError as e:
-                    return self.response(
-                        TokenErrorResponse(
-                            error=e.error,
-                            error_description=e.error_description,
-                        )
-                    )
-
-        return self.response(TokenSuccessResponse(root=tokens))
-#>>>>>>> main
