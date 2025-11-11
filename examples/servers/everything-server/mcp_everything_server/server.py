@@ -166,6 +166,38 @@ async def test_elicitation(message: str, ctx: Context[ServerSession, None]) -> s
         return f"Elicitation not supported or error: {str(e)}"
 
 
+class SEP1034DefaultsSchema(BaseModel):
+    """Schema for testing SEP-1034 elicitation with default values for all primitive types"""
+
+    name: str = Field(default="John Doe", description="User name")
+    age: int = Field(default=30, description="User age")
+    score: float = Field(default=95.5, description="User score")
+    status: str = Field(
+        default="active",
+        description="User status",
+        json_schema_extra={"enum": ["active", "inactive", "pending"]},
+    )
+    verified: bool = Field(default=True, description="Verification status")
+
+
+@mcp.tool()
+async def test_elicitation_sep1034_defaults(ctx: Context[ServerSession, None]) -> str:
+    """Tests elicitation with default values for all primitive types (SEP-1034)"""
+    try:
+        # Request user input with defaults for all primitive types
+        result = await ctx.elicit(message="Please provide user information", schema=SEP1034DefaultsSchema)
+
+        # Type-safe discriminated union narrowing using action field
+        if result.action == "accept":
+            content = result.data.model_dump_json()
+        else:  # decline or cancel
+            content = "{}"
+
+        return f"Elicitation result: action={result.action}, content={content}"
+    except Exception as e:
+        return f"Elicitation not supported or error: {str(e)}"
+
+
 @mcp.tool()
 def test_error_handling() -> str:
     """Tests error response handling"""
