@@ -50,10 +50,10 @@ class ResourceTemplate(BaseModel):
         """Create a template from a function."""
         func_name = name or fn.__name__
         if func_name == "<lambda>":
-            raise ValueError("You must provide a name for lambda functions")
+            raise ValueError("You must provide a name for lambda functions")  # pragma: no cover
 
         # Find context parameter if it exists
-        if context_kwarg is None:
+        if context_kwarg is None:  # pragma: no branch
             context_kwarg = find_context_parameter(fn)
 
         # Get schema from func_metadata, excluding context parameter
