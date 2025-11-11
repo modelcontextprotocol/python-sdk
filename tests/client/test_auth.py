@@ -6,6 +6,7 @@ import asyncio
 import time
 from collections.abc import AsyncGenerator
 from typing import Any
+from unittest import mock
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
