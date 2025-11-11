@@ -6,7 +6,6 @@ import asyncio
 import time
 from collections.abc import AsyncGenerator
 from typing import Any
-from unittest import mock
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
@@ -1323,7 +1322,7 @@ class TestSEP985Discovery:
         )
 
         # Mock the rest of the OAuth flow
-        provider._perform_authorization = mock.AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
+        provider._perform_authorization = AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
 
         # Next should be OAuth metadata discovery
         oauth_metadata_request = await auth_flow.asend(discovery_response_2)
