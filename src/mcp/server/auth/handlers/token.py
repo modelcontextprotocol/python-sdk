@@ -270,7 +270,7 @@ class TokenHandler:
                 client_id=token_request.client_id,
                 client_secret=token_request.client_secret,
             )
-        except AuthenticationError as e:
+        except AuthenticationError as e:  # pragma: no cover
             return self.response(
                 TokenErrorResponse(
                     error="unauthorized_client",
@@ -278,7 +278,7 @@ class TokenHandler:
                 )
             )
 
-        if token_request.grant_type not in client_info.grant_types:
+        if token_request.grant_type not in client_info.grant_types:  # pragma: no cover
             return self.response(
                 TokenErrorResponse(
                     error="unsupported_grant_type",

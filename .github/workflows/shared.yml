@@ -55,8 +55,11 @@ jobs:
       - name: Install the project
         run: uv sync ${{ matrix.dep-resolution.install-flags }} --all-extras --python ${{ matrix.python-version }}
 
-      - name: Run pytest
-        run: uv run ${{ matrix.dep-resolution.install-flags }} --no-sync pytest
+      - name: Run pytest with coverage
+        run: |
+          uv run ${{ matrix.dep-resolution.install-flags }} --no-sync coverage run -m pytest
+          uv run ${{ matrix.dep-resolution.install-flags }} --no-sync coverage combine
+          uv run ${{ matrix.dep-resolution.install-flags }} --no-sync coverage report
         env:
           UV_RESOLUTION: ${{ matrix.dep-resolution.name == 'lowest-direct' && 'lowest-direct' || 'highest' }}
 

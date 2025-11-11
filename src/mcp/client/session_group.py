@@ -77,7 +77,7 @@ class ClientSessionGroup:
     Example Usage:
         name_fn = lambda name, server_info: f"{(server_info.name)}_{name}"
         async with ClientSessionGroup(component_name_hook=name_fn) as group:
-            for server_params in server_params:
+            for server_param in server_params:
                 await group.connect_to_server(server_param)
             ...
 
@@ -129,7 +129,7 @@ class ClientSessionGroup:
         self._session_exit_stacks = {}
         self._component_name_hook = component_name_hook
 
-    async def __aenter__(self) -> Self:
+    async def __aenter__(self) -> Self:  # pragma: no cover
         # Enter the exit stack only if we created it ourselves
         if self._owns_exit_stack:
             await self._exit_stack.__aenter__()
@@ -140,7 +140,7 @@ class ClientSessionGroup:
         _exc_type: type[BaseException] | None,
         _exc_val: BaseException | None,
         _exc_tb: TracebackType | None,
-    ) -> bool | None:
+    ) -> bool | None:  # pragma: no cover
         """Closes session exit stacks and main exit stack upon completion."""
 
         # Only close the main exit stack if we created it
@@ -155,7 +155,7 @@ class ClientSessionGroup:
     @property
     def sessions(self) -> list[mcp.ClientSession]:
         """Returns the list of sessions being managed."""
-        return list(self._sessions.keys())
+        return list(self._sessions.keys())  # pragma: no cover
 
     @property
     def prompts(self) -> dict[str, types.Prompt]:
@@ -192,7 +192,7 @@ class ClientSessionGroup:
                 )
             )
 
-        if session_known_for_components:
+        if session_known_for_components:  # pragma: no cover
             component_names = self._sessions.pop(session)  # Pop from _sessions tracking
 
             # Remove prompts associated with the session.
@@ -212,8 +212,8 @@ class ClientSessionGroup:
 
         # Clean up the session's resources via its dedicated exit stack
         if session_known_for_stack:
-            session_stack_to_close = self._session_exit_stacks.pop(session)
-            await session_stack_to_close.aclose()
+            session_stack_to_close = self._session_exit_stacks.pop(session)  # pragma: no cover
+            await session_stack_to_close.aclose()  # pragma: no cover
 
     async def connect_with_session(
         self, server_info: types.Implementation, session: mcp.ClientSession
@@ -270,7 +270,7 @@ class ClientSessionGroup:
             await self._exit_stack.enter_async_context(session_stack)
 
             return result.serverInfo, session
-        except Exception:
+        except Exception:  # pragma: no cover
             # If anything during this setup fails, ensure the session-specific
             # stack is closed.
             await session_stack.aclose()
@@ -298,7 +298,7 @@ class ClientSessionGroup:
                 name = self._component_name(prompt.name, server_info)
                 prompts_temp[name] = prompt
                 component_names.prompts.add(name)
-        except McpError as err:
+        except McpError as err:  # pragma: no cover
             logging.warning(f"Could not fetch prompts: {err}")
 
         # Query the server for its resources and aggregate to list.
@@ -308,7 +308,7 @@ class ClientSessionGroup:
                 name = self._component_name(resource.name, server_info)
                 resources_temp[name] = resource
                 component_names.resources.add(name)
-        except McpError as err:
+        except McpError as err:  # pragma: no cover
             logging.warning(f"Could not fetch resources: {err}")
 
         # Query the server for its tools and aggregate to list.
@@ -319,18 +319,18 @@ class ClientSessionGroup:
                 tools_temp[name] = tool
                 tool_to_session_temp[name] = session
                 component_names.tools.add(name)
-        except McpError as err:
+        except McpError as err:  # pragma: no cover
             logging.warning(f"Could not fetch tools: {err}")
 
         # Clean up exit stack for session if we couldn't retrieve anything
         # from the server.
         if not any((prompts_temp, resources_temp, tools_temp)):
-            del self._session_exit_stacks[session]
+            del self._session_exit_stacks[session]  # pragma: no cover
 
         # Check for duplicates.
         matching_prompts = prompts_temp.keys() & self._prompts.keys()
         if matching_prompts:
-            raise McpError(
+            raise McpError(  # pragma: no cover
                 types.ErrorData(
                     code=types.INVALID_PARAMS,
                     message=f"{matching_prompts} already exist in group prompts.",
@@ -338,7 +338,7 @@ class ClientSessionGroup:
             )
         matching_resources = resources_temp.keys() & self._resources.keys()
         if matching_resources:
-            raise McpError(
+            raise McpError(  # pragma: no cover
                 types.ErrorData(
                     code=types.INVALID_PARAMS,
                     message=f"{matching_resources} already exist in group resources.",

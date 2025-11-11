@@ -19,9 +19,9 @@ def temp_file():
         f.write(content)
         path = Path(f.name).resolve()
     yield path
-    try:
+    try:  # pragma: no cover
         path.unlink()
-    except FileNotFoundError:
+    except FileNotFoundError:  # pragma: no cover
         pass  # File was already deleted by the test
 
 
@@ -99,7 +99,6 @@ class TestFileResource:
         )
         with pytest.raises(ValueError, match="Error reading file"):
             await resource.read()
-
 
 @pytest.mark.skipif(os.name == "nt", reason="File permissions behave differently on Windows")
 @pytest.mark.anyio

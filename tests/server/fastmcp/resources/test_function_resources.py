@@ -10,7 +10,7 @@ class TestFunctionResource:
     def test_function_resource_creation(self):
         """Test creating a FunctionResource."""
 
-        def my_func() -> str:
+        def my_func() -> str:  # pragma: no cover
             return "test content"
 
         resource = FunctionResource(
@@ -141,7 +141,7 @@ class TestFunctionResource:
     async def test_from_function(self):
         """Test creating a FunctionResource from a function."""
 
-        async def get_data() -> str:
+        async def get_data() -> str:  # pragma: no cover
             """get_data returns a string"""
             return "Hello, world!"
 

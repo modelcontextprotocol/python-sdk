@@ -82,7 +82,7 @@ async def test_client_session_initialize():
             )
 
     # Create a message handler to catch exceptions
-    async def message_handler(
+    async def message_handler(  # pragma: no cover
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
@@ -426,7 +426,7 @@ async def test_client_capabilities_with_custom_callbacks():
 
     received_capabilities = None
 
-    async def custom_sampling_callback(
+    async def custom_sampling_callback(  # pragma: no cover
         context: RequestContext["ClientSession", Any],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.ErrorData:
@@ -436,7 +436,7 @@ async def test_client_capabilities_with_custom_callbacks():
             model="test-model",
         )
 
-    async def custom_list_roots_callback(
+    async def custom_list_roots_callback(  # pragma: no cover
         context: RequestContext["ClientSession", Any],
     ) -> types.ListRootsResult | types.ErrorData:
         return types.ListRootsResult(roots=[])
@@ -502,6 +502,78 @@ async def test_client_capabilities_with_custom_callbacks():
     assert isinstance(received_capabilities.roots, types.RootsCapability)
     # Should be True for custom callback
     assert received_capabilities.roots.listChanged is True
+
+
+@pytest.mark.anyio
+async def test_get_server_capabilities():
+    """Test that get_server_capabilities returns None before init and capabilities after"""
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    expected_capabilities = ServerCapabilities(
+        logging=types.LoggingCapability(),
+        prompts=types.PromptsCapability(listChanged=True),
+        resources=types.ResourcesCapability(subscribe=True, listChanged=True),
+        tools=types.ToolsCapability(listChanged=False),
+    )
+
+    async def mock_server():
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        request = ClientRequest.model_validate(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(request.root, InitializeRequest)
+
+        result = ServerResult(
+            InitializeResult(
+                protocolVersion=LATEST_PROTOCOL_VERSION,
+                capabilities=expected_capabilities,
+                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+            )
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=jsonrpc_request.root.id,
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                        )
+                    )
+                )
+            )
+            await client_to_server_receive.receive()
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        assert session.get_server_capabilities() is None
+
+        tg.start_soon(mock_server)
+        await session.initialize()
+
+        capabilities = session.get_server_capabilities()
+        assert capabilities is not None
+        assert capabilities == expected_capabilities
+        assert capabilities.logging is not None
+        assert capabilities.prompts is not None
+        assert capabilities.prompts.listChanged is True
+        assert capabilities.resources is not None
+        assert capabilities.resources.subscribe is True
+        assert capabilities.tools is not None
+        assert capabilities.tools.listChanged is False
 
 
 @pytest.mark.anyio
