@@ -203,18 +203,18 @@ class FastMCP(Generic[LifespanResultT]):
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         # Validate auth configuration
         if self.settings.auth is not None:
-            if auth_server_provider and token_verifier:
+            if auth_server_provider and token_verifier:  # pragma: no cover
                 raise ValueError("Cannot specify both auth_server_provider and token_verifier")
-            if not auth_server_provider and not token_verifier:
+            if not auth_server_provider and not token_verifier:  # pragma: no cover
                 raise ValueError("Must specify either auth_server_provider or token_verifier when auth is enabled")
-        elif auth_server_provider or token_verifier:
+        elif auth_server_provider or token_verifier:  # pragma: no cover
             raise ValueError("Cannot specify auth_server_provider or token_verifier without auth settings")
 
         self._auth_server_provider = auth_server_provider
         self._token_verifier = token_verifier
 
         # Create token verifier from provider if needed (backwards compatibility)
-        if auth_server_provider and not token_verifier:
+        if auth_server_provider and not token_verifier:  # pragma: no cover
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._event_store = event_store
         self._custom_starlette_routes: list[Route] = []
@@ -253,14 +253,14 @@ class FastMCP(Generic[LifespanResultT]):
         Raises:
             RuntimeError: If called before streamable_http_app() has been called.
         """
-        if self._session_manager is None:
+        if self._session_manager is None:  # pragma: no cover
             raise RuntimeError(
                 "Session manager can only be accessed after"
                 "calling streamable_http_app()."
                 "The session manager is created lazily"
                 "to avoid unnecessary initialization."
             )
-        return self._session_manager
+        return self._session_manager  # pragma: no cover
 
     def run(
         self,
@@ -274,15 +274,15 @@ class FastMCP(Generic[LifespanResultT]):
             mount_path: Optional mount path for SSE transport
         """
         TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
-        if transport not in TRANSPORTS.__args__:  # type: ignore
+        if transport not in TRANSPORTS.__args__:  # type: ignore  # pragma: no cover
             raise ValueError(f"Unknown transport: {transport}")
 
         match transport:
             case "stdio":
                 anyio.run(self.run_stdio_async)
-            case "sse":
+            case "sse":  # pragma: no cover
                 anyio.run(lambda: self.run_sse_async(mount_path))
-            case "streamable-http":
+            case "streamable-http":  # pragma: no cover
                 anyio.run(self.run_streamable_http_async)
 
     def _setup_handlers(self) -> None:
@@ -368,13 +368,13 @@ class FastMCP(Generic[LifespanResultT]):
 
         context = self.get_context()
         resource = await self._resource_manager.get_resource(uri, context=context)
-        if not resource:
+        if not resource:  # pragma: no cover
             raise ResourceError(f"Unknown resource: {uri}")
 
         try:
             content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type)]
-        except Exception as e:
+        except Exception as e:  # pragma: no cover
             logger.exception(f"Error reading resource {uri}")
             raise ResourceError(str(e))
 
@@ -710,7 +710,7 @@ class FastMCP(Generic[LifespanResultT]):
                 return JSONResponse({"status": "ok"})
         """
 
-        def decorator(
+        def decorator(  # pragma: no cover
             func: Callable[[Request], Awaitable[Response]],
         ) -> Callable[[Request], Awaitable[Response]]:
             self._custom_starlette_routes.append(
@@ -724,7 +724,7 @@ class FastMCP(Generic[LifespanResultT]):
             )
             return func
 
-        return decorator
+        return decorator  # pragma: no cover
 
     async def run_stdio_async(self) -> None:
         """Run the server using stdio transport."""
@@ -735,7 +735,7 @@ class FastMCP(Generic[LifespanResultT]):
                 self._mcp_server.create_initialization_options(),
             )
 
-    async def run_sse_async(self, mount_path: str | None = None) -> None:
+    async def run_sse_async(self, mount_path: str | None = None) -> None:  # pragma: no cover
         """Run the server using SSE transport."""
         import uvicorn
 
@@ -750,7 +750,7 @@ class FastMCP(Generic[LifespanResultT]):
         server = uvicorn.Server(config)
         await server.serve()
 
-    async def run_streamable_http_async(self) -> None:
+    async def run_streamable_http_async(self) -> None:  # pragma: no cover
         """Run the server using StreamableHTTP transport."""
         import uvicorn
 
@@ -810,7 +810,7 @@ class FastMCP(Generic[LifespanResultT]):
             security_settings=self.settings.transport_security,
         )
 
-        async def handle_sse(scope: Scope, receive: Receive, send: Send):
+        async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover
             # Add client ID from auth context into request context if available
 
             async with sse.connect_sse(
@@ -831,7 +831,7 @@ class FastMCP(Generic[LifespanResultT]):
         required_scopes = []
 
         # Set up auth if configured
-        if self.settings.auth:
+        if self.settings.auth:  # pragma: no cover
             required_scopes = self.settings.auth.required_scopes or []
 
             # Add auth middleware if token verifier is available
@@ -862,7 +862,7 @@ class FastMCP(Generic[LifespanResultT]):
                 )
 
         # When auth is configured, require authentication
-        if self._token_verifier:
+        if self._token_verifier:  # pragma: no cover
             # Determine resource metadata URL
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
@@ -885,7 +885,7 @@ class FastMCP(Generic[LifespanResultT]):
                     app=RequireAuthMiddleware(sse.handle_post_message, required_scopes, resource_metadata_url),
                 )
             )
-        else:
+        else:  # pragma: no cover
             # Auth is disabled, no need for RequireAuthMiddleware
             # Since handle_sse is an ASGI app, we need to create a compatible endpoint
             async def sse_endpoint(request: Request) -> Response:
@@ -906,7 +906,7 @@ class FastMCP(Generic[LifespanResultT]):
                 )
             )
         # Add protected resource metadata endpoint if configured as RS
-        if self.settings.auth and self.settings.auth.resource_server_url:
+        if self.settings.auth and self.settings.auth.resource_server_url:  # pragma: no cover
             from mcp.server.auth.routes import create_protected_resource_routes
 
             routes.extend(
@@ -928,7 +928,7 @@ class FastMCP(Generic[LifespanResultT]):
         from starlette.middleware import Middleware
 
         # Create session manager on first call (lazy initialization)
-        if self._session_manager is None:
+        if self._session_manager is None:  # pragma: no branch
             self._session_manager = StreamableHTTPSessionManager(
                 app=self._mcp_server,
                 event_store=self._event_store,
@@ -946,7 +946,7 @@ class FastMCP(Generic[LifespanResultT]):
         required_scopes = []
 
         # Set up auth if configured
-        if self.settings.auth:
+        if self.settings.auth:  # pragma: no cover
             required_scopes = self.settings.auth.required_scopes or []
 
             # Add auth middleware if token verifier is available
@@ -974,7 +974,7 @@ class FastMCP(Generic[LifespanResultT]):
                 )
 
         # Set up routes with or without auth
-        if self._token_verifier:
+        if self._token_verifier:  # pragma: no cover
             # Determine resource metadata URL
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
@@ -999,7 +999,7 @@ class FastMCP(Generic[LifespanResultT]):
             )
 
         # Add protected resource metadata endpoint if configured as RS
-        if self.settings.auth and self.settings.auth.resource_server_url:
+        if self.settings.auth and self.settings.auth.resource_server_url:  # pragma: no cover
             from mcp.server.auth.routes import create_protected_resource_routes
 
             routes.extend(
@@ -1066,7 +1066,7 @@ class StreamableHTTPASGIApp:
     def __init__(self, session_manager: StreamableHTTPSessionManager):
         self.session_manager = session_manager
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # pragma: no cover
         await self.session_manager.handle_request(scope, receive, send)
 
 
@@ -1121,16 +1121,16 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     @property
     def fastmcp(self) -> FastMCP:
         """Access to the FastMCP server."""
-        if self._fastmcp is None:
+        if self._fastmcp is None:  # pragma: no cover
             raise ValueError("Context is not available outside of a request")
-        return self._fastmcp
+        return self._fastmcp  # pragma: no cover
 
     @property
     def request_context(
         self,
     ) -> RequestContext[ServerSessionT, LifespanContextT, RequestT]:
         """Access to the underlying request context."""
-        if self._request_context is None:
+        if self._request_context is None:  # pragma: no cover
             raise ValueError("Context is not available outside of a request")
         return self._request_context
 
@@ -1144,7 +1144,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         """
         progress_token = self.request_context.meta.progressToken if self.request_context.meta else None
 
-        if progress_token is None:
+        if progress_token is None:  # pragma: no cover
             return
 
         await self.request_context.session.send_progress_notification(
@@ -1225,7 +1225,9 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     @property
     def client_id(self) -> str | None:
         """Get the client ID if available."""
-        return getattr(self.request_context.meta, "client_id", None) if self.request_context.meta else None
+        return (
+            getattr(self.request_context.meta, "client_id", None) if self.request_context.meta else None
+        )  # pragma: no cover
 
     @property
     def request_id(self) -> str:

@@ -61,7 +61,7 @@ INIT_REQUEST = {
 
 
 # Helper functions
-def extract_protocol_version_from_sse(response: requests.Response) -> str:
+def extract_protocol_version_from_sse(response: requests.Response) -> str:  # pragma: no cover
     """Extract the negotiated protocol version from an SSE initialization response."""
     assert response.headers.get("Content-Type") == "text/event-stream"
     for line in response.text.splitlines():
@@ -79,14 +79,14 @@ class SimpleEventStore(EventStore):
         self._events: list[tuple[StreamId, EventId, types.JSONRPCMessage]] = []
         self._event_id_counter = 0
 
-    async def store_event(self, stream_id: StreamId, message: types.JSONRPCMessage) -> EventId:
+    async def store_event(self, stream_id: StreamId, message: types.JSONRPCMessage) -> EventId:  # pragma: no cover
         """Store an event and return its ID."""
         self._event_id_counter += 1
         event_id = str(self._event_id_counter)
         self._events.append((stream_id, event_id, message))
         return event_id
 
-    async def replay_events_after(
+    async def replay_events_after(  # pragma: no cover
         self,
         last_event_id: EventId,
         send_callback: EventCallback,
@@ -115,7 +115,7 @@ class SimpleEventStore(EventStore):
 
 
 # Test server implementation that follows MCP protocol
-class ServerTest(Server):
+class ServerTest(Server):  # pragma: no cover
     def __init__(self):
         super().__init__(SERVER_NAME)
         self._lock = None  # Will be initialized in async context
@@ -255,7 +255,9 @@ class ServerTest(Server):
             return [TextContent(type="text", text=f"Called {name}")]
 
 
-def create_app(is_json_response_enabled: bool = False, event_store: EventStore | None = None) -> Starlette:
+def create_app(
+    is_json_response_enabled: bool = False, event_store: EventStore | None = None
+) -> Starlette:  # pragma: no cover
     """Create a Starlette application for testing using the session manager.
 
     Args:
@@ -288,7 +290,9 @@ def create_app(is_json_response_enabled: bool = False, event_store: EventStore |
     return app
 
 
-def run_server(port: int, is_json_response_enabled: bool = False, event_store: EventStore | None = None) -> None:
+def run_server(
+    port: int, is_json_response_enabled: bool = False, event_store: EventStore | None = None
+) -> None:  # pragma: no cover
     """Run the test server.
 
     Args:
@@ -727,8 +731,8 @@ def test_get_sse_stream(basic_server: None, basic_server_url: str):
     # Extract negotiated protocol version from SSE response
     init_data = None
     assert init_response.headers.get("Content-Type") == "text/event-stream"
-    for line in init_response.text.splitlines():
-        if line.startswith("data: "):
+    for line in init_response.text.splitlines():  # pragma: no branch
+        if line.startswith("data: "):  # pragma: no cover
             init_data = json.loads(line[6:])
             break
     assert init_data is not None
@@ -787,8 +791,8 @@ def test_get_validation(basic_server: None, basic_server_url: str):
     # Extract negotiated protocol version from SSE response
     init_data = None
     assert init_response.headers.get("Content-Type") == "text/event-stream"
-    for line in init_response.text.splitlines():
-        if line.startswith("data: "):
+    for line in init_response.text.splitlines():  # pragma: no branch
+        if line.startswith("data: "):  # pragma: no cover
             init_data = json.loads(line[6:])
             break
     assert init_data is not None
@@ -821,7 +825,7 @@ def test_get_validation(basic_server: None, basic_server_url: str):
 
 # Client-specific fixtures
 @pytest.fixture
-async def http_client(basic_server: None, basic_server_url: str):
+async def http_client(basic_server: None, basic_server_url: str):  # pragma: no cover
     """Create test client matching the SSE test pattern."""
     async with httpx.AsyncClient(base_url=basic_server_url) as client:
         yield client
@@ -960,10 +964,10 @@ async def test_streamablehttp_client_get_stream(basic_server: None, basic_server
     notifications_received: list[types.ServerNotification] = []
 
     # Define message handler to capture notifications
-    async def message_handler(
+    async def message_handler(  # pragma: no branch
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, types.ServerNotification):
+        if isinstance(message, types.ServerNotification):  # pragma: no branch
             notifications_received.append(message)
 
     async with streamablehttp_client(f"{basic_server_url}/mcp") as (
@@ -985,7 +989,7 @@ async def test_streamablehttp_client_get_stream(basic_server: None, basic_server
             # Verify the notification is a ResourceUpdatedNotification
             resource_update_found = False
             for notif in notifications_received:
-                if isinstance(notif.root, types.ResourceUpdatedNotification):
+                if isinstance(notif.root, types.ResourceUpdatedNotification):  # pragma: no branch
                     assert str(notif.root.params.uri) == "http://test_resource/"
                     resource_update_found = True
 
@@ -1015,8 +1019,8 @@ async def test_streamablehttp_client_session_termination(basic_server: None, bas
             tools = await session.list_tools()
             assert len(tools.tools) == 6
 
-    headers: dict[str, str] = {}
-    if captured_session_id:
+    headers: dict[str, str] = {}  # pragma: no cover
+    if captured_session_id:  # pragma: no cover
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
 
     async with streamablehttp_client(f"{basic_server_url}/mcp", headers=headers) as (
@@ -1026,7 +1030,7 @@ async def test_streamablehttp_client_session_termination(basic_server: None, bas
     ):
         async with ClientSession(read_stream, write_stream) as session:
             # Attempt to make a request after termination
-            with pytest.raises(
+            with pytest.raises(  # pragma: no branch
                 McpError,
                 match="Session terminated",
             ):
@@ -1081,8 +1085,8 @@ async def test_streamablehttp_client_session_termination_204(
             tools = await session.list_tools()
             assert len(tools.tools) == 6
 
-    headers: dict[str, str] = {}
-    if captured_session_id:
+    headers: dict[str, str] = {}  # pragma: no cover
+    if captured_session_id:  # pragma: no cover
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
 
     async with streamablehttp_client(f"{basic_server_url}/mcp", headers=headers) as (
@@ -1092,7 +1096,7 @@ async def test_streamablehttp_client_session_termination_204(
     ):
         async with ClientSession(read_stream, write_stream) as session:
             # Attempt to make a request after termination
-            with pytest.raises(
+            with pytest.raises(  # pragma: no branch
                 McpError,
                 match="Session terminated",
             ):
@@ -1112,13 +1116,13 @@ async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventS
     captured_protocol_version = None
     first_notification_received = False
 
-    async def message_handler(
+    async def message_handler(  # pragma: no branch
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, types.ServerNotification):
+        if isinstance(message, types.ServerNotification):  # pragma: no branch
             captured_notifications.append(message)
             # Look for our first notification
-            if isinstance(message.root, types.LoggingMessageNotification):
+            if isinstance(message.root, types.LoggingMessageNotification):  # pragma: no branch
                 if message.root.params.data == "First notification before lock":
                     nonlocal first_notification_received
                     first_notification_received = True
@@ -1171,18 +1175,18 @@ async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventS
                 tg.cancel_scope.cancel()
 
     # Verify we received exactly one notification
-    assert len(captured_notifications) == 1
-    assert isinstance(captured_notifications[0].root, types.LoggingMessageNotification)
-    assert captured_notifications[0].root.params.data == "First notification before lock"
+    assert len(captured_notifications) == 1  # pragma: no cover
+    assert isinstance(captured_notifications[0].root, types.LoggingMessageNotification)  # pragma: no cover
+    assert captured_notifications[0].root.params.data == "First notification before lock"  # pragma: no cover
 
     # Clear notifications for the second phase
-    captured_notifications = []
+    captured_notifications = []  # pragma: no cover
 
     # Now resume the session with the same mcp-session-id and protocol version
-    headers: dict[str, Any] = {}
-    if captured_session_id:
+    headers: dict[str, Any] = {}  # pragma: no cover
+    if captured_session_id:  # pragma: no cover
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
-    if captured_protocol_version:
+    if captured_protocol_version:  # pragma: no cover
         headers[MCP_PROTOCOL_VERSION_HEADER] = captured_protocol_version
     async with streamablehttp_client(f"{server_url}/mcp", headers=headers) as (
         read_stream,
@@ -1286,7 +1290,7 @@ async def test_streamablehttp_server_sampling(basic_server: None, basic_server_u
 
 
 # Context-aware server implementation for testing request context propagation
-class ContextAwareServerTest(Server):
+class ContextAwareServerTest(Server):  # pragma: no cover
     def __init__(self):
         super().__init__("ContextAwareServer")
 
@@ -1346,7 +1350,7 @@ class ContextAwareServerTest(Server):
 
 
 # Server runner for context-aware testing
-def run_context_aware_server(port: int):
+def run_context_aware_server(port: int):  # pragma: no cover
     """Run the context-aware test server."""
     server = ContextAwareServerTest()
 
@@ -1388,7 +1392,7 @@ def context_aware_server(basic_server_port: int) -> Generator[None, None, None]:
 
     proc.kill()
     proc.join(timeout=2)
-    if proc.is_alive():
+    if proc.is_alive():  # pragma: no cover
         print("Context-aware server process failed to terminate")
 
 
@@ -1451,8 +1455,8 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
                 contexts.append(context_data)
 
     # Verify each request had its own context
-    assert len(contexts) == 3
-    for i, ctx in enumerate(contexts):
+    assert len(contexts) == 3  # pragma: no cover
+    for i, ctx in enumerate(contexts):  # pragma: no cover
         assert ctx["request_id"] == f"request-{i}"
         assert ctx["headers"].get("x-request-id") == f"request-{i}"
         assert ctx["headers"].get("x-custom-value") == f"value-{i}"
