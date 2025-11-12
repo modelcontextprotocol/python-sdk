@@ -1220,7 +1220,7 @@ async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventS
             assert result.content[0].text == "Completed"
 
             # Allow any pending notifications to be processed
-            for _ in range(50):
+            for _ in range(50):  # pragma: no cover
                 if captured_notifications:
                     break
                 await anyio.sleep(0.1)
