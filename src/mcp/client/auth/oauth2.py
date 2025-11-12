@@ -222,8 +222,17 @@ class BaseOAuthProvider(httpx.Auth):
             self.client_metadata.scope = " ".join(metadata.scopes_supported)
 
     def _create_registration_request(self, metadata: OAuthMetadata | None = None) -> httpx.Request | None:
-        if self._client_info:
-            return None
+        context = getattr(self, "context", None)
+
+        if metadata is not None:
+            if self._client_info:
+                return None
+            if context and context.client_info:
+                self._client_info = context.client_info
+                return None
+        elif context and context.client_info and not self._client_info:
+            self._client_info = context.client_info
+
         if metadata and metadata.registration_endpoint:
             registration_url = str(metadata.registration_endpoint)
         else:
@@ -537,12 +546,12 @@ class OAuthClientProvider(BaseOAuthProvider):
     async def _handle_token_response(self, response: httpx.Response) -> None:
         """Handle token exchange response."""
         if response.status_code != 200:  # pragma: no cover
-            body = await response.aread()
+            body = response.content or await response.aread()
             body = body.decode("utf-8")
             raise OAuthTokenError(f"Token exchange failed ({response.status_code}): {body}")
 
         try:
-            content = await response.aread()
+            content = response.content or await response.aread()
             token_response = OAuthToken.model_validate_json(content)
 
             # Validate scopes
