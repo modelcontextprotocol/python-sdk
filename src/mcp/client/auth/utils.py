@@ -228,18 +228,13 @@ async def handle_registration_response(response: Response) -> OAuthClientInforma
 
 async def handle_token_response_scopes(
     response: Response,
-    client_metadata: OAuthClientMetadata,
-    validate_scope: bool = True,
 ) -> OAuthToken:
     """Parse and validate token response with optional scope validation.
 
-    Parses token response JSON and validates scopes to prevent scope escalation
-    if requested. Callers should check response.status_code before calling.
+    Parses token response JSON. Callers should check response.status_code before calling.
 
     Args:
         response: HTTP response from token endpoint (status already checked by caller)
-        client_metadata: Client metadata containing requested scopes (if any)
-        validate_scope: Whether to validate scopes (default True). Set False for refresh.
 
     Returns:
         Validated OAuthToken model
@@ -250,16 +245,6 @@ async def handle_token_response_scopes(
     try:
         content = await response.aread()
         token_response = OAuthToken.model_validate_json(content)
-
-        # Validate scopes to prevent scope escalation
-        # Only validate during initial token exchange, not during refresh
-        if validate_scope and token_response.scope and client_metadata.scope:
-            requested_scopes = set(client_metadata.scope.split())
-            returned_scopes = set(token_response.scope.split())
-            unauthorized_scopes = returned_scopes - requested_scopes
-            if unauthorized_scopes:
-                raise OAuthTokenError(f"Server granted unauthorized scopes: {unauthorized_scopes}")
-
         return token_response
     except ValidationError as e:
         raise OAuthTokenError(f"Invalid token response: {e}")

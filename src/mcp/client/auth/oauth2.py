@@ -352,11 +352,7 @@ class OAuthClientProvider(httpx.Auth):
             raise OAuthTokenError(f"Token exchange failed ({response.status_code}): {body_text}")
 
         # Parse and validate response with scope validation
-        token_response = await handle_token_response_scopes(
-            response,
-            self.context.client_metadata,
-            validate_scope=True,
-        )
+        token_response = await handle_token_response_scopes(response)
 
         # Store tokens in context
         self.context.current_tokens = token_response
