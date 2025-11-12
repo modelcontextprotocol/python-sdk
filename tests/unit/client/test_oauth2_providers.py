@@ -706,6 +706,57 @@ async def test_token_exchange_request_token_excludes_resource_when_unset(monkeyp
 
 
 @pytest.mark.anyio
+async def test_token_exchange_request_token_skips_client_error_and_omits_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = InMemoryStorage()
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
+
+    subject_supplier = AsyncMock(return_value="subject-token")
+
+    provider = TokenExchangeProvider(
+        "https://api.example.com/service",
+        client_metadata,
+        storage,
+        subject_token_supplier=subject_supplier,
+    )
+
+    metadata_without_scopes = _metadata_json()
+    metadata_without_scopes.pop("scopes_supported", None)
+
+    metadata_responses = [
+        _make_response(404),
+        _make_response(200, json_data=metadata_without_scopes),
+    ]
+    registration_response = _make_response(200, json_data=_registration_json())
+
+    class RecordingAsyncClient(DummyAsyncClient):
+        def __init__(self) -> None:
+            super().__init__(post_responses=[_make_response(200, json_data=_token_json())])
+            self.last_data: dict[str, str] | None = None
+
+        async def post(
+            self, url: str, *, data: dict[str, str], headers: dict[str, str]
+        ) -> httpx.Response:
+            self.last_data = data
+            return await super().post(url, data=data, headers=headers)
+
+    clients: list[DummyAsyncClient] = [
+        DummyAsyncClient(send_responses=metadata_responses),
+        DummyAsyncClient(send_responses=[registration_response]),
+        RecordingAsyncClient(),
+    ]
+    monkeypatch.setattr("mcp.client.auth.oauth2.httpx.AsyncClient", AsyncClientFactory(clients))
+
+    await provider._request_token()
+
+    recorded_client = cast(RecordingAsyncClient, clients[-1])
+    assert recorded_client.last_data is not None
+    assert "scope" not in recorded_client.last_data
+    assert provider.client_metadata.scope is None
+
+
+@pytest.mark.anyio
 async def test_token_exchange_request_token_raises_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())

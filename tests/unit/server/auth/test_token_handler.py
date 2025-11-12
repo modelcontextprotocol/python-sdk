@@ -52,6 +52,15 @@ class ClientCredentialsProviderWithError:
         raise TokenError(error="invalid_client", error_description="bad credentials")
 
 
+class ClientCredentialsProviderSuccess:
+    def __init__(self) -> None:
+        self.last_scopes: list[str] | None = None
+
+    async def exchange_client_credentials(self, client_info: object, scopes: list[str]) -> OAuthToken:
+        self.last_scopes = scopes
+        return OAuthToken(access_token="client-token")
+
+
 class TokenExchangeProviderStub:
     def __init__(self) -> None:
         self.last_call: dict[str, Any] | None = None
@@ -153,6 +162,67 @@ async def test_handle_client_credentials_returns_token_error() -> None:
     assert isinstance(result, TokenErrorResponse)
     assert result.error == "invalid_client"
     assert result.error_description == "bad credentials"
+
+
+@pytest.mark.anyio
+async def test_handle_route_authorization_code_branch() -> None:
+    code_verifier = "a" * 64
+    digest = hashlib.sha256(code_verifier.encode()).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).decode().rstrip("=")
+
+    provider = AuthorizationCodeProvider(expected_code="auth-code", code_challenge=code_challenge)
+    client_info = OAuthClientInformationFull(
+        client_id="client",
+        grant_types=["authorization_code"],
+        scope="alpha",
+    )
+    handler = TokenHandler(
+        provider=cast(OAuthAuthorizationServerProvider[Any, Any, Any], provider),
+        client_authenticator=cast(ClientAuthenticator, DummyAuthenticator(client_info)),
+    )
+
+    request_data = {
+        "grant_type": "authorization_code",
+        "code": "auth-code",
+        "redirect_uri": None,
+        "client_id": "client",
+        "client_secret": "secret",
+        "code_verifier": code_verifier,
+    }
+
+    response = await handler.handle(cast(Request, DummyRequest(request_data)))
+
+    assert response.status_code == 200
+    payload = json.loads(bytes(response.body).decode())
+    assert payload["access_token"] == "auth-token"
+
+
+@pytest.mark.anyio
+async def test_handle_route_client_credentials_branch() -> None:
+    provider = ClientCredentialsProviderSuccess()
+    client_info = OAuthClientInformationFull(
+        client_id="client",
+        grant_types=["client_credentials"],
+        scope="alpha beta",
+    )
+    handler = TokenHandler(
+        provider=cast(OAuthAuthorizationServerProvider[Any, Any, Any], provider),
+        client_authenticator=cast(ClientAuthenticator, DummyAuthenticator(client_info)),
+    )
+
+    request_data = {
+        "grant_type": "client_credentials",
+        "scope": "beta",
+        "client_id": "client",
+        "client_secret": "secret",
+    }
+
+    response = await handler.handle(cast(Request, DummyRequest(request_data)))
+
+    assert response.status_code == 200
+    payload = json.loads(bytes(response.body).decode())
+    assert payload["access_token"] == "client-token"
+    assert provider.last_scopes == ["beta"]
 
 
 @pytest.mark.anyio
