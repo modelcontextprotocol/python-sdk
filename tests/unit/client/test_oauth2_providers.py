@@ -465,6 +465,83 @@ async def test_client_credentials_request_token_without_metadata(monkeypatch: py
 
 
 @pytest.mark.anyio
+async def test_client_credentials_request_token_omits_scope_when_not_registered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = InMemoryStorage()
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
+    provider = ClientCredentialsProvider("https://api.example.com/service", client_metadata, storage)
+
+    metadata_json = _metadata_json().copy()
+    metadata_json.pop("scopes_supported")
+    metadata_response = _make_response(200, json_data=metadata_json)
+    registration_response = _make_response(200, json_data=_registration_json())
+    token_response = _make_response(200, json_data=_token_json())
+
+    class CapturingAsyncClient(DummyAsyncClient):
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            super().__init__(*args, **kwargs)
+            self.captured_data: dict[str, str] | None = None
+            self.captured_headers: dict[str, str] | None = None
+
+        async def post(
+            self,
+            url: str,
+            *,
+            data: dict[str, str],
+            headers: dict[str, str],
+        ) -> httpx.Response:
+            self.captured_data = dict(data)
+            self.captured_headers = dict(headers)
+            assert self._post_responses, "Unexpected post() call"
+            return self._post_responses.pop(0)
+
+    capturing_client = CapturingAsyncClient(post_responses=[token_response])
+    clients = [
+        DummyAsyncClient(send_responses=[metadata_response]),
+        DummyAsyncClient(send_responses=[registration_response]),
+        capturing_client,
+    ]
+    monkeypatch.setattr("mcp.client.auth.oauth2.httpx.AsyncClient", AsyncClientFactory(clients))
+
+    await provider._request_token()
+
+    assert capturing_client.captured_data is not None
+    assert capturing_client.captured_headers == {
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    assert capturing_client.captured_data["grant_type"] == "client_credentials"
+    assert capturing_client.captured_data["resource"] == provider.resource
+    assert "scope" not in capturing_client.captured_data
+
+
+@pytest.mark.anyio
+async def test_client_credentials_request_token_stops_on_server_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = InMemoryStorage()
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope="alpha")
+    provider = ClientCredentialsProvider("https://api.example.com/service", client_metadata, storage)
+
+    metadata_responses = [_make_response(503)]
+    registration_response = _make_response(200, json_data=_registration_json())
+    token_response = _make_response(200, json_data=_token_json("alpha"))
+
+    clients = [
+        DummyAsyncClient(send_responses=metadata_responses),
+        DummyAsyncClient(send_responses=[registration_response]),
+        DummyAsyncClient(post_responses=[token_response]),
+    ]
+    monkeypatch.setattr("mcp.client.auth.oauth2.httpx.AsyncClient", AsyncClientFactory(clients))
+
+    await provider._request_token()
+
+    assert storage.tokens is not None
+    assert storage.tokens.scope == "alpha"
+    assert provider._metadata is None
+
+
+@pytest.mark.anyio
 async def test_client_credentials_ensure_token_returns_when_valid() -> None:
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
