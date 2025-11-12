@@ -71,3 +71,9 @@ async def test_stdio_client_handles_broken_pipe(monkeypatch: pytest.MonkeyPatch)
         await anyio.sleep(0)
 
     assert checkpoint_calls >= 1
+
+
+@pytest.mark.anyio
+async def test_dummy_stdin_send_returns_none() -> None:
+    stdin = DummyStdin()
+    assert await stdin.send(b"payload") is None
