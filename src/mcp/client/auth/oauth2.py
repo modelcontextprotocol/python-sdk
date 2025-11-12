@@ -680,9 +680,7 @@ class OAuthClientProvider(BaseOAuthProvider):
                     self._select_scopes(response)
 
                     # Step 3: Discover OAuth metadata (with fallback for legacy servers)
-                    discovery_urls = self._get_discovery_urls(
-                        self.context.auth_server_url or self.context.server_url
-                    )
+                    discovery_urls = self._get_discovery_urls(self.context.auth_server_url or self.context.server_url)
                     for url in discovery_urls:
                         oauth_metadata_request = self._create_oauth_metadata_request(url)
                         oauth_metadata_response = yield oauth_metadata_request
