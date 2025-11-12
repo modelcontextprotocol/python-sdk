@@ -400,6 +400,7 @@ async def test_client_credentials_request_token_raises_on_failure(monkeypatch: p
     with pytest.raises(Exception, match="Token request failed"):
         await provider._request_token()
 
+
 @pytest.mark.anyio
 async def test_client_credentials_request_token_without_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     storage = InMemoryStorage()
@@ -698,6 +699,7 @@ async def test_token_exchange_get_or_register_client(monkeypatch: pytest.MonkeyP
     assert client_info.client_id == "client-id"
     assert storage.client_info is client_info
 
+
 @pytest.mark.anyio
 async def test_token_exchange_initialize_loads_cached_values() -> None:
     storage = InMemoryStorage()
@@ -830,6 +832,7 @@ async def test_token_exchange_async_auth_flow_with_cached_token() -> None:
     with pytest.raises(StopAsyncIteration):
         await flow.asend(response)
 
+
 @pytest.mark.anyio
 async def test_token_exchange_ensure_token_returns_when_valid() -> None:
     storage = InMemoryStorage()
@@ -909,18 +912,14 @@ async def test_oauth_client_provider_performs_full_flow(monkeypatch: pytest.Monk
         "_build_protected_resource_discovery_urls",
         MethodType(fake_build_resource_urls, provider),
     )
-    monkeypatch.setattr(
-        provider, "_handle_protected_resource_response", MethodType(fake_handle_resource, provider)
-    )
+    monkeypatch.setattr(provider, "_handle_protected_resource_response", MethodType(fake_handle_resource, provider))
     monkeypatch.setattr(provider, "_get_discovery_urls", MethodType(fake_get_discovery_urls, provider))
     monkeypatch.setattr(
         provider,
         "_create_oauth_metadata_request",
         MethodType(fake_create_oauth_metadata_request, provider),
     )
-    monkeypatch.setattr(
-        provider, "_handle_oauth_metadata_response", MethodType(fake_handle_oauth_metadata, provider)
-    )
+    monkeypatch.setattr(provider, "_handle_oauth_metadata_response", MethodType(fake_handle_oauth_metadata, provider))
     monkeypatch.setattr(
         provider,
         "_create_registration_request",
@@ -931,9 +930,7 @@ async def test_oauth_client_provider_performs_full_flow(monkeypatch: pytest.Monk
         "_handle_registration_response",
         MethodType(fake_handle_registration, provider),
     )
-    monkeypatch.setattr(
-        provider, "_perform_authorization", MethodType(fake_perform_authorization, provider)
-    )
+    monkeypatch.setattr(provider, "_perform_authorization", MethodType(fake_perform_authorization, provider))
     monkeypatch.setattr(provider, "_handle_token_response", MethodType(fake_handle_token, provider))
 
     request = httpx.Request("GET", "https://api.example.com/resource")
@@ -942,9 +939,7 @@ async def test_oauth_client_provider_performs_full_flow(monkeypatch: pytest.Monk
     prepared_request = await anext(flow)
     assert "Authorization" not in prepared_request.headers
 
-    headers = {
-        "WWW-Authenticate": 'Bearer scope="alpha beta" resource_metadata="https://resource.example.com"'
-    }
+    headers = {"WWW-Authenticate": 'Bearer scope="alpha beta" resource_metadata="https://resource.example.com"'}
     first_response = httpx.Response(401, headers=headers, request=prepared_request)
 
     discovery_request = await flow.asend(first_response)
