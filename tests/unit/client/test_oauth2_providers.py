@@ -400,7 +400,7 @@ async def test_token_exchange_request_token(monkeypatch) -> None:
         subject_token_supplier=provide_subject,
         subject_token_type="access_token",
         actor_token_supplier=provide_actor,
-        actor_token_type="urn:ietf:params:oauth:token-type:jwt",
+        actor_token_type="jwt",
         audience="https://audience.example.com",
         resource="https://resource.example.com",
     )
@@ -454,6 +454,7 @@ async def test_token_exchange_initialize_loads_cached_values() -> None:
 async def test_token_exchange_validate_token_scopes_rejects_extra() -> None:
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"], scope="alpha")
+
     async def provide_subject() -> str:
         return "subject-token"
 

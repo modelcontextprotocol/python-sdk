@@ -70,7 +70,7 @@ class TestOAuthFlowClientCredentials:
         """Test token exchange request building with a predefined JWT assertion."""
         # Set up required context
         rfc7523_oauth_provider.context.client_info = OAuthClientInformationFull(
-            grant_types=["urn:ietf:params:oauth:grant-type:jwt-bearer"],
+            grant_types=["jwt-bearer"],
             token_endpoint_auth_method="private_key_jwt",
             redirect_uris=None,
             scope="read write",
@@ -96,7 +96,7 @@ class TestOAuthFlowClientCredentials:
 
         # Check form data
         content = urllib.parse.unquote_plus(request.content.decode())
-        assert "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer" in content
+        assert "grant_type=jwt-bearer" in content
         assert "scope=read write" in content
         assert "resource=https://api.example.com/v1/mcp" in content
         assert (
@@ -109,7 +109,7 @@ class TestOAuthFlowClientCredentials:
         """Test token exchange request building wiith a generated JWT assertion."""
         # Set up required context
         rfc7523_oauth_provider.context.client_info = OAuthClientInformationFull(
-            grant_types=["urn:ietf:params:oauth:grant-type:jwt-bearer"],
+            grant_types=["jwt-bearer"],
             token_endpoint_auth_method="private_key_jwt",
             redirect_uris=None,
             scope="read write",
@@ -143,7 +143,7 @@ class TestOAuthFlowClientCredentials:
 
         # Check form data
         content = urllib.parse.unquote_plus(request.content.decode()).split("&")
-        assert "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer" in content
+        assert "grant_type=jwt-bearer" in content
         assert "scope=read write" in content
         assert "resource=https://api.example.com/v1/mcp" in content
 

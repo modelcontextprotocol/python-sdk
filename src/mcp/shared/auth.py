@@ -54,7 +54,7 @@ class OAuthClientMetadata(BaseModel):
             "client_credentials",
             "token_exchange",
             "device_code",
-            "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            "jwt-bearer",
         ]
         | str
     ] = [

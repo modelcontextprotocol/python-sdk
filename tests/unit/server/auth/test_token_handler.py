@@ -61,9 +61,7 @@ class RefreshTokenProvider:
         assert token == "refresh-token"
         return self.refresh_token
 
-    async def exchange_refresh_token(
-        self, client_info: object, refresh_token: object, scopes: list[str]
-    ) -> OAuthToken:
+    async def exchange_refresh_token(self, client_info: object, refresh_token: object, scopes: list[str]) -> OAuthToken:
         return OAuthToken(access_token="refreshed-token")
 
 
