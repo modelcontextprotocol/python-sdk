@@ -103,13 +103,7 @@ class RefreshTokenProvider:
         assert token == "refresh-token"
         return self.refresh_token
 
-    async def exchange_refresh_token(
-      self,
-      client_info: object,
-      refresh_token:
-      object,
-      scopes: list[str]
-    ) -> OAuthToken:
+    async def exchange_refresh_token(self, client_info: object, refresh_token: object, scopes: list[str]) -> OAuthToken:
         return OAuthToken(access_token="refreshed-token")
 
 
@@ -362,10 +356,7 @@ async def test_handle_route_refresh_token_unrecognized_request(
 
     unknown_request = UnknownRequest()
 
-    def fake_model_validate(
-      cls: type[TokenRequest],
-      data: dict[str, object]
-    ) -> SimpleNamespace:  # type: ignore[unused-argument]
+    def fake_model_validate(cls: type[TokenRequest], data: dict[str, object]) -> SimpleNamespace:  # type: ignore[unused-argument]
         return SimpleNamespace(root=unknown_request)
 
     monkeypatch.setattr(TokenRequest, "model_validate", classmethod(fake_model_validate))
