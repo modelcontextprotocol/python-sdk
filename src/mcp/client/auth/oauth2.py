@@ -883,7 +883,7 @@ class TokenExchangeProvider(BaseOAuthProvider):
         self.actor_token_supplier = actor_token_supplier
         self.actor_token_type = actor_token_type
         self.audience = audience
-        self.resource = resource or resource_url_from_server_url(server_url)
+        self.resource: str | None = resource or resource_url_from_server_url(server_url)
         self._current_tokens: OAuthToken | None = None
         self._token_expiry_time: float | None = None
         self._token_lock = anyio.Lock()

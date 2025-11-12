@@ -695,7 +695,7 @@ async def test_token_exchange_request_token_excludes_resource_when_unset(monkeyp
             self.last_data = data
             return await super().post(url, data=data, headers=headers)
 
-    clients = [RecordingAsyncClient()]
+    clients: list[DummyAsyncClient] = [RecordingAsyncClient()]
     monkeypatch.setattr("mcp.client.auth.oauth2.httpx.AsyncClient", AsyncClientFactory(clients))
 
     await provider._request_token()
@@ -1111,7 +1111,10 @@ async def test_oauth_client_provider_metadata_discovery_skips_when_no_urls(monke
         self.context.current_tokens = token
         await self.context.storage.set_tokens(token)
 
-    provider._select_scopes = MethodType(lambda self, response: None, provider)
+    def fake_select_scopes(self: OAuthClientProvider, response: httpx.Response) -> None:
+        return None
+
+    provider._select_scopes = MethodType(fake_select_scopes, provider)
     monkeypatch.setattr(provider, "_build_protected_resource_discovery_urls", MethodType(fake_build_resource_urls, provider))
     monkeypatch.setattr(provider, "_handle_protected_resource_response", MethodType(fake_handle_resource, provider))
     monkeypatch.setattr(provider, "_get_discovery_urls", MethodType(fake_get_discovery_urls, provider))

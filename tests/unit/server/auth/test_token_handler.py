@@ -12,7 +12,6 @@ from mcp.server.auth.handlers.token import (
     AuthorizationCodeRequest,
     ClientCredentialsRequest,
     TokenErrorResponse,
-    TokenExchangeRequest,
     TokenHandler,
     TokenSuccessResponse,
 )
