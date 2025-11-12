@@ -227,9 +227,10 @@ class BaseOAuthProvider(httpx.Auth):
         if self._client_info:
             return None
 
-        if context and context.client_info:
-            self._client_info = context.client_info
-            return None
+        if metadata is not None:
+            if context and context.client_info:
+                self._client_info = context.client_info
+                return None
 
         # If we reach this point we don't yet have stored client information, so
         # proceed with building a dynamic registration request.
