@@ -700,7 +700,7 @@ async def test_token_exchange_request_token_excludes_resource_when_unset(monkeyp
 
     await provider._request_token()
 
-    recorded_client = clients[0]
+    recorded_client = cast(RecordingAsyncClient, clients[0])
     assert recorded_client.last_data is not None
     assert "resource" not in recorded_client.last_data
 
@@ -1115,7 +1115,9 @@ async def test_oauth_client_provider_metadata_discovery_skips_when_no_urls(monke
         return None
 
     provider._select_scopes = MethodType(fake_select_scopes, provider)
-    monkeypatch.setattr(provider, "_build_protected_resource_discovery_urls", MethodType(fake_build_resource_urls, provider))
+    monkeypatch.setattr(
+        provider, "_build_protected_resource_discovery_urls", MethodType(fake_build_resource_urls, provider)
+    )
     monkeypatch.setattr(provider, "_handle_protected_resource_response", MethodType(fake_handle_resource, provider))
     monkeypatch.setattr(provider, "_get_discovery_urls", MethodType(fake_get_discovery_urls, provider))
     monkeypatch.setattr(provider, "_perform_authorization", MethodType(fake_perform_authorization, provider))
@@ -1127,9 +1129,7 @@ async def test_oauth_client_provider_metadata_discovery_skips_when_no_urls(monke
     prepared_request = await anext(flow)
     assert "Authorization" not in prepared_request.headers
 
-    headers = {
-        "WWW-Authenticate": 'Bearer resource_metadata="https://resource.example.com/.well-known"'
-    }
+    headers = {"WWW-Authenticate": 'Bearer resource_metadata="https://resource.example.com/.well-known"'}
     first_response = httpx.Response(401, headers=headers, request=prepared_request)
 
     discovery_request = await flow.asend(first_response)
