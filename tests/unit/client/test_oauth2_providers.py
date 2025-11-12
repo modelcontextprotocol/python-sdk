@@ -1,7 +1,8 @@
 import base64
 import time
+from collections.abc import Iterator
 from types import SimpleNamespace, TracebackType
-from typing import Iterator, cast
+from typing import cast
 
 import httpx
 import pytest

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import anyio
-import pytest
 from types import TracebackType
 from typing import Any
+
+import anyio
+import pytest
 
 from mcp.client import stdio as stdio_module
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -22,7 +23,7 @@ class DummyProcess:
         self.stdin = DummyStdin()
         self.stdout = object()
 
-    async def __aenter__(self) -> "DummyProcess":
+    async def __aenter__(self) -> DummyProcess:
         return self
 
     async def __aexit__(
@@ -41,7 +42,7 @@ class BrokenPipeStream:
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         pass
 
-    def __aiter__(self) -> "BrokenPipeStream":
+    def __aiter__(self) -> BrokenPipeStream:
         return self
 
     async def __anext__(self) -> str:

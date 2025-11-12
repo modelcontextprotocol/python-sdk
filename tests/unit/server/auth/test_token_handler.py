@@ -153,6 +153,6 @@ async def test_handle_route_refresh_token_branch() -> None:
 
     assert response.status_code == 200
     body = response.body
-    assert isinstance(body, (bytes, bytearray, memoryview))
+    assert isinstance(body, bytes | bytearray | memoryview)
     payload = json.loads(bytes(body).decode())
     assert payload["access_token"] == "refreshed-token"
