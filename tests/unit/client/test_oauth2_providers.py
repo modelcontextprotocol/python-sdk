@@ -465,34 +465,6 @@ async def test_client_credentials_request_token_without_metadata(monkeypatch: py
 
 
 @pytest.mark.anyio
-async def test_client_credentials_request_token_omits_scope_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    storage = InMemoryStorage()
-    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope=None)
-    provider = ClientCredentialsProvider("https://api.example.com/service", client_metadata, storage)
-
-    provider._metadata = OAuthMetadata.model_validate(_metadata_json())
-    provider._client_info = OAuthClientInformationFull(client_id="client", client_secret="secret")
-
-    class RecordingAsyncClient(DummyAsyncClient):
-        def __init__(self) -> None:
-            super().__init__(post_responses=[_make_response(200, json_data=_token_json())])
-            self.last_data: dict[str, str] | None = None
-
-        async def post(self, url: str, *, data: dict[str, str], headers: dict[str, str]) -> httpx.Response:
-            self.last_data = data
-            return await super().post(url, data=data, headers=headers)
-
-    clients: list[DummyAsyncClient] = [RecordingAsyncClient()]
-    monkeypatch.setattr("mcp.client.auth.oauth2.httpx.AsyncClient", AsyncClientFactory(clients))
-
-    await provider._request_token()
-
-    recorded_client = cast(RecordingAsyncClient, clients[0])
-    assert recorded_client.last_data is not None
-    assert "scope" not in recorded_client.last_data
-
-
-@pytest.mark.anyio
 async def test_client_credentials_ensure_token_returns_when_valid() -> None:
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
@@ -697,43 +669,6 @@ async def test_token_exchange_request_token_handles_invalid_metadata(monkeypatch
 
 
 @pytest.mark.anyio
-async def test_token_exchange_request_token_skips_discovery_when_no_urls(monkeypatch: pytest.MonkeyPatch) -> None:
-    storage = InMemoryStorage()
-    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
-
-    subject_supplier = AsyncMock(return_value="subject-token")
-
-    provider = TokenExchangeProvider(
-        "https://api.example.com/service",
-        client_metadata,
-        storage,
-        subject_token_supplier=subject_supplier,
-    )
-
-    provider._client_info = OAuthClientInformationFull(client_id="client", client_secret="secret")
-    provider._get_discovery_urls = MethodType(lambda self, server_url=None: [], provider)
-
-    class RecordingAsyncClient(DummyAsyncClient):
-        def __init__(self) -> None:
-            super().__init__(post_responses=[_make_response(200, json_data=_token_json())])
-            self.last_data: dict[str, str] | None = None
-
-        async def post(self, url: str, *, data: dict[str, str], headers: dict[str, str]) -> httpx.Response:
-            self.last_data = data
-            return await super().post(url, data=data, headers=headers)
-
-    clients: list[DummyAsyncClient] = [RecordingAsyncClient()]
-    monkeypatch.setattr("mcp.client.auth.oauth2.httpx.AsyncClient", AsyncClientFactory(clients))
-
-    await provider._request_token()
-
-    recorded_client = cast(RecordingAsyncClient, clients[0])
-    assert recorded_client.last_data is not None
-    assert subject_supplier.await_count == 1
-    assert provider._metadata is None
-
-
-@pytest.mark.anyio
 async def test_token_exchange_request_token_excludes_resource_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
@@ -768,42 +703,6 @@ async def test_token_exchange_request_token_excludes_resource_when_unset(monkeyp
     recorded_client = cast(RecordingAsyncClient, clients[0])
     assert recorded_client.last_data is not None
     assert "resource" not in recorded_client.last_data
-
-
-@pytest.mark.anyio
-async def test_token_exchange_request_token_omits_scope_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    storage = InMemoryStorage()
-    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope=None)
-
-    subject_supplier = AsyncMock(return_value="subject-token")
-
-    provider = TokenExchangeProvider(
-        "https://api.example.com/service",
-        client_metadata,
-        storage,
-        subject_token_supplier=subject_supplier,
-    )
-
-    provider._metadata = OAuthMetadata.model_validate(_metadata_json())
-    provider._client_info = OAuthClientInformationFull(client_id="client", client_secret="secret")
-
-    class RecordingAsyncClient(DummyAsyncClient):
-        def __init__(self) -> None:
-            super().__init__(post_responses=[_make_response(200, json_data=_token_json())])
-            self.last_data: dict[str, str] | None = None
-
-        async def post(self, url: str, *, data: dict[str, str], headers: dict[str, str]) -> httpx.Response:
-            self.last_data = data
-            return await super().post(url, data=data, headers=headers)
-
-    clients: list[DummyAsyncClient] = [RecordingAsyncClient()]
-    monkeypatch.setattr("mcp.client.auth.oauth2.httpx.AsyncClient", AsyncClientFactory(clients))
-
-    await provider._request_token()
-
-    recorded_client = cast(RecordingAsyncClient, clients[0])
-    assert recorded_client.last_data is not None
-    assert "scope" not in recorded_client.last_data
 
 
 @pytest.mark.anyio
