@@ -383,3 +383,173 @@ async def test_delete_task_not_found():
                         assert "Failed to delete task" in str(e) or str(types.INVALID_PARAMS) in str(e)
             finally:
                 tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_get_task_without_capability():
+    """Test GetTaskRequest fails when client hasn't announced tasks capability."""
+    task_store = InMemoryTaskStore()
+    server = Server("test", task_store=task_store)
+
+    # Create a task in the store
+    task_id = "test-task-999"
+    task_meta = types.TaskMetadata(taskId=task_id)
+    request = types.ClientRequest(types.PingRequest())
+    await task_store.create_task(task_meta, "req-1", request.root)
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(
+                lambda: server.run(
+                    server_read,
+                    server_write,
+                    server.create_initialization_options(),
+                )
+            )
+
+            try:
+                async with ClientSession(
+                    read_stream=client_read,
+                    write_stream=client_write,
+                    # No task_store - client won't announce tasks capability
+                ) as client_session:
+                    await client_session.initialize()
+
+                    # Try to send GetTaskRequest
+                    try:
+                        await client_session.send_request(
+                            types.ClientRequest(types.GetTaskRequest(params=types.GetTaskParams(taskId=task_id))),
+                            types.GetTaskResult,
+                        )
+                        assert False, "Should have raised McpError"
+                    except Exception as e:
+                        assert "not announced tasks capability" in str(e) or str(types.INVALID_REQUEST) in str(e)
+            finally:
+                tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_get_task_payload_without_capability():
+    """Test GetTaskPayloadRequest fails when client hasn't announced tasks capability."""
+    task_store = InMemoryTaskStore()
+    server = Server("test", task_store=task_store)
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(
+                lambda: server.run(
+                    server_read,
+                    server_write,
+                    server.create_initialization_options(),
+                )
+            )
+
+            try:
+                async with ClientSession(
+                    read_stream=client_read,
+                    write_stream=client_write,
+                    # No task_store - client won't announce tasks capability
+                ) as client_session:
+                    await client_session.initialize()
+
+                    # Try to send GetTaskPayloadRequest
+                    try:
+                        await client_session.send_request(
+                            types.ClientRequest(
+                                types.GetTaskPayloadRequest(params=types.GetTaskPayloadParams(taskId="some-task"))
+                            ),
+                            types.ServerResult,
+                        )
+                        assert False, "Should have raised McpError"
+                    except Exception as e:
+                        assert "not announced tasks capability" in str(e) or str(types.INVALID_REQUEST) in str(e)
+            finally:
+                tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_list_tasks_without_capability():
+    """Test ListTasksRequest fails when client hasn't announced tasks capability."""
+    task_store = InMemoryTaskStore()
+    server = Server("test", task_store=task_store)
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(
+                lambda: server.run(
+                    server_read,
+                    server_write,
+                    server.create_initialization_options(),
+                )
+            )
+
+            try:
+                async with ClientSession(
+                    read_stream=client_read,
+                    write_stream=client_write,
+                    # No task_store - client won't announce tasks capability
+                ) as client_session:
+                    await client_session.initialize()
+
+                    # Try to send ListTasksRequest
+                    try:
+                        await client_session.send_request(
+                            types.ClientRequest(types.ListTasksRequest()),
+                            types.ListTasksResult,
+                        )
+                        assert False, "Should have raised McpError"
+                    except Exception as e:
+                        assert "not announced tasks capability" in str(e) or str(types.INVALID_REQUEST) in str(e)
+            finally:
+                tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_delete_task_without_capability():
+    """Test DeleteTaskRequest fails when client hasn't announced tasks capability."""
+    task_store = InMemoryTaskStore()
+    server = Server("test", task_store=task_store)
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(
+                lambda: server.run(
+                    server_read,
+                    server_write,
+                    server.create_initialization_options(),
+                )
+            )
+
+            try:
+                async with ClientSession(
+                    read_stream=client_read,
+                    write_stream=client_write,
+                    # No task_store - client won't announce tasks capability
+                ) as client_session:
+                    await client_session.initialize()
+
+                    # Try to send DeleteTaskRequest
+                    try:
+                        await client_session.send_request(
+                            types.ClientRequest(
+                                types.DeleteTaskRequest(params=types.DeleteTaskParams(taskId="some-task"))
+                            ),
+                            types.EmptyResult,
+                        )
+                        assert False, "Should have raised McpError"
+                    except Exception as e:
+                        assert "not announced tasks capability" in str(e) or str(types.INVALID_REQUEST) in str(e)
+            finally:
+                tg.cancel_scope.cancel()
