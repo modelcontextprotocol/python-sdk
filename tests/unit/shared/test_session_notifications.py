@@ -34,8 +34,10 @@ async def test_send_notification_discards_when_stream_closed() -> None:
     original_write_stream = session._write_stream
     session._write_stream = BrokenSendStream(anyio.BrokenResourceError())  # type: ignore[assignment]
 
-    notification = types.LoggingMessageNotification(
-        params=types.LoggingMessageNotificationParams(level="info", data="message"),
+    notification = types.ServerNotification(
+        types.LoggingMessageNotification(
+            params=types.LoggingMessageNotificationParams(level="info", data="message"),
+        )
     )
 
     await session.send_notification(notification, related_request_id=7)
