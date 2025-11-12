@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import time
+from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -105,11 +106,11 @@ class RefreshTokenProvider:
 
 
 class DummyRequest:
-    def __init__(self, data: dict[str, str]) -> None:
-        self._data = data
+    def __init__(self, data: Mapping[str, str | None]) -> None:
+        self._data = dict(data)
 
-    async def form(self) -> dict[str, str]:
-        return self._data
+    async def form(self) -> dict[str, str | None]:
+        return dict(self._data)
 
 
 @pytest.mark.anyio

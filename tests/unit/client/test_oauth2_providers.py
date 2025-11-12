@@ -735,9 +735,7 @@ async def test_token_exchange_request_token_skips_client_error_and_omits_scope(
             super().__init__(post_responses=[_make_response(200, json_data=_token_json())])
             self.last_data: dict[str, str] | None = None
 
-        async def post(
-            self, url: str, *, data: dict[str, str], headers: dict[str, str]
-        ) -> httpx.Response:
+        async def post(self, url: str, *, data: dict[str, str], headers: dict[str, str]) -> httpx.Response:
             self.last_data = data
             return await super().post(url, data=data, headers=headers)
 
