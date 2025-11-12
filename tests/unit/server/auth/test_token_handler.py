@@ -3,8 +3,10 @@ import hashlib
 import json
 import time
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
+from starlette.requests import Request
 
 from mcp.server.auth.handlers.token import (
     AuthorizationCodeRequest,
@@ -13,7 +15,8 @@ from mcp.server.auth.handlers.token import (
     TokenHandler,
     TokenSuccessResponse,
 )
-from mcp.server.auth.provider import TokenError
+from mcp.server.auth.middleware.client_auth import ClientAuthenticator
+from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenError
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 
@@ -21,7 +24,7 @@ class DummyAuthenticator:
     def __init__(self, client_info: OAuthClientInformationFull) -> None:
         self._client_info = client_info
 
-    async def authenticate(self, *, client_id: str, client_secret: str | None) -> OAuthClientInformationFull:
+    async def authenticate(self, client_id: str, client_secret: str | None) -> OAuthClientInformationFull:
         return self._client_info
 
 
@@ -81,7 +84,10 @@ async def test_handle_authorization_code_with_implicit_redirect() -> None:
 
     provider = AuthorizationCodeProvider(expected_code="auth-code", code_challenge=code_challenge)
     client_info = OAuthClientInformationFull(client_id="client", grant_types=["authorization_code"])
-    handler = TokenHandler(provider=provider, client_authenticator=DummyAuthenticator(client_info))
+    handler = TokenHandler(
+        provider=cast(OAuthAuthorizationServerProvider[Any, Any, Any], provider),
+        client_authenticator=cast(ClientAuthenticator, DummyAuthenticator(client_info)),
+    )
 
     request = AuthorizationCodeRequest(
         grant_type="authorization_code",
@@ -103,7 +109,10 @@ async def test_handle_authorization_code_with_implicit_redirect() -> None:
 async def test_handle_client_credentials_returns_token_error() -> None:
     provider = ClientCredentialsProviderWithError()
     client_info = OAuthClientInformationFull(client_id="client", grant_types=["client_credentials"], scope="")
-    handler = TokenHandler(provider=provider, client_authenticator=DummyAuthenticator(client_info))
+    handler = TokenHandler(
+        provider=cast(OAuthAuthorizationServerProvider[Any, Any, Any], provider),
+        client_authenticator=cast(ClientAuthenticator, DummyAuthenticator(client_info)),
+    )
 
     request = ClientCredentialsRequest(
         grant_type="client_credentials",
@@ -127,7 +136,10 @@ async def test_handle_route_refresh_token_branch() -> None:
         grant_types=["refresh_token"],
         scope="alpha",
     )
-    handler = TokenHandler(provider=provider, client_authenticator=DummyAuthenticator(client_info))
+    handler = TokenHandler(
+        provider=cast(OAuthAuthorizationServerProvider[Any, Any, Any], provider),
+        client_authenticator=cast(ClientAuthenticator, DummyAuthenticator(client_info)),
+    )
 
     request_data = {
         "grant_type": "refresh_token",
@@ -137,8 +149,10 @@ async def test_handle_route_refresh_token_branch() -> None:
         "client_secret": "secret",
     }
 
-    response = await handler.handle(DummyRequest(request_data))
+    response = await handler.handle(cast(Request, DummyRequest(request_data)))
 
     assert response.status_code == 200
-    payload = json.loads(response.body.decode())
+    body = response.body
+    assert isinstance(body, (bytes, bytearray, memoryview))
+    payload = json.loads(bytes(body).decode())
     assert payload["access_token"] == "refreshed-token"

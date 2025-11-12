@@ -18,7 +18,13 @@ async def test_send_notification_discards_when_stream_closed() -> None:
     read_sender, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     write_stream, write_reader = anyio.create_memory_object_stream[SessionMessage](1)
 
-    session = BaseSession(
+    session: BaseSession[
+        types.ClientRequest,
+        types.ServerNotification,
+        types.ClientResult,
+        types.ServerRequest,
+        types.ServerNotification,
+    ] = BaseSession(
         read_stream,
         write_stream,
         types.ServerRequest,

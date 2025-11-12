@@ -1,9 +1,11 @@
 import base64
 import time
-from types import SimpleNamespace
+from types import SimpleNamespace, TracebackType
+from typing import Iterator, cast
 
 import httpx
 import pytest
+from pydantic import AnyUrl
 
 from mcp.client.auth.oauth2 import (
     ClientCredentialsProvider,
@@ -49,7 +51,12 @@ class DummyAsyncClient:
     async def __aenter__(self) -> "DummyAsyncClient":
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool | None:
         return None
 
     async def send(self, request: httpx.Request) -> httpx.Response:
@@ -63,10 +70,14 @@ class DummyAsyncClient:
 
 class AsyncClientFactory:
     def __init__(self, clients: list[DummyAsyncClient]) -> None:
-        self._clients = iter(clients)
+        self._clients: Iterator[DummyAsyncClient] = iter(clients)
 
-    def __call__(self, *args, **kwargs) -> DummyAsyncClient:
+    def __call__(self, *args: object, **kwargs: object) -> DummyAsyncClient:
         return next(self._clients)
+
+
+def _redirect_uris() -> list[AnyUrl]:
+    return cast(list[AnyUrl], ["https://client.example.com/callback"])
 
 
 def _metadata_json() -> dict[str, object]:
@@ -107,7 +118,7 @@ def _make_response(status: int, *, json_data: dict[str, object] | None = None) -
 @pytest.mark.anyio
 async def test_handle_oauth_metadata_response_sets_scope() -> None:
     storage = InMemoryStorage()
-    metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"])
+    metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
     provider = ClientCredentialsProvider(
         "https://api.example.com/service",
         metadata,
@@ -130,7 +141,7 @@ async def test_client_credentials_initialize_loads_cached_values() -> None:
     storage.tokens = stored_token
     storage.client_info = stored_client
 
-    metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"])
+    metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
     provider = ClientCredentialsProvider("https://api.example.com/service", metadata, storage)
 
     await provider.initialize()
@@ -141,7 +152,7 @@ async def test_client_credentials_initialize_loads_cached_values() -> None:
 
 def test_create_registration_request_uses_cached_client_info() -> None:
     storage = InMemoryStorage()
-    metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"])
+    metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
     provider = ClientCredentialsProvider(
         "https://api.example.com/service",
         metadata,
@@ -155,7 +166,7 @@ def test_create_registration_request_uses_cached_client_info() -> None:
 
 def test_create_registration_request_uses_context() -> None:
     storage = InMemoryStorage()
-    metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"])
+    metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
     provider = ClientCredentialsProvider(
         "https://api.example.com/service",
         metadata,
@@ -172,7 +183,7 @@ def test_create_registration_request_uses_context() -> None:
 
 def test_create_registration_request_builds_url_from_metadata() -> None:
     storage = InMemoryStorage()
-    metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"])
+    metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
     provider = ClientCredentialsProvider(
         "https://api.example.com/service",
         metadata,
@@ -187,7 +198,7 @@ def test_create_registration_request_builds_url_from_metadata() -> None:
 
 def test_create_registration_request_builds_url_from_server() -> None:
     storage = InMemoryStorage()
-    metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"])
+    metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
     provider = ClientCredentialsProvider(
         "https://api.example.com/service/path",
         metadata,
@@ -201,7 +212,7 @@ def test_create_registration_request_builds_url_from_server() -> None:
 
 def test_apply_client_auth_requires_client_id() -> None:
     storage = InMemoryStorage()
-    metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"])
+    metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
     provider = ClientCredentialsProvider("https://api.example.com/service", metadata, storage)
 
     with pytest.raises(OAuthFlowError):
@@ -210,7 +221,7 @@ def test_apply_client_auth_requires_client_id() -> None:
 
 def test_apply_client_auth_basic() -> None:
     storage = InMemoryStorage()
-    metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"])
+    metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
     provider = ClientCredentialsProvider("https://api.example.com/service", metadata, storage)
     provider._metadata = OAuthMetadata.model_validate(
         {**_metadata_json(), "token_endpoint_auth_methods_supported": ["client_secret_basic"]}
@@ -229,7 +240,7 @@ def test_apply_client_auth_basic() -> None:
 
 def test_apply_client_auth_basic_requires_secret() -> None:
     storage = InMemoryStorage()
-    metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"])
+    metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
     provider = ClientCredentialsProvider("https://api.example.com/service", metadata, storage)
     provider._metadata = OAuthMetadata.model_validate(
         {**_metadata_json(), "token_endpoint_auth_methods_supported": ["client_secret_basic"]}
@@ -241,7 +252,7 @@ def test_apply_client_auth_basic_requires_secret() -> None:
 
 def test_apply_client_auth_post_method() -> None:
     storage = InMemoryStorage()
-    metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"])
+    metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
     provider = ClientCredentialsProvider("https://api.example.com/service", metadata, storage)
     provider._metadata = OAuthMetadata.model_validate(
         {**_metadata_json(), "token_endpoint_auth_methods_supported": ["client_secret_post"]}
@@ -259,9 +270,9 @@ def test_apply_client_auth_post_method() -> None:
 
 
 @pytest.mark.anyio
-async def test_client_credentials_request_token_with_metadata(monkeypatch) -> None:
+async def test_client_credentials_request_token_with_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     storage = InMemoryStorage()
-    client_metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"])
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
     provider = ClientCredentialsProvider("https://api.example.com/service", client_metadata, storage)
 
     metadata_response = _make_response(200, json_data=_metadata_json())
@@ -286,9 +297,9 @@ async def test_client_credentials_request_token_with_metadata(monkeypatch) -> No
 
 
 @pytest.mark.anyio
-async def test_client_credentials_request_token_without_metadata(monkeypatch) -> None:
+async def test_client_credentials_request_token_without_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     storage = InMemoryStorage()
-    client_metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"], scope="alpha")
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope="alpha")
     provider = ClientCredentialsProvider("https://api.example.com/service", client_metadata, storage)
 
     metadata_responses = [_make_response(404) for _ in range(4)]
@@ -312,7 +323,7 @@ async def test_client_credentials_request_token_without_metadata(monkeypatch) ->
 @pytest.mark.anyio
 async def test_client_credentials_ensure_token_returns_when_valid() -> None:
     storage = InMemoryStorage()
-    client_metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"])
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
     provider = ClientCredentialsProvider("https://api.example.com/service", client_metadata, storage)
     provider._current_tokens = OAuthToken(access_token="token")
     provider._token_expiry_time = time.time() + 60
@@ -334,7 +345,7 @@ async def test_client_credentials_ensure_token_returns_when_valid() -> None:
 @pytest.mark.anyio
 async def test_client_credentials_validate_token_scopes_rejects_extra() -> None:
     storage = InMemoryStorage()
-    client_metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"], scope="alpha")
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope="alpha")
     provider = ClientCredentialsProvider("https://api.example.com/service", client_metadata, storage)
 
     token = OAuthToken(access_token="token", scope="alpha beta")
@@ -346,7 +357,7 @@ async def test_client_credentials_validate_token_scopes_rejects_extra() -> None:
 @pytest.mark.anyio
 async def test_client_credentials_validate_token_scopes_accepts_server_defined() -> None:
     storage = InMemoryStorage()
-    client_metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"], scope=None)
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope=None)
     provider = ClientCredentialsProvider("https://api.example.com/service", client_metadata, storage)
 
     token = OAuthToken(access_token="token", scope="delta")
@@ -355,9 +366,9 @@ async def test_client_credentials_validate_token_scopes_accepts_server_defined()
 
 
 @pytest.mark.anyio
-async def test_client_credentials_async_auth_flow_handles_401(monkeypatch) -> None:
+async def test_client_credentials_async_auth_flow_handles_401(monkeypatch: pytest.MonkeyPatch) -> None:
     storage = InMemoryStorage()
-    client_metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"])
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
     provider = ClientCredentialsProvider("https://api.example.com/service", client_metadata, storage)
 
     async def fake_initialize() -> None:
@@ -372,7 +383,7 @@ async def test_client_credentials_async_auth_flow_handles_401(monkeypatch) -> No
     request = httpx.Request("GET", "https://api.example.com/resource")
     flow = provider.async_auth_flow(request)
 
-    prepared_request = await flow.asend(None)
+    prepared_request = await anext(flow)
     assert prepared_request.headers["Authorization"] == "Bearer flow-token"
 
     response = httpx.Response(401, request=prepared_request)
@@ -383,9 +394,9 @@ async def test_client_credentials_async_auth_flow_handles_401(monkeypatch) -> No
 
 
 @pytest.mark.anyio
-async def test_token_exchange_request_token(monkeypatch) -> None:
+async def test_token_exchange_request_token(monkeypatch: pytest.MonkeyPatch) -> None:
     storage = InMemoryStorage()
-    client_metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"], scope="alpha")
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope="alpha")
 
     async def provide_subject() -> str:
         return "subject-token"
@@ -432,7 +443,7 @@ async def test_token_exchange_initialize_loads_cached_values() -> None:
     storage.tokens = stored_token
     storage.client_info = stored_client
 
-    client_metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"])
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
 
     async def provide_subject() -> str:
         return "subject-token"
@@ -453,7 +464,7 @@ async def test_token_exchange_initialize_loads_cached_values() -> None:
 @pytest.mark.anyio
 async def test_token_exchange_validate_token_scopes_rejects_extra() -> None:
     storage = InMemoryStorage()
-    client_metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"], scope="alpha")
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope="alpha")
 
     async def provide_subject() -> str:
         return "subject-token"
@@ -474,7 +485,7 @@ async def test_token_exchange_validate_token_scopes_rejects_extra() -> None:
 @pytest.mark.anyio
 async def test_token_exchange_validate_token_scopes_accepts_server_defined() -> None:
     storage = InMemoryStorage()
-    client_metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"], scope=None)
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope=None)
 
     async def provide_subject() -> str:
         return "subject-token"
@@ -492,9 +503,9 @@ async def test_token_exchange_validate_token_scopes_accepts_server_defined() -> 
 
 
 @pytest.mark.anyio
-async def test_token_exchange_async_auth_flow_handles_401(monkeypatch) -> None:
+async def test_token_exchange_async_auth_flow_handles_401(monkeypatch: pytest.MonkeyPatch) -> None:
     storage = InMemoryStorage()
-    client_metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"])
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
 
     async def provide_subject() -> str:
         return "subject-token"
@@ -518,7 +529,7 @@ async def test_token_exchange_async_auth_flow_handles_401(monkeypatch) -> None:
     request = httpx.Request("GET", "https://api.example.com/resource")
     flow = provider.async_auth_flow(request)
 
-    prepared_request = await flow.asend(None)
+    prepared_request = await anext(flow)
     assert prepared_request.headers["Authorization"] == "Bearer flow-token"
 
     response = httpx.Response(401, request=prepared_request)
@@ -531,7 +542,7 @@ async def test_token_exchange_async_auth_flow_handles_401(monkeypatch) -> None:
 @pytest.mark.anyio
 async def test_token_exchange_ensure_token_returns_when_valid() -> None:
     storage = InMemoryStorage()
-    client_metadata = OAuthClientMetadata(redirect_uris=["https://client.example.com/callback"])
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
 
     async def provide_subject() -> str:
         return "subject-token"
