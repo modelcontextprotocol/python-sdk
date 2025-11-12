@@ -1108,7 +1108,7 @@ async def test_streamablehttp_client_session_termination_204(
 @pytest.mark.anyio
 @pytest.mark.skipif(sys.platform == "win32", reason="Resumption unstable on Windows")
 async def test_streamablehttp_client_resumption(  # pragma: no cover - skipped on Windows builds
-    event_server: tuple[SimpleEventStore, str]
+    event_server: tuple[SimpleEventStore, str],
 ):
     """Test client session resumption using sync primitives for reliable coordination."""
     _, server_url = event_server
