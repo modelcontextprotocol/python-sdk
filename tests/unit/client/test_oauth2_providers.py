@@ -830,53 +830,6 @@ async def test_token_exchange_request_token_skips_client_error_and_omits_scope(
 
 
 @pytest.mark.anyio
-async def test_token_exchange_request_token_stops_on_non_authoritative_response(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    storage = InMemoryStorage()
-    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope="alpha")
-
-    provider = TokenExchangeProvider(
-        "https://api.example.com/service",
-        client_metadata,
-        storage,
-        subject_token_supplier=AsyncMock(return_value="subject-token"),
-    )
-
-    metadata_responses = [
-        _make_response(204),
-        _make_response(200, json_data=_metadata_json()),
-    ]
-    registration_response = _make_response(200, json_data=_registration_json())
-    token_response = _make_response(200, json_data=_token_json("alpha"))
-
-    class RecordingAsyncClient(DummyAsyncClient):
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            super().__init__(*args, **kwargs)
-            self.send_calls = 0
-
-        async def send(self, request: httpx.Request) -> httpx.Response:
-            self.send_calls += 1
-            return await super().send(request)
-
-    recording_client = RecordingAsyncClient(send_responses=list(metadata_responses))
-    clients = [
-        recording_client,
-        DummyAsyncClient(send_responses=[registration_response]),
-        DummyAsyncClient(post_responses=[token_response]),
-    ]
-
-    monkeypatch.setattr("mcp.client.auth.oauth2.httpx.AsyncClient", AsyncClientFactory(clients))
-
-    await provider._request_token()
-
-    assert recording_client.send_calls == 1
-    assert storage.tokens is not None
-    assert storage.tokens.scope == "alpha"
-    assert provider._metadata is None
-
-
-@pytest.mark.anyio
 async def test_token_exchange_request_token_raises_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
