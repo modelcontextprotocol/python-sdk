@@ -105,7 +105,7 @@ class TestFileResource:
 @pytest.mark.anyio
 async def test_permission_error(temp_file: Path):
     """Test reading a file without permissions."""
-    if os.geteuid() == 0:
+    if os.geteuid() == 0:  # pragma: no cover
         pytest.skip("Permission test not reliable when running as root")
     temp_file.chmod(0o000)  # Remove all permissions
     try:
