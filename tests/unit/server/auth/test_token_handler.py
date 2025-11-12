@@ -12,6 +12,7 @@ from mcp.server.auth.handlers.token import (
     AuthorizationCodeRequest,
     ClientCredentialsRequest,
     TokenErrorResponse,
+    TokenExchangeRequest,
     TokenHandler,
     TokenSuccessResponse,
 )
@@ -50,6 +51,33 @@ class AuthorizationCodeProvider:
 class ClientCredentialsProviderWithError:
     async def exchange_client_credentials(self, client_info: object, scopes: list[str]) -> OAuthToken:
         raise TokenError(error="invalid_client", error_description="bad credentials")
+
+
+class TokenExchangeProviderStub:
+    def __init__(self) -> None:
+        self.last_call: dict[str, Any] | None = None
+
+    async def exchange_token(
+        self,
+        client_info: object,
+        subject_token: str,
+        subject_token_type: str,
+        actor_token: str | None,
+        actor_token_type: str | None,
+        scopes: list[str],
+        audience: str | None,
+        resource: str | None,
+    ) -> OAuthToken:
+        self.last_call = {
+            "subject_token": subject_token,
+            "subject_token_type": subject_token_type,
+            "actor_token": actor_token,
+            "actor_token_type": actor_token_type,
+            "scopes": scopes,
+            "audience": audience,
+            "resource": resource,
+        }
+        return OAuthToken(access_token="exchanged-token")
 
 
 class RefreshTokenProvider:
@@ -156,3 +184,45 @@ async def test_handle_route_refresh_token_branch() -> None:
     assert isinstance(body, bytes | bytearray | memoryview)
     payload = json.loads(bytes(body).decode())
     assert payload["access_token"] == "refreshed-token"
+
+
+@pytest.mark.anyio
+async def test_handle_route_token_exchange_branch() -> None:
+    provider = TokenExchangeProviderStub()
+    client_info = OAuthClientInformationFull(
+        client_id="client",
+        grant_types=["token_exchange"],
+        scope="alpha beta",
+    )
+    handler = TokenHandler(
+        provider=cast(OAuthAuthorizationServerProvider[Any, Any, Any], provider),
+        client_authenticator=cast(ClientAuthenticator, DummyAuthenticator(client_info)),
+    )
+
+    request_data = {
+        "grant_type": "token_exchange",
+        "subject_token": "subject-token",
+        "subject_token_type": "access_token",
+        "actor_token": "actor-token",
+        "actor_token_type": "jwt",
+        "scope": "alpha beta",
+        "audience": "https://audience.example.com",
+        "resource": "https://resource.example.com",
+        "client_id": "client",
+        "client_secret": "secret",
+    }
+
+    response = await handler.handle(cast(Request, DummyRequest(request_data)))
+
+    assert response.status_code == 200
+    payload = json.loads(bytes(response.body).decode())
+    assert payload["access_token"] == "exchanged-token"
+    assert provider.last_call == {
+        "subject_token": "subject-token",
+        "subject_token_type": "access_token",
+        "actor_token": "actor-token",
+        "actor_token_type": "jwt",
+        "scopes": ["alpha", "beta"],
+        "audience": "https://audience.example.com",
+        "resource": "https://resource.example.com",
+    }

@@ -294,6 +294,24 @@ def test_apply_client_auth_prefers_post_when_supported() -> None:
     assert "Authorization" not in headers
 
 
+def test_apply_client_auth_defaults_when_metadata_omits_supported_methods() -> None:
+    storage = InMemoryStorage()
+    metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
+    provider = ClientCredentialsProvider("https://api.example.com/service", metadata, storage)
+    provider._metadata = OAuthMetadata.model_validate(
+        {**_metadata_json(), "token_endpoint_auth_methods_supported": ["none"]}
+    )
+
+    token_data: dict[str, str] = {}
+    headers: dict[str, str] = {}
+    client_info = OAuthClientInformationFull(client_id="client", client_secret="secret")
+
+    provider._apply_client_auth(token_data, headers, client_info)
+
+    assert token_data == {"client_id": "client", "client_secret": "secret"}
+    assert headers == {}
+
+
 @pytest.mark.anyio
 async def test_client_credentials_request_token_with_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     storage = InMemoryStorage()
@@ -357,6 +375,26 @@ async def test_client_credentials_get_or_register_client(monkeypatch: pytest.Mon
 
     assert client_info.client_id == "client-id"
     assert storage.client_info is client_info
+
+
+@pytest.mark.anyio
+async def test_client_credentials_get_or_register_client_skips_request_when_not_needed() -> None:
+    storage = InMemoryStorage()
+    metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
+    provider = ClientCredentialsProvider("https://api.example.com/service", metadata, storage)
+
+    def fake_create_registration_request(
+        self: ClientCredentialsProvider, metadata: OAuthMetadata | None
+    ) -> httpx.Request | None:
+        self._client_info = OAuthClientInformationFull(client_id="existing-client")
+        return None
+
+    provider._metadata = OAuthMetadata.model_validate(_metadata_json())
+    provider._create_registration_request = MethodType(fake_create_registration_request, provider)
+
+    client_info = await provider._get_or_register_client()
+
+    assert client_info.client_id == "existing-client"
 
 
 @pytest.mark.anyio
@@ -515,6 +553,32 @@ async def test_client_credentials_async_auth_flow_with_cached_token() -> None:
 
 
 @pytest.mark.anyio
+async def test_client_credentials_async_auth_flow_without_access_token_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    storage = InMemoryStorage()
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
+    provider = ClientCredentialsProvider("https://api.example.com/service", client_metadata, storage)
+
+    async def fake_initialize() -> None:
+        provider._current_tokens = None
+
+    async def fake_ensure_token() -> None:
+        provider._current_tokens = None
+
+    provider.initialize = fake_initialize  # type: ignore[assignment]
+    provider.ensure_token = fake_ensure_token  # type: ignore[assignment]
+
+    request = httpx.Request("GET", "https://api.example.com/resource")
+    flow = provider.async_auth_flow(request)
+
+    prepared_request = await anext(flow)
+    assert "Authorization" not in prepared_request.headers
+
+    response = httpx.Response(200, request=prepared_request)
+    with pytest.raises(StopAsyncIteration):
+        await flow.asend(response)
+
+
+@pytest.mark.anyio
 async def test_token_exchange_request_token(monkeypatch: pytest.MonkeyPatch) -> None:
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope="alpha")
@@ -602,6 +666,43 @@ async def test_token_exchange_request_token_handles_invalid_metadata(monkeypatch
     assert provider._token_expiry_time is None
     subject_supplier.assert_awaited_once()
     actor_supplier.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_token_exchange_request_token_excludes_resource_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    storage = InMemoryStorage()
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
+
+    subject_supplier = AsyncMock(return_value="subject-token")
+
+    provider = TokenExchangeProvider(
+        "https://api.example.com/service",
+        client_metadata,
+        storage,
+        subject_token_supplier=subject_supplier,
+    )
+
+    provider._metadata = OAuthMetadata.model_validate(_metadata_json())
+    provider._client_info = OAuthClientInformationFull(client_id="client", client_secret="secret")
+    provider.resource = None
+
+    class RecordingAsyncClient(DummyAsyncClient):
+        def __init__(self) -> None:
+            super().__init__(post_responses=[_make_response(200, json_data=_token_json())])
+            self.last_data: dict[str, str] | None = None
+
+        async def post(self, url: str, *, data: dict[str, str], headers: dict[str, str]) -> httpx.Response:
+            self.last_data = data
+            return await super().post(url, data=data, headers=headers)
+
+    clients = [RecordingAsyncClient()]
+    monkeypatch.setattr("mcp.client.auth.oauth2.httpx.AsyncClient", AsyncClientFactory(clients))
+
+    await provider._request_token()
+
+    recorded_client = clients[0]
+    assert recorded_client.last_data is not None
+    assert "resource" not in recorded_client.last_data
 
 
 @pytest.mark.anyio
@@ -801,6 +902,64 @@ async def test_token_exchange_async_auth_flow_with_cached_token() -> None:
 
 
 @pytest.mark.anyio
+async def test_token_exchange_async_auth_flow_without_access_token_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    storage = InMemoryStorage()
+    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
+
+    provider = TokenExchangeProvider(
+        "https://api.example.com/service",
+        client_metadata,
+        storage,
+        subject_token_supplier=AsyncMock(return_value="subject-token"),
+    )
+
+    async def fake_initialize() -> None:
+        provider._current_tokens = None
+
+    async def fake_ensure_token() -> None:
+        provider._current_tokens = None
+
+    provider.initialize = fake_initialize  # type: ignore[assignment]
+    provider.ensure_token = fake_ensure_token  # type: ignore[assignment]
+
+    request = httpx.Request("GET", "https://api.example.com/resource")
+    flow = provider.async_auth_flow(request)
+
+    prepared_request = await anext(flow)
+    assert "Authorization" not in prepared_request.headers
+
+    response = httpx.Response(200, request=prepared_request)
+    with pytest.raises(StopAsyncIteration):
+        await flow.asend(response)
+
+
+@pytest.mark.anyio
+async def test_token_exchange_get_or_register_client_skips_request_when_not_needed() -> None:
+    storage = InMemoryStorage()
+    metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
+
+    provider = TokenExchangeProvider(
+        "https://api.example.com/service",
+        metadata,
+        storage,
+        subject_token_supplier=AsyncMock(return_value="subject-token"),
+    )
+
+    def fake_create_registration_request(
+        self: TokenExchangeProvider, metadata: OAuthMetadata | None
+    ) -> httpx.Request | None:
+        self._client_info = OAuthClientInformationFull(client_id="existing-client")
+        return None
+
+    provider._metadata = OAuthMetadata.model_validate(_metadata_json())
+    provider._create_registration_request = MethodType(fake_create_registration_request, provider)
+
+    client_info = await provider._get_or_register_client()
+
+    assert client_info.client_id == "existing-client"
+
+
+@pytest.mark.anyio
 async def test_token_exchange_ensure_token_returns_when_valid() -> None:
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
@@ -913,6 +1072,70 @@ async def test_oauth_client_provider_performs_full_flow(monkeypatch: pytest.Monk
     token_request = await flow.asend(registration_response)
     token_response = httpx.Response(200, request=token_request)
 
+    retry_request = await flow.asend(token_response)
+    assert retry_request.headers["Authorization"] == "Bearer flow-token"
+
+    final_response = httpx.Response(200, request=retry_request)
+    with pytest.raises(StopAsyncIteration):
+        await flow.asend(final_response)
+
+
+@pytest.mark.anyio
+async def test_oauth_client_provider_metadata_discovery_skips_when_no_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+    storage = InMemoryStorage()
+    metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
+    provider = OAuthClientProvider("https://api.example.com/service", metadata, storage)
+    provider._initialized = True
+
+    client = OAuthClientInformationFull(client_id="client", client_secret="secret")
+    provider._metadata = OAuthMetadata.model_validate(_metadata_json())
+    provider._client_info = client
+    provider.context.client_info = client
+
+    def fake_build_resource_urls(self: OAuthClientProvider, response: httpx.Response) -> list[str]:
+        return ["https://resource.example.com/.well-known"]
+
+    async def fake_handle_resource(self: OAuthClientProvider, response: httpx.Response) -> bool:
+        self.context.auth_server_url = "https://auth.example.com"
+        return True
+
+    def fake_get_discovery_urls(self: OAuthClientProvider, url: str) -> list[str]:
+        assert url == "https://auth.example.com"
+        return []
+
+    async def fake_perform_authorization(self: OAuthClientProvider) -> httpx.Request:
+        return httpx.Request("POST", "https://auth.example.com/token")
+
+    async def fake_handle_token(self: OAuthClientProvider, response: httpx.Response) -> None:
+        token = OAuthToken(access_token="flow-token", scope="alpha")
+        self.context.current_tokens = token
+        await self.context.storage.set_tokens(token)
+
+    provider._select_scopes = MethodType(lambda self, response: None, provider)
+    monkeypatch.setattr(provider, "_build_protected_resource_discovery_urls", MethodType(fake_build_resource_urls, provider))
+    monkeypatch.setattr(provider, "_handle_protected_resource_response", MethodType(fake_handle_resource, provider))
+    monkeypatch.setattr(provider, "_get_discovery_urls", MethodType(fake_get_discovery_urls, provider))
+    monkeypatch.setattr(provider, "_perform_authorization", MethodType(fake_perform_authorization, provider))
+    monkeypatch.setattr(provider, "_handle_token_response", MethodType(fake_handle_token, provider))
+
+    request = httpx.Request("GET", "https://api.example.com/resource")
+    flow = provider.async_auth_flow(request)
+
+    prepared_request = await anext(flow)
+    assert "Authorization" not in prepared_request.headers
+
+    headers = {
+        "WWW-Authenticate": 'Bearer resource_metadata="https://resource.example.com/.well-known"'
+    }
+    first_response = httpx.Response(401, headers=headers, request=prepared_request)
+
+    discovery_request = await flow.asend(first_response)
+    discovery_response = httpx.Response(200, request=discovery_request)
+
+    token_request = await flow.asend(discovery_response)
+    assert isinstance(token_request, httpx.Request)
+
+    token_response = httpx.Response(200, request=token_request)
     retry_request = await flow.asend(token_response)
     assert retry_request.headers["Authorization"] == "Bearer flow-token"
 
