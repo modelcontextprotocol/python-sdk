@@ -553,3 +553,63 @@ async def test_delete_task_without_capability():
                         assert "not announced tasks capability" in str(e) or str(types.INVALID_REQUEST) in str(e)
             finally:
                 tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_server_receives_request_with_task_metadata():
+    """Test server creates task when receiving request with task metadata."""
+    task_store = InMemoryTaskStore()
+    client_task_store = InMemoryTaskStore()
+    server = Server("test", task_store=task_store)
+
+    # Register a simple tool handler
+    @server.call_tool()
+    async def handle_tool(name: str, arguments: dict[str, str]) -> list[types.TextContent]:
+        return [types.TextContent(type="text", text=f"Tool {name} called")]
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(
+                lambda: server.run(
+                    server_read,
+                    server_write,
+                    server.create_initialization_options(),
+                )
+            )
+
+            try:
+                async with ClientSession(
+                    read_stream=client_read,
+                    write_stream=client_write,
+                    task_store=client_task_store,
+                ) as client_session:
+                    await client_session.initialize()
+
+                    # Send a request with task metadata
+                    task_id = "test-task-with-metadata"
+                    task_meta = types.TaskMetadata(taskId=task_id, keepAlive=60000)
+
+                    # Use send_request with task parameter to inject task metadata
+                    result = await client_session.send_request(
+                        types.ClientRequest(
+                            types.CallToolRequest(
+                                params=types.CallToolRequestParams(name="test_tool", arguments={"arg": "value"})
+                            )
+                        ),
+                        types.CallToolResult,
+                        task=task_meta,
+                    )
+
+                    # Verify the tool was called
+                    assert len(result.content) > 0
+
+                    # Verify the task was created in the server's task store
+                    server_task = await task_store.get_task(task_id)
+                    assert server_task is not None
+                    assert server_task.taskId == task_id
+                    assert server_task.status == "submitted"
+            finally:
+                tg.cancel_scope.cancel()
