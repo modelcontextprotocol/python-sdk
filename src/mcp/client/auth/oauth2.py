@@ -222,7 +222,7 @@ class BaseOAuthProvider(httpx.Auth):
             self.client_metadata.scope = " ".join(metadata.scopes_supported)
 
     def _create_registration_request(self, metadata: OAuthMetadata | None = None) -> httpx.Request | None:
-        if self._client_info or self.context.client_info:
+        if self._client_info:
             return None
         if metadata and metadata.registration_endpoint:
             registration_url = str(metadata.registration_endpoint)
@@ -534,27 +534,15 @@ class OAuthClientProvider(BaseOAuthProvider):
 
         return httpx.Request("POST", token_url, data=token_data, headers=headers)
 
-    async def _read_response_content(self, response: httpx.Response) -> bytes:
-        """Read response content, handling preloaded or streaming bodies."""
-        try:
-            content = response.content
-            if content:
-                return content
-        except RuntimeError:
-            # Streaming response that hasn't been consumed yet - fall back to async read.
-            pass
-
-        return await response.aread()
-
     async def _handle_token_response(self, response: httpx.Response) -> None:
         """Handle token exchange response."""
         if response.status_code != 200:  # pragma: no cover
-            body = await self._read_response_content(response)
+            body = await response.aread()
             body = body.decode("utf-8")
             raise OAuthTokenError(f"Token exchange failed ({response.status_code}): {body}")
 
         try:
-            content = await self._read_response_content(response)
+            content = await response.aread()
             token_response = OAuthToken.model_validate_json(content)
 
             # Validate scopes
@@ -609,7 +597,7 @@ class OAuthClientProvider(BaseOAuthProvider):
             return False
 
         try:
-            content = await self._read_response_content(response)
+            content = await response.aread()
             token_response = OAuthToken.model_validate_json(content)
 
             self.context.current_tokens = token_response
@@ -626,8 +614,6 @@ class OAuthClientProvider(BaseOAuthProvider):
         """Load stored tokens and client info."""
         self.context.current_tokens = await self.context.storage.get_tokens()
         self.context.client_info = await self.context.storage.get_client_info()
-        if self.context.client_info:
-            self._client_info = self.context.client_info
         self._initialized = True
 
     def _add_auth_header(self, request: httpx.Request) -> None:
@@ -708,16 +694,7 @@ class OAuthClientProvider(BaseOAuthProvider):
                         self.context.client_info = self._client_info
 
                     # Step 5: Perform authorization and complete token exchange
-                    auth_result = await self._perform_authorization()
-                    if isinstance(auth_result, httpx.Request):
-                        token_request = auth_result
-                    else:
-                        auth_code, code_verifier = auth_result
-                        token_request = await self._exchange_token_authorization_code(
-                            auth_code, code_verifier
-                        )
-
-                    token_response = yield token_request
+                    token_response = yield await self._perform_authorization()
                     await self._handle_token_response(token_response)
                 except Exception:  # pragma: no cover
                     logger.exception("OAuth flow error")
@@ -738,16 +715,7 @@ class OAuthClientProvider(BaseOAuthProvider):
                         self._select_scopes(response)
 
                         # Step 2b: Perform (re-)authorization and token exchange
-                        auth_result = await self._perform_authorization()
-                        if isinstance(auth_result, httpx.Request):
-                            token_request = auth_result
-                        else:
-                            auth_code, code_verifier = auth_result
-                            token_request = await self._exchange_token_authorization_code(
-                                auth_code, code_verifier
-                            )
-
-                        token_response = yield token_request
+                        token_response = yield await self._perform_authorization()
                         await self._handle_token_response(token_response)
                     except Exception:  # pragma: no cover
                         logger.exception("OAuth flow error")
