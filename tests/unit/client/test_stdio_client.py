@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import anyio
 import pytest
+from types import TracebackType
+from typing import Any
 
 from mcp.client import stdio as stdio_module
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -23,7 +25,12 @@ class DummyProcess:
     async def __aenter__(self) -> "DummyProcess":
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool | None:
         return None
 
     async def wait(self) -> None:
@@ -31,7 +38,7 @@ class DummyProcess:
 
 
 class BrokenPipeStream:
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         pass
 
     def __aiter__(self) -> "BrokenPipeStream":
@@ -42,14 +49,14 @@ class BrokenPipeStream:
 
 
 @pytest.mark.anyio
-async def test_stdio_client_handles_broken_pipe(monkeypatch) -> None:
+async def test_stdio_client_handles_broken_pipe(monkeypatch: pytest.MonkeyPatch) -> None:
     server = StdioServerParameters(command="dummy")
 
     async def fake_checkpoint() -> None:
         nonlocal checkpoint_calls
         checkpoint_calls += 1
 
-    async def fake_create_process(*args, **kwargs) -> DummyProcess:
+    async def fake_create_process(*args: object, **kwargs: object) -> DummyProcess:
         return DummyProcess()
 
     checkpoint_calls = 0
