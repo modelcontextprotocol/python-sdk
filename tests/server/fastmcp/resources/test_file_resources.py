@@ -103,7 +103,7 @@ class TestFileResource:
 
 @pytest.mark.skipif(os.name == "nt", reason="File permissions behave differently on Windows")
 @pytest.mark.anyio
-async def test_permission_error(temp_file: Path):
+async def test_permission_error(temp_file: Path):  # pragma: no cover - skipped on Windows and root
     """Test reading a file without permissions."""
     if os.geteuid() == 0:  # pragma: no cover
         pytest.skip("Permission test not reliable when running as root")

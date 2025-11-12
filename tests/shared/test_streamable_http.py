@@ -359,13 +359,13 @@ def basic_server(basic_server_port: int) -> Generator[None, None, None]:
 
 
 @pytest.fixture
-def event_store() -> SimpleEventStore:
+def event_store() -> SimpleEventStore:  # pragma: no cover - exercised only on non-Windows platforms
     """Create a test event store."""
     return SimpleEventStore()
 
 
 @pytest.fixture
-def event_server_port() -> int:
+def event_server_port() -> int:  # pragma: no cover - exercised only on non-Windows platforms
     """Find an available port for the event store server."""
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -373,7 +373,7 @@ def event_server_port() -> int:
 
 
 @pytest.fixture
-def event_server(
+def event_server(  # pragma: no cover - exercised only on non-Windows platforms
     event_server_port: int, event_store: SimpleEventStore
 ) -> Generator[tuple[SimpleEventStore, str], None, None]:
     """Start a server with event store enabled."""
@@ -395,7 +395,9 @@ def event_server(
 
 
 @pytest.fixture
-def json_response_server(json_server_port: int) -> Generator[None, None, None]:
+def json_response_server(  # pragma: no cover - exercised only on non-Windows platforms
+    json_server_port: int,
+) -> Generator[None, None, None]:
     """Start a server with JSON response enabled."""
     proc = multiprocessing.Process(
         target=run_server,
@@ -1105,7 +1107,9 @@ async def test_streamablehttp_client_session_termination_204(
 
 @pytest.mark.anyio
 @pytest.mark.skipif(sys.platform == "win32", reason="Resumption unstable on Windows")
-async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventStore, str]):
+async def test_streamablehttp_client_resumption(  # pragma: no cover - skipped on Windows builds
+    event_server: tuple[SimpleEventStore, str]
+):
     """Test client session resumption using sync primitives for reliable coordination."""
     _, server_url = event_server
 
