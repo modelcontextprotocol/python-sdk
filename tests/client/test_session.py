@@ -4,7 +4,7 @@ import anyio
 import pytest
 
 import mcp.types as types
-from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
+from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession, ClientTransportSession
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
@@ -427,7 +427,7 @@ async def test_client_capabilities_with_custom_callbacks():
     received_capabilities = None
 
     async def custom_sampling_callback(  # pragma: no cover
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext["ClientTransportSession", Any],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.ErrorData:
         return types.CreateMessageResult(
@@ -437,7 +437,7 @@ async def test_client_capabilities_with_custom_callbacks():
         )
 
     async def custom_list_roots_callback(  # pragma: no cover
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext["ClientTransportSession", Any],
     ) -> types.ListRootsResult | types.ErrorData:
         return types.ListRootsResult(roots=[])
 

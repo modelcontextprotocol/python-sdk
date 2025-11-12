@@ -10,6 +10,7 @@ import httpx
 from dotenv import load_dotenv
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.transport_session import ClientTransportSession
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -67,7 +68,7 @@ class Server:
         self.name: str = name
         self.config: dict[str, Any] = config
         self.stdio_context: Any | None = None
-        self.session: ClientSession | None = None
+        self.session: ClientTransportSession | None = None
         self._cleanup_lock: asyncio.Lock = asyncio.Lock()
         self.exit_stack: AsyncExitStack = AsyncExitStack()
 

@@ -32,7 +32,7 @@ from examples.snippets.servers import (
     structured_output,
     tool_progress,
 )
-from mcp.client.session import ClientSession
+from mcp.client.session import ClientSession, ClientTransportSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import GetSessionIdCallback, streamablehttp_client
 from mcp.shared.context import RequestContext
@@ -212,7 +212,7 @@ def unpack_streams(
 
 # Callback functions for testing
 async def sampling_callback(
-    context: RequestContext[ClientSession, None], params: CreateMessageRequestParams
+    context: RequestContext[ClientTransportSession, None], params: CreateMessageRequestParams
 ) -> CreateMessageResult:
     """Sampling callback for tests."""
     return CreateMessageResult(
@@ -225,7 +225,7 @@ async def sampling_callback(
     )
 
 
-async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+async def elicitation_callback(context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams):
     """Elicitation callback for tests."""
     # For restaurant booking test
     if "No tables available" in params.message:

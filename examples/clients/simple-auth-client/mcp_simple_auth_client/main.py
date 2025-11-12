@@ -17,7 +17,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from mcp.client.auth import OAuthClientProvider, TokenStorage
-from mcp.client.session import ClientSession
+from mcp.client.session import ClientSession, ClientTransportSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
@@ -153,7 +153,7 @@ class SimpleAuthClient:
     def __init__(self, server_url: str, transport_type: str = "streamable-http"):
         self.server_url = server_url
         self.transport_type = transport_type
-        self.session: ClientSession | None = None
+        self.session: ClientTransportSession | None = None
 
     async def connect(self):
         """Connect to the MCP server."""

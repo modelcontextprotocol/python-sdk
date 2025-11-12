@@ -23,7 +23,7 @@ logger = logging.getLogger("client")
 class SamplingFnT(Protocol):
     async def __call__(
         self,
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext["ClientTransportSession", Any],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.ErrorData: ...  # pragma: no branch
 
@@ -31,15 +31,15 @@ class SamplingFnT(Protocol):
 class ElicitationFnT(Protocol):
     async def __call__(
         self,
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext["ClientTransportSession", Any],
         params: types.ElicitRequestParams,
     ) -> types.ElicitResult | types.ErrorData: ...  # pragma: no branch
 
 
 class ListRootsFnT(Protocol):
     async def __call__(
-        self, context: RequestContext["ClientSession", Any]
-    ) -> types.ListRootsResult | types.ErrorData: ...  # pragma: no branch
+        self, context: RequestContext["ClientTransportSession", Any]
+    ) -> types.ListRootsResult | types.ErrorData: ... # pragma: no branch
 
 
 class LoggingFnT(Protocol):
@@ -63,7 +63,7 @@ async def _default_message_handler(
 
 
 async def _default_sampling_callback(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext["ClientTransportSession", Any],
     params: types.CreateMessageRequestParams,
 ) -> types.CreateMessageResult | types.ErrorData:
     return types.ErrorData(
@@ -73,7 +73,7 @@ async def _default_sampling_callback(
 
 
 async def _default_elicitation_callback(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext["ClientTransportSession", Any],
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
     return types.ErrorData(  # pragma: no cover
@@ -83,7 +83,7 @@ async def _default_elicitation_callback(
 
 
 async def _default_list_roots_callback(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext["ClientTransportSession", Any],
 ) -> types.ListRootsResult | types.ErrorData:
     return types.ErrorData(
         code=types.INVALID_REQUEST,
@@ -510,7 +510,7 @@ class ClientSession(
         await self.send_notification(types.ClientNotification(types.RootsListChangedNotification()))
 
     async def _received_request(self, responder: RequestResponder[types.ServerRequest, types.ClientResult]) -> None:
-        ctx = RequestContext[ClientSession, Any](
+        ctx = RequestContext[ClientTransportSession, Any](
             request_id=responder.request_id,
             meta=responder.request_meta,
             session=self,

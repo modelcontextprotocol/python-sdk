@@ -8,6 +8,7 @@ import os
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.transport_session import ClientTransportSession
 from mcp.shared.metadata_utils import get_display_name
 
 # Create server parameters for stdio connection
@@ -18,7 +19,7 @@ server_params = StdioServerParameters(
 )
 
 
-async def display_tools(session: ClientSession):
+async def display_tools(session: ClientTransportSession):
     """Display available tools with human-readable names"""
     tools_response = await session.list_tools()
 
@@ -30,7 +31,7 @@ async def display_tools(session: ClientSession):
             print(f"   {tool.description}")
 
 
-async def display_resources(session: ClientSession):
+async def display_resources(session: ClientTransportSession):
     """Display available resources with human-readable names"""
     resources_response = await session.list_resources()
 

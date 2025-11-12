@@ -9,6 +9,7 @@ import os
 from pydantic import AnyUrl
 
 from mcp import ClientSession, StdioServerParameters, types
+from mcp.client.session import ClientTransportSession
 from mcp.client.stdio import stdio_client
 from mcp.shared.context import RequestContext
 
@@ -22,7 +23,7 @@ server_params = StdioServerParameters(
 
 # Optional: create a sampling callback
 async def handle_sampling_message(
-    context: RequestContext[ClientSession, None], params: types.CreateMessageRequestParams
+    context: RequestContext[ClientTransportSession, None], params: types.CreateMessageRequestParams
 ) -> types.CreateMessageResult:
     print(f"Sampling request: {params.messages}")
     return types.CreateMessageResult(

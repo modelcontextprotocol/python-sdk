@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, Field
 
-from mcp.client.session import ClientSession, ElicitationFnT
+from mcp.client.session import ClientTransportSession, ElicitationFnT
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
@@ -72,7 +72,7 @@ async def test_stdio_elicitation():
 
     # Create a custom handler for elicitation requests
     async def elicitation_callback(
-        context: RequestContext[ClientSession, None], params: ElicitRequestParams
+        context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams
     ):  # pragma: no cover
         if params.message == "Tool wants to ask: What is your name?":
             return ElicitResult(action="accept", content={"answer": "Test User"})
@@ -90,7 +90,7 @@ async def test_stdio_elicitation_decline():
     mcp = FastMCP(name="StdioElicitationDeclineServer")
     create_ask_user_tool(mcp)
 
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def elicitation_callback(context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams):
         return ElicitResult(action="decline")
 
     await call_tool_and_assert(
@@ -129,7 +129,7 @@ async def test_elicitation_schema_validation():
 
     # Dummy callback (won't be called due to validation failure)
     async def elicitation_callback(
-        context: RequestContext[ClientSession, None], params: ElicitRequestParams
+        context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams
     ):  # pragma: no cover
         return ElicitResult(action="accept", content={})
 
@@ -189,7 +189,7 @@ async def test_elicitation_with_optional_fields():
 
     for content, expected in test_cases:
 
-        async def callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+        async def callback(context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams):
             return ElicitResult(action="accept", content=content)
 
         await call_tool_and_assert(mcp, callback, "optional_tool", {}, expected)
@@ -208,7 +208,7 @@ async def test_elicitation_with_optional_fields():
             return f"Validation failed: {str(e)}"
 
     async def elicitation_callback(
-        context: RequestContext[ClientSession, None], params: ElicitRequestParams
+        context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams
     ):  # pragma: no cover
         return ElicitResult(action="accept", content={})
 
@@ -245,7 +245,9 @@ async def test_elicitation_with_default_values():
             return f"User {result.action}"
 
     # First verify that defaults are present in the JSON schema sent to clients
-    async def callback_schema_verify(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def callback_schema_verify(
+        context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams
+    ):
         # Verify the schema includes defaults
         schema = params.requestedSchema
         props = schema["properties"]
@@ -266,7 +268,7 @@ async def test_elicitation_with_default_values():
     )
 
     # Test overriding defaults
-    async def callback_override(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def callback_override(context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams):
         return ElicitResult(
             action="accept", content={"email": "john@example.com", "name": "John", "age": 25, "subscribe": False}
         )

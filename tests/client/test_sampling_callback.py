@@ -1,6 +1,6 @@
 import pytest
 
-from mcp.client.session import ClientSession
+from mcp.client.session import ClientTransportSession
 from mcp.shared.context import RequestContext
 from mcp.shared.memory import (
     create_connected_server_and_client_session as create_session,
@@ -27,7 +27,7 @@ async def test_sampling_callback():
     )
 
     async def sampling_callback(
-        context: RequestContext[ClientSession, None],
+        context: RequestContext[ClientTransportSession, None],
         params: CreateMessageRequestParams,
     ) -> CreateMessageResult:
         return callback_return
