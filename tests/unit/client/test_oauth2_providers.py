@@ -3,6 +3,7 @@ import time
 from collections.abc import Iterator
 from types import MethodType, SimpleNamespace, TracebackType
 from typing import cast
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -433,18 +434,13 @@ async def test_client_credentials_ensure_token_returns_when_valid() -> None:
     provider._current_tokens = OAuthToken(access_token="token")
     provider._token_expiry_time = time.time() + 60
 
-    request_called = False
-
-    async def fake_request_token() -> None:
-        nonlocal request_called
-        request_called = True
-
+    fake_request_token = AsyncMock()
     provider._request_token = fake_request_token  # type: ignore[assignment]
 
     await provider.ensure_token()
 
     assert provider._current_tokens is not None
-    assert not request_called
+    fake_request_token.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -523,19 +519,16 @@ async def test_token_exchange_request_token(monkeypatch: pytest.MonkeyPatch) -> 
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope="alpha")
 
-    async def provide_subject() -> str:
-        return "subject-token"
-
-    async def provide_actor() -> str:
-        return "actor-token"
+    subject_supplier = AsyncMock(return_value="subject-token")
+    actor_supplier = AsyncMock(return_value="actor-token")
 
     provider = TokenExchangeProvider(
         "https://api.example.com/service",
         client_metadata,
         storage,
-        subject_token_supplier=provide_subject,
+        subject_token_supplier=subject_supplier,
         subject_token_type="access_token",
-        actor_token_supplier=provide_actor,
+        actor_token_supplier=actor_supplier,
         actor_token_type="jwt",
         audience="https://audience.example.com",
         resource="https://resource.example.com",
@@ -558,6 +551,8 @@ async def test_token_exchange_request_token(monkeypatch: pytest.MonkeyPatch) -> 
     assert storage.tokens.access_token == "access-token"
     assert provider._current_tokens is storage.tokens
     assert provider._token_expiry_time is not None
+    subject_supplier.assert_awaited_once()
+    actor_supplier.assert_awaited_once()
 
 
 @pytest.mark.anyio
@@ -565,19 +560,16 @@ async def test_token_exchange_request_token_handles_invalid_metadata(monkeypatch
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope="alpha")
 
-    async def provide_subject() -> str:
-        return "subject-token"
-
-    async def provide_actor() -> str:
-        return "actor-token"
+    subject_supplier = AsyncMock(return_value="subject-token")
+    actor_supplier = AsyncMock(return_value="actor-token")
 
     provider = TokenExchangeProvider(
         "https://api.example.com/service",
         client_metadata,
         storage,
-        subject_token_supplier=provide_subject,
+        subject_token_supplier=subject_supplier,
         subject_token_type="access_token",
-        actor_token_supplier=provide_actor,
+        actor_token_supplier=actor_supplier,
         actor_token_type="jwt",
         audience="https://audience.example.com",
     )
@@ -608,6 +600,8 @@ async def test_token_exchange_request_token_handles_invalid_metadata(monkeypatch
     assert storage.tokens is not None
     assert storage.tokens.access_token == "exchange-token"
     assert provider._token_expiry_time is None
+    subject_supplier.assert_awaited_once()
+    actor_supplier.assert_awaited_once()
 
 
 @pytest.mark.anyio
@@ -615,14 +609,11 @@ async def test_token_exchange_request_token_raises_on_failure(monkeypatch: pytes
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
 
-    async def provide_subject() -> str:
-        return "subject-token"
-
     provider = TokenExchangeProvider(
         "https://api.example.com/service",
         client_metadata,
         storage,
-        subject_token_supplier=provide_subject,
+        subject_token_supplier=AsyncMock(return_value="subject-token"),
     )
 
     provider._metadata = OAuthMetadata.model_validate(_metadata_json())
@@ -639,14 +630,11 @@ def test_token_exchange_has_valid_token_checks_expiry() -> None:
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
 
-    async def provide_subject() -> str:
-        return "subject-token"
-
     provider = TokenExchangeProvider(
         "https://api.example.com/service",
         client_metadata,
         storage,
-        subject_token_supplier=provide_subject,
+        subject_token_supplier=AsyncMock(return_value="subject-token"),
     )
 
     provider._current_tokens = OAuthToken(access_token="token")
@@ -660,14 +648,11 @@ async def test_token_exchange_validate_token_scopes_returns_when_missing() -> No
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope="alpha")
 
-    async def provide_subject() -> str:
-        return "subject-token"
-
     provider = TokenExchangeProvider(
         "https://api.example.com/service",
         client_metadata,
         storage,
-        subject_token_supplier=provide_subject,
+        subject_token_supplier=AsyncMock(return_value="subject-token"),
     )
 
     token = OAuthToken(access_token="token", scope=None)
@@ -680,14 +665,11 @@ async def test_token_exchange_get_or_register_client(monkeypatch: pytest.MonkeyP
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
 
-    async def provide_subject() -> str:
-        return "subject-token"
-
     provider = TokenExchangeProvider(
         "https://api.example.com/service",
         client_metadata,
         storage,
-        subject_token_supplier=provide_subject,
+        subject_token_supplier=AsyncMock(return_value="subject-token"),
     )
 
     registration_response = _make_response(200, json_data=_registration_json())
@@ -710,14 +692,11 @@ async def test_token_exchange_initialize_loads_cached_values() -> None:
 
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
 
-    async def provide_subject() -> str:
-        return "subject-token"
-
     provider = TokenExchangeProvider(
         "https://api.example.com/service",
         client_metadata,
         storage,
-        subject_token_supplier=provide_subject,
+        subject_token_supplier=AsyncMock(return_value="subject-token"),
     )
 
     await provider.initialize()
@@ -731,14 +710,11 @@ async def test_token_exchange_validate_token_scopes_rejects_extra() -> None:
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope="alpha")
 
-    async def provide_subject() -> str:
-        return "subject-token"
-
     provider = TokenExchangeProvider(
         "https://api.example.com/service",
         client_metadata,
         storage,
-        subject_token_supplier=provide_subject,
+        subject_token_supplier=AsyncMock(return_value="subject-token"),
     )
 
     token = OAuthToken(access_token="token", scope="alpha beta")
@@ -752,14 +728,11 @@ async def test_token_exchange_validate_token_scopes_accepts_server_defined() -> 
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope=None)
 
-    async def provide_subject() -> str:
-        return "subject-token"
-
     provider = TokenExchangeProvider(
         "https://api.example.com/service",
         client_metadata,
         storage,
-        subject_token_supplier=provide_subject,
+        subject_token_supplier=AsyncMock(return_value="subject-token"),
     )
 
     token = OAuthToken(access_token="token", scope="delta")
@@ -772,14 +745,11 @@ async def test_token_exchange_async_auth_flow_handles_401(monkeypatch: pytest.Mo
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
 
-    async def provide_subject() -> str:
-        return "subject-token"
-
     provider = TokenExchangeProvider(
         "https://api.example.com/service",
         client_metadata,
         storage,
-        subject_token_supplier=provide_subject,
+        subject_token_supplier=AsyncMock(return_value="subject-token"),
     )
 
     async def fake_initialize() -> None:
@@ -809,14 +779,11 @@ async def test_token_exchange_async_auth_flow_with_cached_token() -> None:
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
 
-    async def provide_subject() -> str:
-        return "subject-token"
-
     provider = TokenExchangeProvider(
         "https://api.example.com/service",
         client_metadata,
         storage,
-        subject_token_supplier=provide_subject,
+        subject_token_supplier=AsyncMock(return_value="subject-token"),
     )
 
     provider._current_tokens = OAuthToken(access_token="cached")
@@ -838,31 +805,23 @@ async def test_token_exchange_ensure_token_returns_when_valid() -> None:
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
 
-    async def provide_subject() -> str:
-        return "subject-token"
-
     provider = TokenExchangeProvider(
         "https://api.example.com/service",
         client_metadata,
         storage,
-        subject_token_supplier=provide_subject,
+        subject_token_supplier=AsyncMock(return_value="subject-token"),
     )
 
     provider._current_tokens = OAuthToken(access_token="token")
     provider._token_expiry_time = time.time() + 60
 
-    request_called = False
-
-    async def fake_request_token() -> None:
-        nonlocal request_called
-        request_called = True
-
+    fake_request_token = AsyncMock()
     provider._request_token = fake_request_token  # type: ignore[assignment]
 
     await provider.ensure_token()
 
     assert provider._current_tokens is not None
-    assert not request_called
+    fake_request_token.assert_not_awaited()
 
 
 @pytest.mark.anyio
