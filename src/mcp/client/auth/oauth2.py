@@ -232,7 +232,7 @@ class BaseOAuthProvider(httpx.Auth):
                 self._client_info = context.client_info
                 return None
 
-        # If we reach this point we don't yet have stored client information, so
+        # If we reach this point, we don't yet have stored client information, so
         # proceed with building a dynamic registration request.
 
         if metadata and metadata.registration_endpoint:
