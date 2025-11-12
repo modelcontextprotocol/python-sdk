@@ -224,14 +224,15 @@ class BaseOAuthProvider(httpx.Auth):
     def _create_registration_request(self, metadata: OAuthMetadata | None = None) -> httpx.Request | None:
         context = getattr(self, "context", None)
 
-        if metadata is not None:
-            if self._client_info:
-                return None
-            if context and context.client_info:
-                self._client_info = context.client_info
-                return None
-        elif context and context.client_info and not self._client_info:
+        if self._client_info:
+            return None
+
+        if context and context.client_info:
             self._client_info = context.client_info
+            return None
+
+        # If we reach this point we don't yet have stored client information, so
+        # proceed with building a dynamic registration request.
 
         if metadata and metadata.registration_endpoint:
             registration_url = str(metadata.registration_endpoint)
