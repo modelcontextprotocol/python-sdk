@@ -257,6 +257,37 @@ async def test_handle_route_refresh_token_branch() -> None:
 
 
 @pytest.mark.anyio
+async def test_handle_route_refresh_token_invalid_scope() -> None:
+    provider = RefreshTokenProvider()
+    client_info = OAuthClientInformationFull(
+        client_id="client",
+        grant_types=["refresh_token"],
+        scope="alpha",
+    )
+    handler = TokenHandler(
+        provider=cast(OAuthAuthorizationServerProvider[Any, Any, Any], provider),
+        client_authenticator=cast(ClientAuthenticator, DummyAuthenticator(client_info)),
+    )
+
+    request_data = {
+        "grant_type": "refresh_token",
+        "refresh_token": "refresh-token",
+        "scope": "beta",
+        "client_id": "client",
+        "client_secret": "secret",
+    }
+
+    response = await handler.handle(cast(Request, DummyRequest(request_data)))
+
+    assert response.status_code == 400
+    payload = json.loads(bytes(response.body).decode())
+    assert payload == {
+        "error": "invalid_scope",
+        "error_description": "cannot request scope `beta` not provided by refresh token",
+    }
+
+
+@pytest.mark.anyio
 async def test_handle_route_token_exchange_branch() -> None:
     provider = TokenExchangeProviderStub()
     client_info = OAuthClientInformationFull(
