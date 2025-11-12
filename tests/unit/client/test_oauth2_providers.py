@@ -507,9 +507,7 @@ async def test_client_credentials_request_token_omits_scope_when_not_registered(
     await provider._request_token()
 
     assert capturing_client.captured_data is not None
-    assert capturing_client.captured_headers == {
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
+    assert capturing_client.captured_headers == {"Content-Type": "application/x-www-form-urlencoded"}
     assert capturing_client.captured_data["grant_type"] == "client_credentials"
     assert capturing_client.captured_data["resource"] == provider.resource
     assert "scope" not in capturing_client.captured_data
