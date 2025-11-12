@@ -76,8 +76,8 @@ class SimpleEventStore(EventStore):
     """Simple in-memory event store for testing."""
 
     def __init__(self):
-        self._events: list[tuple[StreamId, EventId, types.JSONRPCMessage]] = []
-        self._event_id_counter = 0
+        self._events: list[tuple[StreamId, EventId, types.JSONRPCMessage]] = []  # pragma: no cover
+        self._event_id_counter = 0  # pragma: no cover
 
     async def store_event(self, stream_id: StreamId, message: types.JSONRPCMessage) -> EventId:  # pragma: no cover
         """Store an event and return its ID."""
