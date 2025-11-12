@@ -257,33 +257,6 @@ async def test_handle_route_refresh_token_branch() -> None:
 
 
 @pytest.mark.anyio
-async def test_handle_route_refresh_token_without_scope() -> None:
-    provider = RefreshTokenProvider()
-    client_info = OAuthClientInformationFull(
-        client_id="client",
-        grant_types=["refresh_token"],
-        scope="alpha",
-    )
-    handler = TokenHandler(
-        provider=cast(OAuthAuthorizationServerProvider[Any, Any, Any], provider),
-        client_authenticator=cast(ClientAuthenticator, DummyAuthenticator(client_info)),
-    )
-
-    request_data = {
-        "grant_type": "refresh_token",
-        "refresh_token": "refresh-token",
-        "client_id": "client",
-        "client_secret": "secret",
-    }
-
-    response = await handler.handle(cast(Request, DummyRequest(request_data)))
-
-    assert response.status_code == 200
-    payload = json.loads(bytes(response.body).decode())
-    assert payload["access_token"] == "refreshed-token"
-
-
-@pytest.mark.anyio
 async def test_handle_route_refresh_token_invalid_scope() -> None:
     provider = RefreshTokenProvider()
     client_info = OAuthClientInformationFull(

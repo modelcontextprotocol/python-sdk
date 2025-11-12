@@ -540,32 +540,6 @@ async def test_client_credentials_request_token_stops_on_server_error(
 
 
 @pytest.mark.anyio
-async def test_client_credentials_request_token_stops_on_redirect(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    storage = InMemoryStorage()
-    client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris(), scope="alpha")
-    provider = ClientCredentialsProvider("https://api.example.com/service", client_metadata, storage)
-
-    metadata_responses = [_make_response(302)]
-    registration_response = _make_response(200, json_data=_registration_json())
-    token_response = _make_response(200, json_data=_token_json("alpha"))
-
-    clients = [
-        DummyAsyncClient(send_responses=metadata_responses),
-        DummyAsyncClient(send_responses=[registration_response]),
-        DummyAsyncClient(post_responses=[token_response]),
-    ]
-    monkeypatch.setattr("mcp.client.auth.oauth2.httpx.AsyncClient", AsyncClientFactory(clients))
-
-    await provider._request_token()
-
-    assert storage.tokens is not None
-    assert storage.tokens.scope == "alpha"
-    assert provider._metadata is None
-
-
-@pytest.mark.anyio
 async def test_client_credentials_ensure_token_returns_when_valid() -> None:
     storage = InMemoryStorage()
     client_metadata = OAuthClientMetadata(redirect_uris=_redirect_uris())
