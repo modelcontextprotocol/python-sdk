@@ -427,3 +427,82 @@ async def test_notification_callback_parametrized(
 
         # Verify using the provided verification function
         assert verification(collector), f"Verification failed for {notification_type}"
+
+
+@pytest.mark.anyio
+async def test_all_default_callbacks_with_notifications() -> None:
+    """Test that all default notification callbacks work (they do nothing).
+
+    This single test covers multiple default callbacks by not providing
+    custom callbacks and triggering various notification types.
+    """
+    from mcp.server.fastmcp import FastMCP
+
+    server = FastMCP("test-server")
+
+    @server.tool("send_progress")
+    async def send_progress_tool(progress: float, total: float) -> bool:
+        """Send a progress notification."""
+        ctx = server.get_context()
+        if ctx.request_context.meta and ctx.request_context.meta.progressToken:
+            await ctx.session.send_progress_notification(
+                progress_token=ctx.request_context.meta.progressToken,
+                progress=progress,
+                total=total,
+            )
+        return True
+
+    @server.tool("send_resource_updated")
+    async def send_resource_updated_tool(uri: str) -> bool:
+        """Send a resource updated notification."""
+        from pydantic import AnyUrl
+
+        await server.get_context().session.send_resource_updated(uri=AnyUrl(uri))
+        return True
+
+    @server.tool("send_resource_list_changed")
+    async def send_resource_list_changed_tool() -> bool:
+        """Send a resource list changed notification."""
+        await server.get_context().session.send_resource_list_changed()
+        return True
+
+    @server.tool("send_tool_list_changed")
+    async def send_tool_list_changed_tool() -> bool:
+        """Send a tool list changed notification."""
+        await server.get_context().session.send_tool_list_changed()
+        return True
+
+    @server.tool("send_prompt_list_changed")
+    async def send_prompt_list_changed_tool() -> bool:
+        """Send a prompt list changed notification."""
+        await server.get_context().session.send_prompt_list_changed()
+        return True
+
+    # Create session WITHOUT custom callbacks - all will use defaults
+    async with create_session(server._mcp_server) as client_session:
+        # Test progress notification with default callback
+        result1 = await client_session.call_tool(
+            "send_progress",
+            {"progress": 50.0, "total": 100.0},
+            meta={"progressToken": "test-token"},
+        )
+        assert result1.isError is False
+
+        # Test resource updated with default callback
+        result2 = await client_session.call_tool(
+            "send_resource_updated",
+            {"uri": "file:///test.txt"},
+        )
+        assert result2.isError is False
+
+        # Test resource list changed with default callback
+        result3 = await client_session.call_tool("send_resource_list_changed", {})
+        assert result3.isError is False
+
+        # Test tool list changed with default callback
+        result4 = await client_session.call_tool("send_tool_list_changed", {})
+        assert result4.isError is False
+
+        # Test prompt list changed with default callback
+        result5 = await client_session.call_tool("send_prompt_list_changed", {})
+        assert result5.isError is False

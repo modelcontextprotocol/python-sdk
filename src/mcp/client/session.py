@@ -48,13 +48,6 @@ class LoggingFnT(Protocol):
     ) -> None: ...  # pragma: no branch
 
 
-class CancelledFnT(Protocol):
-    async def __call__(
-        self,
-        params: types.CancelledNotificationParams,
-    ) -> None: ...
-
-
 class ProgressNotificationFnT(Protocol):
     async def __call__(
         self,
@@ -84,20 +77,6 @@ class ToolListChangedFnT(Protocol):
 class PromptListChangedFnT(Protocol):
     async def __call__(
         self,
-    ) -> None: ...
-
-
-class UnknownNotificationFnT(Protocol):
-    async def __call__(
-        self,
-        notification: types.ServerNotification,
-    ) -> None: ...
-
-
-class CustomNotificationHandlerFnT(Protocol):
-    async def __call__(
-        self,
-        notification: types.ServerNotification,
     ) -> None: ...
 
 
@@ -149,12 +128,6 @@ async def _default_logging_callback(
     pass
 
 
-async def _default_cancelled_callback(
-    params: types.CancelledNotificationParams,
-) -> None:
-    pass
-
-
 async def _default_progress_callback(
     params: types.ProgressNotificationParams,
 ) -> None:
@@ -179,12 +152,6 @@ async def _default_prompt_list_changed_callback() -> None:
     pass
 
 
-async def _default_unknown_notification_callback(
-    notification: types.ServerNotification,
-) -> None:
-    pass
-
-
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
 
 
@@ -206,14 +173,11 @@ class ClientSession(
         elicitation_callback: ElicitationFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
         logging_callback: LoggingFnT | None = None,
-        cancelled_callback: CancelledFnT | None = None,
         progress_notification_callback: ProgressNotificationFnT | None = None,
         resource_updated_callback: ResourceUpdatedFnT | None = None,
         resource_list_changed_callback: ResourceListChangedFnT | None = None,
         tool_list_changed_callback: ToolListChangedFnT | None = None,
         prompt_list_changed_callback: PromptListChangedFnT | None = None,
-        unknown_notification_callback: UnknownNotificationFnT | None = None,
-        custom_notification_handlers: dict[str, CustomNotificationHandlerFnT] | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
     ) -> None:
@@ -229,14 +193,11 @@ class ClientSession(
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
-        self._cancelled_callback = cancelled_callback or _default_cancelled_callback
         self._progress_notification_callback = progress_notification_callback or _default_progress_callback
         self._resource_updated_callback = resource_updated_callback or _default_resource_updated_callback
         self._resource_list_changed_callback = resource_list_changed_callback or _default_resource_list_changed_callback
         self._tool_list_changed_callback = tool_list_changed_callback or _default_tool_list_changed_callback
         self._prompt_list_changed_callback = prompt_list_changed_callback or _default_prompt_list_changed_callback
-        self._unknown_notification_callback = unknown_notification_callback or _default_unknown_notification_callback
-        self._custom_notification_handlers = custom_notification_handlers or {}
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._server_capabilities: types.ServerCapabilities | None = None
@@ -651,25 +612,10 @@ class ClientSession(
         await self._message_handler(req)
 
     async def _received_notification(self, notification: types.ServerNotification) -> None:
-        """Handle notifications from the server.
-
-        Notifications are handled in the following order:
-        1. Custom notification handlers (registered by method name)
-        2. Known notification types (LoggingMessage, Progress, etc.)
-        3. Unknown notification handler (fallback)
-        """
-        # Check if there's a custom handler registered for this notification method
-        notification_method = notification.root.method
-        if notification_method in self._custom_notification_handlers:
-            await self._custom_notification_handlers[notification_method](notification)
-            return
-
-        # Process specific notification types
+        """Handle notifications from the server."""
         match notification.root:
             case types.LoggingMessageNotification(params=params):
                 await self._logging_callback(params)
-            case types.CancelledNotification(params=params):
-                await self._cancelled_callback(params)
             case types.ProgressNotification(params=params):
                 await self._progress_notification_callback(params)
             case types.ResourceUpdatedNotification(params=params):
@@ -680,7 +626,7 @@ class ClientSession(
                 await self._tool_list_changed_callback()
             case types.PromptListChangedNotification():
                 await self._prompt_list_changed_callback()
-            case _:  # type: ignore[misc]
-                # Handle unknown/custom notifications that may exist at runtime
-                # but aren't part of the known ServerNotification type union
-                await self._unknown_notification_callback(notification)
+            case _:
+                # CancelledNotification is handled separately in shared/session.py
+                # and should never reach this point. This case is defensive.
+                pass

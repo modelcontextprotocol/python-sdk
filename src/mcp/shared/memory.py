@@ -15,7 +15,6 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 import mcp.types as types
 from mcp.client.session import (
     ClientSession,
-    CustomNotificationHandlerFnT,
     ElicitationFnT,
     ListRootsFnT,
     LoggingFnT,
@@ -26,7 +25,6 @@ from mcp.client.session import (
     ResourceUpdatedFnT,
     SamplingFnT,
     ToolListChangedFnT,
-    UnknownNotificationFnT,
 )
 from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
@@ -72,8 +70,6 @@ async def create_connected_server_and_client_session(
     resource_list_changed_callback: ResourceListChangedFnT | None = None,
     tool_list_changed_callback: ToolListChangedFnT | None = None,
     prompt_list_changed_callback: PromptListChangedFnT | None = None,
-    unknown_notification_callback: UnknownNotificationFnT | None = None,
-    custom_notification_handlers: dict[str, CustomNotificationHandlerFnT] | None = None,
     message_handler: MessageHandlerFnT | None = None,
     client_info: types.Implementation | None = None,
     raise_exceptions: bool = False,
@@ -114,8 +110,6 @@ async def create_connected_server_and_client_session(
                     resource_list_changed_callback=resource_list_changed_callback,
                     tool_list_changed_callback=tool_list_changed_callback,
                     prompt_list_changed_callback=prompt_list_changed_callback,
-                    unknown_notification_callback=unknown_notification_callback,
-                    custom_notification_handlers=custom_notification_handlers,
                     message_handler=message_handler,
                     client_info=client_info,
                     elicitation_callback=elicitation_callback,
