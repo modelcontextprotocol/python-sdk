@@ -3,7 +3,7 @@ import hashlib
 import json
 import time
 from collections.abc import Mapping
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -12,8 +12,10 @@ from starlette.requests import Request
 from mcp.server.auth.handlers.token import (
     AuthorizationCodeRequest,
     ClientCredentialsRequest,
+    RefreshTokenRequest,
     TokenErrorResponse,
     TokenHandler,
+    TokenRequest,
     TokenSuccessResponse,
 )
 from mcp.server.auth.middleware.client_auth import ClientAuthenticator
@@ -285,6 +287,88 @@ async def test_handle_route_refresh_token_invalid_scope() -> None:
         "error": "invalid_scope",
         "error_description": "cannot request scope `beta` not provided by refresh token",
     }
+
+
+@pytest.mark.anyio
+async def test_handle_route_refresh_token_dispatches_to_handler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = RefreshTokenProvider()
+    client_info = OAuthClientInformationFull(
+        client_id="client",
+        grant_types=["refresh_token"],
+        scope="alpha",
+    )
+    handler = TokenHandler(
+        provider=cast(OAuthAuthorizationServerProvider[Any, Any, Any], provider),
+        client_authenticator=cast(ClientAuthenticator, DummyAuthenticator(client_info)),
+    )
+
+    captured_requests: list[RefreshTokenRequest] = []
+
+    async def fake_handle_refresh_token(
+        self: TokenHandler,
+        client: OAuthClientInformationFull,
+        token_request: RefreshTokenRequest,
+    ) -> TokenSuccessResponse:
+        captured_requests.append(token_request)
+        return TokenSuccessResponse(root=OAuthToken(access_token="dispatched-token"))
+
+    monkeypatch.setattr(
+        handler,
+        "_handle_refresh_token",
+        MethodType(fake_handle_refresh_token, handler),
+    )
+
+    request_data = {
+        "grant_type": "refresh_token",
+        "refresh_token": "refresh-token",
+        "client_id": "client",
+        "client_secret": "secret",
+    }
+
+    response = await handler.handle(cast(Request, DummyRequest(request_data)))
+
+    assert response.status_code == 200
+    assert captured_requests
+    assert isinstance(captured_requests[0], RefreshTokenRequest)
+
+
+@pytest.mark.anyio
+async def test_handle_route_refresh_token_unrecognized_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = RefreshTokenProvider()
+    client_info = OAuthClientInformationFull(
+        client_id="client",
+        grant_types=["mystery"],
+        scope="alpha",
+    )
+    handler = TokenHandler(
+        provider=cast(OAuthAuthorizationServerProvider[Any, Any, Any], provider),
+        client_authenticator=cast(ClientAuthenticator, DummyAuthenticator(client_info)),
+    )
+
+    class UnknownRequest:
+        grant_type = "mystery"
+        client_id = "client"
+        client_secret = "secret"
+
+    unknown_request = UnknownRequest()
+
+    def fake_model_validate(cls: type[TokenRequest], data: dict[str, object]) -> SimpleNamespace:  # type: ignore[unused-argument]
+        return SimpleNamespace(root=unknown_request)
+
+    monkeypatch.setattr(TokenRequest, "model_validate", classmethod(fake_model_validate))
+
+    request_data = {
+        "grant_type": "mystery",
+        "client_id": "client",
+        "client_secret": "secret",
+    }
+
+    with pytest.raises(UnboundLocalError):
+        await handler.handle(cast(Request, DummyRequest(request_data)))
 
 
 @pytest.mark.anyio
