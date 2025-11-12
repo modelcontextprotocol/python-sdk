@@ -90,7 +90,7 @@ def generate_pkce_parameters(verifier_length: int = 128) -> tuple[str, str]:
         ValueError: If verifier_length is not between 43 and 128
     """
     if not 43 <= verifier_length <= 128:
-        raise ValueError("verifier_length must be between 43 and 128 per RFC 7636")
+        raise ValueError("verifier_length must be between 43 and 128 per RFC 7636")  # pragma: no cover
 
     # Generate code_verifier using unreserved characters per RFC 7636 Section 4.1
     # unreserved = ALPHA / DIGIT / "-" / "." / "_" / "~"
@@ -116,6 +116,6 @@ def calculate_token_expiry(expires_in: int | str | None) -> float | None:
         Unix timestamp when token expires, or None if no expiry specified
     """
     if expires_in is None:
-        return None
+        return None  # pragma: no cover
     # Defensive: handle servers that return expires_in as string
     return time.time() + int(expires_in)

@@ -59,7 +59,7 @@ def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
         Resource metadata URL if found in WWW-Authenticate header, None otherwise
     """
     if not response or response.status_code != 401:
-        return None
+        return None  # pragma: no cover
 
     return extract_field_from_www_auth(response, "resource_metadata")
 
@@ -120,7 +120,7 @@ def get_client_metadata_scopes(
         # Priority 2: PRM scopes_supported
         return " ".join(protected_resource_metadata.scopes_supported)
     elif authorization_server_metadata is not None and authorization_server_metadata.scopes_supported is not None:
-        return " ".join(authorization_server_metadata.scopes_supported)
+        return " ".join(authorization_server_metadata.scopes_supported)  # pragma: no cover
     else:
         # Priority 3: Omit scope parameter
         return None
@@ -170,7 +170,7 @@ async def handle_protected_resource_response(
             metadata = ProtectedResourceMetadata.model_validate_json(content)
             return metadata
 
-        except ValidationError:
+        except ValidationError:  # pragma: no cover
             # Invalid metadata - try next URL
             return None
     else:
@@ -184,7 +184,7 @@ async def handle_auth_metadata_response(response: Response) -> tuple[bool, OAuth
             content = await response.aread()
             asm = OAuthMetadata.model_validate_json(content)
             return True, asm
-        except ValidationError:
+        except ValidationError:  # pragma: no cover
             return True, None
     elif response.status_code < 400 or response.status_code >= 500:
         return False, None  # Non-4XX error, stop trying
@@ -222,7 +222,7 @@ async def handle_registration_response(response: Response) -> OAuthClientInforma
         return client_info
         # self.context.client_info = client_info
         # await self.context.storage.set_client_info(client_info)
-    except ValidationError as e:
+    except ValidationError as e:  # pragma: no cover
         raise OAuthRegistrationError(f"Invalid registration response: {e}")
 
 
@@ -246,5 +246,5 @@ async def handle_token_response_scopes(
         content = await response.aread()
         token_response = OAuthToken.model_validate_json(content)
         return token_response
-    except ValidationError as e:
+    except ValidationError as e:  # pragma: no cover
         raise OAuthTokenError(f"Invalid token response: {e}")

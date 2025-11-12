@@ -32,13 +32,13 @@ class MockTokenStorage:
         self._client_info: OAuthClientInformationFull | None = None
 
     async def get_tokens(self) -> OAuthToken | None:
-        return self._tokens
+        return self._tokens  # pragma: no cover
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
         self._tokens = tokens
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
-        return self._client_info
+        return self._client_info  # pragma: no cover
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
         self._client_info = client_info
@@ -74,11 +74,11 @@ def valid_tokens():
 def oauth_provider(client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage):
     async def redirect_handler(url: str) -> None:
         """Mock redirect handler."""
-        pass
+        pass  # pragma: no cover
 
     async def callback_handler() -> tuple[str, str | None]:
         """Mock callback handler."""
-        return "test_auth_code", "test_state"
+        return "test_auth_code", "test_state"  # pragma: no cover
 
     return OAuthClientProvider(
         server_url="https://api.example.com/v1/mcp",
@@ -257,10 +257,10 @@ class TestOAuthFlow:
         """Test protected resource metadata discovery URL building with fallback."""
 
         async def redirect_handler(url: str) -> None:
-            pass
+            pass  # pragma: no cover
 
         async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
+            return "test_auth_code", "test_state"  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com",
@@ -686,7 +686,7 @@ class TestRegistrationResponse:
             @property
             def text(self):
                 if not self._aread_called:
-                    raise RuntimeError("Response.text accessed before response.aread()")
+                    raise RuntimeError("Response.text accessed before response.aread()")  # pragma: no cover
                 return self._text
 
         mock_response = MockResponse()
@@ -869,13 +869,13 @@ class TestAuthFlow:
         # In the fixed version, this should end the generator
         try:
             await auth_flow.asend(response)  # extra request
-            request_yields += 1
+            request_yields += 1  # pragma: no cover
             # If we reach here, the bug is present
             pytest.fail(
                 f"Unnecessary retry detected! Request was yielded {request_yields} times. "
                 f"This indicates the retry logic bug that caused 2x performance degradation. "
                 f"The request should only be yielded once for successful responses."
-            )
+            )  # pragma: no cover
         except StopAsyncIteration:
             # This is the expected behavior - no unnecessary retry
             pass
@@ -971,7 +971,7 @@ class TestAuthFlow:
         success_response = httpx.Response(200, request=final_request)
         try:
             await auth_flow.asend(success_response)
-            pytest.fail("Should have stopped after successful response")
+            pytest.fail("Should have stopped after successful response")  # pragma: no cover
         except StopAsyncIteration:
             pass  # Expected
 
@@ -1065,10 +1065,10 @@ class TestSEP985Discovery:
         """Test that client falls back to path-based well-known URI when WWW-Authenticate is absent."""
 
         async def redirect_handler(url: str) -> None:
-            pass
+            pass  # pragma: no cover
 
         async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
+            return "test_auth_code", "test_state"  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -1100,10 +1100,10 @@ class TestSEP985Discovery:
         """Test that client falls back to root-based URI when path-based returns 404."""
 
         async def redirect_handler(url: str) -> None:
-            pass
+            pass  # pragma: no cover
 
         async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
+            return "test_auth_code", "test_state"  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -1191,7 +1191,7 @@ class TestSEP985Discovery:
         final_response = httpx.Response(200, request=final_request)
         try:
             await auth_flow.asend(final_response)
-        except StopAsyncIteration:
+        except StopAsyncIteration:  # pragma: no cover
             pass
 
     @pytest.mark.anyio
@@ -1201,10 +1201,10 @@ class TestSEP985Discovery:
         """Test that WWW-Authenticate header resource_metadata takes priority over well-known URIs."""
 
         async def redirect_handler(url: str) -> None:
-            pass
+            pass  # pragma: no cover
 
         async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
+            return "test_auth_code", "test_state"  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
