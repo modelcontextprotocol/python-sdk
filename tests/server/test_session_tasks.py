@@ -7,7 +7,10 @@ import mcp.types as types
 from examples.shared.in_memory_task_store import InMemoryTaskStore
 from mcp.client.session import ClientSession
 from mcp.server import Server
+from mcp.server.models import InitializationOptions
+from mcp.server.session import ServerSession
 from mcp.shared.memory import create_client_server_memory_streams
+from mcp.shared.message import SessionMessage
 
 
 @pytest.mark.anyio
@@ -613,3 +616,298 @@ async def test_server_receives_request_with_task_metadata():
                     assert server_task.status == "submitted"
             finally:
                 tg.cancel_scope.cancel()
+
+
+@pytest.fixture
+async def server_session():
+    """Create a ServerSession for testing capability checking."""
+    from_client, to_server = anyio.create_memory_object_stream[SessionMessage](1)
+    from_server, to_client = anyio.create_memory_object_stream[SessionMessage](1)
+
+    session = ServerSession(
+        to_server,
+        from_server,
+        InitializationOptions(
+            server_name="test",
+            server_version="1.0.0",
+            capabilities=types.ServerCapabilities(),
+        ),
+    )
+
+    yield session
+
+    # Cleanup
+    await from_client.aclose()
+    await to_server.aclose()
+    await from_server.aclose()
+    await to_client.aclose()
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_no_requirements(server_session: ServerSession):
+    """Test _check_tasks_capability returns True when no requirements specified."""
+    required = types.ClientTasksCapability(requests=None)
+    client = types.ClientTasksCapability(requests=None)
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is True
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_client_missing_requests(server_session: ServerSession):
+    """Test _check_tasks_capability returns False when client has no requests capability."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(sampling=types.TaskSamplingCapability(createMessage=True))
+    )
+    client = types.ClientTasksCapability(requests=None)
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is False
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_sampling_missing(server_session: ServerSession):
+    """Test _check_tasks_capability returns False when sampling capability missing."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(sampling=types.TaskSamplingCapability(createMessage=True))
+    )
+    client = types.ClientTasksCapability(requests=types.ClientTasksRequestsCapability(sampling=None))
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is False
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_sampling_createMessage_false(server_session: ServerSession):
+    """Test _check_tasks_capability returns False when sampling.createMessage is False."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(sampling=types.TaskSamplingCapability(createMessage=True))
+    )
+    client = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(sampling=types.TaskSamplingCapability(createMessage=False))
+    )
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is False
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_sampling_success(server_session: ServerSession):
+    """Test _check_tasks_capability returns True when sampling capability matches."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(sampling=types.TaskSamplingCapability(createMessage=True))
+    )
+    client = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(sampling=types.TaskSamplingCapability(createMessage=True))
+    )
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is True
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_elicitation_missing(server_session: ServerSession):
+    """Test _check_tasks_capability returns False when elicitation capability missing."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(elicitation=types.TaskElicitationCapability(create=True))
+    )
+    client = types.ClientTasksCapability(requests=types.ClientTasksRequestsCapability(elicitation=None))
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is False
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_elicitation_create_false(server_session: ServerSession):
+    """Test _check_tasks_capability returns False when elicitation.create is False."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(elicitation=types.TaskElicitationCapability(create=True))
+    )
+    client = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(elicitation=types.TaskElicitationCapability(create=False))
+    )
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is False
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_elicitation_success(server_session: ServerSession):
+    """Test _check_tasks_capability returns True when elicitation capability matches."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(elicitation=types.TaskElicitationCapability(create=True))
+    )
+    client = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(elicitation=types.TaskElicitationCapability(create=True))
+    )
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is True
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_roots_missing(server_session: ServerSession):
+    """Test _check_tasks_capability returns False when roots capability missing."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(roots=types.TaskRootsCapability(list=True))
+    )
+    client = types.ClientTasksCapability(requests=types.ClientTasksRequestsCapability(roots=None))
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is False
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_roots_list_false(server_session: ServerSession):
+    """Test _check_tasks_capability returns False when roots.list is False."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(roots=types.TaskRootsCapability(list=True))
+    )
+    client = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(roots=types.TaskRootsCapability(list=False))
+    )
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is False
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_roots_success(server_session: ServerSession):
+    """Test _check_tasks_capability returns True when roots capability matches."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(roots=types.TaskRootsCapability(list=True))
+    )
+    client = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(roots=types.TaskRootsCapability(list=True))
+    )
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is True
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_tasks_missing(server_session: ServerSession):
+    """Test _check_tasks_capability returns False when tasks capability missing."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(
+            tasks=types.TasksOperationsCapability(get=True, list=True, result=True, delete=True)
+        )
+    )
+    client = types.ClientTasksCapability(requests=types.ClientTasksRequestsCapability(tasks=None))
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is False
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_tasks_get_false(server_session: ServerSession):
+    """Test _check_tasks_capability returns False when tasks.get is False."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(
+            tasks=types.TasksOperationsCapability(get=True, list=False, result=False, delete=False)
+        )
+    )
+    client = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(
+            tasks=types.TasksOperationsCapability(get=False, list=True, result=True, delete=True)
+        )
+    )
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is False
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_tasks_list_false(server_session: ServerSession):
+    """Test _check_tasks_capability returns False when tasks.list is False."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(
+            tasks=types.TasksOperationsCapability(get=False, list=True, result=False, delete=False)
+        )
+    )
+    client = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(
+            tasks=types.TasksOperationsCapability(get=True, list=False, result=True, delete=True)
+        )
+    )
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is False
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_tasks_result_false(server_session: ServerSession):
+    """Test _check_tasks_capability returns False when tasks.result is False."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(
+            tasks=types.TasksOperationsCapability(get=False, list=False, result=True, delete=False)
+        )
+    )
+    client = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(
+            tasks=types.TasksOperationsCapability(get=True, list=True, result=False, delete=True)
+        )
+    )
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is False
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_tasks_delete_false(server_session: ServerSession):
+    """Test _check_tasks_capability returns False when tasks.delete is False."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(
+            tasks=types.TasksOperationsCapability(get=False, list=False, result=False, delete=True)
+        )
+    )
+    client = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(
+            tasks=types.TasksOperationsCapability(get=True, list=True, result=True, delete=False)
+        )
+    )
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is False
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_tasks_all_operations_true(server_session: ServerSession):
+    """Test _check_tasks_capability returns True when all required task operations match."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(
+            tasks=types.TasksOperationsCapability(get=True, list=True, result=True, delete=True)
+        )
+    )
+    client = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(
+            tasks=types.TasksOperationsCapability(get=True, list=True, result=True, delete=True)
+        )
+    )
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is True
+
+
+@pytest.mark.anyio
+async def test_check_tasks_capability_all_capabilities_present(server_session: ServerSession):
+    """Test _check_tasks_capability returns True when all capabilities are satisfied."""
+    required = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(
+            sampling=types.TaskSamplingCapability(createMessage=True),
+            elicitation=types.TaskElicitationCapability(create=True),
+            roots=types.TaskRootsCapability(list=True),
+            tasks=types.TasksOperationsCapability(get=True, list=True, result=True, delete=True),
+        )
+    )
+    client = types.ClientTasksCapability(
+        requests=types.ClientTasksRequestsCapability(
+            sampling=types.TaskSamplingCapability(createMessage=True),
+            elicitation=types.TaskElicitationCapability(create=True),
+            roots=types.TaskRootsCapability(list=True),
+            tasks=types.TasksOperationsCapability(get=True, list=True, result=True, delete=True),
+        )
+    )
+
+    result = server_session._check_tasks_capability(required, client)
+    assert result is True
