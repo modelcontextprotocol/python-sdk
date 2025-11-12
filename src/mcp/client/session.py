@@ -39,7 +39,7 @@ class ElicitationFnT(Protocol):
 class ListRootsFnT(Protocol):
     async def __call__(
         self, context: RequestContext["ClientTransportSession", Any]
-    ) -> types.ListRootsResult | types.ErrorData: ... # pragma: no branch
+    ) -> types.ListRootsResult | types.ErrorData: ...  # pragma: no branch
 
 
 class LoggingFnT(Protocol):
