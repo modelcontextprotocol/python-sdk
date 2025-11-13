@@ -22,13 +22,13 @@ class MockTokenStorage:
         self._client_info: OAuthClientInformationFull | None = None
 
     async def get_tokens(self) -> OAuthToken | None:
-        return self._tokens
+        return self._tokens  # pragma: no cover
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
         self._tokens = tokens
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
-        return self._client_info
+        return self._client_info  # pragma: no cover
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
         self._client_info = client_info
@@ -64,11 +64,11 @@ def valid_tokens():
 def oauth_provider(client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage):
     async def redirect_handler(url: str) -> None:
         """Mock redirect handler."""
-        pass
+        pass  # pragma: no cover
 
     async def callback_handler() -> tuple[str, str | None]:
         """Mock callback handler."""
-        return "test_auth_code", "test_state"
+        return "test_auth_code", "test_state"  # pragma: no cover
 
     return OAuthClientProvider(
         server_url="https://api.example.com/v1/mcp",
@@ -241,16 +241,16 @@ class TestOAuthFlow:
     """Test OAuth flow methods."""
 
     @pytest.mark.anyio
-    async def test_discover_protected_resource_request(
+    async def test_build_protected_resource_discovery_urls(
         self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
     ):
-        """Test protected resource discovery request building maintains backward compatibility."""
+        """Test protected resource metadata discovery URL building with fallback."""
 
         async def redirect_handler(url: str) -> None:
-            pass
+            pass  # pragma: no cover
 
         async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
+            return "test_auth_code", "test_state"  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com",
@@ -265,20 +265,19 @@ class TestOAuthFlow:
             status_code=401, headers={}, request=httpx.Request("GET", "https://request-api.example.com")
         )
 
-        request = await provider._discover_protected_resource(init_response)
-        assert request.method == "GET"
-        assert str(request.url) == "https://api.example.com/.well-known/oauth-protected-resource"
-        assert "mcp-protocol-version" in request.headers
+        urls = provider._build_protected_resource_discovery_urls(init_response)
+        assert len(urls) == 1
+        assert urls[0] == "https://api.example.com/.well-known/oauth-protected-resource"
 
         # Test with WWW-Authenticate header
         init_response.headers["WWW-Authenticate"] = (
             'Bearer resource_metadata="https://prm.example.com/.well-known/oauth-protected-resource/path"'
         )
 
-        request = await provider._discover_protected_resource(init_response)
-        assert request.method == "GET"
-        assert str(request.url) == "https://prm.example.com/.well-known/oauth-protected-resource/path"
-        assert "mcp-protocol-version" in request.headers
+        urls = provider._build_protected_resource_discovery_urls(init_response)
+        assert len(urls) == 2
+        assert urls[0] == "https://prm.example.com/.well-known/oauth-protected-resource/path"
+        assert urls[1] == "https://api.example.com/.well-known/oauth-protected-resource"
 
     @pytest.mark.anyio
     def test_create_oauth_metadata_request(self, oauth_provider: OAuthClientProvider):
@@ -664,7 +663,7 @@ class TestRegistrationResponse:
 
             @property
             def text(self):
-                if not self._aread_called:
+                if not self._aread_called:  # pragma: no cover
                     raise RuntimeError("Response.text accessed before response.aread()")
                 return self._text
 
@@ -847,10 +846,10 @@ class TestAuthFlow:
         # In the buggy version, this would yield the request AGAIN unconditionally
         # In the fixed version, this should end the generator
         try:
-            await auth_flow.asend(response)  # extra request
-            request_yields += 1
-            # If we reach here, the bug is present
-            pytest.fail(
+            await auth_flow.asend(response)  # extra request  # pragma: no cover
+            request_yields += 1  # pragma: no cover
+            # If we reach here, the bug is present  # pragma: no cover
+            pytest.fail(  # pragma: no cover
                 f"Unnecessary retry detected! Request was yielded {request_yields} times. "
                 f"This indicates the retry logic bug that caused 2x performance degradation. "
                 f"The request should only be yielded once for successful responses."
@@ -950,7 +949,7 @@ class TestAuthFlow:
         success_response = httpx.Response(200, request=final_request)
         try:
             await auth_flow.asend(success_response)
-            pytest.fail("Should have stopped after successful response")
+            pytest.fail("Should have stopped after successful response")  # pragma: no cover
         except StopAsyncIteration:
             pass  # Expected
 
@@ -1034,6 +1033,182 @@ def test_build_metadata(
     )
 
 
+class TestSEP985Discovery:
+    """Test SEP-985 protected resource metadata discovery with fallback."""
+
+    @pytest.mark.anyio
+    async def test_path_based_fallback_when_no_www_authenticate(
+        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+    ):
+        """Test that client falls back to path-based well-known URI when WWW-Authenticate is absent."""
+
+        async def redirect_handler(url: str) -> None:
+            pass  # pragma: no cover
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"  # pragma: no cover
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        # Test with 401 response without WWW-Authenticate header
+        init_response = httpx.Response(
+            status_code=401, headers={}, request=httpx.Request("GET", "https://api.example.com/v1/mcp")
+        )
+
+        # Build discovery URLs
+        discovery_urls = provider._build_protected_resource_discovery_urls(init_response)
+
+        # Should have path-based URL first, then root-based URL
+        assert len(discovery_urls) == 2
+        assert discovery_urls[0] == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
+        assert discovery_urls[1] == "https://api.example.com/.well-known/oauth-protected-resource"
+
+    @pytest.mark.anyio
+    async def test_root_based_fallback_after_path_based_404(
+        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+    ):
+        """Test that client falls back to root-based URI when path-based returns 404."""
+
+        async def redirect_handler(url: str) -> None:
+            pass  # pragma: no cover
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"  # pragma: no cover
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        # Ensure no tokens are stored
+        provider.context.current_tokens = None
+        provider.context.token_expiry_time = None
+        provider._initialized = True
+
+        # Mock client info to skip DCR
+        provider.context.client_info = OAuthClientInformationFull(
+            client_id="existing_client",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        # Create a test request
+        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+
+        # Mock the auth flow
+        auth_flow = provider.async_auth_flow(test_request)
+
+        # First request should be the original request without auth header
+        request = await auth_flow.__anext__()
+        assert "Authorization" not in request.headers
+
+        # Send a 401 response without WWW-Authenticate header
+        response = httpx.Response(401, headers={}, request=test_request)
+
+        # Next request should be to discover protected resource metadata (path-based)
+        discovery_request_1 = await auth_flow.asend(response)
+        assert str(discovery_request_1.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
+        assert discovery_request_1.method == "GET"
+
+        # Send 404 response for path-based discovery
+        discovery_response_1 = httpx.Response(404, request=discovery_request_1)
+
+        # Next request should be to root-based well-known URI
+        discovery_request_2 = await auth_flow.asend(discovery_response_1)
+        assert str(discovery_request_2.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+        assert discovery_request_2.method == "GET"
+
+        # Send successful discovery response
+        discovery_response_2 = httpx.Response(
+            200,
+            content=(
+                b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}'
+            ),
+            request=discovery_request_2,
+        )
+
+        # Mock the rest of the OAuth flow
+        provider._perform_authorization = mock.AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
+
+        # Next should be OAuth metadata discovery
+        oauth_metadata_request = await auth_flow.asend(discovery_response_2)
+        assert oauth_metadata_request.method == "GET"
+
+        # Complete the flow
+        oauth_metadata_response = httpx.Response(
+            200,
+            content=(
+                b'{"issuer": "https://auth.example.com", '
+                b'"authorization_endpoint": "https://auth.example.com/authorize", '
+                b'"token_endpoint": "https://auth.example.com/token"}'
+            ),
+            request=oauth_metadata_request,
+        )
+
+        token_request = await auth_flow.asend(oauth_metadata_response)
+        token_response = httpx.Response(
+            200,
+            content=(
+                b'{"access_token": "new_access_token", "token_type": "Bearer", "expires_in": 3600, '
+                b'"refresh_token": "new_refresh_token"}'
+            ),
+            request=token_request,
+        )
+
+        final_request = await auth_flow.asend(token_response)
+        final_response = httpx.Response(200, request=final_request)
+        try:
+            await auth_flow.asend(final_response)
+        except StopAsyncIteration:
+            pass
+
+    @pytest.mark.anyio
+    async def test_www_authenticate_takes_priority_over_well_known(
+        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+    ):
+        """Test that WWW-Authenticate header resource_metadata takes priority over well-known URIs."""
+
+        async def redirect_handler(url: str) -> None:
+            pass  # pragma: no cover
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"  # pragma: no cover
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        # Test with 401 response with WWW-Authenticate header
+        init_response = httpx.Response(
+            status_code=401,
+            headers={
+                "WWW-Authenticate": 'Bearer resource_metadata="https://custom.example.com/.well-known/oauth-protected-resource"'
+            },
+            request=httpx.Request("GET", "https://api.example.com/v1/mcp"),
+        )
+
+        # Build discovery URLs
+        discovery_urls = provider._build_protected_resource_discovery_urls(init_response)
+
+        # Should have WWW-Authenticate URL first, then fallback URLs
+        assert len(discovery_urls) == 3
+        assert discovery_urls[0] == "https://custom.example.com/.well-known/oauth-protected-resource"
+        assert discovery_urls[1] == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
+        assert discovery_urls[2] == "https://api.example.com/.well-known/oauth-protected-resource"
+
+
 class TestWWWAuthenticate:
     """Test WWW-Authenticate header parsing functionality."""
 
@@ -1094,10 +1269,10 @@ class TestWWWAuthenticate:
         """Test extraction of various fields from valid WWW-Authenticate headers."""
 
         async def redirect_handler(url: str) -> None:
-            pass
+            pass  # pragma: no cover
 
         async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
+            return "test_auth_code", "test_state"  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -1142,10 +1317,10 @@ class TestWWWAuthenticate:
         """Test extraction returns None for invalid cases."""
 
         async def redirect_handler(url: str) -> None:
-            pass
+            pass  # pragma: no cover
 
         async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"
+            return "test_auth_code", "test_state"  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",

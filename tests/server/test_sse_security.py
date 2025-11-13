@@ -30,11 +30,11 @@ def server_port() -> int:
 
 
 @pytest.fixture
-def server_url(server_port: int) -> str:
+def server_url(server_port: int) -> str:  # pragma: no cover
     return f"http://127.0.0.1:{server_port}"
 
 
-class SecurityTestServer(Server):
+class SecurityTestServer(Server):  # pragma: no cover
     def __init__(self):
         super().__init__(SERVER_NAME)
 
@@ -42,7 +42,7 @@ class SecurityTestServer(Server):
         return []
 
 
-def run_server_with_settings(port: int, security_settings: TransportSecuritySettings | None = None):
+def run_server_with_settings(port: int, security_settings: TransportSecuritySettings | None = None):  # pragma: no cover
     """Run the SSE server with specified security settings."""
     app = SecurityTestServer()
     sse_transport = SseServerTransport("/messages/", security_settings)

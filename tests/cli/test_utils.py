@@ -82,7 +82,7 @@ def test_get_npx_windows(monkeypatch: pytest.MonkeyPatch):
     def fake_run(cmd: list[str], **kw: Any) -> subprocess.CompletedProcess[bytes]:
         if cmd[0] in candidates:
             return subprocess.CompletedProcess(cmd, 0)
-        else:
+        else:  # pragma: no cover
             raise subprocess.CalledProcessError(1, cmd[0])
 
     monkeypatch.setattr(sys, "platform", "win32")
