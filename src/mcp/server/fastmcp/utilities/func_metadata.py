@@ -219,7 +219,7 @@ def func_metadata(
     """
     try:
         sig = inspect.signature(func, eval_str=True)
-    except NameError as e:
+    except NameError as e:  # pragma: no cover
         # This raise could perhaps be skipped, and we (FastMCP) just call
         # model_rebuild right before using it 🤷
         raise InvalidSignature(f"Unable to evaluate type annotations for callable {func.__name__!r}") from e
@@ -298,7 +298,9 @@ def func_metadata(
                 # Reconstruct the original annotation, by preserving the remaining metadata,
                 # i.e. from `Annotated[CallToolResult, ReturnType, Gt(1)]` to
                 # `Annotated[ReturnType, Gt(1)]`:
-                original_annotation = Annotated[(return_type_expr, *inspected_return_ann.metadata[1:])]
+                original_annotation = Annotated[
+                    (return_type_expr, *inspected_return_ann.metadata[1:])
+                ]  # pragma: no cover
             else:
                 # We only had `Annotated[CallToolResult, ReturnType]`, treat the original annotation
                 # as beging `ReturnType`:

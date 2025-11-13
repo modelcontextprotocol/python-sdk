@@ -1188,7 +1188,7 @@ def test_disallowed_type_qualifier():
     from mcp.server.fastmcp.exceptions import InvalidSignature
 
     def func_disallowed_qualifier() -> Final[int]:  # type: ignore
-        pass
+        pass  # pragma: no cover
 
     with pytest.raises(InvalidSignature) as exc_info:
         func_metadata(func_disallowed_qualifier)
@@ -1196,7 +1196,7 @@ def test_disallowed_type_qualifier():
 
 
 def test_preserves_pydantic_metadata():
-    def func_with_metadata() -> Annotated[int, Field(gt=1)]: ...
+    def func_with_metadata() -> Annotated[int, Field(gt=1)]: ...  # pragma: no branch
 
     meta = func_metadata(func_with_metadata)
 
