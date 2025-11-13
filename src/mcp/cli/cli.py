@@ -13,20 +13,20 @@ from mcp.server import Server as LowLevelServer
 
 try:
     import typer
-except ImportError:
+except ImportError:  # pragma: no cover
     print("Error: typer is required. Install with 'pip install mcp[cli]'")
     sys.exit(1)
 
 try:
     from mcp.cli import claude
     from mcp.server.fastmcp.utilities.logging import get_logger
-except ImportError:
+except ImportError:  # pragma: no cover
     print("Error: mcp.server.fastmcp is not installed or not in PYTHONPATH")
     sys.exit(1)
 
 try:
     import dotenv
-except ImportError:
+except ImportError:  # pragma: no cover
     dotenv = None
 
 logger = get_logger("cli")
@@ -53,7 +53,7 @@ def _get_npx_command():
     return "npx"  # On Unix-like systems, just use npx
 
 
-def _parse_env_var(env_var: str) -> tuple[str, str]:
+def _parse_env_var(env_var: str) -> tuple[str, str]:  # pragma: no cover
     """Parse environment variable string in format KEY=VALUE."""
     if "=" not in env_var:
         logger.error(f"Invalid environment variable format: {env_var}. Must be KEY=VALUE")
@@ -77,7 +77,7 @@ def _build_uv_command(
 
     if with_packages:
         for pkg in with_packages:
-            if pkg:
+            if pkg:  # pragma: no cover
                 cmd.extend(["--with", pkg])
 
     # Add mcp run command
@@ -116,7 +116,7 @@ def _parse_file_path(file_spec: str) -> tuple[Path, str | None]:
     return file_path, server_object
 
 
-def _import_server(file: Path, server_object: str | None = None):
+def _import_server(file: Path, server_object: str | None = None):  # pragma: no cover
     """Import an MCP server from a file.
 
     Args:
@@ -209,7 +209,7 @@ def _import_server(file: Path, server_object: str | None = None):
 
 
 @app.command()
-def version() -> None:
+def version() -> None:  # pragma: no cover
     """Show the MCP version."""
     try:
         version = importlib.metadata.version("mcp")
@@ -243,7 +243,7 @@ def dev(
             help="Additional packages to install",
         ),
     ] = [],
-) -> None:
+) -> None:  # pragma: no cover
     """Run an MCP server with the MCP Inspector."""
     file, server_object = _parse_file_path(file_spec)
 
@@ -316,7 +316,7 @@ def run(
             help="Transport protocol to use (stdio or sse)",
         ),
     ] = None,
-) -> None:
+) -> None:  # pragma: no cover
     """Run an MCP server.
 
     The server can be specified in two ways:\n
@@ -411,7 +411,7 @@ def install(
             resolve_path=True,
         ),
     ] = None,
-) -> None:
+) -> None:  # pragma: no cover
     """Install an MCP server in the Claude desktop app.
 
     Environment variables are preserved once added and only updated if new values

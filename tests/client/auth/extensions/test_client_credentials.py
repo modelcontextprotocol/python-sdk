@@ -15,16 +15,16 @@ class MockTokenStorage:
         self._tokens: OAuthToken | None = None
         self._client_info: OAuthClientInformationFull | None = None
 
-    async def get_tokens(self) -> OAuthToken | None:
+    async def get_tokens(self) -> OAuthToken | None:  # pragma: no cover
         return self._tokens
 
-    async def set_tokens(self, tokens: OAuthToken) -> None:
+    async def set_tokens(self, tokens: OAuthToken) -> None:  # pragma: no cover
         self._tokens = tokens
 
-    async def get_client_info(self) -> OAuthClientInformationFull | None:
+    async def get_client_info(self) -> OAuthClientInformationFull | None:  # pragma: no cover
         return self._client_info
 
-    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
+    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:  # pragma: no cover
         self._client_info = client_info
 
 
@@ -45,11 +45,11 @@ def client_metadata():
 
 @pytest.fixture
 def rfc7523_oauth_provider(client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage):
-    async def redirect_handler(url: str) -> None:
+    async def redirect_handler(url: str) -> None:  # pragma: no cover
         """Mock redirect handler."""
         pass
 
-    async def callback_handler() -> tuple[str, str | None]:
+    async def callback_handler() -> tuple[str, str | None]:  # pragma: no cover
         """Mock callback handler."""
         return "test_auth_code", "test_state"
 

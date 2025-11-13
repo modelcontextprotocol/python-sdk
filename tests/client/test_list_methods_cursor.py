@@ -19,27 +19,27 @@ async def full_featured_server():
     server = FastMCP("test")
 
     @server.tool(name="test_tool_1")
-    async def test_tool_1() -> str:
+    async def test_tool_1() -> str:  # pragma: no cover
         """First test tool"""
         return "Result 1"
 
     @server.tool(name="test_tool_2")
-    async def test_tool_2() -> str:
+    async def test_tool_2() -> str:  # pragma: no cover
         """Second test tool"""
         return "Result 2"
 
     @server.resource("resource://test/data")
-    async def test_resource() -> str:
+    async def test_resource() -> str:  # pragma: no cover
         """Test resource"""
         return "Test data"
 
     @server.prompt()
-    async def test_prompt(name: str) -> str:
+    async def test_prompt(name: str) -> str:  # pragma: no cover
         """Test prompt"""
         return f"Hello, {name}!"
 
     @server.resource("resource://test/{name}")
-    async def test_template(name: str) -> str:
+    async def test_template(name: str) -> str:  # pragma: no cover
         """Test resource template"""
         return f"Data for {name}"
 
@@ -209,7 +209,7 @@ async def test_list_tools_with_strict_server_validation():
     server = Server("strict_server")
 
     @server.list_tools()
-    async def handle_list_tools(request: ListToolsRequest) -> ListToolsResult:
+    async def handle_list_tools(request: ListToolsRequest) -> ListToolsResult:  # pragma: no cover
         """Strict handler that validates params field exists"""
 
         # Simulate strict server validation

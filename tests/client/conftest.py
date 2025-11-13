@@ -40,7 +40,7 @@ class StreamSpyCollection:
         self.client.sent_messages.clear()
         self.server.sent_messages.clear()
 
-    def get_client_requests(self, method: str | None = None) -> list[JSONRPCRequest]:
+    def get_client_requests(self, method: str | None = None) -> list[JSONRPCRequest]:  # pragma: no cover
         """Get client-sent requests, optionally filtered by method."""
         return [
             req.message.root
@@ -48,15 +48,15 @@ class StreamSpyCollection:
             if isinstance(req.message.root, JSONRPCRequest) and (method is None or req.message.root.method == method)
         ]
 
-    def get_server_requests(self, method: str | None = None) -> list[JSONRPCRequest]:
+    def get_server_requests(self, method: str | None = None) -> list[JSONRPCRequest]:  # pragma: no cover
         """Get server-sent requests, optionally filtered by method."""
-        return [
+        return [  # pragma: no cover
             req.message.root
             for req in self.server.sent_messages
             if isinstance(req.message.root, JSONRPCRequest) and (method is None or req.message.root.method == method)
         ]
 
-    def get_client_notifications(self, method: str | None = None) -> list[JSONRPCNotification]:
+    def get_client_notifications(self, method: str | None = None) -> list[JSONRPCNotification]:  # pragma: no cover
         """Get client-sent notifications, optionally filtered by method."""
         return [
             notif.message.root
@@ -65,7 +65,7 @@ class StreamSpyCollection:
             and (method is None or notif.message.root.method == method)
         ]
 
-    def get_server_notifications(self, method: str | None = None) -> list[JSONRPCNotification]:
+    def get_server_notifications(self, method: str | None = None) -> list[JSONRPCNotification]:  # pragma: no cover
         """Get server-sent notifications, optionally filtered by method."""
         return [
             notif.message.root
