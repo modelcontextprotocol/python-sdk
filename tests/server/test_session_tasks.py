@@ -205,6 +205,50 @@ async def test_get_task_payload_not_completed():
 
 
 @pytest.mark.anyio
+async def test_get_task_payload_not_found():
+    """Test GetTaskPayloadRequest fails when task doesn't exist."""
+    task_store = InMemoryTaskStore()
+    client_task_store = InMemoryTaskStore()
+    server = Server("test", task_store=task_store)
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(
+                lambda: server.run(
+                    server_read,
+                    server_write,
+                    server.create_initialization_options(),
+                )
+            )
+
+            try:
+                async with ClientSession(
+                    read_stream=client_read,
+                    write_stream=client_write,
+                    task_store=client_task_store,
+                ) as client_session:
+                    await client_session.initialize()
+
+                    # Try to get payload for non-existent task
+                    try:
+                        await client_session.send_request(
+                            types.ClientRequest(
+                                types.GetTaskPayloadRequest(params=types.GetTaskPayloadParams(taskId="non-existent"))
+                            ),
+                            types.ServerResult,
+                        )
+                        assert False, "Should have raised McpError"
+                    except Exception as e:
+                        # Should get an error about task not found
+                        assert "Task not found" in str(e) or str(types.INVALID_PARAMS) in str(e)
+            finally:
+                tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
 async def test_list_tasks_empty():
     """Test ListTasksRequest with no tasks."""
     task_store = InMemoryTaskStore()
@@ -624,23 +668,17 @@ async def server_session():
     from_client, to_server = anyio.create_memory_object_stream[SessionMessage](1)
     from_server, to_client = anyio.create_memory_object_stream[SessionMessage](1)
 
-    session = ServerSession(
-        to_server,
-        from_server,
-        InitializationOptions(
-            server_name="test",
-            server_version="1.0.0",
-            capabilities=types.ServerCapabilities(),
-        ),
-    )
-
-    yield session
-
-    # Cleanup
-    await from_client.aclose()
-    await to_server.aclose()
-    await from_server.aclose()
-    await to_client.aclose()
+    async with from_client, to_server, from_server, to_client:
+        session = ServerSession(
+            to_server,
+            from_server,
+            InitializationOptions(
+                server_name="test",
+                server_version="1.0.0",
+                capabilities=types.ServerCapabilities(),
+            ),
+        )
+        yield session
 
 
 @pytest.mark.anyio
@@ -911,3 +949,167 @@ async def test_check_tasks_capability_all_capabilities_present(server_session: S
 
     result = server_session._check_tasks_capability(required, client)
     assert result is True
+
+
+@pytest.mark.anyio
+async def test_get_task_without_task_store():
+    """Test GetTaskRequest fails when server has no task store configured."""
+    client_task_store = InMemoryTaskStore()
+    server = Server("test")  # No task_store parameter
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(
+                lambda: server.run(
+                    server_read,
+                    server_write,
+                    server.create_initialization_options(),
+                )
+            )
+
+            try:
+                async with ClientSession(
+                    read_stream=client_read,
+                    write_stream=client_write,
+                    task_store=client_task_store,
+                ) as client_session:
+                    await client_session.initialize()
+
+                    # Try to send GetTaskRequest
+                    try:
+                        await client_session.send_request(
+                            types.ClientRequest(types.GetTaskRequest(params=types.GetTaskParams(taskId="test-task"))),
+                            types.GetTaskResult,
+                        )
+                        assert False, "Should have raised McpError"
+                    except Exception as e:
+                        assert "Task store not configured" in str(e) or str(types.INVALID_REQUEST) in str(e)
+            finally:
+                tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_get_task_payload_without_task_store():
+    """Test GetTaskPayloadRequest fails when server has no task store configured."""
+    client_task_store = InMemoryTaskStore()
+    server = Server("test")  # No task_store parameter
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(
+                lambda: server.run(
+                    server_read,
+                    server_write,
+                    server.create_initialization_options(),
+                )
+            )
+
+            try:
+                async with ClientSession(
+                    read_stream=client_read,
+                    write_stream=client_write,
+                    task_store=client_task_store,
+                ) as client_session:
+                    await client_session.initialize()
+
+                    # Try to send GetTaskPayloadRequest
+                    try:
+                        await client_session.send_request(
+                            types.ClientRequest(
+                                types.GetTaskPayloadRequest(params=types.GetTaskPayloadParams(taskId="test-task"))
+                            ),
+                            types.ServerResult,
+                        )
+                        assert False, "Should have raised McpError"
+                    except Exception as e:
+                        assert "Task store not configured" in str(e) or str(types.INVALID_REQUEST) in str(e)
+            finally:
+                tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_list_tasks_without_task_store():
+    """Test ListTasksRequest fails when server has no task store configured."""
+    client_task_store = InMemoryTaskStore()
+    server = Server("test")  # No task_store parameter
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(
+                lambda: server.run(
+                    server_read,
+                    server_write,
+                    server.create_initialization_options(),
+                )
+            )
+
+            try:
+                async with ClientSession(
+                    read_stream=client_read,
+                    write_stream=client_write,
+                    task_store=client_task_store,
+                ) as client_session:
+                    await client_session.initialize()
+
+                    # Try to send ListTasksRequest
+                    try:
+                        await client_session.send_request(
+                            types.ClientRequest(types.ListTasksRequest()),
+                            types.ListTasksResult,
+                        )
+                        assert False, "Should have raised McpError"
+                    except Exception as e:
+                        assert "Task store not configured" in str(e) or str(types.INVALID_REQUEST) in str(e)
+            finally:
+                tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_delete_task_without_task_store():
+    """Test DeleteTaskRequest fails when server has no task store configured."""
+    client_task_store = InMemoryTaskStore()
+    server = Server("test")  # No task_store parameter
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(
+                lambda: server.run(
+                    server_read,
+                    server_write,
+                    server.create_initialization_options(),
+                )
+            )
+
+            try:
+                async with ClientSession(
+                    read_stream=client_read,
+                    write_stream=client_write,
+                    task_store=client_task_store,
+                ) as client_session:
+                    await client_session.initialize()
+
+                    # Try to send DeleteTaskRequest
+                    try:
+                        await client_session.send_request(
+                            types.ClientRequest(
+                                types.DeleteTaskRequest(params=types.DeleteTaskParams(taskId="test-task"))
+                            ),
+                            types.EmptyResult,
+                        )
+                        assert False, "Should have raised McpError"
+                    except Exception as e:
+                        assert "Task store not configured" in str(e) or str(types.INVALID_REQUEST) in str(e)
+            finally:
+                tg.cancel_scope.cancel()
