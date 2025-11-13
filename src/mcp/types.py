@@ -1,8 +1,7 @@
-import re
 from collections.abc import Callable
 from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel, field_validator
+from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel, StringConstraints
 from pydantic.networks import AnyUrl, UrlConstraints
 from typing_extensions import deprecated
 
@@ -39,10 +38,6 @@ Cursor = str
 Role = Literal["user", "assistant"]
 RequestId = Annotated[int, Field(strict=True)] | str
 AnyFunction: TypeAlias = Callable[..., Any]
-
-# Tool name validation pattern (ASCII letters, digits, underscore, dash, dot)
-# Pattern ensures entire string contains only valid characters by using ^ and $ anchors
-TOOL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 class RequestParams(BaseModel):
@@ -204,7 +199,7 @@ class EmptyResult(Result):
 class BaseMetadata(BaseModel):
     """Base class for entities with name and optional title fields."""
 
-    name: str
+    name: Annotated[str, StringConstraints(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")]
     """The programmatic name of the entity."""
 
     title: str | None = None
@@ -895,17 +890,6 @@ class Tool(BaseMetadata):
     for notes on _meta usage.
     """
     model_config = ConfigDict(extra="allow")
-
-    @field_validator("name")
-    @classmethod
-    def _validate_tool_name(cls, value: str) -> str:
-        if not (1 <= len(value) <= 128):
-            raise ValueError(f"Invalid tool name length: {len(value)}. Tool name must be between 1 and 128 characters.")
-
-        if not TOOL_NAME_PATTERN.fullmatch(value):
-            raise ValueError("Invalid tool name characters. Allowed: A-Z, a-z, 0-9, underscore (_), dash (-), dot (.).")
-
-        return value
 
     """
     See [MCP specification](https://modelcontextprotocol.io/specification/draft/server/tools#tool-names)
