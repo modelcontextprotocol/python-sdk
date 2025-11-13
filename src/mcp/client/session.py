@@ -131,6 +131,8 @@ async def _default_logging_callback(
 async def _default_progress_callback(
     params: types.ProgressNotificationParams,
 ) -> None:
+    """Note: Default progress handling happens in the BaseSession class. This callback will only be called after the
+    default progress handling has completed."""
     pass
 
 
