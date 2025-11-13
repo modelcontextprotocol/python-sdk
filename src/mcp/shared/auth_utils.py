@@ -1,9 +1,5 @@
 """Utilities for OAuth 2.0 Resource Indicators (RFC 8707) and PKCE (RFC 7636)."""
 
-import base64
-import hashlib
-import secrets
-import string
 import time
 from urllib.parse import urlparse, urlsplit, urlunsplit
 
@@ -72,38 +68,6 @@ def check_resource_allowed(requested_resource: str, configured_resource: str) ->
         configured_path += "/"
 
     return requested_path.startswith(configured_path)
-
-
-def generate_pkce_parameters(verifier_length: int = 128) -> tuple[str, str]:
-    """Generate PKCE verifier and challenge per RFC 7636.
-
-    Generates cryptographically secure code_verifier and code_challenge
-    for OAuth 2.0 PKCE (Proof Key for Code Exchange).
-
-    Args:
-        verifier_length: Length of code_verifier (43-128 chars per RFC 7636, default 128)
-
-    Returns:
-        Tuple of (code_verifier, code_challenge)
-
-    Raises:
-        ValueError: If verifier_length is not between 43 and 128
-    """
-    if not 43 <= verifier_length <= 128:
-        raise ValueError("verifier_length must be between 43 and 128 per RFC 7636")  # pragma: no cover
-
-    # Generate code_verifier using unreserved characters per RFC 7636 Section 4.1
-    # unreserved = ALPHA / DIGIT / "-" / "." / "_" / "~"
-    code_verifier = "".join(
-        secrets.choice(string.ascii_letters + string.digits + "-._~") for _ in range(verifier_length)
-    )
-
-    # Generate code_challenge using S256 method per RFC 7636 Section 4.2
-    # code_challenge = BASE64URL(SHA256(ASCII(code_verifier)))
-    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
-    code_challenge = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
-
-    return code_verifier, code_challenge
 
 
 def calculate_token_expiry(expires_in: int | str | None) -> float | None:

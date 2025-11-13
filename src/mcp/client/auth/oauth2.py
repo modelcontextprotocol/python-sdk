@@ -4,8 +4,11 @@ OAuth2 Authentication implementation for HTTPX.
 Implements authorization code flow with PKCE and automatic token refresh.
 """
 
+import base64
+import hashlib
 import logging
 import secrets
+import string
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -42,7 +45,6 @@ from mcp.shared.auth import (
 from mcp.shared.auth_utils import (
     calculate_token_expiry,
     check_resource_allowed,
-    generate_pkce_parameters,
     resource_url_from_server_url,
 )
 
@@ -57,8 +59,10 @@ class PKCEParameters(BaseModel):
 
     @classmethod
     def generate(cls) -> "PKCEParameters":
-        """Generate new PKCE parameters using shared util function."""
-        code_verifier, code_challenge = generate_pkce_parameters(verifier_length=128)
+        """Generate new PKCE parameters."""
+        code_verifier = "".join(secrets.choice(string.ascii_letters + string.digits + "-._~") for _ in range(128))
+        digest = hashlib.sha256(code_verifier.encode()).digest()
+        code_challenge = base64.urlsafe_b64encode(digest).decode().rstrip("=")
         return cls(code_verifier=code_verifier, code_challenge=code_challenge)
 
 
