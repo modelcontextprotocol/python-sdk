@@ -513,3 +513,6 @@ async def streamablehttp_client(
         finally:
             await read_stream_writer.aclose()
             await write_stream.aclose()
+
+
+streamable_http_client = streamablehttp_client

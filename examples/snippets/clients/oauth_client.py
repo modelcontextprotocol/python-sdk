@@ -14,7 +14,7 @@ from pydantic import AnyUrl
 
 from mcp import ClientSession
 from mcp.client.auth import OAuthClientProvider, TokenStorage
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 
@@ -68,7 +68,7 @@ async def main():
         callback_handler=handle_callback,
     )
 
-    async with streamablehttp_client("http://localhost:8001/mcp", auth=oauth_auth) as (read, write, _):
+    async with streamable_http_client("http://localhost:8001/mcp", auth=oauth_auth) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
 

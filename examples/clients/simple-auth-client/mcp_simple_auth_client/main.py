@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlparse
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 
@@ -205,7 +205,7 @@ class SimpleAuthClient:
                     await self._run_session(read_stream, write_stream, None)
             else:
                 print("📡 Opening StreamableHTTP transport connection with auth...")
-                async with streamablehttp_client(
+                async with streamable_http_client(
                     url=self.server_url,
                     auth=oauth_auth,
                     timeout=timedelta(seconds=60),
