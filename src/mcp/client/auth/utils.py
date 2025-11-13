@@ -240,7 +240,7 @@ async def handle_token_response_scopes(
         Validated OAuthToken model
 
     Raises:
-        OAuthTokenError: If response JSON is invalid or contains unauthorized scopes
+        OAuthTokenError: If response JSON is invalid
     """
     try:
         content = await response.aread()
