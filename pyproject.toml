@@ -34,6 +34,8 @@ dependencies = [
     "jsonschema>=4.20.0",
     "pywin32>=310; sys_platform == 'win32'",
     "pyjwt[crypto]>=2.10.1",
+    "typing-extensions>=4.9.0",
+    "typing-inspection>=0.4.1",
 ]
 
 [project.optional-dependencies]

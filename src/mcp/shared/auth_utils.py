@@ -1,5 +1,6 @@
-"""Utilities for OAuth 2.0 Resource Indicators (RFC 8707)."""
+"""Utilities for OAuth 2.0 Resource Indicators (RFC 8707) and PKCE (RFC 7636)."""
 
+import time
 from urllib.parse import urlparse, urlsplit, urlunsplit
 
 from pydantic import AnyUrl, HttpUrl
@@ -67,3 +68,18 @@ def check_resource_allowed(requested_resource: str, configured_resource: str) ->
         configured_path += "/"
 
     return requested_path.startswith(configured_path)
+
+
+def calculate_token_expiry(expires_in: int | str | None) -> float | None:
+    """Calculate token expiry timestamp from expires_in seconds.
+
+    Args:
+        expires_in: Seconds until token expiration (may be string from some servers)
+
+    Returns:
+        Unix timestamp when token expires, or None if no expiry specified
+    """
+    if expires_in is None:
+        return None  # pragma: no cover
+    # Defensive: handle servers that return expires_in as string
+    return time.time() + int(expires_in)
