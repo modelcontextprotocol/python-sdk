@@ -579,5 +579,10 @@ class ClientSession(
         match notification.root:
             case types.LoggingMessageNotification(params=params):
                 await self._logging_callback(params)
+            case types.ElicitCompleteNotification(params=params):
+                # Handle elicitation completion notification
+                # Clients MAY use this to retry requests or update UI
+                # The notification contains the elicitationId of the completed elicitation
+                pass
             case _:
                 pass

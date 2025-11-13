@@ -384,6 +384,30 @@ class ServerSession(
         """Send a prompt list changed notification."""
         await self.send_notification(types.ServerNotification(types.PromptListChangedNotification()))
 
+    async def send_elicit_complete(
+        self,
+        elicitation_id: str,
+        related_request_id: types.RequestId | None = None,
+    ) -> None:
+        """Send an elicitation completion notification.
+
+        This should be sent when a URL mode elicitation has been completed
+        out-of-band to inform the client that it may retry any requests
+        that were waiting for this elicitation.
+
+        Args:
+            elicitation_id: The unique identifier of the completed elicitation
+            related_request_id: Optional ID of the request that triggered this
+        """
+        await self.send_notification(
+            types.ServerNotification(
+                types.ElicitCompleteNotification(
+                    params=types.ElicitCompleteNotificationParams(elicitationId=elicitation_id)
+                )
+            ),
+            related_request_id,
+        )
+
     async def _handle_incoming(self, req: ServerRequestResponder) -> None:
         await self._incoming_message_stream_writer.send(req)
 

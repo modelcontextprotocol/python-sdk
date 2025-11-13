@@ -146,9 +146,9 @@ class JSONRPCResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-# MCP-specific error codes
-ELICITATION_REQUIRED = -32000
-"""Error code indicating that an elicitation is required before the request can be processed."""
+# MCP-specific error codes in the range [-32000, -32099]
+URL_ELICITATION_REQUIRED = -32042
+"""Error code indicating that a URL mode elicitation is required before the request can be processed."""
 
 # SDK error codes
 CONNECTION_CLOSED = -32001
@@ -1272,6 +1272,32 @@ class CancelledNotification(Notification[CancelledNotificationParams, Literal["n
     params: CancelledNotificationParams
 
 
+class ElicitCompleteNotificationParams(NotificationParams):
+    """Parameters for elicitation completion notifications."""
+
+    elicitationId: str
+    """The unique identifier of the elicitation that was completed."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ElicitCompleteNotification(
+    Notification[ElicitCompleteNotificationParams, Literal["notifications/elicitation/complete"]]
+):
+    """
+    A notification from the server to the client, informing it that a URL mode
+    elicitation has been completed.
+
+    Clients MAY use the notification to automatically retry requests that received a
+    URLElicitationRequiredError, update the user interface, or otherwise continue
+    an interaction. However, because delivery of the notification is not guaranteed,
+    clients must not wait indefinitely for a notification from the server.
+    """
+
+    method: Literal["notifications/elicitation/complete"] = "notifications/elicitation/complete"
+    params: ElicitCompleteNotificationParams
+
+
 class ElicitTrackRequestParams(RequestParams):
     """Parameters for elicitation tracking requests."""
 
@@ -1435,6 +1461,7 @@ class ServerNotification(
         | ResourceListChangedNotification
         | ToolListChangedNotification
         | PromptListChangedNotification
+        | ElicitCompleteNotification
     ]
 ):
     pass

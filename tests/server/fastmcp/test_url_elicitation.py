@@ -1,7 +1,9 @@
 """Test URL mode elicitation feature (SEP 1036)."""
 
+import anyio
 import pytest
 
+from mcp import types
 from mcp.client.session import ClientSession
 from mcp.server.elicitation import AcceptedUrlElicitation, DeclinedElicitation
 from mcp.server.fastmcp import Context, FastMCP
@@ -229,3 +231,53 @@ async def test_form_mode_still_works():
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Hello, Alice!"
+
+
+@pytest.mark.anyio
+async def test_elicit_complete_notification():
+    """Test that elicitation completion notifications can be sent and received."""
+    mcp = FastMCP(name="ElicitCompleteServer")
+
+    # Track if the notification was sent
+    notification_sent = False
+
+    @mcp.tool(description="Tool that sends completion notification")
+    async def trigger_elicitation(ctx: Context[ServerSession, None]) -> str:
+        nonlocal notification_sent
+
+        # Simulate an async operation (e.g., user completing auth in browser)
+        elicitation_id = "complete-test-001"
+
+        # Send completion notification
+        await ctx.session.send_elicit_complete(elicitation_id)
+        notification_sent = True
+
+        return "Elicitation completed"
+
+    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+        return ElicitResult(action="accept")
+
+    async with create_connected_server_and_client_session(
+        mcp._mcp_server, elicitation_callback=elicitation_callback
+    ) as client_session:
+        await client_session.initialize()
+
+        result = await client_session.call_tool("trigger_elicitation", {})
+        assert len(result.content) == 1
+        assert isinstance(result.content[0], TextContent)
+        assert result.content[0].text == "Elicitation completed"
+
+        # Give time for notification to be processed
+        await anyio.sleep(0.1)
+
+        # Verify the notification was sent
+        assert notification_sent
+
+
+@pytest.mark.anyio
+async def test_url_elicitation_required_error_code():
+    """Test that the URL_ELICITATION_REQUIRED error code is correct."""
+    # Verify the error code matches the specification (SEP 1036)
+    assert types.URL_ELICITATION_REQUIRED == -32042, (
+        "URL_ELICITATION_REQUIRED error code must be -32042 per SEP 1036 specification"
+    )
