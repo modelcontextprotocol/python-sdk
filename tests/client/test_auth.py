@@ -12,13 +12,13 @@ from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
 from mcp.client.auth.utils import (
-    build_protected_resource_discovery_urls,
+    build_oauth_authorization_server_metadata_discovery_urls,
+    build_protected_resource_metadata_discovery_urls,
     create_oauth_metadata_request,
     extract_field_from_www_auth,
     extract_resource_metadata_from_www_auth,
     extract_scope_from_www_auth,
     get_client_metadata_scopes,
-    get_discovery_urls,
     handle_registration_response,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken, ProtectedResourceMetadata
@@ -275,7 +275,7 @@ class TestOAuthFlow:
             status_code=401, headers={}, request=httpx.Request("GET", "https://request-api.example.com")
         )
 
-        urls = build_protected_resource_discovery_urls(
+        urls = build_protected_resource_metadata_discovery_urls(
             extract_resource_metadata_from_www_auth(init_response), provider.context.server_url
         )
         assert len(urls) == 1
@@ -286,7 +286,7 @@ class TestOAuthFlow:
             'Bearer resource_metadata="https://prm.example.com/.well-known/oauth-protected-resource/path"'
         )
 
-        urls = build_protected_resource_discovery_urls(
+        urls = build_protected_resource_metadata_discovery_urls(
             extract_resource_metadata_from_www_auth(init_response), provider.context.server_url
         )
         assert len(urls) == 2
@@ -309,12 +309,16 @@ class TestOAuthFallback:
 
     @pytest.mark.anyio
     async def test_oauth_discovery_fallback_order(self, oauth_provider: OAuthClientProvider):
-        """Test fallback URL construction order."""
-        discovery_urls = get_discovery_urls(oauth_provider.context.auth_server_url or oauth_provider.context.server_url)
+        """Test fallback URL construction order when auth server URL has a path."""
+        # Simulate PRM discovery returning an auth server URL with a path
+        oauth_provider.context.auth_server_url = oauth_provider.context.server_url
+
+        discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
+            oauth_provider.context.auth_server_url, oauth_provider.context.server_url
+        )
 
         assert discovery_urls == [
             "https://api.example.com/.well-known/oauth-authorization-server/v1/mcp",
-            "https://api.example.com/.well-known/oauth-authorization-server",
             "https://api.example.com/.well-known/openid-configuration/v1/mcp",
             "https://api.example.com/v1/mcp/.well-known/openid-configuration",
         ]
@@ -1084,7 +1088,7 @@ class TestSEP985Discovery:
         )
 
         # Build discovery URLs
-        discovery_urls = build_protected_resource_discovery_urls(
+        discovery_urls = build_protected_resource_metadata_discovery_urls(
             extract_resource_metadata_from_www_auth(init_response), provider.context.server_url
         )
 
@@ -1224,7 +1228,7 @@ class TestSEP985Discovery:
         )
 
         # Build discovery URLs
-        discovery_urls = build_protected_resource_discovery_urls(
+        discovery_urls = build_protected_resource_metadata_discovery_urls(
             extract_resource_metadata_from_www_auth(init_response), provider.context.server_url
         )
 

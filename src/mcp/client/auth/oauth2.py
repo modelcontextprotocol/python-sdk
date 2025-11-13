@@ -21,14 +21,14 @@ from pydantic import BaseModel, Field, ValidationError
 
 from mcp.client.auth import OAuthFlowError, OAuthTokenError
 from mcp.client.auth.utils import (
-    build_protected_resource_discovery_urls,
+    build_oauth_authorization_server_metadata_discovery_urls,
+    build_protected_resource_metadata_discovery_urls,
     create_client_registration_request,
     create_oauth_metadata_request,
     extract_field_from_www_auth,
     extract_resource_metadata_from_www_auth,
     extract_scope_from_www_auth,
     get_client_metadata_scopes,
-    get_discovery_urls,
     handle_auth_metadata_response,
     handle_protected_resource_response,
     handle_registration_response,
@@ -463,10 +463,10 @@ class OAuthClientProvider(httpx.Auth):
                     www_auth_resource_metadata_url = extract_resource_metadata_from_www_auth(response)
 
                     # Step 1: Discover protected resource metadata (SEP-985 with fallback support)
-                    prm_discovery_urls = build_protected_resource_discovery_urls(
+                    prm_discovery_urls = build_protected_resource_metadata_discovery_urls(
                         www_auth_resource_metadata_url, self.context.server_url
                     )
-                    prm_discovery_success = False
+
                     for url in prm_discovery_urls:  # pragma: no branch
                         discovery_request = create_oauth_metadata_request(url)
 
@@ -474,23 +474,23 @@ class OAuthClientProvider(httpx.Auth):
 
                         prm = await handle_protected_resource_response(discovery_response)
                         if prm:
-                            prm_discovery_success = True
-
-                            # saving the response metadata
                             self.context.protected_resource_metadata = prm
-                            if prm.authorization_servers:  # pragma: no branch
-                                self.context.auth_server_url = str(prm.authorization_servers[0])
 
+                            # todo: try all authorization_servers to find the OASM
+                            assert (
+                                len(prm.authorization_servers) > 0
+                            )  # this is always true as authorization_servers has a min length of 1
+
+                            self.context.auth_server_url = str(prm.authorization_servers[0])
                             break
                         else:
                             logger.debug(f"Protected resource metadata discovery failed: {url}")
-                    if not prm_discovery_success:
-                        raise OAuthFlowError(
-                            "Protected resource metadata discovery failed: no valid metadata found"
-                        )  # pragma: no cover
 
-                    # Step 2: Discover OAuth metadata (with fallback for legacy servers)
-                    asm_discovery_urls = get_discovery_urls(self.context.auth_server_url or self.context.server_url)
+                    asm_discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
+                        self.context.auth_server_url, self.context.server_url
+                    )
+
+                    # Step 2: Discover OAuth Authorization Server Metadata (OASM) (with fallback for legacy servers)
                     for url in asm_discovery_urls:  # pragma: no cover
                         oauth_metadata_request = create_oauth_metadata_request(url)
                         oauth_metadata_response = yield oauth_metadata_request
