@@ -1,18 +1,25 @@
+from __future__ import annotations
+
 import logging
 from datetime import timedelta
-from typing import Any, Protocol, overload
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, overload
+from uuid import uuid4
 
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from jsonschema import SchemaError, ValidationError, validate
-from pydantic import AnyUrl, TypeAdapter
+from pydantic import AnyUrl, BaseModel, TypeAdapter
 from typing_extensions import deprecated
 
 import mcp.types as types
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
+from mcp.shared.task import TaskStore
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+
+if TYPE_CHECKING:
+    from mcp.shared.request import PendingRequest
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
@@ -22,7 +29,7 @@ logger = logging.getLogger("client")
 class SamplingFnT(Protocol):
     async def __call__(
         self,
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientSession, Any],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.ErrorData: ...  # pragma: no branch
 
@@ -30,14 +37,14 @@ class SamplingFnT(Protocol):
 class ElicitationFnT(Protocol):
     async def __call__(
         self,
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientSession, Any],
         params: types.ElicitRequestParams,
     ) -> types.ElicitResult | types.ErrorData: ...  # pragma: no branch
 
 
 class ListRootsFnT(Protocol):
     async def __call__(
-        self, context: RequestContext["ClientSession", Any]
+        self, context: RequestContext[ClientSession, Any]
     ) -> types.ListRootsResult | types.ErrorData: ...  # pragma: no branch
 
 
@@ -62,7 +69,7 @@ async def _default_message_handler(
 
 
 async def _default_sampling_callback(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext[ClientSession, Any],
     params: types.CreateMessageRequestParams,
 ) -> types.CreateMessageResult | types.ErrorData:
     return types.ErrorData(
@@ -72,7 +79,7 @@ async def _default_sampling_callback(
 
 
 async def _default_elicitation_callback(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext[ClientSession, Any],
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
     return types.ErrorData(  # pragma: no cover
@@ -82,7 +89,7 @@ async def _default_elicitation_callback(
 
 
 async def _default_list_roots_callback(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext[ClientSession, Any],
 ) -> types.ListRootsResult | types.ErrorData:
     return types.ErrorData(
         code=types.INVALID_REQUEST,
@@ -96,6 +103,7 @@ async def _default_logging_callback(
     pass
 
 
+ClientResultT = TypeVar("ClientResultT", BaseModel, types.ClientResult)
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
 
 
@@ -119,6 +127,8 @@ class ClientSession(
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
+        task_store: TaskStore | None = None,
+        session_id: str | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -126,6 +136,8 @@ class ClientSession(
             types.ServerRequest,
             types.ServerNotification,
             read_timeout_seconds=read_timeout_seconds,
+            task_store=task_store,
+            session_id=session_id,
         )
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
@@ -150,6 +162,18 @@ class ClientSession(
             else None
         )
 
+        # Build tasks capability - only if task store is configured
+        tasks = None
+        if self._task_store is not None:
+            tasks = types.ClientTasksCapability(
+                requests=types.ClientTasksRequestsCapability(
+                    sampling=types.TaskSamplingCapability(createMessage=True),
+                    elicitation=types.TaskElicitationCapability(create=True),
+                    roots=types.TaskRootsCapability(list=True),
+                    tasks=types.TasksOperationsCapability(get=True, list=True, result=True, delete=True),
+                )
+            )
+
         result = await self.send_request(
             types.ClientRequest(
                 types.InitializeRequest(
@@ -160,6 +184,7 @@ class ClientSession(
                             elicitation=elicitation,
                             experimental=None,
                             roots=roots,
+                            tasks=tasks,
                         ),
                         clientInfo=self._client_info,
                     ),
@@ -332,6 +357,52 @@ class ClientSession(
             types.EmptyResult,
         )
 
+    def begin_call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: timedelta | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        task: types.TaskMetadata | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> PendingRequest[types.CallToolResult]:
+        """
+        Begin a tool call and return a PendingRequest for granular control over task-based execution.
+
+        This is useful when you want to create a task for a long-running tool call and poll for results later.
+
+        Args:
+            name: The tool name
+            arguments: Optional tool arguments
+            read_timeout_seconds: Optional timeout for reading response
+            progress_callback: Optional callback for progress notifications
+            task: Optional task metadata for task-based execution
+            meta: Optional additional metadata
+
+        Returns:
+            A PendingRequest object that can be used to wait for the result
+        """
+        _meta: types.RequestParams.Meta | None = None
+        if meta is not None:
+            _meta = types.RequestParams.Meta(**meta)
+
+        # Automatically add task metadata if not provided
+        if task is None:
+            task = types.TaskMetadata(taskId=str(uuid4()))
+
+        return self.begin_send_request(
+            types.ClientRequest(
+                types.CallToolRequest(
+                    params=types.CallToolRequestParams(name=name, arguments=arguments, _meta=_meta),
+                )
+            ),
+            types.CallToolResult,
+            request_read_timeout_seconds=read_timeout_seconds,
+            progress_callback=progress_callback,
+            task=task,
+        )
+
     async def call_tool(
         self,
         name: str,
@@ -341,7 +412,11 @@ class ClientSession(
         *,
         meta: dict[str, Any] | None = None,
     ) -> types.CallToolResult:
-        """Send a tools/call request with optional progress callback support."""
+        """
+        Send a tools/call request with optional progress callback support.
+
+        For task-based execution with granular control, use begin_call_tool() instead.
+        """
 
         _meta: types.RequestParams.Meta | None = None
         if meta is not None:
@@ -507,7 +582,66 @@ class ClientSession(
         """Send a roots/list_changed notification."""
         await self.send_notification(types.ClientNotification(types.RootsListChangedNotification()))
 
+    async def get_task(self, task_id: str) -> types.GetTaskResult:
+        """Get the current status of a task."""
+        return await self.send_request(
+            types.ClientRequest(types.GetTaskRequest(method="tasks/get", params=types.GetTaskParams(taskId=task_id))),
+            types.GetTaskResult,
+        )
+
+    async def get_task_result(self, task_id: str, result_type: type[ClientResultT]) -> ClientResultT:
+        """Retrieve the result of a completed task."""
+        return await self.send_request(
+            types.ClientRequest(
+                types.GetTaskPayloadRequest(method="tasks/result", params=types.GetTaskPayloadParams(taskId=task_id))
+            ),
+            result_type,
+        )
+
+    async def list_tasks(self, cursor: str | None = None) -> types.ListTasksResult:
+        """List tasks, optionally starting from a pagination cursor."""
+        return await self.send_request(
+            types.ClientRequest(
+                types.ListTasksRequest(
+                    method="tasks/list", params=types.PaginatedRequestParams(cursor=cursor) if cursor else None
+                )
+            ),
+            types.ListTasksResult,
+        )
+
+    async def delete_task(self, task_id: str) -> types.EmptyResult:
+        """Delete a specific task."""
+        return await self.send_request(
+            types.ClientRequest(
+                types.DeleteTaskRequest(method="tasks/delete", params=types.DeleteTaskParams(taskId=task_id))
+            ),
+            types.EmptyResult,
+        )
+
     async def _received_request(self, responder: RequestResponder[types.ServerRequest, types.ClientResult]) -> None:
+        # Handle task creation if task metadata is present
+        if responder.request_meta and responder.request_meta.task and self._task_store:
+            task_meta = responder.request_meta.task
+            # Create the task in the task store
+            await self._task_store.create_task(
+                task_meta,
+                responder.request_id,
+                responder.request.root,
+                session_id=self._session_id,  # type: ignore[arg-type]
+            )
+            # Send task created notification with related task metadata
+            notification_params = types.TaskCreatedNotificationParams(
+                _meta=types.NotificationParams.Meta(
+                    **{types.RELATED_TASK_META_KEY: types.RelatedTaskMetadata(taskId=task_meta.taskId)}
+                )
+            )
+            await self.send_notification(
+                types.ClientNotification(
+                    types.TaskCreatedNotification(method="notifications/tasks/created", params=notification_params)
+                ),
+                related_request_id=responder.request_id,
+            )
+
         ctx = RequestContext[ClientSession, Any](
             request_id=responder.request_id,
             meta=responder.request_meta,
@@ -537,6 +671,100 @@ class ClientSession(
             case types.PingRequest():  # pragma: no cover
                 with responder:
                     return await responder.respond(types.ClientResult(root=types.EmptyResult()))
+
+            case types.GetTaskRequest(params=params):
+                # Handle get task requests if task store is available
+                if self._task_store:
+                    task = await self._task_store.get_task(params.taskId, session_id=self._session_id)
+                    if task is None:
+                        with responder:
+                            await responder.respond(
+                                types.ErrorData(
+                                    code=types.INVALID_PARAMS, message="Failed to retrieve task: Task not found"
+                                )
+                            )
+                    else:
+                        with responder:
+                            result = types.GetTaskResult(
+                                taskId=task.taskId,
+                                status=task.status,
+                                keepAlive=task.keepAlive,
+                                pollInterval=task.pollInterval,
+                                error=task.error,
+                                _meta={types.RELATED_TASK_META_KEY: {"taskId": params.taskId}},
+                            )
+                            await responder.respond(types.ClientResult(result))
+                else:
+                    with responder:
+                        await responder.respond(
+                            types.ErrorData(code=types.INVALID_REQUEST, message="Task store not configured")
+                        )
+
+            case types.GetTaskPayloadRequest(params=params):
+                # Handle get task result requests if task store is available
+                if self._task_store:
+                    task = await self._task_store.get_task(params.taskId, session_id=self._session_id)
+                    if task is None:
+                        with responder:
+                            await responder.respond(
+                                types.ErrorData(
+                                    code=types.INVALID_PARAMS, message="Failed to retrieve task: Task not found"
+                                )
+                            )
+                    elif task.status != "completed":
+                        with responder:
+                            await responder.respond(
+                                types.ErrorData(
+                                    code=types.INVALID_PARAMS,
+                                    message=f"Cannot retrieve result: Task status is '{task.status}', not 'completed'",
+                                )
+                            )
+                    else:
+                        result = await self._task_store.get_task_result(params.taskId, session_id=self._session_id)
+                        # Add related-task metadata
+                        result_dict = result.model_dump(by_alias=True, mode="json", exclude_none=True)
+                        if "_meta" not in result_dict:
+                            result_dict["_meta"] = {}
+                        result_dict["_meta"][types.RELATED_TASK_META_KEY] = {"taskId": params.taskId}
+                        with responder:
+                            await responder.respond(types.ClientResult.model_validate(result_dict))
+                else:
+                    with responder:
+                        await responder.respond(
+                            types.ErrorData(code=types.INVALID_REQUEST, message="Task store not configured")
+                        )
+
+            case types.ListTasksRequest(params=params):
+                # Handle list tasks requests if task store is available
+                if self._task_store:
+                    try:
+                        result = await self._task_store.list_tasks(
+                            params.cursor if params else None, session_id=self._session_id
+                        )
+                        with responder:
+                            await responder.respond(
+                                types.ClientResult(
+                                    types.ListTasksResult(
+                                        tasks=result["tasks"],  # type: ignore[arg-type]
+                                        nextCursor=result.get("nextCursor"),  # type: ignore[arg-type]
+                                        _meta={},
+                                    )
+                                )
+                            )
+                    except Exception as e:
+                        with responder:
+                            await responder.respond(
+                                types.ErrorData(code=types.INVALID_PARAMS, message=f"Failed to list tasks: {e}")
+                            )
+                else:
+                    with responder:
+                        await responder.respond(
+                            types.ErrorData(code=types.INVALID_REQUEST, message="Task store not configured")
+                        )
+
+            case _:
+                # Other request types are not expected to be received by the client
+                pass
 
     async def _handle_incoming(
         self,

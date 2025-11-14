@@ -20,6 +20,7 @@ import uvicorn
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
 
+from examples.shared.in_memory_task_store import InMemoryTaskStore
 from examples.snippets.servers import (
     basic_prompt,
     basic_resource,
@@ -30,6 +31,7 @@ from examples.snippets.servers import (
     notifications,
     sampling,
     structured_output,
+    task_based_tool,
     tool_progress,
 )
 from mcp.client.session import ClientSession
@@ -37,6 +39,7 @@ from mcp.client.sse import sse_client
 from mcp.client.streamable_http import GetSessionIdCallback, streamablehttp_client
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
+from mcp.shared.request import TaskHandlerOptions
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     ClientResult,
@@ -45,6 +48,7 @@ from mcp.types import (
     ElicitRequestParams,
     ElicitResult,
     GetPromptResult,
+    GetTaskResult,
     InitializeResult,
     LoggingMessageNotification,
     LoggingMessageNotificationParams,
@@ -124,6 +128,8 @@ def run_server_with_transport(module_name: str, port: int, transport: str) -> No
         mcp = fastmcp_quickstart.mcp
     elif module_name == "structured_output":
         mcp = structured_output.mcp
+    elif module_name == "task_based_tool":
+        mcp = task_based_tool.mcp
     else:
         raise ImportError(f"Unknown module: {module_name}")
 
@@ -215,6 +221,7 @@ async def sampling_callback(
     context: RequestContext[ClientSession, None], params: CreateMessageRequestParams
 ) -> CreateMessageResult:
     """Sampling callback for tests."""
+    del context, params  # Unused but required by protocol
     return CreateMessageResult(
         role="assistant",
         content=TextContent(
@@ -227,6 +234,7 @@ async def sampling_callback(
 
 async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
     """Elicitation callback for tests."""
+    del context  # Unused but required by protocol
     # For restaurant booking test
     if "No tables available" in params.message:
         return ElicitResult(
@@ -686,3 +694,78 @@ async def test_structured_output(server_transport: str, server_url: str) -> None
             assert "sunny" in result_text  # condition
             assert "45" in result_text  # humidity
             assert "5.2" in result_text  # wind_speed
+
+
+# Test task-based execution
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "server_transport",
+    [
+        ("task_based_tool", "sse"),
+        ("task_based_tool", "streamable-http"),
+    ],
+    indirect=True,
+)
+async def test_task_based_tool(server_transport: str, server_url: str) -> None:
+    """Test task-based execution with begin_call_tool."""
+    transport = server_transport
+    client_cm = create_client_for_transport(transport, server_url)
+
+    async with client_cm as client_streams:
+        read_stream, write_stream = unpack_streams(client_streams)
+        # Create a task store for the client to support task-based execution
+        task_store = InMemoryTaskStore()
+        async with ClientSession(read_stream, write_stream, task_store=task_store) as session:
+            # Test initialization
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "Task-Based Tool Example"
+
+            # Track callback invocations
+            task_created_called = False
+            task_status_updates: list[str] = []
+
+            async def on_task_created() -> None:
+                nonlocal task_created_called
+                task_created_called = True
+
+            async def on_task_status(task_result: GetTaskResult) -> None:
+                task_status_updates.append(task_result.status)
+
+            # Test begin_call_tool for task-based execution
+            # Use a longer delay (10s) to ensure the polling path has time to get status updates
+            # before the direct result completes (default poll interval is 5s)
+            pending_request = session.begin_call_tool(
+                "long_running_computation",
+                arguments={"data": "test_data", "delay_seconds": 10},
+            )
+
+            # Wait for the result with callbacks
+            tool_result = await pending_request.result(
+                TaskHandlerOptions(on_task_created=on_task_created, on_task_status=on_task_status)
+            )
+
+            # Verify the result
+            assert len(tool_result.content) == 1
+            assert isinstance(tool_result.content[0], TextContent)
+            assert "Processed: TEST_DATA" in tool_result.content[0].text
+            assert "10" in tool_result.content[0].text or "10.0s" in tool_result.content[0].text
+
+            # Verify callbacks were invoked
+            assert task_created_called, "on_task_created callback was not invoked"
+            assert len(task_status_updates) > 0, "on_task_status callback was never invoked"
+
+            # With 10s delay and 5s default polling interval, polling should get at least one update
+            # before the task completes
+            # We should see at least "submitted" and possibly "working" or "completed"
+
+            # Verify we got at least one valid status
+            valid_statuses = ["submitted", "working", "completed"]
+            assert all(status in valid_statuses for status in task_status_updates), (
+                f"Got invalid status in updates: {task_status_updates}"
+            )
+
+            # Verify we got at least the initial status
+            assert "submitted" in task_status_updates or "working" in task_status_updates, (
+                f"Expected to see submitted or working status, got: {task_status_updates}"
+            )

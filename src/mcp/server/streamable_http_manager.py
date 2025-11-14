@@ -243,6 +243,7 @@ class StreamableHTTPSessionManager:
                                 write_stream,
                                 self.app.create_initialization_options(),
                                 stateless=False,  # Stateful mode
+                                session_id=http_transport.mcp_session_id,
                             )
                         except Exception as e:
                             logger.error(
