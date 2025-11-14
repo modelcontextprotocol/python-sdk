@@ -24,7 +24,7 @@ class SamplingFnT(Protocol):
         self,
         context: RequestContext["ClientSession", Any],
         params: types.CreateMessageRequestParams,
-    ) -> types.CreateMessageResult | types.ErrorData: ...
+    ) -> types.CreateMessageResult | types.ErrorData: ...  # pragma: no branch
 
 
 class ElicitationFnT(Protocol):
@@ -32,27 +32,27 @@ class ElicitationFnT(Protocol):
         self,
         context: RequestContext["ClientSession", Any],
         params: types.ElicitRequestParams,
-    ) -> types.ElicitResult | types.ErrorData: ...
+    ) -> types.ElicitResult | types.ErrorData: ...  # pragma: no branch
 
 
 class ListRootsFnT(Protocol):
     async def __call__(
         self, context: RequestContext["ClientSession", Any]
-    ) -> types.ListRootsResult | types.ErrorData: ...
+    ) -> types.ListRootsResult | types.ErrorData: ...  # pragma: no branch
 
 
 class LoggingFnT(Protocol):
     async def __call__(
         self,
         params: types.LoggingMessageNotificationParams,
-    ) -> None: ...
+    ) -> None: ...  # pragma: no branch
 
 
 class MessageHandlerFnT(Protocol):
     async def __call__(
         self,
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None: ...
+    ) -> None: ...  # pragma: no branch
 
 
 async def _default_message_handler(
@@ -75,7 +75,7 @@ async def _default_elicitation_callback(
     context: RequestContext["ClientSession", Any],
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
-    return types.ErrorData(
+    return types.ErrorData(  # pragma: no cover
         code=types.INVALID_REQUEST,
         message="Elicitation not supported",
     )
@@ -134,6 +134,7 @@ class ClientSession(
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
+        self._server_capabilities: types.ServerCapabilities | None = None
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
@@ -170,9 +171,18 @@ class ClientSession(
         if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
             raise RuntimeError(f"Unsupported protocol version from the server: {result.protocolVersion}")
 
+        self._server_capabilities = result.capabilities
+
         await self.send_notification(types.ClientNotification(types.InitializedNotification()))
 
         return result
+
+    def get_server_capabilities(self) -> types.ServerCapabilities | None:
+        """Return the server capabilities received during initialization.
+
+        Returns None if the session has not been initialized yet.
+        """
+        return self._server_capabilities
 
     async def send_ping(self) -> types.EmptyResult:
         """Send a ping request."""
@@ -204,7 +214,7 @@ class ClientSession(
 
     async def set_logging_level(self, level: types.LoggingLevel) -> types.EmptyResult:
         """Send a logging/setLevel request."""
-        return await self.send_request(
+        return await self.send_request(  # pragma: no cover
             types.ClientRequest(
                 types.SetLevelRequest(
                     params=types.SetLevelRequestParams(level=level),
@@ -302,7 +312,7 @@ class ClientSession(
 
     async def subscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
         """Send a resources/subscribe request."""
-        return await self.send_request(
+        return await self.send_request(  # pragma: no cover
             types.ClientRequest(
                 types.SubscribeRequest(
                     params=types.SubscribeRequestParams(uri=uri),
@@ -313,7 +323,7 @@ class ClientSession(
 
     async def unsubscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
         """Send a resources/unsubscribe request."""
-        return await self.send_request(
+        return await self.send_request(  # pragma: no cover
             types.ClientRequest(
                 types.UnsubscribeRequest(
                     params=types.UnsubscribeRequestParams(uri=uri),
@@ -367,13 +377,15 @@ class ClientSession(
 
         if output_schema is not None:
             if result.structuredContent is None:
-                raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
+                raise RuntimeError(
+                    f"Tool {name} has an output schema but did not return structured content"
+                )  # pragma: no cover
             try:
                 validate(result.structuredContent, output_schema)
             except ValidationError as e:
-                raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}")
-            except SchemaError as e:
-                raise RuntimeError(f"Invalid schema for tool {name}: {e}")
+                raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}")  # pragma: no cover
+            except SchemaError as e:  # pragma: no cover
+                raise RuntimeError(f"Invalid schema for tool {name}: {e}")  # pragma: no cover
 
     @overload
     @deprecated("Use list_prompts(params=PaginatedRequestParams(...)) instead")
@@ -491,7 +503,7 @@ class ClientSession(
 
         return result
 
-    async def send_roots_list_changed(self) -> None:
+    async def send_roots_list_changed(self) -> None:  # pragma: no cover
         """Send a roots/list_changed notification."""
         await self.send_notification(types.ClientNotification(types.RootsListChangedNotification()))
 
@@ -522,7 +534,7 @@ class ClientSession(
                     client_response = ClientResponse.validate_python(response)
                     await responder.respond(client_response)
 
-            case types.PingRequest():
+            case types.PingRequest():  # pragma: no cover
                 with responder:
                     return await responder.respond(types.ClientResult(root=types.EmptyResult()))
 

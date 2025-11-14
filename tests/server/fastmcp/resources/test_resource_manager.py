@@ -18,9 +18,9 @@ def temp_file():
         f.write(content)
         path = Path(f.name).resolve()
     yield path
-    try:
+    try:  # pragma: no cover
         path.unlink()
-    except FileNotFoundError:
+    except FileNotFoundError:  # pragma: no cover
         pass  # File was already deleted by the test
 
 

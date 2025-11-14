@@ -35,7 +35,7 @@ UNICODE_TEST_STRINGS = {
 }
 
 
-def run_unicode_server(port: int) -> None:
+def run_unicode_server(port: int) -> None:  # pragma: no cover
     """Run the Unicode test server in a separate process."""
     # Import inside the function since this runs in a separate process
     from collections.abc import AsyncGenerator
@@ -167,7 +167,7 @@ def running_unicode_server(unicode_server_port: int) -> Generator[str, None, Non
         # Clean up - try graceful termination first
         proc.terminate()
         proc.join(timeout=2)
-        if proc.is_alive():
+        if proc.is_alive():  # pragma: no cover
             proc.kill()
             proc.join(timeout=1)
 

@@ -14,7 +14,7 @@ async def test_parameter_descriptions():
     def greet(
         name: str = Field(description="The name to greet"),
         title: str = Field(description="Optional title", default=""),
-    ) -> str:
+    ) -> str:  # pragma: no cover
         """A greeting tool"""
         return f"Hello {title} {name}"
 
