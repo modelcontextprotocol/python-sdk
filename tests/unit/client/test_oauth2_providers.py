@@ -1241,8 +1241,13 @@ async def test_oauth_client_provider_performs_full_flow(monkeypatch: pytest.Monk
     def fake_create_oauth_metadata_request(self: OAuthClientProvider, url: str) -> httpx.Request:
         return httpx.Request("GET", url)
 
-    async def fake_handle_oauth_metadata(self: OAuthClientProvider, response: httpx.Response) -> None:
-        self._metadata = OAuthMetadata.model_validate(_metadata_json())
+    async def fake_handle_oauth_metadata(
+        self: OAuthClientProvider, response: httpx.Response
+    ) -> tuple[bool, OAuthMetadata | None]:
+        metadata = OAuthMetadata.model_validate(_metadata_json())
+        self._metadata = metadata
+        self.context.oauth_metadata = metadata
+        return True, metadata
 
     def fake_create_registration_request(
         self: OAuthClientProvider, metadata: OAuthMetadata | None
