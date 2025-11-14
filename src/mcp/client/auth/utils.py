@@ -64,7 +64,7 @@ def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
     return extract_field_from_www_auth(response, "resource_metadata")
 
 
-def build_protected_resource_discovery_urls(www_auth_url: str | None, server_url: str) -> list[str]:
+def build_protected_resource_metadata_discovery_urls(www_auth_url: str | None, server_url: str) -> list[str]:
     """
     Build ordered list of URLs to try for protected resource metadata discovery.
 
@@ -126,8 +126,21 @@ def get_client_metadata_scopes(
         return None
 
 
-def get_discovery_urls(auth_server_url: str) -> list[str]:
-    """Generate ordered list of (url, type) tuples for discovery attempts."""
+def build_oauth_authorization_server_metadata_discovery_urls(auth_server_url: str | None, server_url: str) -> list[str]:
+    """
+    Generate ordered list of (url, type) tuples for discovery attempts.
+
+    Args:
+        auth_server_url: URL for the OAuth Authorization Metadata URL if found, otherwise None
+        server_url: URL for the MCP server, used as a fallback if auth_server_url is None
+    """
+
+    if not auth_server_url:
+        # Legacy path using the 2025-03-26 spec:
+        # link: https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization
+        parsed = urlparse(server_url)
+        return [f"{parsed.scheme}://{parsed.netloc}/.well-known/oauth-authorization-server"]
+
     urls: list[str] = []
     parsed = urlparse(auth_server_url)
     base_url = f"{parsed.scheme}://{parsed.netloc}"
@@ -137,18 +150,22 @@ def get_discovery_urls(auth_server_url: str) -> list[str]:
         oauth_path = f"/.well-known/oauth-authorization-server{parsed.path.rstrip('/')}"
         urls.append(urljoin(base_url, oauth_path))
 
-    # OAuth root fallback
-    urls.append(urljoin(base_url, "/.well-known/oauth-authorization-server"))
-
-    # RFC 8414 section 5: Path-aware OIDC discovery
-    # See https://www.rfc-editor.org/rfc/rfc8414.html#section-5
-    if parsed.path and parsed.path != "/":
+        # RFC 8414 section 5: Path-aware OIDC discovery
+        # See https://www.rfc-editor.org/rfc/rfc8414.html#section-5
         oidc_path = f"/.well-known/openid-configuration{parsed.path.rstrip('/')}"
         urls.append(urljoin(base_url, oidc_path))
 
+        # https://openid.net/specs/openid-connect-discovery-1_0.html
+        oidc_path = f"{parsed.path.rstrip('/')}/.well-known/openid-configuration"
+        urls.append(urljoin(base_url, oidc_path))
+        return urls
+
+    # OAuth root
+    urls.append(urljoin(base_url, "/.well-known/oauth-authorization-server"))
+
     # OIDC 1.0 fallback (appends to full URL per OIDC spec)
-    oidc_fallback = f"{auth_server_url.rstrip('/')}/.well-known/openid-configuration"
-    urls.append(oidc_fallback)
+    # https://openid.net/specs/openid-connect-discovery-1_0.html
+    urls.append(urljoin(base_url, "/.well-known/openid-configuration"))
 
     return urls
 
