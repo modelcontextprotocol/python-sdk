@@ -17,8 +17,9 @@ from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 import mcp.types as types
-from mcp.client.session import ClientSession, ClientTransportSession
+from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
+from mcp.client.transport_session import ClientTransportSession
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings

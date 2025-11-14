@@ -1,5 +1,5 @@
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.session import ServerTransportSession
+from mcp.server.transport_session import ServerTransportSession
 
 mcp = FastMCP(name="Progress Example")
 
