@@ -208,7 +208,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.session import ServerTransportSession
+from mcp.server.transport_session import ServerTransportSession
 
 
 # Mock database class for example
@@ -326,7 +326,7 @@ Tools can optionally receive a Context object by including a parameter with the 
 <!-- snippet-source examples/snippets/servers/tool_progress.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.session import ServerTransportSession
+from mcp.server.transport_session import ServerTransportSession
 
 mcp = FastMCP(name="Progress Example")
 
@@ -674,7 +674,7 @@ The Context object provides the following capabilities:
 <!-- snippet-source examples/snippets/servers/tool_progress.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.session import ServerTransportSession
+from mcp.server.transport_session import ServerTransportSession
 
 mcp = FastMCP(name="Progress Example")
 
@@ -798,7 +798,7 @@ Request additional information from users. This example shows an Elicitation dur
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.session import ServerTransportSession
+from mcp.server.transport_session import ServerTransportSession
 
 mcp = FastMCP(name="Elicitation Example")
 
@@ -888,7 +888,7 @@ Tools can send logs and notifications through the context:
 <!-- snippet-source examples/snippets/servers/notifications.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.session import ServerTransportSession
+from mcp.server.transport_session import ServerTransportSession
 
 mcp = FastMCP(name="Notifications Example")
 
@@ -2037,8 +2037,7 @@ import os
 
 from pydantic import AnyUrl
 
-from mcp import ClientSession, StdioServerParameters, types
-from mcp.client.session import ClientTransportSession
+from mcp import ClientSession, ClientTransportSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 from mcp.shared.context import RequestContext
 
@@ -2168,9 +2167,8 @@ cd to the `examples/snippets` directory and run:
 import asyncio
 import os
 
-from mcp import ClientSession, StdioServerParameters
+from mcp import ClientSession, ClientTransportSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from mcp.client.transport_session import ClientTransportSession
 from mcp.shared.metadata_utils import get_display_name
 
 # Create server parameters for stdio connection
