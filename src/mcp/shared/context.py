@@ -3,7 +3,7 @@ from typing import Any, Generic
 
 from typing_extensions import TypeVar
 
-from mcp import ServerTransportSession, ClientTransportSession
+from mcp import ClientTransportSession, ServerTransportSession
 from mcp.shared.session import BaseSession
 from mcp.types import RequestId, RequestParams
 
