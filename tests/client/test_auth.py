@@ -1364,7 +1364,7 @@ class TestLegacyServerFallback:
         )
 
         # Mock authorization
-        provider._perform_authorization_code_grant = mock.AsyncMock(
+        provider._perform_authorization_code_grant = AsyncMock(
             return_value=("test_auth_code", "test_code_verifier")
         )
 
@@ -1470,7 +1470,7 @@ class TestLegacyServerFallback:
             request=oauth_metadata_request,
         )
 
-        provider._perform_authorization_code_grant = mock.AsyncMock(
+        provider._perform_authorization_code_grant = AsyncMock(
             return_value=("test_auth_code", "test_code_verifier")
         )
 
