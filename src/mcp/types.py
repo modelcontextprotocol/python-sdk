@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
+from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel, StringConstraints
 from pydantic.networks import AnyUrl, UrlConstraints
 from typing_extensions import deprecated
 
@@ -868,9 +868,13 @@ class ToolAnnotations(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class Tool(BaseMetadata):
+class Tool(BaseModel):
     """Definition for a tool the client can call."""
 
+    name: Annotated[str, StringConstraints(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")]
+    """The programmatic name of the tool. Must match pattern: A-Z, a-z, 0-9, underscore (_), dash (-), dot (.)."""
+    title: str | None = None
+    """A human-readable title for the tool."""
     description: str | None = None
     """A human-readable description of the tool."""
     inputSchema: dict[str, Any]
@@ -890,6 +894,11 @@ class Tool(BaseMetadata):
     for notes on _meta usage.
     """
     model_config = ConfigDict(extra="allow")
+
+    """
+    See [MCP specification](https://modelcontextprotocol.io/specification/draft/server/tools#tool-names)
+    for more information on tool naming conventions.
+    """
 
 
 class ListToolsResult(PaginatedResult):

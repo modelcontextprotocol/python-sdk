@@ -9,6 +9,7 @@ from mcp.types import (
     InitializeRequestParams,
     JSONRPCMessage,
     JSONRPCRequest,
+    Tool,
 )
 
 
@@ -56,3 +57,18 @@ async def test_method_initialization():
     assert initialize_request.method == "initialize", "method should be set to 'initialize'"
     assert initialize_request.params is not None
     assert initialize_request.params.protocolVersion == LATEST_PROTOCOL_VERSION
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "getUser",
+        "DATA_EXPORT_v2",
+        "admin.tools.list",
+        "a",
+        "Z9_.-",
+        "x" * 128,  # max length
+    ],
+)
+def test_tool_allows_valid_names(name: str) -> None:
+    Tool(name=name, inputSchema={"type": "object"})
