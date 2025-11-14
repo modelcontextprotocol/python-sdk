@@ -8,7 +8,7 @@ import os
 
 from pydantic import AnyUrl
 
-from mcp import ClientSession, StdioServerParameters, types, ClientTransportSession
+from mcp import ClientSession, ClientTransportSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 from mcp.shared.context import RequestContext
 
