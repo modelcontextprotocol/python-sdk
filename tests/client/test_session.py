@@ -4,7 +4,8 @@ import anyio
 import pytest
 
 import mcp.types as types
-from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession, ClientTransportSession
+from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
+from mcp.client.transport_session import ClientTransportSession
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder

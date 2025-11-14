@@ -7,7 +7,8 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, Field
 
-from mcp.client.session import ClientTransportSession, ElicitationFnT
+from mcp.client.session import ElicitationFnT
+from mcp.client.transport_session import ClientTransportSession
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext

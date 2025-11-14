@@ -54,7 +54,8 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.lowlevel.server import Server as MCPServer
 from mcp.server.lowlevel.server import lifespan as default_lifespan
-from mcp.server.session import ServerSessionT, ServerTransportSession
+from mcp.server.session import ServerSessionT
+from mcp.server.transport_session import ServerTransportSession
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
