@@ -136,7 +136,7 @@ class TestServerCapabilityAdvertisement:
         # Register tool handler
         @server.call_tool()
         async def my_tool(arguments: dict[str, Any]) -> list[types.TextContent]:
-            return [types.TextContent(type="text", text="test")]
+            return [types.TextContent(type="text", text="test")]  # pragma: no cover
 
         caps = server.get_capabilities(NotificationOptions(), {})
         assert caps.tasks is not None
@@ -152,7 +152,7 @@ class TestServerCapabilityAdvertisement:
         # Register resource handler
         @server.read_resource()
         async def read_resource(uri: AnyUrl) -> str:
-            return "test"
+            return "test"  # pragma: no cover
 
         caps = server.get_capabilities(NotificationOptions(), {})
         assert caps.tasks is not None
@@ -168,7 +168,7 @@ class TestServerCapabilityAdvertisement:
         # Register prompt handler
         @server.get_prompt()
         async def get_prompt(name: str, arguments: dict[str, str] | None = None) -> types.GetPromptResult:
-            return types.GetPromptResult(
+            return types.GetPromptResult(  # pragma: no cover
                 messages=[types.PromptMessage(role="user", content=types.TextContent(type="text", text="test"))]
             )
 

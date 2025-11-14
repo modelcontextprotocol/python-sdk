@@ -92,7 +92,7 @@ async def test_client_get_task_not_found():
                     # Try to get non-existent task
                     try:
                         await client_session.get_task("non-existent")
-                        assert False, "Should have raised McpError"
+                        assert False, "Should have raised McpError"  # pragma: no cover
                     except Exception as e:
                         assert "Task not found" in str(e) or str(types.INVALID_PARAMS) in str(e)
             finally:
@@ -182,7 +182,7 @@ async def test_client_get_task_result_not_completed():
                     # Try to get result
                     try:
                         await client_session.get_task_result(task_id, types.ServerResult)
-                        assert False, "Should have raised McpError"
+                        assert False, "Should have raised McpError"  # pragma: no cover
                     except Exception as e:
                         assert "not 'completed'" in str(e) or str(types.INVALID_PARAMS) in str(e)
             finally:
@@ -301,7 +301,7 @@ async def test_client_list_tasks_with_cursor():
                     # List tasks with invalid cursor should raise error
                     try:
                         await client_session.list_tasks(cursor="invalid-cursor")
-                        assert False, "Should have raised McpError"
+                        assert False, "Should have raised McpError"  # pragma: no cover
                     except Exception as e:
                         assert "Invalid cursor" in str(e) or str(types.INVALID_PARAMS) in str(e)
             finally:
@@ -389,7 +389,7 @@ async def test_client_delete_task_not_found():
                     # Try to delete non-existent task
                     try:
                         await client_session.delete_task("non-existent")
-                        assert False, "Should have raised McpError"
+                        assert False, "Should have raised McpError"  # pragma: no cover
                     except Exception as e:
                         assert "Failed to delete task" in str(e) or str(types.INVALID_PARAMS) in str(e)
             finally:

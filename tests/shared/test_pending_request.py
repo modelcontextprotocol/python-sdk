@@ -9,6 +9,11 @@ import pytest
 from mcp.shared.request import DEFAULT_POLLING_INTERVAL, PendingRequest, TaskHandlerOptions
 from mcp.types import CallToolResult, GetTaskResult, TextContent
 
+# Mark all tests in this module to ignore memory stream cleanup warnings
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:Exception ignored.*MemoryObject.*Stream:pytest.PytestUnraisableExceptionWarning"
+)
+
 
 @pytest.fixture
 def mock_session() -> MagicMock:
@@ -95,7 +100,7 @@ class TestPendingRequestTaskPolling:
 
         async def never_completes():
             await asyncio.Future()  # Never completes
-            return sample_result
+            return sample_result  # pragma: no cover
 
         # Set up task status progression
         mock_session.get_task.side_effect = [
@@ -135,7 +140,7 @@ class TestPendingRequestTaskPolling:
 
         async def never_completes():
             await asyncio.Future()  # Never completes
-            return sample_result
+            return sample_result  # pragma: no cover
 
         on_task_created = AsyncMock()
         on_task_status = AsyncMock()
@@ -185,7 +190,7 @@ class TestPendingRequestTaskPolling:
 
         async def never_completes():
             await asyncio.Future()  # Never completes
-            return sample_result
+            return sample_result  # pragma: no cover
 
         # Track polling timestamps
         poll_times: list[float] = []
@@ -229,7 +234,7 @@ class TestPendingRequestTaskPolling:
 
         async def never_completes():
             await asyncio.Future()  # Never completes
-            return sample_result
+            return sample_result  # pragma: no cover
 
         poll_times: list[float] = []
 
@@ -279,7 +284,7 @@ class TestPendingRequestRaceCondition:
         # Set up task polling to be slow
         async def slow_get_task(task_id: str):
             await asyncio.sleep(0.2)
-            return GetTaskResult(taskId=task_id, status="submitted", pollInterval=100)
+            return GetTaskResult(taskId=task_id, status="submitted", pollInterval=100)  # pragma: no cover
 
         mock_session.get_task.side_effect = slow_get_task
 
@@ -316,7 +321,7 @@ class TestPendingRequestRaceCondition:
 
         async def never_completes():
             await asyncio.Future()  # Never completes
-            return sample_result
+            return sample_result  # pragma: no cover
 
         # Set up task polling to complete quickly
         mock_session.get_task.return_value = GetTaskResult(taskId="task-6", status="completed", pollInterval=100)
@@ -449,12 +454,12 @@ class TestPendingRequestCancellation:
 
         async def never_completes():
             await asyncio.Future()  # Never completes
-            return sample_result
+            return sample_result  # pragma: no cover
 
         # Set up task polling to never complete
         async def never_complete_get_task(task_id: str):
             await asyncio.sleep(10)
-            return GetTaskResult(taskId=task_id, status="submitted", pollInterval=100)
+            return GetTaskResult(taskId=task_id, status="submitted", pollInterval=100)  # pragma: no cover
 
         mock_session.get_task.side_effect = never_complete_get_task
 
@@ -540,7 +545,7 @@ class TestPendingRequestStatusTransitions:
 
         async def never_completes():
             await asyncio.Future()  # Never completes
-            return sample_result
+            return sample_result  # pragma: no cover
 
         mock_session.get_task.return_value = GetTaskResult(taskId="task-12", status="completed", pollInterval=100)
         mock_session.get_task_result.return_value = sample_result
@@ -569,7 +574,7 @@ class TestPendingRequestStatusTransitions:
 
         async def never_completes():
             await asyncio.Future()  # Never completes
-            return sample_result
+            return sample_result  # pragma: no cover
 
         mock_session.get_task.side_effect = [
             GetTaskResult(taskId="task-13", status="submitted", pollInterval=50),
@@ -601,7 +606,7 @@ class TestPendingRequestStatusTransitions:
 
         async def never_completes():
             await asyncio.Future()  # Never completes
-            return sample_result
+            return sample_result  # pragma: no cover
 
         mock_session.get_task.side_effect = [
             GetTaskResult(taskId="task-14", status="working", pollInterval=50),

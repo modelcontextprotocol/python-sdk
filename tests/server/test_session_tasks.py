@@ -102,7 +102,7 @@ async def test_get_task_not_found():
                             ),
                             types.GetTaskResult,
                         )
-                        assert False, "Should have raised McpError"
+                        assert False, "Should have raised McpError"  # pragma: no cover
                     except Exception as e:
                         # Should get an error
                         assert "Task not found" in str(e) or str(types.INVALID_PARAMS) in str(e)
@@ -203,7 +203,7 @@ async def test_get_task_payload_not_completed():
                             ),
                             types.ServerResult,
                         )
-                        assert False, "Should have raised McpError"
+                        assert False, "Should have raised McpError"  # pragma: no cover
                     except Exception as e:
                         # Should get an error about task not being completed
                         assert "not 'completed'" in str(e) or str(types.INVALID_PARAMS) in str(e)
@@ -247,7 +247,7 @@ async def test_get_task_payload_not_found():
                             ),
                             types.ServerResult,
                         )
-                        assert False, "Should have raised McpError"
+                        assert False, "Should have raised McpError"  # pragma: no cover
                     except Exception as e:
                         # Should get an error about task not found
                         assert "Task not found" in str(e) or str(types.INVALID_PARAMS) in str(e)
@@ -431,7 +431,7 @@ async def test_delete_task_not_found():
                             ),
                             types.EmptyResult,
                         )
-                        assert False, "Should have raised McpError"
+                        assert False, "Should have raised McpError"  # pragma: no cover
                     except Exception as e:
                         # Should get an error
                         assert "Failed to delete task" in str(e) or str(types.INVALID_PARAMS) in str(e)
@@ -478,7 +478,7 @@ async def test_get_task_without_capability():
                             types.ClientRequest(types.GetTaskRequest(params=types.GetTaskParams(taskId=task_id))),
                             types.GetTaskResult,
                         )
-                        assert False, "Should have raised McpError"
+                        assert False, "Should have raised McpError"  # pragma: no cover
                     except Exception as e:
                         assert "not announced tasks capability" in str(e) or str(types.INVALID_REQUEST) in str(e)
             finally:
@@ -520,7 +520,7 @@ async def test_get_task_payload_without_capability():
                             ),
                             types.ServerResult,
                         )
-                        assert False, "Should have raised McpError"
+                        assert False, "Should have raised McpError"  # pragma: no cover
                     except Exception as e:
                         assert "not announced tasks capability" in str(e) or str(types.INVALID_REQUEST) in str(e)
             finally:
@@ -560,7 +560,7 @@ async def test_list_tasks_without_capability():
                             types.ClientRequest(types.ListTasksRequest()),
                             types.ListTasksResult,
                         )
-                        assert False, "Should have raised McpError"
+                        assert False, "Should have raised McpError"  # pragma: no cover
                     except Exception as e:
                         assert "not announced tasks capability" in str(e) or str(types.INVALID_REQUEST) in str(e)
             finally:
@@ -602,7 +602,7 @@ async def test_delete_task_without_capability():
                             ),
                             types.EmptyResult,
                         )
-                        assert False, "Should have raised McpError"
+                        assert False, "Should have raised McpError"  # pragma: no cover
                     except Exception as e:
                         assert "not announced tasks capability" in str(e) or str(types.INVALID_REQUEST) in str(e)
             finally:
@@ -991,7 +991,7 @@ async def test_get_task_without_task_store():
                             types.ClientRequest(types.GetTaskRequest(params=types.GetTaskParams(taskId="test-task"))),
                             types.GetTaskResult,
                         )
-                        assert False, "Should have raised McpError"
+                        assert False, "Should have raised McpError"  # pragma: no cover
                     except Exception as e:
                         assert "Task store not configured" in str(e) or str(types.INVALID_REQUEST) in str(e)
             finally:
@@ -1033,7 +1033,7 @@ async def test_get_task_payload_without_task_store():
                             ),
                             types.ServerResult,
                         )
-                        assert False, "Should have raised McpError"
+                        assert False, "Should have raised McpError"  # pragma: no cover
                     except Exception as e:
                         assert "Task store not configured" in str(e) or str(types.INVALID_REQUEST) in str(e)
             finally:
@@ -1073,7 +1073,7 @@ async def test_list_tasks_without_task_store():
                             types.ClientRequest(types.ListTasksRequest()),
                             types.ListTasksResult,
                         )
-                        assert False, "Should have raised McpError"
+                        assert False, "Should have raised McpError"  # pragma: no cover
                     except Exception as e:
                         assert "Task store not configured" in str(e) or str(types.INVALID_REQUEST) in str(e)
             finally:
@@ -1115,7 +1115,7 @@ async def test_delete_task_without_task_store():
                             ),
                             types.EmptyResult,
                         )
-                        assert False, "Should have raised McpError"
+                        assert False, "Should have raised McpError"  # pragma: no cover
                     except Exception as e:
                         assert "Task store not configured" in str(e) or str(types.INVALID_REQUEST) in str(e)
             finally:
