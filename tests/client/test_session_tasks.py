@@ -9,6 +9,13 @@ from mcp.client.session import ClientSession
 from mcp.server import Server
 from mcp.shared.memory import create_client_server_memory_streams
 
+# Mark all tests in this module to ignore memory stream cleanup warnings
+# These occur with tg.cancel_scope.cancel() pattern, same as SDK's own
+# create_connected_server_and_client_session in src/mcp/shared/memory.py
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:Exception ignored.*MemoryObject.*Stream:pytest.PytestUnraisableExceptionWarning"
+)
+
 
 @pytest.mark.anyio
 async def test_client_get_task_success():

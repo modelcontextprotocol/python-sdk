@@ -18,6 +18,12 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import Tool
 from tests.test_helpers import wait_for_server
 
+# Mark all tests in this module to ignore memory stream cleanup warnings
+# These occur with task group cancellation in SSE transport's connect_sse
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:Exception ignored.*MemoryObject.*Stream:pytest.PytestUnraisableExceptionWarning"
+)
+
 logger = logging.getLogger(__name__)
 SERVER_NAME = "test_sse_security_server"
 
