@@ -199,7 +199,7 @@ class EmptyResult(Result):
 class BaseMetadata(BaseModel):
     """Base class for entities with name and optional title fields."""
 
-    name: Annotated[str, StringConstraints(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")]
+    name: str
     """The programmatic name of the entity."""
 
     title: str | None = None
@@ -868,9 +868,13 @@ class ToolAnnotations(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class Tool(BaseMetadata):
+class Tool(BaseModel):
     """Definition for a tool the client can call."""
 
+    name: Annotated[str, StringConstraints(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")]
+    """The programmatic name of the tool. Must match pattern: A-Z, a-z, 0-9, underscore (_), dash (-), dot (.)."""
+    title: str | None = None
+    """A human-readable title for the tool."""
     description: str | None = None
     """A human-readable description of the tool."""
     inputSchema: dict[str, Any]
