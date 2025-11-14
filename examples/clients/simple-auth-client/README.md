@@ -28,13 +28,17 @@ uv run mcp-simple-auth --transport streamable-http --port 3001
 ### 2. Run the client
 
 ```bash
+# Connect to default server (http://localhost:8000/mcp)
 uv run mcp-simple-auth-client
 
-# Or with custom server URL
-MCP_SERVER_PORT=3001 uv run mcp-simple-auth-client
+# Connect to a custom server URL
+uv run mcp-simple-auth-client --url http://localhost:3001/mcp
 
 # Use SSE transport
-MCP_TRANSPORT_TYPE=sse uv run mcp-simple-auth-client
+uv run mcp-simple-auth-client --url http://localhost:3001/sse --transport sse
+
+# View all options
+uv run mcp-simple-auth-client --help
 ```
 
 ### 3. Complete OAuth flow
@@ -42,19 +46,20 @@ MCP_TRANSPORT_TYPE=sse uv run mcp-simple-auth-client
 The client will open your browser for authentication. After completing OAuth, you can use commands:
 
 - `list` - List available tools
-- `call <tool_name> [args]` - Call a tool with optional JSON arguments  
+- `call <tool_name> [args]` - Call a tool with optional JSON arguments
 - `quit` - Exit
 
 ## Example
 
 ```markdown
-🔐 Simple MCP Auth Client
-Connecting to: http://localhost:3001
+🚀 Simple MCP Auth Client
+Connecting to: http://localhost:8001/mcp
+Transport type: streamable-http
 
-Please visit the following URL to authorize the application:
-http://localhost:3001/authorize?response_type=code&client_id=...
+🔗 Attempting to connect to http://localhost:8001/mcp...
+Opening browser for authorization: http://localhost:9000/authorize?...
 
-✅ Connected to MCP server at http://localhost:3001
+✅ Connected to MCP server at http://localhost:8001/mcp
 
 mcp> list
 📋 Available tools:
@@ -68,7 +73,7 @@ mcp> quit
 👋 Goodbye!
 ```
 
-## Configuration
+## Command Line Options
 
-- `MCP_SERVER_PORT` - Server URL (default: 8000)
-- `MCP_TRANSPORT_TYPE` - Transport type: `streamable-http` (default) or `sse`
+- `--url` - Full URL of the MCP server (default: `http://localhost:8000/mcp`)
+- `--transport` - Transport type: `streamable-http` (default) or `sse`
