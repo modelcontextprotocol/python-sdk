@@ -165,6 +165,7 @@ class OAuthMetadata(BaseModel):
     introspection_endpoint_auth_methods_supported: list[str] | None = None
     introspection_endpoint_auth_signing_alg_values_supported: list[str] | None = None
     code_challenge_methods_supported: list[str] | None = None
+    client_id_metadata_document_supported: bool | None = None
 
 
 class ProtectedResourceMetadata(BaseModel):
