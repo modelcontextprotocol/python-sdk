@@ -215,9 +215,7 @@ class BaseOAuthProvider(httpx.Auth):
     def _create_oauth_metadata_request(self, url: str) -> httpx.Request:
         return httpx.Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
 
-    async def _handle_oauth_metadata_response(
-        self, response: httpx.Response
-    ) -> tuple[bool, OAuthMetadata | None]:
+    async def _handle_oauth_metadata_response(self, response: httpx.Response) -> tuple[bool, OAuthMetadata | None]:
         ok, metadata = await handle_auth_metadata_response(response)
         if metadata:
             self._metadata = metadata
@@ -351,9 +349,7 @@ class OAuthClientProvider(BaseOAuthProvider):
         )
         return False
 
-    async def _handle_oauth_metadata_response(
-        self, response: httpx.Response
-    ) -> tuple[bool, OAuthMetadata | None]:
+    async def _handle_oauth_metadata_response(self, response: httpx.Response) -> tuple[bool, OAuthMetadata | None]:
         ok, asm = await super()._handle_oauth_metadata_response(response)
         if asm:
             self.context.oauth_metadata = asm
