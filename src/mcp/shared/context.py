@@ -1,14 +1,16 @@
 from dataclasses import dataclass
-from typing import Any, Generic
+from typing import TYPE_CHECKING, Any, Generic
 
 from typing_extensions import TypeVar
 
-from mcp import ClientTransportSession, ServerTransportSession
 from mcp.shared.session import BaseSession
 from mcp.types import RequestId, RequestParams
 
+if TYPE_CHECKING:
+    from mcp import ClientTransportSession, ServerTransportSession
+
 SessionT = TypeVar(
-    "SessionT", bound=BaseSession[Any, Any, Any, Any, Any] | ClientTransportSession | ServerTransportSession
+    "SessionT", bound=BaseSession[Any, Any, Any, Any, Any] | "ClientTransportSession" | "ServerTransportSession"
 )
 LifespanContextT = TypeVar("LifespanContextT")
 RequestT = TypeVar("RequestT", default=Any)
