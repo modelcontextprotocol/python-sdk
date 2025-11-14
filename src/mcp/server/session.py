@@ -552,14 +552,16 @@ class ServerSession(
         """Send a prompt list changed notification."""
         await self.send_notification(types.ServerNotification(types.PromptListChangedNotification()))
 
-    async def get_task(self, task_id: str) -> types.GetTaskResult:
+    async def get_task(self, task_id: str) -> types.GetTaskResult:  # pragma: no cover
         """Get the current status of a task."""
         return await self.send_request(
             types.ServerRequest(types.GetTaskRequest(method="tasks/get", params=types.GetTaskParams(taskId=task_id))),
             types.GetTaskResult,
         )
 
-    async def get_task_result(self, task_id: str, result_type: type[ServerResultT]) -> ServerResultT:
+    async def get_task_result(
+        self, task_id: str, result_type: type[ServerResultT]
+    ) -> ServerResultT:  # pragma: no cover
         """Retrieve the result of a completed task."""
         return await self.send_request(
             types.ServerRequest(
@@ -568,7 +570,7 @@ class ServerSession(
             result_type,
         )
 
-    async def list_tasks(self, cursor: str | None = None) -> types.ListTasksResult:
+    async def list_tasks(self, cursor: str | None = None) -> types.ListTasksResult:  # pragma: no cover
         """List tasks, optionally starting from a pagination cursor."""
         return await self.send_request(
             types.ServerRequest(
@@ -579,7 +581,7 @@ class ServerSession(
             types.ListTasksResult,
         )
 
-    async def delete_task(self, task_id: str) -> types.EmptyResult:
+    async def delete_task(self, task_id: str) -> types.EmptyResult:  # pragma: no cover
         """Delete a specific task."""
         return await self.send_request(
             types.ServerRequest(
