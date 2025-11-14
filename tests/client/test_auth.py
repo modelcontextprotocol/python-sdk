@@ -1364,9 +1364,7 @@ class TestLegacyServerFallback:
         )
 
         # Mock authorization
-        provider._perform_authorization_code_grant = AsyncMock(
-            return_value=("test_auth_code", "test_code_verifier")
-        )
+        provider._perform_authorization_code_grant = AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
 
         # Next should be token exchange
         token_request = await auth_flow.asend(oauth_metadata_response)
@@ -1470,9 +1468,7 @@ class TestLegacyServerFallback:
             request=oauth_metadata_request,
         )
 
-        provider._perform_authorization_code_grant = AsyncMock(
-            return_value=("test_auth_code", "test_code_verifier")
-        )
+        provider._perform_authorization_code_grant = AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
 
         token_request = await auth_flow.asend(oauth_metadata_response)
         assert str(token_request.url) == "https://api.example.com/token"

@@ -19,23 +19,20 @@ import anyio
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
-from mcp.client.auth import OAuthFlowError, OAuthTokenError
+from mcp.client.auth import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
     create_client_registration_request,
-    create_oauth_metadata_request,
     extract_field_from_www_auth,
     extract_resource_metadata_from_www_auth,
     extract_scope_from_www_auth,
     get_client_metadata_scopes,
     handle_auth_metadata_response,
     handle_protected_resource_response,
-    handle_registration_response,
     handle_token_response_scopes,
 )
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
-from mcp.types import LATEST_PROTOCOL_VERSION
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -48,6 +45,7 @@ from mcp.shared.auth_utils import (
     check_resource_allowed,
     resource_url_from_server_url,
 )
+from mcp.types import LATEST_PROTOCOL_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -251,9 +249,7 @@ class BaseOAuthProvider(httpx.Auth):
             headers={"Content-Type": "application/json"},
         )
 
-    async def _handle_registration_response(
-        self, response: httpx.Response
-    ) -> OAuthClientInformationFull:
+    async def _handle_registration_response(self, response: httpx.Response) -> OAuthClientInformationFull:
         if response.status_code not in (200, 201):
             await response.aread()
             raise OAuthRegistrationError(f"Registration failed: {response.status_code} {response.text}")
@@ -323,15 +319,11 @@ class OAuthClientProvider(BaseOAuthProvider):
 
     def _build_protected_resource_discovery_urls(self, resource_metadata_url: str | None) -> list[str]:
         """Build the list of PRM discovery URLs with legacy fallbacks."""
-        return build_protected_resource_metadata_discovery_urls(
-            resource_metadata_url, self.context.server_url
-        )
+        return build_protected_resource_metadata_discovery_urls(resource_metadata_url, self.context.server_url)
 
     def _get_discovery_urls(self, server_url: str | None = None) -> list[str]:
         """Build OAuth authorization server discovery URLs with legacy fallbacks."""
-        return build_oauth_authorization_server_metadata_discovery_urls(
-            server_url, self.context.server_url
-        )
+        return build_oauth_authorization_server_metadata_discovery_urls(server_url, self.context.server_url)
 
     async def _handle_protected_resource_response(self, response: httpx.Response) -> bool:
         """
@@ -356,9 +348,7 @@ class OAuthClientProvider(BaseOAuthProvider):
         )
         return False
 
-    async def _handle_oauth_metadata_response(
-        self, response: httpx.Response
-    ) -> tuple[bool, OAuthMetadata | None]:
+    async def _handle_oauth_metadata_response(self, response: httpx.Response) -> tuple[bool, OAuthMetadata | None]:
         ok, asm = await handle_auth_metadata_response(response)
         if asm:
             self.context.oauth_metadata = asm
@@ -580,9 +570,7 @@ class OAuthClientProvider(BaseOAuthProvider):
                     self._metadata = None
 
                     # Step 1: Discover protected resource metadata (SEP-985 with fallback support)
-                    prm_discovery_urls = self._build_protected_resource_discovery_urls(
-                        www_auth_resource_metadata_url
-                    )
+                    prm_discovery_urls = self._build_protected_resource_discovery_urls(www_auth_resource_metadata_url)
 
                     for url in prm_discovery_urls:  # pragma: no branch
                         discovery_request = self._create_oauth_metadata_request(url)
