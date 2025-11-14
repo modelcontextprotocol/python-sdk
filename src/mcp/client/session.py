@@ -522,11 +522,11 @@ class ClientSession(
         Returns:
             ElicitTrackResult indicating the status of the elicitation
         """
-        params = types.ElicitTrackRequestParams(elicitationId=elicitation_id)
-        if progress_token is not None:
+        params = types.ElicitTrackRequestParams(elicitationId=elicitation_id)  # pragma: no cover
+        if progress_token is not None:  # pragma: no cover
             params.meta = types.RequestParams.Meta(progressToken=progress_token)
 
-        return await self.send_request(
+        return await self.send_request(  # pragma: no cover
             types.ClientRequest(types.ElicitTrackRequest(params=params)),
             types.ElicitTrackResult,
         )

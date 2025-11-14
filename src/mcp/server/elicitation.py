@@ -165,6 +165,6 @@ async def elicit_url(
         return DeclinedElicitation()
     elif result.action == "cancel":
         return CancelledElicitation()
-    else:
+    else:  # pragma: no cover
         # This should never happen, but handle it just in case
         raise ValueError(f"Unexpected elicitation action: {result.action}")

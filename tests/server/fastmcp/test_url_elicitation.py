@@ -233,7 +233,7 @@ async def test_elicit_complete_notification():
         return "Elicitation completed"
 
     async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
-        return ElicitResult(action="accept")
+        return ElicitResult(action="accept")  # pragma: no cover
 
     async with create_connected_server_and_client_session(
         mcp._mcp_server, elicitation_callback=elicitation_callback
@@ -298,7 +298,7 @@ async def test_elicit_url_typed_results():
 
         if isinstance(result, DeclinedElicitation):
             return "Declined"
-        return "Not declined"
+        return "Not declined"  # pragma: no cover
 
     @mcp.tool(description="Test cancelled result")
     async def test_cancel(ctx: Context[ServerSession, None]) -> str:
@@ -311,7 +311,7 @@ async def test_elicit_url_typed_results():
 
         if isinstance(result, CancelledElicitation):
             return "Cancelled"
-        return "Not cancelled"
+        return "Not cancelled"  # pragma: no cover
 
     # Test declined result
     async def decline_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
@@ -362,7 +362,7 @@ async def test_deprecated_elicit_method():
 
         if result.action == "accept" and result.content:
             return f"Email: {result.content.get('email', 'none')}"
-        return "No email provided"
+        return "No email provided"  # pragma: no cover
 
     async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         # Verify this is form mode
