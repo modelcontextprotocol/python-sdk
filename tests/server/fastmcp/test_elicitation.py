@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from mcp.client.session import ElicitationFnT
 from mcp.client.transport_session import ClientTransportSession
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.session import ServerSession
+from mcp.server.transport_session import ServerTransportSession
 from mcp.shared.context import RequestContext
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import ElicitRequestParams, ElicitResult, TextContent
@@ -25,7 +25,7 @@ def create_ask_user_tool(mcp: FastMCP):
     """Create a standard ask_user tool that handles all elicitation responses."""
 
     @mcp.tool(description="A tool that uses elicitation")
-    async def ask_user(prompt: str, ctx: Context[ServerSession, None]) -> str:
+    async def ask_user(prompt: str, ctx: Context[ServerTransportSession, None]) -> str:
         result = await ctx.elicit(message=f"Tool wants to ask: {prompt}", schema=AnswerSchema)
 
         if result.action == "accept" and result.data:
@@ -106,7 +106,7 @@ async def test_elicitation_schema_validation():
 
     def create_validation_tool(name: str, schema_class: type[BaseModel]):
         @mcp.tool(name=name, description=f"Tool testing {name}")
-        async def tool(ctx: Context[ServerSession, None]) -> str:  # pragma: no cover
+        async def tool(ctx: Context[ServerTransportSession, None]) -> str:  # pragma: no cover
             try:
                 await ctx.elicit(message="This should fail validation", schema=schema_class)
                 return "Should not reach here"
@@ -160,7 +160,7 @@ async def test_elicitation_with_optional_fields():
         subscribe: bool | None = Field(default=False, description="Subscribe to newsletter?")
 
     @mcp.tool(description="Tool with optional fields")
-    async def optional_tool(ctx: Context[ServerSession, None]) -> str:
+    async def optional_tool(ctx: Context[ServerTransportSession, None]) -> str:
         result = await ctx.elicit(message="Please provide your information", schema=OptionalSchema)
 
         if result.action == "accept" and result.data:
@@ -201,7 +201,7 @@ async def test_elicitation_with_optional_fields():
         optional_list: list[str] | None = Field(default=None, description="Invalid optional list")
 
     @mcp.tool(description="Tool with invalid optional field")
-    async def invalid_optional_tool(ctx: Context[ServerSession, None]) -> str:  # pragma: no cover
+    async def invalid_optional_tool(ctx: Context[ServerTransportSession, None]) -> str:  # pragma: no cover
         try:
             await ctx.elicit(message="This should fail", schema=InvalidOptionalSchema)
             return "Should not reach here"
@@ -234,7 +234,7 @@ async def test_elicitation_with_default_values():
         email: str = Field(description="Email address (required)")
 
     @mcp.tool(description="Tool with default values")
-    async def defaults_tool(ctx: Context[ServerSession, None]) -> str:
+    async def defaults_tool(ctx: Context[ServerTransportSession, None]) -> str:
         result = await ctx.elicit(message="Please provide your information", schema=DefaultsSchema)
 
         if result.action == "accept" and result.data:
