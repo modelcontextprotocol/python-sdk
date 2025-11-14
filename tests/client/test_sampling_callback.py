@@ -1,6 +1,7 @@
 import pytest
 
-from mcp.client.session import ClientSession
+from mcp.client.transport_session import ClientTransportSession
+from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
 from mcp.shared.memory import (
     create_connected_server_and_client_session as create_session,
@@ -27,14 +28,16 @@ async def test_sampling_callback():
     )
 
     async def sampling_callback(
-        context: RequestContext[ClientSession, None],
+        context: RequestContext[ClientTransportSession, None],
         params: CreateMessageRequestParams,
     ) -> CreateMessageResult:
         return callback_return
 
     @server.tool("test_sampling")
     async def test_sampling_tool(message: str):
-        value = await server.get_context().session.create_message(
+        session = server.get_context().session
+        assert isinstance(session, ServerSession)
+        value = await session.create_message(
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
             max_tokens=100,
         )

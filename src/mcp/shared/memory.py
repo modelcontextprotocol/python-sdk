@@ -13,7 +13,15 @@ import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 import mcp.types as types
-from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
+from mcp.client.session import (
+    ClientSession,
+    ElicitationFnT,
+    ListRootsFnT,
+    LoggingFnT,
+    MessageHandlerFnT,
+    SamplingFnT,
+)
+from mcp.client.transport_session import ClientTransportSession
 from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.message import SessionMessage
@@ -57,7 +65,7 @@ async def create_connected_server_and_client_session(
     client_info: types.Implementation | None = None,
     raise_exceptions: bool = False,
     elicitation_callback: ElicitationFnT | None = None,
-) -> AsyncGenerator[ClientSession, None]:
+) -> AsyncGenerator[ClientTransportSession, None]:
     """Creates a ClientSession that is connected to a running MCP server."""
 
     # TODO(Marcelo): we should have a proper `Client` that can use this "in-memory transport",

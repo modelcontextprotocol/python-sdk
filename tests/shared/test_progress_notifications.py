@@ -370,6 +370,7 @@ async def test_progress_callback_exception_logging():
     with patch("mcp.shared.session.logging.error", side_effect=mock_log_error):
         async with create_connected_server_and_client_session(server) as client_session:
             # Send a request with a failing progress callback
+            assert isinstance(client_session, ClientSession)
             result = await client_session.send_request(
                 types.ClientRequest(
                     types.CallToolRequest(
