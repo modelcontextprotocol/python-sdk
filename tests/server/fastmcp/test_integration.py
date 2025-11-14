@@ -32,9 +32,10 @@ from examples.snippets.servers import (
     structured_output,
     tool_progress,
 )
-from mcp.client.session import ClientSession, ClientTransportSession
+from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import GetSessionIdCallback, streamablehttp_client
+from mcp.client.transport_session import ClientTransportSession
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder

@@ -15,13 +15,13 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 import mcp.types as types
 from mcp.client.session import (
     ClientSession,
-    ClientTransportSession,
     ElicitationFnT,
     ListRootsFnT,
     LoggingFnT,
     MessageHandlerFnT,
     SamplingFnT,
 )
+from mcp.client.transport_session import ClientTransportSession
 from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.message import SessionMessage

@@ -7,8 +7,7 @@ from mcp.shared.session import BaseSession
 from mcp.types import RequestId, RequestParams
 
 if TYPE_CHECKING:
-    from mcp.client.session import ClientTransportSession
-    from mcp.server.session import ServerTransportSession
+    from mcp import ClientTransportSession, ServerTransportSession
 
 SessionT = TypeVar(
     "SessionT", bound=BaseSession[Any, Any, Any, Any, Any] | "ClientTransportSession" | "ServerTransportSession"
