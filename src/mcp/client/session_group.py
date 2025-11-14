@@ -257,10 +257,10 @@ class ClientSessionGroup:
     async def connect_to_server(
         self,
         server_params: ServerParameters,
-        session_params: ClientSessionParameters = ClientSessionParameters(),
+        session_params: ClientSessionParameters | None = None,
     ) -> mcp.ClientSession:
         """Connects to a single MCP server."""
-        server_info, session = await self._establish_session(server_params, session_params)
+        server_info, session = await self._establish_session(server_params, session_params or ClientSessionParameters())
         return await self.connect_with_session(server_info, session)
 
     async def _establish_session(
