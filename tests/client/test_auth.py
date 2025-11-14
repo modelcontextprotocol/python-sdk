@@ -13,22 +13,12 @@ import pytest
 from inline_snapshot import Is, snapshot
 from pydantic import AnyHttpUrl, AnyUrl
 
-#<<<<<<< main
 from mcp.client.auth import (
     ClientCredentialsProvider,
     OAuthClientProvider,
     PKCEParameters,
     TokenExchangeProvider,
 )
-from mcp.shared.auth import (
-    OAuthClientInformationFull,
-    OAuthClientMetadata,
-    OAuthMetadata,
-    OAuthToken,
-    ProtectedResourceMetadata,
-)
-#=======
-from mcp.client.auth import OAuthClientProvider, PKCEParameters
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -39,8 +29,13 @@ from mcp.client.auth.utils import (
     get_client_metadata_scopes,
     handle_registration_response,
 )
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken, ProtectedResourceMetadata
-#>>>>>>> main
+from mcp.shared.auth import (
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthMetadata,
+    OAuthToken,
+    ProtectedResourceMetadata,
+)
 
 
 class MockTokenStorage:
@@ -556,23 +551,9 @@ class TestOAuthFallback:
             return_value=("test_auth_code", "test_code_verifier")
         )
 
-#<<<<<<< main
-        # Next request should fall back to legacy behavior: register then obtain token
-        registration_request = await auth_flow.asend(oauth_metadata_response_3)
-        assert str(registration_request.url) == "https://api.example.com/register"
-        assert registration_request.method == "POST"
-
-        registration_response = httpx.Response(
-            200,
-            content=b'{"client_id":"c","redirect_uris":["http://localhost:3030/callback"]}',
-            request=registration_request,
-        )
-        token_request = await auth_flow.asend(registration_response)
-#=======
         # All path-based URLs failed, flow continues with default endpoints
         # Next request should be token exchange using MCP server base URL (fallback when OAuth metadata not found)
         token_request = await auth_flow.asend(oauth_metadata_response_3)
-#>>>>>>> main
         assert str(token_request.url) == "https://api.example.com/token"
         assert token_request.method == "POST"
 
