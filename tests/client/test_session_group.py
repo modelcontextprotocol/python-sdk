@@ -67,7 +67,7 @@ class TestClientSessionGroup:
         # --- Test Execution ---
         result = await mcp_session_group.call_tool(
             name="server1-my_tool",
-            args={
+            arguments={
                 "name": "value1",
                 "args": {},
             },
