@@ -822,7 +822,7 @@ class ToolResultContent(BaseModel):
     toolUseId: str
     """The unique identifier that corresponds to the tool call's id field."""
 
-    content: list[Union[TextContent, ImageContent, AudioContent, "EmbeddedResource"]] = []
+    content: list[Union[TextContent, ImageContent, AudioContent, "ResourceLink", "EmbeddedResource"]] = []
     """
     A list of content objects representing the tool result.
     Defaults to empty list if not provided.
@@ -844,71 +844,21 @@ class ToolResultContent(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class SamplingMessage(BaseModel):
-    """
-    Describes a message issued to or received from an LLM API.
+SamplingMessageContentBlock: TypeAlias = (
+    TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
+)
+"""Content block types allowed in sampling messages."""
 
-    For backward compatibility, this class accepts any role and any content type.
-    For type-safe usage with tool calling, use UserMessage or AssistantMessage instead.
-    """
+
+class SamplingMessage(BaseModel):
+    """Describes a message issued to or received from an LLM API."""
 
     role: Role
-    content: (
-        TextContent
-        | ImageContent
-        | AudioContent
-        | ToolUseContent
-        | ToolResultContent
-        | list[TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent]
-    )
+    content: SamplingMessageContentBlock | list[SamplingMessageContentBlock]
     """
     Message content. Can be a single content block or an array of content blocks
     for multi-modal messages and tool interactions.
     """
-    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
-    """
-    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-    for notes on _meta usage.
-    """
-    model_config = ConfigDict(extra="allow")
-
-
-# Type aliases for role-specific messages
-UserMessageContent: TypeAlias = TextContent | ImageContent | AudioContent | ToolResultContent
-"""Content types allowed in user messages during sampling."""
-
-AssistantMessageContent: TypeAlias = TextContent | ImageContent | AudioContent | ToolUseContent
-"""Content types allowed in assistant messages during sampling."""
-
-
-class UserMessage(BaseModel):
-    """
-    A message from the user (server) in a sampling conversation.
-
-    User messages can include tool results in response to assistant tool use requests.
-    """
-
-    role: Literal["user"]
-    content: UserMessageContent | list[UserMessageContent]
-    """Message content. Can be a single content block or an array for multi-modal messages."""
-    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
-    """
-    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-    for notes on _meta usage.
-    """
-    model_config = ConfigDict(extra="allow")
-
-
-class AssistantMessage(BaseModel):
-    """
-    A message from the assistant (LLM) in a sampling conversation.
-
-    Assistant messages can include tool use requests when the LLM wants to call tools.
-    """
-
-    role: Literal["assistant"]
-    content: AssistantMessageContent | list[AssistantMessageContent]
-    """Message content. Can be a single content block or an array for multi-modal messages."""
     meta: dict[str, Any] | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1218,12 +1168,6 @@ class ToolChoice(BaseModel):
     - "none": Model should not use tools
     """
 
-    disable_parallel_tool_use: bool | None = None
-    """
-    If true, the model should not use multiple tools in parallel.
-    Some models may ignore this hint. Default: false (parallel use enabled).
-    """
-
     model_config = ConfigDict(extra="allow")
 
 
@@ -1275,11 +1219,11 @@ StopReason = Literal["endTurn", "stopSequence", "maxTokens", "toolUse"] | str
 class CreateMessageResult(Result):
     """The client's response to a sampling/create_message request from the server."""
 
-    role: Literal["assistant"]
-    """The role is always 'assistant' in responses from the LLM."""
-    content: AssistantMessageContent | list[AssistantMessageContent]
+    role: Role
+    """The role of the message sender (typically 'assistant' for LLM responses)."""
+    content: SamplingMessageContentBlock | list[SamplingMessageContentBlock]
     """
-    Response content from the assistant. May be a single content block or an array.
+    Response content. May be a single content block or an array.
     May include ToolUseContent if stopReason is 'toolUse'.
     """
     model: str

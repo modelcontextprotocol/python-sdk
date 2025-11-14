@@ -5,7 +5,6 @@ from .server.session import ServerSession
 from .server.stdio import stdio_server
 from .shared.exceptions import McpError
 from .types import (
-    AssistantMessage,
     CallToolRequest,
     ClientCapabilities,
     ClientNotification,
@@ -45,6 +44,7 @@ from .types import (
     SamplingCapability,
     SamplingContextCapability,
     SamplingMessage,
+    SamplingMessageContentBlock,
     SamplingToolsCapability,
     ServerCapabilities,
     ServerNotification,
@@ -59,14 +59,12 @@ from .types import (
     ToolsCapability,
     ToolUseContent,
     UnsubscribeRequest,
-    UserMessage,
 )
 from .types import (
     Role as SamplingRole,
 )
 
 __all__ = [
-    "AssistantMessage",
     "CallToolRequest",
     "ClientCapabilities",
     "ClientNotification",
@@ -109,6 +107,7 @@ __all__ = [
     "SamplingCapability",
     "SamplingContextCapability",
     "SamplingMessage",
+    "SamplingMessageContentBlock",
     "SamplingRole",
     "SamplingToolsCapability",
     "ServerCapabilities",
@@ -126,7 +125,6 @@ __all__ = [
     "ToolsCapability",
     "ToolUseContent",
     "UnsubscribeRequest",
-    "UserMessage",
     "stdio_client",
     "stdio_server",
 ]

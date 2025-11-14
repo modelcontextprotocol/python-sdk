@@ -2,7 +2,6 @@ import pytest
 
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
-    AssistantMessage,
     ClientCapabilities,
     ClientRequest,
     CreateMessageRequestParams,
@@ -19,7 +18,6 @@ from mcp.types import (
     ToolChoice,
     ToolResultContent,
     ToolUseContent,
-    UserMessage,
 )
 
 
@@ -117,23 +115,28 @@ async def test_tool_result_content():
 async def test_tool_choice():
     """Test ToolChoice type for SEP-1577."""
     # Test with mode
-    tool_choice_data = {"mode": "required", "disable_parallel_tool_use": True}
+    tool_choice_data = {"mode": "required"}
     tool_choice = ToolChoice.model_validate(tool_choice_data)
     assert tool_choice.mode == "required"
-    assert tool_choice.disable_parallel_tool_use is True
 
     # Test with minimal data (all fields optional)
     minimal_choice = ToolChoice.model_validate({})
     assert minimal_choice.mode is None
-    assert minimal_choice.disable_parallel_tool_use is None
+
+    # Test different modes
+    auto_choice = ToolChoice.model_validate({"mode": "auto"})
+    assert auto_choice.mode == "auto"
+
+    none_choice = ToolChoice.model_validate({"mode": "none"})
+    assert none_choice.mode == "none"
 
 
 @pytest.mark.anyio
-async def test_user_message():
-    """Test UserMessage type for SEP-1577."""
+async def test_sampling_message_with_user_role():
+    """Test SamplingMessage with user role for SEP-1577."""
     # Test with single content
     user_msg_data = {"role": "user", "content": {"type": "text", "text": "Hello"}}
-    user_msg = UserMessage.model_validate(user_msg_data)
+    user_msg = SamplingMessage.model_validate(user_msg_data)
     assert user_msg.role == "user"
     assert isinstance(user_msg.content, TextContent)
 
@@ -145,15 +148,15 @@ async def test_user_message():
             {"type": "tool_result", "toolUseId": "call_123", "content": []},
         ],
     }
-    multi_msg = UserMessage.model_validate(multi_content_data)
+    multi_msg = SamplingMessage.model_validate(multi_content_data)
     assert multi_msg.role == "user"
     assert isinstance(multi_msg.content, list)
     assert len(multi_msg.content) == 2
 
 
 @pytest.mark.anyio
-async def test_assistant_message():
-    """Test AssistantMessage type for SEP-1577."""
+async def test_sampling_message_with_assistant_role():
+    """Test SamplingMessage with assistant role for SEP-1577."""
     # Test with tool use content
     assistant_msg_data = {
         "role": "assistant",
@@ -164,7 +167,7 @@ async def test_assistant_message():
             "input": {"query": "MCP protocol"},
         },
     }
-    assistant_msg = AssistantMessage.model_validate(assistant_msg_data)
+    assistant_msg = SamplingMessage.model_validate(assistant_msg_data)
     assert assistant_msg.role == "assistant"
     assert isinstance(assistant_msg.content, ToolUseContent)
 
@@ -176,7 +179,7 @@ async def test_assistant_message():
             {"type": "tool_use", "name": "search", "id": "call_789", "input": {}},
         ],
     }
-    multi_msg = AssistantMessage.model_validate(multi_content_data)
+    multi_msg = SamplingMessage.model_validate(multi_content_data)
     assert isinstance(multi_msg.content, list)
     assert len(multi_msg.content) == 2
 
