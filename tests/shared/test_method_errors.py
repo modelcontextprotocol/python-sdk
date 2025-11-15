@@ -20,7 +20,9 @@ def _assert_error(error: types.JSONRPCError, expected_code: int, expected_messag
     _ensure(error_payload.message == expected_message, f"unexpected error message: {error_payload.message}")
 
 
-async def _run_client_request(request: types.JSONRPCRequest) -> types.JSONRPCError:
+async def _run_client_request(
+    request: types.JSONRPCRequest, *, expected_error: tuple[int, str] | None = None
+) -> types.JSONRPCError:
     request_send, request_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     response_send, response_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
@@ -44,10 +46,18 @@ async def _run_client_request(request: types.JSONRPCRequest) -> types.JSONRPCErr
 
             root = response_message.message.root
             _ensure(isinstance(root, types.JSONRPCError), "expected a JSON-RPC error response")
-            return cast(types.JSONRPCError, root)
+            error = cast(types.JSONRPCError, root)
+
+            if expected_error is not None:
+                expected_code, expected_message = expected_error
+                _assert_error(error, expected_code, expected_message)
+
+            return error
 
 
-async def _run_server_request(request: types.JSONRPCRequest) -> types.JSONRPCError:
+async def _run_server_request(
+    request: types.JSONRPCRequest, *, expected_error: tuple[int, str] | None = None
+) -> types.JSONRPCError:
     request_send, request_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     response_send, response_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
@@ -71,7 +81,13 @@ async def _run_server_request(request: types.JSONRPCRequest) -> types.JSONRPCErr
 
             root = response_message.message.root
             _ensure(isinstance(root, types.JSONRPCError), "expected a JSON-RPC error response")
-            return cast(types.JSONRPCError, root)
+            error = cast(types.JSONRPCError, root)
+
+            if expected_error is not None:
+                expected_code, expected_message = expected_error
+                _assert_error(error, expected_code, expected_message)
+
+            return error
 
 
 @pytest.mark.anyio
@@ -85,27 +101,21 @@ async def _run_server_request(request: types.JSONRPCRequest) -> types.JSONRPCErr
 async def test_client_to_server_unknown_method_returns_method_not_found(method: str, request_id: int) -> None:
     request = types.JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method, params=None)
 
-    error = await _run_client_request(request)
-
-    _assert_error(error, types.METHOD_NOT_FOUND, "Method not found")
+    await _run_client_request(request, expected_error=(types.METHOD_NOT_FOUND, "Method not found"))
 
 
 @pytest.mark.anyio
 async def test_client_to_server_invalid_params_returns_invalid_params() -> None:
     request = types.JSONRPCRequest(jsonrpc="2.0", id=2, method="resources/read", params={})
 
-    error = await _run_client_request(request)
-
-    _assert_error(error, types.INVALID_PARAMS, "Invalid request parameters")
+    await _run_client_request(request, expected_error=(types.INVALID_PARAMS, "Invalid request parameters"))
 
 
 @pytest.mark.anyio
 async def test_server_to_client_unknown_method_returns_method_not_found() -> None:
     request = types.JSONRPCRequest(jsonrpc="2.0", id=3, method="server/unknown", params=None)
 
-    error = await _run_server_request(request)
-
-    _assert_error(error, types.METHOD_NOT_FOUND, "Method not found")
+    await _run_server_request(request, expected_error=(types.METHOD_NOT_FOUND, "Method not found"))
 
 
 @pytest.mark.anyio
@@ -121,6 +131,4 @@ async def test_server_to_client_invalid_params_returns_invalid_params(
 ) -> None:
     request = types.JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method, params=params)
 
-    error = await _run_server_request(request)
-
-    _assert_error(error, types.INVALID_PARAMS, "Invalid request parameters")
+    await _run_server_request(request, expected_error=(types.INVALID_PARAMS, "Invalid request parameters"))
