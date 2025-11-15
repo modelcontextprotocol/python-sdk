@@ -1334,7 +1334,6 @@ CLIENT_REQUEST_METHODS: frozenset[str] = frozenset(
         "tools/call",
         "logging/setLevel",
         "completion/complete",
-        "roots/list",
     }
 )
 

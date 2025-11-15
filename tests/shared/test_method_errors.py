@@ -89,6 +89,16 @@ async def test_client_to_server_invalid_params_returns_invalid_params() -> None:
 
 
 @pytest.mark.anyio
+async def test_client_to_server_roots_list_returns_method_not_found() -> None:
+    request = types.JSONRPCRequest(jsonrpc="2.0", id=9, method="roots/list", params=None)
+
+    error = await _run_client_request(request)
+
+    assert error.error.code == types.METHOD_NOT_FOUND
+    assert error.error.message == "Method not found"
+
+
+@pytest.mark.anyio
 async def test_server_to_client_unknown_method_returns_method_not_found() -> None:
     request = types.JSONRPCRequest(jsonrpc="2.0", id=3, method="server/unknown", params=None)
 
@@ -101,6 +111,16 @@ async def test_server_to_client_unknown_method_returns_method_not_found() -> Non
 @pytest.mark.anyio
 async def test_server_to_client_invalid_params_returns_invalid_params() -> None:
     request = types.JSONRPCRequest(jsonrpc="2.0", id=4, method="sampling/createMessage", params={})
+
+    error = await _run_server_request(request)
+
+    assert error.error.code == types.INVALID_PARAMS
+    assert error.error.message == "Invalid request parameters"
+
+
+@pytest.mark.anyio
+async def test_server_to_client_roots_list_invalid_params_returns_invalid_params() -> None:
+    request = types.JSONRPCRequest(jsonrpc="2.0", id=10, method="roots/list", params={"_meta": "invalid"})
 
     error = await _run_server_request(request)
 
