@@ -18,6 +18,7 @@ nav:
       - Low-Level Server: low-level-server.md
       - Authorization: authorization.md
       - Testing: testing.md
+  - Examples: examples.md
   - API Reference: api.md
 
 theme:
@@ -77,7 +78,10 @@ markdown_extensions:
   - pymdownx.critic
   - pymdownx.mark
   - pymdownx.superfences
-  - pymdownx.snippets
+  - pymdownx.snippets:
+      base_path:
+        - examples/snippets
+        - .
   - pymdownx.tilde
   - pymdownx.inlinehilite
   - pymdownx.highlight:
