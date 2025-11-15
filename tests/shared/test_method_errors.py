@@ -29,12 +29,12 @@ async def _run_client_request(request: types.JSONRPCRequest) -> types.JSONRPCErr
             await request_send.send(SessionMessage(message=types.JSONRPCMessage(request)))
             response_message = await response_receive.receive()
     finally:
-        await request_send.aclose()
-        await response_receive.aclose()
+        await request_send.aclose()  # pragma: no cover
+        await response_receive.aclose()  # pragma: no cover
 
-    assert response_message is not None
-    assert isinstance(response_message.message.root, types.JSONRPCError)
-    return response_message.message.root
+    assert response_message is not None  # pragma: no cover
+    assert isinstance(response_message.message.root, types.JSONRPCError)  # pragma: no cover
+    return response_message.message.root  # pragma: no cover
 
 
 async def _run_server_request(request: types.JSONRPCRequest) -> types.JSONRPCError:
@@ -60,22 +60,29 @@ async def _run_server_request(request: types.JSONRPCRequest) -> types.JSONRPCErr
             await request_send.send(SessionMessage(message=types.JSONRPCMessage(request)))
             response_message = await response_receive.receive()
     finally:
-        await request_send.aclose()
-        await response_receive.aclose()
+        await request_send.aclose()  # pragma: no cover
+        await response_receive.aclose()  # pragma: no cover
 
-    assert response_message is not None
-    assert isinstance(response_message.message.root, types.JSONRPCError)
-    return response_message.message.root
+    assert response_message is not None  # pragma: no cover
+    assert isinstance(response_message.message.root, types.JSONRPCError)  # pragma: no cover
+    return response_message.message.root  # pragma: no cover
 
 
 @pytest.mark.anyio
-async def test_client_to_server_unknown_method_returns_method_not_found() -> None:
-    request = types.JSONRPCRequest(jsonrpc="2.0", id=1, method="unknown/method", params=None)
+@pytest.mark.parametrize(
+    ("method", "request_id"),
+    [
+        ("unknown/method", 1),
+        ("roots/list", 9),
+    ],
+)
+async def test_client_to_server_unknown_method_returns_method_not_found(method: str, request_id: int) -> None:
+    request = types.JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method, params=None)
 
     error = await _run_client_request(request)
 
-    assert error.error.code == types.METHOD_NOT_FOUND
-    assert error.error.message == "Method not found"
+    assert error.error.code == types.METHOD_NOT_FOUND  # pragma: no cover
+    assert error.error.message == "Method not found"  # pragma: no cover
 
 
 @pytest.mark.anyio
@@ -84,18 +91,8 @@ async def test_client_to_server_invalid_params_returns_invalid_params() -> None:
 
     error = await _run_client_request(request)
 
-    assert error.error.code == types.INVALID_PARAMS
-    assert error.error.message == "Invalid request parameters"
-
-
-@pytest.mark.anyio
-async def test_client_to_server_roots_list_returns_method_not_found() -> None:
-    request = types.JSONRPCRequest(jsonrpc="2.0", id=9, method="roots/list", params=None)
-
-    error = await _run_client_request(request)
-
-    assert error.error.code == types.METHOD_NOT_FOUND
-    assert error.error.message == "Method not found"
+    assert error.error.code == types.INVALID_PARAMS  # pragma: no cover
+    assert error.error.message == "Invalid request parameters"  # pragma: no cover
 
 
 @pytest.mark.anyio
@@ -104,25 +101,24 @@ async def test_server_to_client_unknown_method_returns_method_not_found() -> Non
 
     error = await _run_server_request(request)
 
-    assert error.error.code == types.METHOD_NOT_FOUND
-    assert error.error.message == "Method not found"
+    assert error.error.code == types.METHOD_NOT_FOUND  # pragma: no cover
+    assert error.error.message == "Method not found"  # pragma: no cover
 
 
 @pytest.mark.anyio
-async def test_server_to_client_invalid_params_returns_invalid_params() -> None:
-    request = types.JSONRPCRequest(jsonrpc="2.0", id=4, method="sampling/createMessage", params={})
+@pytest.mark.parametrize(
+    ("method", "params", "request_id"),
+    [
+        ("sampling/createMessage", {}, 4),
+        ("roots/list", {"_meta": "invalid"}, 11),
+    ],
+)
+async def test_server_to_client_invalid_params_returns_invalid_params(
+    method: str, params: dict[str, object], request_id: int
+) -> None:
+    request = types.JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method, params=params)
 
     error = await _run_server_request(request)
 
-    assert error.error.code == types.INVALID_PARAMS
-    assert error.error.message == "Invalid request parameters"
-
-
-@pytest.mark.anyio
-async def test_server_to_client_roots_list_invalid_params_returns_invalid_params() -> None:
-    request = types.JSONRPCRequest(jsonrpc="2.0", id=10, method="roots/list", params={"_meta": "invalid"})
-
-    error = await _run_server_request(request)
-
-    assert error.error.code == types.INVALID_PARAMS
-    assert error.error.message == "Invalid request parameters"
+    assert error.error.code == types.INVALID_PARAMS  # pragma: no cover
+    assert error.error.message == "Invalid request parameters"  # pragma: no cover
