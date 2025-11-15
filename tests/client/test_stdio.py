@@ -1,12 +1,12 @@
-import contextlib
 import errno
-import inspect
 import os
 import shutil
 import sys
 import tempfile
 import textwrap
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import anyio
 import pytest
@@ -17,6 +17,7 @@ from mcp.client.stdio import (
     FallbackProcess,
     StdioServerParameters,
     _create_platform_compatible_process,
+    _terminate_process_tree,
     stdio_client,
 )
 from mcp.shared.exceptions import McpError
@@ -31,6 +32,44 @@ from ..shared.test_win32_utils import escape_path_for_python
 SIGTERM_IGNORING_PROCESS_TIMEOUT = 5.0
 
 tee = shutil.which("tee")
+
+
+@asynccontextmanager
+async def _spawn_writer_process(marker_file: str, parent_marker: str) -> AsyncIterator[AnyioProcess | FallbackProcess]:
+    child_script_lines = [
+        "import time",
+        f"with open({escape_path_for_python(marker_file)}, 'a', buffering=1) as f:",
+        "    while True:",
+        '        f.write(f"{time.time()}\\n")',
+        "        f.flush()",
+        "        time.sleep(0.1)",
+    ]
+    child_script = "\n".join(child_script_lines)
+
+    parent_script_lines = [
+        "import subprocess",
+        "import sys",
+        "import time",
+        "import os",
+        "",
+        f"with open({escape_path_for_python(parent_marker)}, 'w') as f:",
+        "    f.write('parent started\\n')",
+        "",
+        f"child_script = {repr(child_script)}",
+        "child = subprocess.Popen([sys.executable, '-c', child_script])",
+        "",
+        "while True:",
+        "    time.sleep(0.1)",
+    ]
+    parent_script = "\n".join(parent_script_lines)
+
+    proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+
+    try:
+        yield proc
+    finally:
+        if getattr(proc, "returncode", None) is None:
+            await _terminate_process_tree(proc)
 
 
 @pytest.mark.anyio
@@ -267,82 +306,42 @@ class TestChildProcessCleanup:
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
             parent_marker = f.name
 
-        proc: AnyioProcess | FallbackProcess | None = None
-
         try:
-            child_script = "\n".join(
-                [
-                    "import time",
-                    f"with open({escape_path_for_python(marker_file)}, 'a', buffering=1) as f:",
-                    "    while True:",
-                    '        f.write(f"{time.time()}\\n")',
-                    "        f.flush()",
-                    "        time.sleep(0.1)",
-                ]
-            )
+            async with _spawn_writer_process(marker_file, parent_marker) as proc:
+                print("\nStarting child process termination test...")
 
-            # Parent script that spawns a child process
-            parent_script = inspect.cleandoc(
-                f"""
-                import subprocess
-                import sys
-                import time
-                import os
+                # Wait for processes to start
+                await anyio.sleep(0.5)
 
-                # Mark that parent started
-                with open({escape_path_for_python(parent_marker)}, 'w') as f:
-                    f.write('parent started\\n')
+                # Verify parent and child setup
+                assert os.path.exists(parent_marker), "Parent process didn't start"
+                assert os.path.exists(marker_file), "Child process didn't create marker file"
 
-                # Child script that writes continuously
-                child_script = {repr(child_script)}
-
-                # Start the child process
-                child = subprocess.Popen([sys.executable, '-c', child_script])
-
-                # Parent just sleeps
-                while True:
-                    time.sleep(0.1)
-                """
-            )
-
-            print("\nStarting child process termination test...")
-
-            # Start the parent process
-            proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
-            assert proc is not None
-
-            # Wait for processes to start
-            await anyio.sleep(0.5)
-
-            # Verify parent started
-            assert os.path.exists(parent_marker), "Parent process didn't start"
-
-            # Verify child is writing
-            if os.path.exists(marker_file):  # pragma: no branch
                 initial_size = os.path.getsize(marker_file)
-                size_after_wait = initial_size
+                observed_growth = False
+                latest_size = initial_size
                 deadline = time.monotonic() + 3.0
 
                 while time.monotonic() < deadline:
-                    await anyio.sleep(0.1)
-                    size_after_wait = os.path.getsize(marker_file)
-                    if size_after_wait > initial_size:
+                    if observed_growth:
                         break
+                    await anyio.sleep(0.1)
+                    latest_size = os.path.getsize(marker_file)
+                    observed_growth = latest_size > initial_size
+                else:
+                    pytest.fail("Child process should be writing (no growth detected within 3.0 seconds)")
 
-                assert size_after_wait > initial_size, (
-                    f"Child process should be writing (file size remained {size_after_wait} bytes after waiting)"
+                assert observed_growth, (
+                    f"Child process should be writing (file size remained {latest_size} bytes after waiting)"
                 )
-                print(f"Child is writing (file grew from {initial_size} to {size_after_wait} bytes)")
+                print(f"Child is writing (file grew from {initial_size} to {latest_size} bytes)")
 
-            # Terminate using our function
-            print("Terminating process and children...")
-            from mcp.client.stdio import _terminate_process_tree
+                # Terminate using our function
+                print("Terminating process and children...")
+                await _terminate_process_tree(proc)
 
-            await _terminate_process_tree(proc)
-
-            # Verify processes stopped
-            await anyio.sleep(0.5)
-            if os.path.exists(marker_file):  # pragma: no branch
+                # Verify processes stopped
+                await anyio.sleep(0.5)
                 size_after_cleanup = os.path.getsize(marker_file)
                 await anyio.sleep(0.5)
                 final_size = os.path.getsize(marker_file)
@@ -352,17 +351,8 @@ class TestChildProcessCleanup:
                     f"Child process still running! File grew by {final_size - size_after_cleanup} bytes"
                 )
 
-            print("SUCCESS: Child process was properly terminated")
-
+                print("SUCCESS: Child process was properly terminated")
         finally:
-            if proc is not None:
-                proc_returncode = getattr(proc, "returncode", None)
-                if proc_returncode is None:
-                    with contextlib.suppress(Exception):
-                        from mcp.client.stdio import _terminate_process_tree
-
-                        await _terminate_process_tree(proc)
-
             # Clean up files
             for f in [marker_file, parent_marker]:
                 try:
