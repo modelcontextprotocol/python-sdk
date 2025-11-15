@@ -68,8 +68,10 @@ async def _spawn_writer_process(marker_file: str, parent_marker: str) -> AsyncIt
     try:
         yield proc
     finally:
-        if getattr(proc, "returncode", None) is None:
-            await _terminate_process_tree(proc)
+        # During normal execution the test handles cleanup explicitly. This
+        # guard only runs in error paths, so exclude it from coverage.
+        if getattr(proc, "returncode", None) is None:  # pragma: no cover
+            await _terminate_process_tree(proc)  # pragma: no cover
 
 
 @pytest.mark.anyio
@@ -328,7 +330,8 @@ class TestChildProcessCleanup:
                     await anyio.sleep(0.1)
                     latest_size = os.path.getsize(marker_file)
                     observed_growth = latest_size > initial_size
-                else:
+
+                if not observed_growth:  # pragma: no cover
                     pytest.fail("Child process should be writing (no growth detected within 3.0 seconds)")
 
                 assert observed_growth, (
