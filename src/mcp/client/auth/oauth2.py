@@ -506,7 +506,7 @@ class OAuthClientProvider(httpx.Auth):
 
                     # Step 3: Apply scope selection strategy
                     self.context.client_metadata.scope = get_client_metadata_scopes(
-                        www_auth_resource_metadata_url,
+                        extract_scope_from_www_auth(response),
                         self.context.protected_resource_metadata,
                         self.context.oauth_metadata,
                     )
