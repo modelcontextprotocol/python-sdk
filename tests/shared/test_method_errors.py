@@ -9,7 +9,7 @@ from mcp.shared.session import BaseSession
 
 
 def _ensure(condition: bool, message: str) -> None:
-    if condition:
+    if condition:  # pragma: no branch
         return
     pytest.fail(message)  # pragma: no cover
 
@@ -20,9 +20,7 @@ def _assert_error(error: types.JSONRPCError, expected_code: int, expected_messag
     _ensure(error_payload.message == expected_message, f"unexpected error message: {error_payload.message}")
 
 
-async def _run_client_request(
-    request: types.JSONRPCRequest, *, expected_error: tuple[int, str] | None = None
-) -> types.JSONRPCError:
+async def _run_client_request(request: types.JSONRPCRequest, *, expected_error: tuple[int, str]) -> types.JSONRPCError:
     request_send, request_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     response_send, response_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
@@ -48,16 +46,13 @@ async def _run_client_request(
             _ensure(isinstance(root, types.JSONRPCError), "expected a JSON-RPC error response")
             error = cast(types.JSONRPCError, root)
 
-            if expected_error is not None:
-                expected_code, expected_message = expected_error
-                _assert_error(error, expected_code, expected_message)
+            expected_code, expected_message = expected_error
+            _assert_error(error, expected_code, expected_message)
 
             return error
 
 
-async def _run_server_request(
-    request: types.JSONRPCRequest, *, expected_error: tuple[int, str] | None = None
-) -> types.JSONRPCError:
+async def _run_server_request(request: types.JSONRPCRequest, *, expected_error: tuple[int, str]) -> types.JSONRPCError:
     request_send, request_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     response_send, response_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
@@ -83,9 +78,8 @@ async def _run_server_request(
             _ensure(isinstance(root, types.JSONRPCError), "expected a JSON-RPC error response")
             error = cast(types.JSONRPCError, root)
 
-            if expected_error is not None:
-                expected_code, expected_message = expected_error
-                _assert_error(error, expected_code, expected_message)
+            expected_code, expected_message = expected_error
+            _assert_error(error, expected_code, expected_message)
 
             return error
 
