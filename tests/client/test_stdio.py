@@ -1,4 +1,6 @@
+import contextlib
 import errno
+import inspect
 import os
 import shutil
 import sys
@@ -8,9 +10,15 @@ import time
 
 import anyio
 import pytest
+from anyio.abc import Process as AnyioProcess
 
 from mcp.client.session import ClientSession
-from mcp.client.stdio import StdioServerParameters, _create_platform_compatible_process, stdio_client
+from mcp.client.stdio import (
+    FallbackProcess,
+    StdioServerParameters,
+    _create_platform_compatible_process,
+    stdio_client,
+)
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
 from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
@@ -259,9 +267,22 @@ class TestChildProcessCleanup:
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
             parent_marker = f.name
 
+        proc: AnyioProcess | FallbackProcess | None = None
+
         try:
+            child_script = "\n".join(
+                [
+                    "import time",
+                    f"with open({escape_path_for_python(marker_file)}, 'a', buffering=1) as f:",
+                    "    while True:",
+                    '        f.write(f"{time.time()}\\n")',
+                    "        f.flush()",
+                    "        time.sleep(0.1)",
+                ]
+            )
+
             # Parent script that spawns a child process
-            parent_script = textwrap.dedent(
+            parent_script = inspect.cleandoc(
                 f"""
                 import subprocess
                 import sys
@@ -273,14 +294,7 @@ class TestChildProcessCleanup:
                     f.write('parent started\\n')
 
                 # Child script that writes continuously
-                child_script = f'''
-                import time
-                with open({escape_path_for_python(marker_file)}, 'a') as f:
-                    while True:
-                        f.write(f"{time.time()}")
-                        f.flush()
-                        time.sleep(0.1)
-                '''
+                child_script = {repr(child_script)}
 
                 # Start the child process
                 child = subprocess.Popen([sys.executable, '-c', child_script])
@@ -295,6 +309,7 @@ class TestChildProcessCleanup:
 
             # Start the parent process
             proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+            assert proc is not None
 
             # Wait for processes to start
             await anyio.sleep(0.5)
@@ -305,9 +320,18 @@ class TestChildProcessCleanup:
             # Verify child is writing
             if os.path.exists(marker_file):  # pragma: no branch
                 initial_size = os.path.getsize(marker_file)
-                await anyio.sleep(0.3)
-                size_after_wait = os.path.getsize(marker_file)
-                assert size_after_wait > initial_size, "Child process should be writing"
+                size_after_wait = initial_size
+                deadline = time.monotonic() + 3.0
+
+                while time.monotonic() < deadline:
+                    await anyio.sleep(0.1)
+                    size_after_wait = os.path.getsize(marker_file)
+                    if size_after_wait > initial_size:
+                        break
+
+                assert size_after_wait > initial_size, (
+                    f"Child process should be writing (file size remained {size_after_wait} bytes after waiting)"
+                )
                 print(f"Child is writing (file grew from {initial_size} to {size_after_wait} bytes)")
 
             # Terminate using our function
@@ -331,6 +355,14 @@ class TestChildProcessCleanup:
             print("SUCCESS: Child process was properly terminated")
 
         finally:
+            if proc is not None:
+                proc_returncode = getattr(proc, "returncode", None)
+                if proc_returncode is None:
+                    with contextlib.suppress(Exception):
+                        from mcp.client.stdio import _terminate_process_tree
+
+                        await _terminate_process_tree(proc)
+
             # Clean up files
             for f in [marker_file, parent_marker]:
                 try:
