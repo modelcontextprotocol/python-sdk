@@ -233,6 +233,12 @@ class Implementation(BaseMetadata):
 
     version: str
 
+    title: str | None = None
+    """An optional human-readable title for this implementation."""
+
+    description: str | None = None
+    """An optional human-readable description of what this implementation does."""
+
     websiteUrl: str | None = None
     """An optional URL of the website for this implementation."""
 
