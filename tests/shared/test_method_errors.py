@@ -87,7 +87,7 @@ async def test_client_to_server_unknown_method_returns_method_not_found(method: 
 
     error = await _run_client_request(request)
 
-    _assert_error(error, types.METHOD_NOT_FOUND, "Method not found")  # pragma: no cover
+    _assert_error(error, types.METHOD_NOT_FOUND, "Method not found")
 
 
 @pytest.mark.anyio
@@ -96,7 +96,7 @@ async def test_client_to_server_invalid_params_returns_invalid_params() -> None:
 
     error = await _run_client_request(request)
 
-    _assert_error(error, types.INVALID_PARAMS, "Invalid request parameters")  # pragma: no cover
+    _assert_error(error, types.INVALID_PARAMS, "Invalid request parameters")
 
 
 @pytest.mark.anyio
@@ -105,7 +105,7 @@ async def test_server_to_client_unknown_method_returns_method_not_found() -> Non
 
     error = await _run_server_request(request)
 
-    _assert_error(error, types.METHOD_NOT_FOUND, "Method not found")  # pragma: no cover
+    _assert_error(error, types.METHOD_NOT_FOUND, "Method not found")
 
 
 @pytest.mark.anyio
@@ -123,4 +123,4 @@ async def test_server_to_client_invalid_params_returns_invalid_params(
 
     error = await _run_server_request(request)
 
-    _assert_error(error, types.INVALID_PARAMS, "Invalid request parameters")  # pragma: no cover
+    _assert_error(error, types.INVALID_PARAMS, "Invalid request parameters")
