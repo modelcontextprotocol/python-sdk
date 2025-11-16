@@ -92,7 +92,7 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
 
     async def _perform_authorization(self) -> httpx.Request:  # pragma: no cover
         """Perform the authorization flow."""
-        if "urn:ietf:params:oauth:grant-type:jwt-bearer" in self.context.client_metadata.grant_types:
+        if "jwt-bearer" in self.context.client_metadata.grant_types:
             token_request = await self._exchange_token_jwt_bearer()
             return token_request
         else:
@@ -112,7 +112,7 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
 
         # When using private_key_jwt, in a client_credentials flow, we use RFC 7523 Section 2.2
         token_data["client_assertion"] = assertion
-        token_data["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+        token_data["client_assertion_type"] = "jwt-bearer"
         # We need to set the audience to the resource server, the audience is difference from the one in claims
         # it represents the resource server that will validate the token
         token_data["audience"] = self.context.get_resource_url()
@@ -132,7 +132,7 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
         assertion = self.jwt_parameters.to_assertion(with_audience_fallback=issuer)
 
         token_data = {
-            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            "grant_type": "jwt-bearer",
             "assertion": assertion,
         }
 

@@ -314,7 +314,10 @@ class BaseSession(
             message=JSONRPCMessage(jsonrpc_notification),
             metadata=ServerMessageMetadata(related_request_id=related_request_id) if related_request_id else None,
         )
-        await self._write_stream.send(session_message)
+        try:
+            await self._write_stream.send(session_message)
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+            logging.debug("Discarding notification due to closed stream")
 
     async def _send_response(self, request_id: RequestId, response: SendResultT | ErrorData) -> None:
         if isinstance(response, ErrorData):

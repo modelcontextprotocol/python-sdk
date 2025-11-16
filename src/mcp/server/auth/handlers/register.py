@@ -68,11 +68,35 @@ class RegistrationHandler:
                     ),
                     status_code=400,
                 )
-        if not {"authorization_code", "refresh_token"}.issubset(set(client_metadata.grant_types)):
+
+        # Validate redirect_uris is provided for authorization_code grant type
+        grant_types_set: set[str] = set(client_metadata.grant_types)
+        if "authorization_code" in grant_types_set and (
+            client_metadata.redirect_uris is None or len(client_metadata.redirect_uris) == 0
+        ):
             return PydanticJSONResponse(
                 content=RegistrationErrorResponse(
                     error="invalid_client_metadata",
-                    error_description="grant_types must be authorization_code and refresh_token",
+                    error_description="redirect_uris: Field required",
+                ),
+                status_code=400,
+            )
+        required_sets = [
+            {"authorization_code", "refresh_token"},
+            {"client_credentials"},
+            {"token_exchange"},
+            {"client_credentials", "token_exchange"},
+        ]
+
+        if not any(required_set.issubset(grant_types_set) for required_set in required_sets):
+            return PydanticJSONResponse(
+                content=RegistrationErrorResponse(
+                    error="invalid_client_metadata",
+                    error_description=(
+                        "grant_types must be authorization_code and refresh_token "
+                        "or client_credentials or token exchange or "
+                        "client_credentials and token_exchange"
+                    ),
                 ),
                 status_code=400,
             )

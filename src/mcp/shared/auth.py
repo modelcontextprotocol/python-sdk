@@ -13,6 +13,7 @@ class OAuthToken(BaseModel):
     expires_in: int | None = None
     scope: str | None = None
     refresh_token: str | None = None
+    issued_token_type: str | None = None
 
     @field_validator("token_type", mode="before")
     @classmethod
@@ -41,12 +42,21 @@ class OAuthClientMetadata(BaseModel):
     for the full specification.
     """
 
-    redirect_uris: list[AnyUrl] | None = Field(..., min_length=1)
+    redirect_uris: list[AnyUrl] | None = Field(default=None, min_length=1)
     # supported auth methods for the token endpoint
     token_endpoint_auth_method: Literal["none", "client_secret_post", "private_key_jwt"] = "client_secret_post"
-    # supported grant_types of this implementation
+    # grant_types: this implementation supports authorization_code, refresh_token, client_credentials, token_exchange,
+    # and allows additional grant types provided by the client (e.g. device code or JWT bearer)
     grant_types: list[
-        Literal["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"] | str
+        Literal[
+            "authorization_code",
+            "refresh_token",
+            "client_credentials",
+            "token_exchange",
+            "device_code",
+            "jwt-bearer",
+        ]
+        | str
     ] = [
         "authorization_code",
         "refresh_token",
@@ -115,10 +125,35 @@ class OAuthMetadata(BaseModel):
     registration_endpoint: AnyHttpUrl | None = None
     scopes_supported: list[str] | None = None
     response_types_supported: list[str] = ["code"]
-    response_modes_supported: list[str] | None = None
-    grant_types_supported: list[str] | None = None
-    token_endpoint_auth_methods_supported: list[str] | None = None
-    token_endpoint_auth_signing_alg_values_supported: list[str] | None = None
+    response_modes_supported: (
+        list[
+            Literal[
+                "query",
+                "fragment",
+                "form_post",
+                "query.jwt",
+                "fragment.jwt",
+                "form_post.jwt",
+                "jwt",
+            ]
+        ]
+        | None
+    ) = None
+    grant_types_supported: (
+        list[
+            Literal[
+                "authorization_code",
+                "refresh_token",
+                "client_credentials",
+                "token_exchange",
+            ]
+        ]
+        | None
+    ) = None
+    token_endpoint_auth_methods_supported: list[Literal["none", "client_secret_post", "client_secret_basic"]] | None = (
+        None
+    )
+    token_endpoint_auth_signing_alg_values_supported: None = None
     service_documentation: AnyHttpUrl | None = None
     ui_locales_supported: list[str] | None = None
     op_policy_uri: AnyHttpUrl | None = None
