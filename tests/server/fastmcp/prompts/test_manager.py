@@ -8,7 +8,7 @@ class TestPromptManager:
     def test_add_prompt(self):
         """Test adding a prompt to the manager."""
 
-        def fn() -> str:
+        def fn() -> str:  # pragma: no cover
             return "Hello, world!"
 
         manager = PromptManager()
@@ -20,7 +20,7 @@ class TestPromptManager:
     def test_add_duplicate_prompt(self, caplog: pytest.LogCaptureFixture):
         """Test adding the same prompt twice."""
 
-        def fn() -> str:
+        def fn() -> str:  # pragma: no cover
             return "Hello, world!"
 
         manager = PromptManager()
@@ -33,7 +33,7 @@ class TestPromptManager:
     def test_disable_warn_on_duplicate_prompts(self, caplog: pytest.LogCaptureFixture):
         """Test disabling warning on duplicate prompts."""
 
-        def fn() -> str:
+        def fn() -> str:  # pragma: no cover
             return "Hello, world!"
 
         manager = PromptManager(warn_on_duplicate_prompts=False)
@@ -46,10 +46,10 @@ class TestPromptManager:
     def test_list_prompts(self):
         """Test listing all prompts."""
 
-        def fn1() -> str:
+        def fn1() -> str:  # pragma: no cover
             return "Hello, world!"
 
-        def fn2() -> str:
+        def fn2() -> str:  # pragma: no cover
             return "Goodbye, world!"
 
         manager = PromptManager()
@@ -98,7 +98,7 @@ class TestPromptManager:
     async def test_render_prompt_with_missing_args(self):
         """Test rendering a prompt with missing required arguments."""
 
-        def fn(name: str) -> str:
+        def fn(name: str) -> str:  # pragma: no cover
             return f"Hello, {name}!"
 
         manager = PromptManager()

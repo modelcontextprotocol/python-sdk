@@ -50,7 +50,7 @@ def server_url(server_port: int) -> str:
 
 
 # Test server implementation
-class ServerTest(Server):
+class ServerTest(Server):  # pragma: no cover
     def __init__(self):
         super().__init__(SERVER_NAME)
 
@@ -81,7 +81,7 @@ class ServerTest(Server):
 
 
 # Test fixtures
-def make_server_app() -> Starlette:
+def make_server_app() -> Starlette:  # pragma: no cover
     """Create test Starlette app with SSE transport"""
     # Configure security with allowed hosts/origins for testing
     security_settings = TransportSecuritySettings(
@@ -105,7 +105,7 @@ def make_server_app() -> Starlette:
     return app
 
 
-def run_server(server_port: int) -> None:
+def run_server(server_port: int) -> None:  # pragma: no cover
     app = make_server_app()
     server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"starting server on {server_port}")
@@ -133,7 +133,7 @@ def server(server_port: int) -> Generator[None, None, None]:
     # Signal the server to stop
     proc.kill()
     proc.join(timeout=2)
-    if proc.is_alive():
+    if proc.is_alive():  # pragma: no cover
         print("server process failed to terminate")
 
 
@@ -156,7 +156,7 @@ async def test_raw_sse_connection(http_client: httpx.AsyncClient) -> None:
                 assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
 
                 line_number = 0
-                async for line in response.aiter_lines():
+                async for line in response.aiter_lines():  # pragma: no branch
                     if line_number == 0:
                         assert line == "event: endpoint"
                     elif line_number == 1:
@@ -214,7 +214,7 @@ async def test_sse_client_exception_handling(
 
 @pytest.mark.anyio
 @pytest.mark.skip("this test highlights a possible bug in SSE read timeout exception handling")
-async def test_sse_client_timeout(
+async def test_sse_client_timeout(  # pragma: no cover
     initialized_sse_client_session: ClientSession,
 ) -> None:
     session = initialized_sse_client_session
@@ -232,7 +232,7 @@ async def test_sse_client_timeout(
     pytest.fail("the client should have timed out and returned an error already")
 
 
-def run_mounted_server(server_port: int) -> None:
+def run_mounted_server(server_port: int) -> None:  # pragma: no cover
     app = make_server_app()
     main_app = Starlette(routes=[Mount("/mounted_app", app=app)])
     server = uvicorn.Server(config=uvicorn.Config(app=main_app, host="127.0.0.1", port=server_port, log_level="error"))
@@ -261,7 +261,7 @@ def mounted_server(server_port: int) -> Generator[None, None, None]:
     # Signal the server to stop
     proc.kill()
     proc.join(timeout=2)
-    if proc.is_alive():
+    if proc.is_alive():  # pragma: no cover
         print("server process failed to terminate")
 
 
@@ -280,7 +280,7 @@ async def test_sse_client_basic_connection_mounted_app(mounted_server: None, ser
 
 
 # Test server with request context that returns headers in the response
-class RequestContextServer(Server[object, Request]):
+class RequestContextServer(Server[object, Request]):  # pragma: no cover
     def __init__(self):
         super().__init__("request_context_server")
 
@@ -322,7 +322,7 @@ class RequestContextServer(Server[object, Request]):
             ]
 
 
-def run_context_server(server_port: int) -> None:
+def run_context_server(server_port: int) -> None:  # pragma: no cover
     """Run a server that captures request context"""
     # Configure security with allowed hosts/origins for testing
     security_settings = TransportSecuritySettings(
@@ -364,7 +364,7 @@ def context_server(server_port: int) -> Generator[None, None, None]:
     print("killing context server")
     proc.kill()
     proc.join(timeout=2)
-    if proc.is_alive():
+    if proc.is_alive():  # pragma: no cover
         print("context server process failed to terminate")
 
 

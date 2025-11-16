@@ -104,10 +104,10 @@ async def test_dependent_completion_scenario():
                         db = context.arguments.get("database")
                         if db == "users_db":
                             return Completion(values=["users", "sessions", "permissions"], total=3, hasMore=False)
-                        elif db == "products_db":
+                        elif db == "products_db":  # pragma: no cover
                             return Completion(values=["products", "categories", "inventory"], total=3, hasMore=False)
 
-        return Completion(values=[], total=0, hasMore=False)
+        return Completion(values=[], total=0, hasMore=False)  # pragma: no cover
 
     async with create_connected_server_and_client_session(server) as client:
         # First, complete database
@@ -155,10 +155,10 @@ async def test_completion_error_on_missing_context():
                         raise ValueError("Please select a database first to see available tables")
                     # Normal completion if context is provided
                     db = context.arguments.get("database")
-                    if db == "test_db":
+                    if db == "test_db":  # pragma: no cover
                         return Completion(values=["users", "orders", "products"], total=3, hasMore=False)
 
-        return Completion(values=[], total=0, hasMore=False)
+        return Completion(values=[], total=0, hasMore=False)  # pragma: no cover
 
     async with create_connected_server_and_client_session(server) as client:
         # Try to complete table without database context - should raise error

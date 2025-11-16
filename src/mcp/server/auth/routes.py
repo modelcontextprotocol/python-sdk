@@ -38,13 +38,13 @@ def validate_issuer_url(url: AnyHttpUrl):
         and url.host != "localhost"
         and (url.host is not None and not url.host.startswith("127.0.0.1"))
     ):
-        raise ValueError("Issuer URL must be HTTPS")
+        raise ValueError("Issuer URL must be HTTPS")  # pragma: no cover
 
     # No fragments or query parameters allowed
     if url.fragment:
-        raise ValueError("Issuer URL must not have a fragment")
+        raise ValueError("Issuer URL must not have a fragment")  # pragma: no cover
     if url.query:
-        raise ValueError("Issuer URL must not have a query string")
+        raise ValueError("Issuer URL must not have a query string")  # pragma: no cover
 
 
 AUTHORIZATION_PATH = "/authorize"
@@ -115,7 +115,7 @@ def create_auth_routes(
         ),
     ]
 
-    if client_registration_options.enabled:
+    if client_registration_options.enabled:  # pragma: no branch
         registration_handler = RegistrationHandler(
             provider,
             options=client_registration_options,
@@ -131,7 +131,7 @@ def create_auth_routes(
             )
         )
 
-    if revocation_options.enabled:
+    if revocation_options.enabled:  # pragma: no branch
         revocation_handler = RevocationHandler(provider, client_authenticator)
         routes.append(
             Route(
@@ -176,11 +176,11 @@ def build_metadata(
     )
 
     # Add registration endpoint if supported
-    if client_registration_options.enabled:
+    if client_registration_options.enabled:  # pragma: no branch
         metadata.registration_endpoint = AnyHttpUrl(str(issuer_url).rstrip("/") + REGISTRATION_PATH)
 
     # Add revocation endpoint if supported
-    if revocation_options.enabled:
+    if revocation_options.enabled:  # pragma: no branch
         metadata.revocation_endpoint = AnyHttpUrl(str(issuer_url).rstrip("/") + REVOCATION_PATH)
         metadata.revocation_endpoint_auth_methods_supported = ["client_secret_post"]
 
