@@ -25,5 +25,10 @@ async def main():
             print(f"Available tools: {[tool.name for tool in tools.tools]}")
 
 
-if __name__ == "__main__":
+def run():
+    """Entry point for the streamable basic client."""
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    run()
