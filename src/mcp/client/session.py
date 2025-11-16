@@ -52,32 +52,32 @@ class ProgressNotificationFnT(Protocol):
     async def __call__(
         self,
         params: types.ProgressNotificationParams,
-    ) -> None: ...
+    ) -> None: ...  # pragma: no branch
 
 
 class ResourceUpdatedFnT(Protocol):
     async def __call__(
         self,
         params: types.ResourceUpdatedNotificationParams,
-    ) -> None: ...
+    ) -> None: ...  # pragma: no branch
 
 
 class ResourceListChangedFnT(Protocol):
     async def __call__(
         self,
-    ) -> None: ...
+    ) -> None: ...  # pragma: no branch
 
 
 class ToolListChangedFnT(Protocol):
     async def __call__(
         self,
-    ) -> None: ...
+    ) -> None: ...  # pragma: no branch
 
 
 class PromptListChangedFnT(Protocol):
     async def __call__(
         self,
-    ) -> None: ...
+    ) -> None: ...  # pragma: no branch
 
 
 class MessageHandlerFnT(Protocol):
@@ -628,7 +628,7 @@ class ClientSession(
                 await self._tool_list_changed_callback()
             case types.PromptListChangedNotification():
                 await self._prompt_list_changed_callback()
-            case _:
+            case _:  # pragma: no cover
                 # CancelledNotification is handled separately in shared/session.py
                 # and should never reach this point. This case is defensive.
                 pass

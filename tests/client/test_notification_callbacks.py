@@ -124,7 +124,7 @@ async def test_progress_notification_callback(progress_collector: ProgressNotifi
         """Send a progress notification to the client."""
         # Get the progress token from the request metadata
         ctx = server.get_context()
-        if ctx.request_context.meta and ctx.request_context.meta.progressToken:
+        if ctx.request_context.meta and ctx.request_context.meta.progressToken:  # pragma: no branch
             await ctx.session.send_progress_notification(
                 progress_token=ctx.request_context.meta.progressToken,
                 progress=progress,
@@ -137,7 +137,7 @@ async def test_progress_notification_callback(progress_collector: ProgressNotifi
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         """Handle exceptions from the session."""
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
     async with create_session(
@@ -179,7 +179,7 @@ async def test_resource_updated_callback(resource_updated_collector: ResourceUpd
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         """Handle exceptions from the session."""
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
     async with create_session(
@@ -216,7 +216,7 @@ async def test_resource_list_changed_callback(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         """Handle exceptions from the session."""
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
     async with create_session(
@@ -249,7 +249,7 @@ async def test_tool_list_changed_callback(tool_list_changed_collector: ToolListC
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         """Handle exceptions from the session."""
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
     async with create_session(
@@ -282,7 +282,7 @@ async def test_prompt_list_changed_callback(prompt_list_changed_collector: Promp
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         """Handle exceptions from the session."""
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
     async with create_session(
@@ -374,7 +374,7 @@ async def test_notification_callback_parametrized(
     async def send_progress_tool(progress: float, total: float, message: str) -> bool:
         """Send a progress notification to the client."""
         ctx = server.get_context()
-        if ctx.request_context.meta and ctx.request_context.meta.progressToken:
+        if ctx.request_context.meta and ctx.request_context.meta.progressToken:  # pragma: no branch
             await ctx.session.send_progress_notification(
                 progress_token=ctx.request_context.meta.progressToken,
                 progress=progress,
@@ -411,7 +411,7 @@ async def test_notification_callback_parametrized(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         """Handle exceptions from the session."""
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
     # Create session with the appropriate callback
@@ -444,7 +444,7 @@ async def test_all_default_callbacks_with_notifications() -> None:
     async def send_progress_tool(progress: float, total: float) -> bool:
         """Send a progress notification."""
         ctx = server.get_context()
-        if ctx.request_context.meta and ctx.request_context.meta.progressToken:
+        if ctx.request_context.meta and ctx.request_context.meta.progressToken:  # pragma: no branch
             await ctx.session.send_progress_notification(
                 progress_token=ctx.request_context.meta.progressToken,
                 progress=progress,
@@ -506,3 +506,97 @@ async def test_all_default_callbacks_with_notifications() -> None:
         # Test prompt list changed with default callback
         result5 = await client_session.call_tool("send_prompt_list_changed", {})
         assert result5.isError is False
+
+
+@pytest.mark.anyio
+async def test_progress_tool_without_progress_token() -> None:
+    """Test progress tool when no progress token is provided in metadata."""
+    from mcp.server.fastmcp import FastMCP
+
+    progress_collector = ProgressNotificationCollector()
+    server = FastMCP("test")
+
+    @server.tool("send_progress")
+    async def send_progress_tool(progress: float, total: float, message: str) -> bool:
+        """Send a progress notification to the client."""
+        ctx = server.get_context()
+        # This branch: when meta is None or no progressToken
+        if ctx.request_context.meta and ctx.request_context.meta.progressToken:  # pragma: no cover
+            await ctx.session.send_progress_notification(
+                progress_token=ctx.request_context.meta.progressToken,
+                progress=progress,
+                total=total,
+                message=message,
+            )
+        return True
+
+    async with create_session(server._mcp_server, progress_notification_callback=progress_collector) as client_session:
+        # Call without meta - takes the False branch
+        result = await client_session.call_tool(
+            "send_progress",
+            {"progress": 50.0, "total": 100.0, "message": "test"},
+        )
+        assert result.isError is False
+        # No notification should be sent when no progress token is provided
+        assert len(progress_collector.notifications) == 0
+
+
+@pytest.mark.anyio
+async def test_parametrized_progress_tool_without_progress_token() -> None:
+    """Test parametrized progress tool when no progress token is provided."""
+    from mcp.server.fastmcp import FastMCP
+
+    progress_collector = ProgressNotificationCollector()
+    server = FastMCP("test")
+
+    @server.tool("send_progress")
+    async def send_progress_tool(progress: float, total: float, message: str) -> bool:
+        """Send a progress notification to the client."""
+        ctx = server.get_context()
+        if ctx.request_context.meta and ctx.request_context.meta.progressToken:  # pragma: no cover
+            await ctx.session.send_progress_notification(
+                progress_token=ctx.request_context.meta.progressToken,
+                progress=progress,
+                total=total,
+                message=message,
+            )
+        return True
+
+    async with create_session(server._mcp_server, progress_notification_callback=progress_collector) as client_session:
+        # Call with empty meta dict - takes the False branch
+        result = await client_session.call_tool(
+            "send_progress",
+            {"progress": 75.0, "total": 100.0, "message": "Almost done"},
+            meta={},
+        )
+        assert result.isError is False
+        # No notification should be sent when meta exists but has no progressToken
+        assert len(progress_collector.notifications) == 0
+
+
+@pytest.mark.anyio
+async def test_default_callback_progress_tool_without_progress_token() -> None:
+    """Test that default progress callback handles missing progress token correctly."""
+    from mcp.server.fastmcp import FastMCP
+
+    server = FastMCP("test-server")
+
+    @server.tool("send_progress")
+    async def send_progress_tool(progress: float, total: float) -> bool:
+        """Send a progress notification."""
+        ctx = server.get_context()
+        if ctx.request_context.meta and ctx.request_context.meta.progressToken:  # pragma: no cover
+            await ctx.session.send_progress_notification(
+                progress_token=ctx.request_context.meta.progressToken,
+                progress=progress,
+                total=total,
+            )
+        return True
+
+    async with create_session(server._mcp_server) as client_session:
+        # Call without meta - the False branch is taken in the tool
+        result = await client_session.call_tool(
+            "send_progress",
+            {"progress": 50.0, "total": 100.0},
+        )
+        assert result.isError is False
