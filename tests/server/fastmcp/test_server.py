@@ -147,7 +147,7 @@ class TestServer:
         mcp = FastMCP()
 
         @mcp.tool()
-        def sum(x: int, y: int) -> int:
+        def sum(x: int, y: int) -> int:  # pragma: no cover
             return x + y
 
         assert len(mcp._tool_manager.list_tools()) == 1
@@ -159,7 +159,7 @@ class TestServer:
         with pytest.raises(TypeError, match="The @tool decorator was used incorrectly"):
 
             @mcp.tool  # Missing parentheses #type: ignore
-            def sum(x: int, y: int) -> int:
+            def sum(x: int, y: int) -> int:  # pragma: no cover
                 return x + y
 
     @pytest.mark.anyio
@@ -167,7 +167,7 @@ class TestServer:
         mcp = FastMCP()
 
         @mcp.resource("r://{x}")
-        def get_data(x: str) -> str:
+        def get_data(x: str) -> str:  # pragma: no cover
             return f"Data: {x}"
 
         assert len(mcp._resource_manager._templates) == 1
@@ -179,7 +179,7 @@ class TestServer:
         with pytest.raises(TypeError, match="The @resource decorator was used incorrectly"):
 
             @mcp.resource  # Missing parentheses #type: ignore
-            def get_data(x: str) -> str:
+            def get_data(x: str) -> str:  # pragma: no cover
                 return f"Data: {x}"
 
 
@@ -756,7 +756,7 @@ class TestServerResources:
         mcp = FastMCP()
 
         @mcp.resource("function://test", name="test_get_data")
-        def get_data() -> str:
+        def get_data() -> str:  # pragma: no cover
             """get_data returns a string"""
             return "Hello, world!"
 
@@ -780,7 +780,7 @@ class TestServerResourceTemplates:
         with pytest.raises(ValueError, match="Mismatch between URI parameters"):
 
             @mcp.resource("resource://data")
-            def get_data_fn(param: str) -> str:
+            def get_data_fn(param: str) -> str:  # pragma: no cover
                 return f"Data: {param}"
 
     @pytest.mark.anyio
@@ -791,7 +791,7 @@ class TestServerResourceTemplates:
         with pytest.raises(ValueError, match="Mismatch between URI parameters"):
 
             @mcp.resource("resource://{param}")
-            def get_data() -> str:
+            def get_data() -> str:  # pragma: no cover
                 return "Data"
 
     @pytest.mark.anyio
@@ -800,7 +800,7 @@ class TestServerResourceTemplates:
         mcp = FastMCP()
 
         @mcp.resource("resource://{param}")
-        def get_data(param) -> str:  # type: ignore
+        def get_data(param) -> str:  # type: ignore  # pragma: no cover
             return "Data"
 
     @pytest.mark.anyio
@@ -825,7 +825,7 @@ class TestServerResourceTemplates:
         with pytest.raises(ValueError, match="Mismatch between URI parameters"):
 
             @mcp.resource("resource://{name}/data")
-            def get_data(user: str) -> str:
+            def get_data(user: str) -> str:  # pragma: no cover
                 return f"Data for {user}"
 
     @pytest.mark.anyio
@@ -850,10 +850,10 @@ class TestServerResourceTemplates:
         with pytest.raises(ValueError, match="Mismatch between URI parameters"):
 
             @mcp.resource("resource://{org}/{repo}/data")
-            def get_data_mismatched(org: str, repo_2: str) -> str:
+            def get_data_mismatched(org: str, repo_2: str) -> str:  # pragma: no cover
                 return f"Data for {org}"
 
-        """Test that a resource with no parameters works as a regular resource"""
+        """Test that a resource with no parameters works as a regular resource"""  # pragma: no cover
         mcp = FastMCP()
 
         @mcp.resource("resource://static")
@@ -914,7 +914,7 @@ class TestContextInjection:
         """Test that context parameters are properly detected."""
         mcp = FastMCP()
 
-        def tool_with_context(x: int, ctx: Context[ServerSession, None]) -> str:
+        def tool_with_context(x: int, ctx: Context[ServerSession, None]) -> str:  # pragma: no cover
             return f"Request {ctx.request_id}: {x}"
 
         tool = mcp._tool_manager.add_tool(tool_with_context)
@@ -1223,7 +1223,7 @@ class TestServerPrompts:
         with pytest.raises(TypeError, match="decorator was used incorrectly"):
 
             @mcp.prompt  # type: ignore
-            def fn() -> str:
+            def fn() -> str:  # pragma: no cover
                 return "Hello, world!"
 
     @pytest.mark.anyio
@@ -1232,7 +1232,7 @@ class TestServerPrompts:
         mcp = FastMCP()
 
         @mcp.prompt()
-        def fn(name: str, optional: str = "default") -> str:
+        def fn(name: str, optional: str = "default") -> str:  # pragma: no cover
             return f"Hello, {name}!"
 
         async with client_session(mcp._mcp_server) as client:
@@ -1350,7 +1350,7 @@ class TestServerPrompts:
         mcp = FastMCP()
 
         @mcp.prompt()
-        def prompt_fn(name: str) -> str:
+        def prompt_fn(name: str) -> str:  # pragma: no cover
             return f"Hello, {name}!"
 
         async with client_session(mcp._mcp_server) as client:

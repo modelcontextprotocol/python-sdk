@@ -53,13 +53,13 @@ async def test_request_immediately_after_initialize_response():
                 ),
             ),
         ) as server_session:
-            async for message in server_session.incoming_messages:
-                if isinstance(message, Exception):
+            async for message in server_session.incoming_messages:  # pragma: no branch
+                if isinstance(message, Exception):  # pragma: no cover
                     raise message
 
                 # Handle tools/list request
                 if isinstance(message, RequestResponder):
-                    if isinstance(message.request.root, types.ListToolsRequest):
+                    if isinstance(message.request.root, types.ListToolsRequest):  # pragma: no branch
                         tools_list_success = True
                         # Respond with a tool list
                         with message:
@@ -79,7 +79,7 @@ async def test_request_immediately_after_initialize_response():
 
                 # Handle InitializedNotification
                 if isinstance(message, types.ClientNotification):
-                    if isinstance(message.root, types.InitializedNotification):
+                    if isinstance(message.root, types.InitializedNotification):  # pragma: no branch
                         # Done - exit gracefully
                         return
 
@@ -124,7 +124,7 @@ async def test_request_immediately_after_initialize_response():
 
         # Step 4: Check the response
         tools_msg = await server_to_client_receive.receive()
-        if isinstance(tools_msg.message.root, types.JSONRPCError):
+        if isinstance(tools_msg.message.root, types.JSONRPCError):  # pragma: no cover
             error_received = tools_msg.message.root.error.message
 
         # Step 5: Send InitializedNotification

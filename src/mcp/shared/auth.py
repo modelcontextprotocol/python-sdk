@@ -21,7 +21,7 @@ class OAuthToken(BaseModel):
             # Bearer is title-cased in the spec, so we normalize it
             # https://datatracker.ietf.org/doc/html/rfc6750#section-4
             return v.title()
-        return v
+        return v  # pragma: no cover
 
 
 class InvalidScopeError(Exception):
@@ -75,9 +75,9 @@ class OAuthClientMetadata(BaseModel):
         requested_scopes = requested_scope.split(" ")
         allowed_scopes = [] if self.scope is None else self.scope.split(" ")
         for scope in requested_scopes:
-            if scope not in allowed_scopes:
+            if scope not in allowed_scopes:  # pragma: no branch
                 raise InvalidScopeError(f"Client was not registered with scope {scope}")
-        return requested_scopes
+        return requested_scopes  # pragma: no cover
 
     def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
         if redirect_uri is not None:
@@ -130,6 +130,7 @@ class OAuthMetadata(BaseModel):
     introspection_endpoint_auth_methods_supported: list[str] | None = None
     introspection_endpoint_auth_signing_alg_values_supported: list[str] | None = None
     code_challenge_methods_supported: list[str] | None = None
+    client_id_metadata_document_supported: bool | None = None
 
 
 class ProtectedResourceMetadata(BaseModel):

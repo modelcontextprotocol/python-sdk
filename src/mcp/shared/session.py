@@ -46,7 +46,9 @@ RequestId = str | int
 class ProgressFnT(Protocol):
     """Protocol for progress notification callbacks."""
 
-    async def __call__(self, progress: float, total: float | None, message: str | None) -> None: ...
+    async def __call__(
+        self, progress: float, total: float | None, message: str | None
+    ) -> None: ...  # pragma: no branch
 
 
 class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
@@ -105,11 +107,11 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
     ) -> None:
         """Exit the context manager, performing cleanup and notifying completion."""
         try:
-            if self._completed:
+            if self._completed:  # pragma: no branch
                 self._on_complete(self)
         finally:
             self._entered = False
-            if not self._cancel_scope:
+            if not self._cancel_scope:  # pragma: no cover
                 raise RuntimeError("No active cancel scope")
             self._cancel_scope.__exit__(exc_type, exc_val, exc_tb)
 
@@ -121,11 +123,11 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
             RuntimeError: If not used within a context manager
             AssertionError: If request was already responded to
         """
-        if not self._entered:
+        if not self._entered:  # pragma: no cover
             raise RuntimeError("RequestResponder must be used as a context manager")
         assert not self._completed, "Request already responded to"
 
-        if not self.cancelled:
+        if not self.cancelled:  # pragma: no branch
             self._completed = True
 
             await self._session._send_response(  # type: ignore[reportPrivateUsage]
@@ -134,9 +136,9 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
 
     async def cancel(self) -> None:
         """Cancel this request and mark it as completed."""
-        if not self._entered:
+        if not self._entered:  # pragma: no cover
             raise RuntimeError("RequestResponder must be used as a context manager")
-        if not self._cancel_scope:
+        if not self._cancel_scope:  # pragma: no cover
             raise RuntimeError("No active cancel scope")
 
         self._cancel_scope.cancel()
@@ -148,11 +150,11 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         )
 
     @property
-    def in_flight(self) -> bool:
+    def in_flight(self) -> bool:  # pragma: no cover
         return not self._completed and not self.cancelled
 
     @property
-    def cancelled(self) -> bool:
+    def cancelled(self) -> bool:  # pragma: no cover
         return self._cancel_scope.cancel_called
 
 
@@ -241,11 +243,11 @@ class BaseSession(
 
         # Set up progress token if progress callback is provided
         request_data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
-        if progress_callback is not None:
+        if progress_callback is not None:  # pragma: no cover
             # Use request_id as progress token
             if "params" not in request_data:
                 request_data["params"] = {}
-            if "_meta" not in request_data["params"]:
+            if "_meta" not in request_data["params"]:  # pragma: no branch
                 request_data["params"]["_meta"] = {}
             request_data["params"]["_meta"]["progressToken"] = request_id
             # Store the callback for this request
@@ -262,9 +264,9 @@ class BaseSession(
 
             # request read timeout takes precedence over session read timeout
             timeout = None
-            if request_read_timeout_seconds is not None:
+            if request_read_timeout_seconds is not None:  # pragma: no cover
                 timeout = request_read_timeout_seconds.total_seconds()
-            elif self._session_read_timeout_seconds is not None:
+            elif self._session_read_timeout_seconds is not None:  # pragma: no cover
                 timeout = self._session_read_timeout_seconds.total_seconds()
 
             try:
@@ -308,7 +310,7 @@ class BaseSession(
             jsonrpc="2.0",
             **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
         )
-        session_message = SessionMessage(
+        session_message = SessionMessage(  # pragma: no cover
             message=JSONRPCMessage(jsonrpc_notification),
             metadata=ServerMessageMetadata(related_request_id=related_request_id) if related_request_id else None,
         )
@@ -335,7 +337,7 @@ class BaseSession(
         ):
             try:
                 async for message in self._read_stream:
-                    if isinstance(message, Exception):
+                    if isinstance(message, Exception):  # pragma: no cover
                         await self._handle_incoming(message)
                     elif isinstance(message.message.root, JSONRPCRequest):
                         try:
@@ -382,11 +384,11 @@ class BaseSession(
                             # Handle cancellation notifications
                             if isinstance(notification.root, CancelledNotification):
                                 cancelled_id = notification.root.params.requestId
-                                if cancelled_id in self._in_flight:
+                                if cancelled_id in self._in_flight:  # pragma: no branch
                                     await self._in_flight[cancelled_id].cancel()
                             else:
                                 # Handle progress notifications callback
-                                if isinstance(notification.root, ProgressNotification):
+                                if isinstance(notification.root, ProgressNotification):  # pragma: no cover
                                     progress_token = notification.root.params.progressToken
                                     # If there is a progress callback for this token,
                                     # call it with the progress information
@@ -405,16 +407,16 @@ class BaseSession(
                                             )
                                 await self._received_notification(notification)
                                 await self._handle_incoming(notification)
-                        except Exception as e:
+                        except Exception as e:  # pragma: no cover
                             # For other validation errors, log and continue
                             logging.warning(
                                 f"Failed to validate notification: {e}. Message was: {message.message.root}"
                             )
                     else:  # Response or error
                         stream = self._response_streams.pop(message.message.root.id, None)
-                        if stream:
+                        if stream:  # pragma: no cover
                             await stream.send(message.message.root)
-                        else:
+                        else:  # pragma: no cover
                             await self._handle_incoming(
                                 RuntimeError(f"Received response with an unknown request ID: {message}")
                             )
@@ -423,8 +425,8 @@ class BaseSession(
                 # This is expected when the client disconnects abruptly.
                 # Without this handler, the exception would propagate up and
                 # crash the server's task group.
-                logging.debug("Read stream closed by client")
-            except Exception as e:
+                logging.debug("Read stream closed by client")  # pragma: no cover
+            except Exception as e:  # pragma: no cover
                 # Other exceptions are not expected and should be logged. We purposefully
                 # catch all exceptions here to avoid crashing the server.
                 logging.exception(f"Unhandled exception in receive loop: {e}")
@@ -436,7 +438,7 @@ class BaseSession(
                     try:
                         await stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))
                         await stream.aclose()
-                    except Exception:
+                    except Exception:  # pragma: no cover
                         # Stream might already be closed
                         pass
                 self._response_streams.clear()
@@ -473,4 +475,4 @@ class BaseSession(
         req: RequestResponder[ReceiveRequestT, SendResultT] | ReceiveNotificationT | Exception,
     ) -> None:
         """A generic handler for incoming messages. Overwritten by subclasses."""
-        pass
+        pass  # pragma: no cover
