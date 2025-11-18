@@ -17,12 +17,11 @@ from datetime import timedelta
 from urllib.parse import parse_qs, urlparse
 
 import httpx
-from pydantic import AnyUrl
-
 from mcp import ClientSession
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from pydantic import AnyUrl
 
 # Set up logging to stderr (stdout is for conformance test output)
 logging.basicConfig(
@@ -97,9 +96,7 @@ class ConformanceOAuthCallbackHandler:
                 else:
                     raise RuntimeError(f"No redirect location received from {authorization_url}")
             else:
-                raise RuntimeError(
-                    f"Expected redirect response, got {response.status_code} from {authorization_url}"
-                )
+                raise RuntimeError(f"Expected redirect response, got {response.status_code} from {authorization_url}")
 
     async def handle_callback(self) -> tuple[str, str | None]:
         """Return the captured auth code and state, then clear them for potential reuse."""
