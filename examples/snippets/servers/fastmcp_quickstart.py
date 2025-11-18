@@ -8,7 +8,7 @@ Run from the repository root:
 from mcp.server.fastmcp import FastMCP
 
 # Create an MCP server
-mcp = FastMCP("Demo", stateless_http=True, json_response=True)
+mcp = FastMCP("Demo", json_response=True)
 
 
 # Add an addition tool

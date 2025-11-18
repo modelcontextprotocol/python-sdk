@@ -14,7 +14,6 @@ from mcp.server.fastmcp import FastMCP
 # This server will mount at the root of wherever it's mounted
 mcp_at_root = FastMCP(
     "My Server",
-    stateless_http=True,
     json_response=True,
     streamable_http_path="/",
 )

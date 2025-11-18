@@ -139,7 +139,7 @@ Run from the repository root:
 from mcp.server.fastmcp import FastMCP
 
 # Create an MCP server
-mcp = FastMCP("Demo", stateless_http=True, json_response=True)
+mcp = FastMCP("Demo", json_response=True)
 
 
 # Add an addition tool
@@ -901,7 +901,6 @@ class SimpleTokenVerifier(TokenVerifier):
 # Create FastMCP instance as a Resource Server
 mcp = FastMCP(
     "Weather Service",
-    stateless_http=True,
     json_response=True,
     # Token verifier for authentication
     token_verifier=SimpleTokenVerifier(),
@@ -1283,7 +1282,7 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create MCP server
-mcp = FastMCP("My App", stateless_http=True, json_response=True)
+mcp = FastMCP("My App", json_response=True)
 
 
 @mcp.tool()
@@ -1320,7 +1319,7 @@ from starlette.routing import Host
 from mcp.server.fastmcp import FastMCP
 
 # Create MCP server
-mcp = FastMCP("MCP Host App", stateless_http=True, json_response=True)
+mcp = FastMCP("MCP Host App", json_response=True)
 
 
 @mcp.tool()
@@ -1357,8 +1356,8 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create multiple MCP servers
-api_mcp = FastMCP("API Server", stateless_http=True, json_response=True)
-chat_mcp = FastMCP("Chat Server", stateless_http=True, json_response=True)
+api_mcp = FastMCP("API Server", json_response=True)
+chat_mcp = FastMCP("Chat Server", json_response=True)
 
 
 @api_mcp.tool()
@@ -1410,7 +1409,6 @@ from mcp.server.fastmcp import FastMCP
 # This server will mount at the root of wherever it's mounted
 mcp_at_root = FastMCP(
     "My Server",
-    stateless_http=True,
     json_response=True,
     streamable_http_path="/",
 )

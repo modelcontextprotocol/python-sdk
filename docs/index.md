@@ -17,7 +17,7 @@ Here's a simple MCP server that exposes a tool, resource, and prompt:
 ```python title="server.py"
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("Test Server", stateless_http=True, json_response=True)
+mcp = FastMCP("Test Server", json_response=True)
 
 
 @mcp.tool()
