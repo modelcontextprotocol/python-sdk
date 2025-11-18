@@ -72,7 +72,7 @@ def main(
             if i < count - 1:  # Don't wait after the last notification
                 await anyio.sleep(interval)
 
-        # This will send a resource notificaiton though standalone SSE
+        # This will send a resource notification though standalone SSE
         # established by GET request
         await ctx.session.send_resource_updated(uri=AnyUrl("http:///test_resource"))
         return [
