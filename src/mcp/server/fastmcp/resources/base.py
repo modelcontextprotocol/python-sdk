@@ -1,7 +1,7 @@
 """Base classes and interfaces for FastMCP resources."""
 
 import abc
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import (
     AnyUrl,
@@ -32,6 +32,7 @@ class Resource(BaseModel, abc.ABC):
     )
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this resource")
     annotations: Annotations | None = Field(default=None, description="Optional annotations for the resource")
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None, description="Optional metadata for the resource")
 
     @field_validator("name", mode="before")
     @classmethod
