@@ -325,7 +325,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                                 uri=req.params.uri,
                                 text=data,
                                 mimeType=mime_type or "text/plain",
-                                **{"_meta": meta} if meta is not None else {},
+                                meta=meta,
                             )
                         case bytes() as data:  # pragma: no cover
                             import base64
@@ -334,7 +334,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                                 uri=req.params.uri,
                                 blob=base64.b64encode(data).decode(),
                                 mimeType=mime_type or "application/octet-stream",
-                                **{"_meta": meta} if meta is not None else {},
+                                meta=meta,
                             )
 
                 match result:
