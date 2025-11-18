@@ -543,6 +543,8 @@ class ClientSession(
             case types.PingRequest():  # pragma: no cover
                 with responder:
                     return await responder.respond(types.ClientResult(root=types.EmptyResult()))
+            case _:
+                raise NotImplementedError()
 
     async def _handle_incoming(
         self,

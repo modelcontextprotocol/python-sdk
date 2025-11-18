@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import datetime
 from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
@@ -38,6 +39,13 @@ Cursor = str
 Role = Literal["user", "assistant"]
 RequestId = Annotated[int, Field(strict=True)] | str
 AnyFunction: TypeAlias = Callable[..., Any]
+TaskHint = Literal["never", "optional", "always"]
+
+
+class TaskMetadata(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    ttl: Annotated[int, Field(strict=True)] | None = None
 
 
 class RequestParams(BaseModel):
@@ -51,6 +59,16 @@ class RequestParams(BaseModel):
         """
 
         model_config = ConfigDict(extra="allow")
+
+    task: TaskMetadata | None = None
+    """
+    If specified, the caller is requesting task-augmented execution for this request.
+    The request will return a CreateTaskResult immediately, and the actual result can be
+    retrieved later via tasks/result.
+
+    Task augmentation is subject to capability negotiation - receivers MUST declare support
+    for task augmentation of specific request types in their capabilities.
+    """
 
     meta: Meta | None = Field(alias="_meta", default=None)
 
@@ -321,6 +339,71 @@ class SamplingCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class TasksListCapability(BaseModel):
+    """Capability for tasks listing operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TasksCancelCapability(BaseModel):
+    """Capability for tasks cancel operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TasksCreateMessageCapability(BaseModel):
+    """Capability for tasks create messages."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TasksSamplingCapability(BaseModel):
+    """Capability for tasks sampling operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+    createMessage: TasksCreateMessageCapability | None = None
+
+
+class TasksCreateElicitationCapability(BaseModel):
+    """Capability for tasks create elicitation operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TasksElicitationCapability(BaseModel):
+    """Capability for tasks elicitation operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+    create: TasksCreateElicitationCapability | None = None
+
+
+class ClientTasksRequestsCapability(BaseModel):
+    """Capability for tasks requests operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+    sampling: TasksSamplingCapability | None = None
+
+    elicitation: TasksElicitationCapability | None = None
+
+
+class ClientTasksCapability(BaseModel):
+    """Capability for client tasks operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+    list: TasksListCapability | None = None
+    """Whether this client supports tasks/list."""
+
+    cancel: TasksCancelCapability | None = None
+    """Whether this client supports tasks/cancel."""
+
+    requests: ClientTasksRequestsCapability | None = None
+    """Specifies which request types can be augmented with tasks."""
+
+
 class ClientCapabilities(BaseModel):
     """Capabilities a client may support."""
 
@@ -335,6 +418,9 @@ class ClientCapabilities(BaseModel):
     """Present if the client supports elicitation from the user."""
     roots: RootsCapability | None = None
     """Present if the client supports listing roots."""
+    tasks: ClientTasksCapability | None = None
+    """Present if the client supports task-augmented requests."""
+
     model_config = ConfigDict(extra="allow")
 
 
@@ -376,6 +462,37 @@ class CompletionsCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class TasksCallCapability(BaseModel):
+    """Capability for tasks call operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TasksToolsCapability(BaseModel):
+    """Capability for tasks tools operations."""
+
+    model_config = ConfigDict(extra="allow")
+    call: TasksCallCapability | None = None
+
+
+class ServerTasksRequestsCapability(BaseModel):
+    """Capability for tasks requests operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+    tools: TasksToolsCapability | None = None
+
+
+class TasksServerCapability(BaseModel):
+    """Capability for server tasks operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+    list: TasksListCapability | None = None
+    cancel: TasksCancelCapability | None = None
+    requests: ServerTasksRequestsCapability | None = None
+
+
 class ServerCapabilities(BaseModel):
     """Capabilities that a server may support."""
 
@@ -391,7 +508,142 @@ class ServerCapabilities(BaseModel):
     """Present if the server offers any tools to call."""
     completions: CompletionsCapability | None = None
     """Present if the server offers autocompletion suggestions for prompts and resources."""
+    tasks: TasksServerCapability | None = None
+    """Present if the server supports task-augmented requests."""
     model_config = ConfigDict(extra="allow")
+
+
+TaskStatus = Literal["working", "input_required", "completed", "failed", "cancelled"]
+
+
+class RelatedTaskMetadata(BaseModel):
+    """
+    Metadata for associating messages with a task.
+
+    Include this in the `_meta` field under the key `io.modelcontextprotocol/related-task`.
+    """
+
+    model_config = ConfigDict(extra="allow")
+    taskId: str
+
+
+class Task(BaseModel):
+    """Data associated with a task."""
+
+    model_config = ConfigDict(extra="allow")
+
+    taskId: str
+    """The task identifier."""
+
+    status: TaskStatus
+    """Current task state."""
+
+    statusMessage: str | None = None
+    """  
+    Optional human-readable message describing the current task state.
+    This can provide context for any status, including:
+    - Reasons for "cancelled" status
+    - Summaries for "completed" status
+    - Diagnostic information for "failed" status (e.g., error details, what went wrong)
+    """
+
+    createdAt: datetime  # Pydantic will enforce ISO 8601 and re-serialize as a string later
+    """ISO 8601 timestamp when the task was created."""
+
+    ttl: Annotated[int, Field(strict=True)] | None
+    """Actual retention duration from creation in milliseconds, null for unlimited."""
+
+    pollInterval: Annotated[int, Field(strict=True)] | None = None
+
+
+class CreateTaskResult(Result):
+    """A response to a task-augmented request."""
+
+    task: Task
+
+
+class GetTaskRequestParams(RequestParams):
+    model_config = ConfigDict(extra="allow")
+    taskId: str
+    """The task identifier to query."""
+
+
+class GetTaskRequest(Request[GetTaskRequestParams, Literal["tasks/get"]]):
+    """A request to retrieve the state of a task."""
+
+    method: Literal["tasks/get"] = "tasks/get"
+
+    params: GetTaskRequestParams
+
+
+class GetTaskResult(Result, Task):
+    """The response to a tasks/get request."""
+
+
+class GetTaskPayloadRequestParams(RequestParams):
+    model_config = ConfigDict(extra="allow")
+
+    taskId: str
+    """The task identifier to retrieve results for."""
+
+
+class GetTaskPayloadRequest(Request[GetTaskPayloadRequestParams, Literal["tasks/result"]]):
+    """A request to retrieve the result of a completed task."""
+
+    method: Literal["tasks/result"] = "tasks/result"
+    params: GetTaskPayloadRequestParams
+
+
+class GetTaskPayloadResult(Result):
+    """
+    The response to a tasks/result request.
+    The structure matches the result type of the original request.
+    For example, a tools/call task would return the CallToolResult structure.
+    """
+
+
+class CancelTaskRequestParams(RequestParams):
+    model_config = ConfigDict(extra="allow")
+
+    taskId: str
+    """The task identifier to cancel."""
+
+
+class CancelTaskRequest(Request[CancelTaskRequestParams, Literal["tasks/cancel"]]):
+    """A request to cancel a task."""
+
+    method: Literal["tasks/cancel"] = "tasks/cancel"
+    params: CancelTaskRequestParams
+
+
+class CancelTaskResult(Result, Task):
+    """The response to a tasks/cancel request."""
+
+
+class ListTasksRequest(PaginatedRequest[Literal["tasks/list"]]):
+    """A request to retrieve a list of tasks."""
+
+    method: Literal["tasks/list"] = "tasks/list"
+
+
+class ListTasksResult(PaginatedResult):
+    """The response to a tasks/list request."""
+
+    tasks: list[Task]
+
+
+class TaskStatusNotificationParams(NotificationParams, Task):
+    """Parameters for a `notifications/tasks/status` notification."""
+
+
+class TaskStatusNotification(Notification[TaskStatusNotificationParams, Literal["notifications/tasks/status"]]):
+    """
+    An optional notification from the receiver to the requestor, informing them that a task's status has changed.
+    Receivers are not required to send these notifications
+    """
+
+    method: Literal["notifications/tasks/status"] = "notifications/tasks/status"
+    params: TaskStatusNotificationParams
 
 
 class InitializeRequestParams(RequestParams):
@@ -1011,6 +1263,20 @@ class ToolAnnotations(BaseModel):
     of a memory tool is not.
     Default: true
     """
+
+    taskHint: TaskHint | None = None
+    """
+    Indicates whether this tool supports task-augmented execution.
+    This allows clients to handle long-running operations through polling
+    the task system.
+
+    - "never": Tool does not support task-augmented execution (default when absent)
+    - "optional": Tool may support task-augmented execution
+    - "always": Tool requires task-augmented execution
+
+    Default: "never"
+    """
+
     model_config = ConfigDict(extra="allow")
 
 
@@ -1419,10 +1685,14 @@ class RootsListChangedNotification(
 class CancelledNotificationParams(NotificationParams):
     """Parameters for cancellation notifications."""
 
-    requestId: RequestId
+    requestId: RequestId | None = None
     """The ID of the request to cancel."""
     reason: str | None = None
     """An optional string describing the reason for the cancellation."""
+
+    taskId: str | None = None
+    """Deprecated: Use the `tasks/cancel` request instead of this notification for task cancellation."""
+
     model_config = ConfigDict(extra="allow")
 
 
@@ -1477,13 +1747,23 @@ class ClientRequest(
         | UnsubscribeRequest
         | CallToolRequest
         | ListToolsRequest
+        | GetTaskRequest
+        | GetTaskPayloadRequest
+        | ListTasksRequest
+        | CancelTaskRequest
     ]
 ):
     pass
 
 
 class ClientNotification(
-    RootModel[CancelledNotification | ProgressNotification | InitializedNotification | RootsListChangedNotification]
+    RootModel[
+        CancelledNotification
+        | ProgressNotification
+        | InitializedNotification
+        | RootsListChangedNotification
+        | TaskStatusNotification
+    ]
 ):
     pass
 
@@ -1585,11 +1865,33 @@ class ElicitationRequiredErrorData(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult]):
+class ClientResult(
+    RootModel[
+        EmptyResult
+        | CreateMessageResult
+        | ListRootsResult
+        | ElicitResult
+        | GetTaskResult
+        | GetTaskPayloadResult
+        | ListTasksResult
+        | CancelTaskResult
+    ]
+):
     pass
 
 
-class ServerRequest(RootModel[PingRequest | CreateMessageRequest | ListRootsRequest | ElicitRequest]):
+class ServerRequest(
+    RootModel[
+        PingRequest
+        | CreateMessageRequest
+        | ListRootsRequest
+        | ElicitRequest
+        | GetTaskRequest
+        | GetTaskPayloadRequest
+        | ListTasksRequest
+        | CancelTaskRequest
+    ]
+):
     pass
 
 
@@ -1603,6 +1905,7 @@ class ServerNotification(
         | ToolListChangedNotification
         | PromptListChangedNotification
         | ElicitCompleteNotification
+        | TaskStatusNotification
     ]
 ):
     pass
@@ -1620,6 +1923,10 @@ class ServerResult(
         | ReadResourceResult
         | CallToolResult
         | ListToolsResult
+        | GetTaskResult
+        | GetTaskPayloadResult
+        | ListTasksResult
+        | CancelTaskResult
     ]
 ):
     pass
