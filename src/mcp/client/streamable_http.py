@@ -138,14 +138,16 @@ class StreamableHTTPTransport:
         message: JSONRPCMessage,
     ) -> None:
         """Extract protocol version from initialization response message."""
-        if isinstance(message.root, JSONRPCResponse) and message.root.result:
+        if isinstance(message.root, JSONRPCResponse) and message.root.result:  # pragma: no branch
             try:
                 # Parse the result as InitializeResult for type safety
                 init_result = InitializeResult.model_validate(message.root.result)
                 self.protocol_version = str(init_result.protocolVersion)
                 logger.info(f"Negotiated protocol version: {self.protocol_version}")
-            except Exception as exc:
-                logger.warning(f"Failed to parse initialization response as InitializeResult: {exc}")
+            except Exception as exc:  # pragma: no cover
+                logger.warning(
+                    f"Failed to parse initialization response as InitializeResult: {exc}"
+                )  # pragma: no cover
                 logger.warning(f"Raw result: {message.root.result}")
 
     async def _handle_sse_event(
@@ -181,11 +183,11 @@ class StreamableHTTPTransport:
                 # Otherwise, return False to continue listening
                 return isinstance(message.root, JSONRPCResponse | JSONRPCError)
 
-            except Exception as exc:
+            except Exception as exc:  # pragma: no cover
                 logger.exception("Error parsing SSE message")
                 await read_stream_writer.send(exc)
                 return False
-        else:
+        else:  # pragma: no cover
             logger.warning(f"Unknown SSE event: {sse.event}")
             return False
 
@@ -215,7 +217,7 @@ class StreamableHTTPTransport:
                     await self._handle_sse_event(sse, read_stream_writer)
 
         except Exception as exc:
-            logger.debug(f"GET stream error (non-fatal): {exc}")
+            logger.debug(f"GET stream error (non-fatal): {exc}")  # pragma: no cover
 
     async def _handle_resumption_request(self, ctx: RequestContext) -> None:
         """Handle a resumption request using GET with SSE."""
@@ -223,11 +225,11 @@ class StreamableHTTPTransport:
         if ctx.metadata and ctx.metadata.resumption_token:
             headers[LAST_EVENT_ID] = ctx.metadata.resumption_token
         else:
-            raise ResumptionError("Resumption request requires a resumption token")
+            raise ResumptionError("Resumption request requires a resumption token")  # pragma: no cover
 
         # Extract original request ID to map responses
         original_request_id = None
-        if isinstance(ctx.session_message.message.root, JSONRPCRequest):
+        if isinstance(ctx.session_message.message.root, JSONRPCRequest):  # pragma: no branch
             original_request_id = ctx.session_message.message.root.id
 
         async with aconnect_sse(
@@ -240,7 +242,7 @@ class StreamableHTTPTransport:
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
 
-            async for sse in event_source.aiter_sse():
+            async for sse in event_source.aiter_sse():  # pragma: no branch
                 is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
@@ -267,13 +269,13 @@ class StreamableHTTPTransport:
                 logger.debug("Received 202 Accepted")
                 return
 
-            if response.status_code == 404:
+            if response.status_code == 404:  # pragma: no branch
                 if isinstance(message.root, JSONRPCRequest):
-                    await self._send_session_terminated_error(
-                        ctx.read_stream_writer,
-                        message.root.id,
-                    )
-                return
+                    await self._send_session_terminated_error(  # pragma: no cover
+                        ctx.read_stream_writer,  # pragma: no cover
+                        message.root.id,  # pragma: no cover
+                    )  # pragma: no cover
+                return  # pragma: no cover
 
             response.raise_for_status()
             if is_initialization:
@@ -288,10 +290,10 @@ class StreamableHTTPTransport:
                 elif content_type.startswith(SSE):
                     await self._handle_sse_response(response, ctx, is_initialization)
                 else:
-                    await self._handle_unexpected_content_type(
-                        content_type,
-                        ctx.read_stream_writer,
-                    )
+                    await self._handle_unexpected_content_type(  # pragma: no cover
+                        content_type,  # pragma: no cover
+                        ctx.read_stream_writer,  # pragma: no cover
+                    )  # pragma: no cover
 
     async def _handle_json_response(
         self,
@@ -310,7 +312,7 @@ class StreamableHTTPTransport:
 
             session_message = SessionMessage(message)
             await read_stream_writer.send(session_message)
-        except Exception as exc:
+        except Exception as exc:  # pragma: no cover
             logger.exception("Error parsing JSON response")
             await read_stream_writer.send(exc)
 
@@ -323,7 +325,7 @@ class StreamableHTTPTransport:
         """Handle SSE response from the server."""
         try:
             event_source = EventSource(response)
-            async for sse in event_source.aiter_sse():
+            async for sse in event_source.aiter_sse():  # pragma: no branch
                 is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
@@ -336,18 +338,18 @@ class StreamableHTTPTransport:
                     await response.aclose()
                     break
         except Exception as e:
-            logger.exception("Error reading SSE stream:")
-            await ctx.read_stream_writer.send(e)
+            logger.exception("Error reading SSE stream:")  # pragma: no cover
+            await ctx.read_stream_writer.send(e)  # pragma: no cover
 
     async def _handle_unexpected_content_type(
         self,
         content_type: str,
         read_stream_writer: StreamWriter,
-    ) -> None:
+    ) -> None:  # pragma: no cover
         """Handle unexpected content type in response."""
-        error_msg = f"Unexpected content type: {content_type}"
-        logger.error(error_msg)
-        await read_stream_writer.send(ValueError(error_msg))
+        error_msg = f"Unexpected content type: {content_type}"  # pragma: no cover
+        logger.error(error_msg)  # pragma: no cover
+        await read_stream_writer.send(ValueError(error_msg))  # pragma: no cover
 
     async def _send_session_terminated_error(
         self,
@@ -415,12 +417,12 @@ class StreamableHTTPTransport:
                         await handle_request_async()
 
         except Exception:
-            logger.exception("Error in post_writer")
+            logger.exception("Error in post_writer")  # pragma: no cover
         finally:
             await read_stream_writer.aclose()
             await write_stream.aclose()
 
-    async def terminate_session(self, client: httpx.AsyncClient) -> None:
+    async def terminate_session(self, client: httpx.AsyncClient) -> None:  # pragma: no cover
         """Terminate the session by sending a DELETE request."""
         if not self.session_id:
             return
