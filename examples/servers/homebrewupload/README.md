@@ -27,4 +27,4 @@ move to `examples/clients/homebrewupload-client`
 
 ## Further consideration
 
-As if we running it as container, then on k8s,  we can use service mesh and etc to handle with security as AA.
+As if we running it as container, then on k8s, we can use service mesh and etc to handle with security as AA.

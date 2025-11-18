@@ -24,6 +24,9 @@ See `examples/servers/homebrewupload`
 # Navigate to the server directory
 cd examples/clients/homebrewupload-client
 
+# You need to make a pdf file as test.pdf
+# examples/clients/homebrewupload-client/test.pdf
+
 ## defualt tested with DeepSeek as LLM provider
 export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
 export ANTHROPIC_API_KEY=<Your_API_KEY>
@@ -32,4 +35,9 @@ export ANTHROPIC_API_KEY=<Your_API_KEY>
 uv run python main.py
 ```
 
+## Token cosumption discussion
 
+In auther's local test, auther use a pdf with content as `hello world`.
+When using data style URI `data...base64...` it consumes about 30k token after base64.
+When using this example, using `file:...path...` instead.
+Which impls execution out of LLM context, just consumes about token on file path and `hello world`.
