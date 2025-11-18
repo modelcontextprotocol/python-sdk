@@ -174,3 +174,50 @@ async def test_read_resource_multiple_contents_with_meta(temp_file: Path):
     assert content1.meta is not None
     assert content1.meta["index"] == 1
     assert content1.meta["type"] == "body"
+
+
+@pytest.mark.anyio
+async def test_read_resource_meta_json_serialization(temp_file: Path):
+    """Test that _meta is correctly serialized as '_meta' in JSON output."""
+    server = Server("test")
+
+    @server.read_resource()
+    async def read_resource(uri: AnyUrl) -> Iterable[ReadResourceContents]:
+        return [
+            ReadResourceContents(
+                content="Test content",
+                mime_type="text/plain",
+                meta={"widgetDomain": "example.com", "version": "1.0"},
+            )
+        ]
+
+    # Get the handler
+    handler = server.request_handlers[types.ReadResourceRequest]
+
+    # Create a request
+    request = types.ReadResourceRequest(
+        params=types.ReadResourceRequestParams(uri=FileUrl(temp_file.as_uri())),
+    )
+
+    # Call the handler
+    result = await handler(request)
+
+    # Serialize to JSON with aliases
+    result_json = result.model_dump(by_alias=True, mode="json")
+
+    # Verify structure
+    assert "root" in result_json
+    assert "contents" in result_json["root"]
+    assert len(result_json["root"]["contents"]) == 1
+
+    # Verify _meta is in the JSON output (not "meta")
+    content_json = result_json["root"]["contents"][0]
+    assert "_meta" in content_json, "Expected '_meta' key in JSON output"
+    assert "meta" not in content_json or content_json.get("meta") is None, "Should not have 'meta' key in JSON output"
+    assert content_json["_meta"]["widgetDomain"] == "example.com"
+    assert content_json["_meta"]["version"] == "1.0"
+
+    # Also verify in the JSON string
+    result_json_str = result.model_dump_json(by_alias=True)
+    assert '"_meta"' in result_json_str, "Expected '_meta' string in JSON output"
+    assert content_json["_meta"]["widgetDomain"] == "example.com"

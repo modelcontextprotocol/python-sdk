@@ -143,3 +143,51 @@ async def test_resource_meta_with_complex_nested_structure():
     assert contents[0].meta["config"]["nested"]["value"] == 42
     assert contents[0].meta["config"]["list"] == [1, 2, 3]
     assert contents[0].meta["tags"] == ["tag1", "tag2"]
+
+
+@pytest.mark.anyio
+async def test_resource_meta_json_serialization():
+    """Test that _meta is correctly serialized as '_meta' in JSON output."""
+    mcp = FastMCP()
+
+    def get_widget() -> str:
+        return "widget content"
+
+    resource = FunctionResource.from_function(
+        fn=get_widget,
+        uri="resource://widget",
+        **{"_meta": {"widgetDomain": "example.com", "version": "1.0"}},
+    )
+    mcp.add_resource(resource)
+
+    # First check the resource itself serializes correctly
+    resource_json = resource.model_dump(by_alias=True, mode="json")
+    assert "_meta" in resource_json, "Expected '_meta' key in resource JSON"
+    assert resource_json["_meta"]["widgetDomain"] == "example.com"
+
+    # Get the full response through the handler
+    handler = mcp._mcp_server.request_handlers[types.ReadResourceRequest]
+    request = types.ReadResourceRequest(
+        params=types.ReadResourceRequestParams(uri=AnyUrl("resource://widget")),
+    )
+    result = await handler(request)
+
+    # Serialize to JSON with aliases
+    result_json = result.model_dump(by_alias=True, mode="json")
+
+    # Verify _meta is in the JSON output (not "meta")
+    content_json = result_json["root"]["contents"][0]
+    assert "_meta" in content_json, "Expected '_meta' key in content JSON output"
+    assert "meta" not in content_json or content_json.get("meta") is None, "Should not have 'meta' key in JSON output"
+    assert content_json["_meta"]["widgetDomain"] == "example.com"
+    assert content_json["_meta"]["version"] == "1.0"
+
+    # Also verify in the JSON string
+    result_json_str = result.model_dump_json(by_alias=True)
+    assert '"_meta"' in result_json_str, "Expected '_meta' string in JSON output"
+
+    # Verify the full structure matches expected MCP format
+    assert content_json["uri"] == "resource://widget"
+    assert content_json["text"] == "widget content"
+    assert content_json["mimeType"] == "text/plain"
+    assert content_json["_meta"]["widgetDomain"] == "example.com"
