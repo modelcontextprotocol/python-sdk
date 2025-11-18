@@ -1,20 +1,27 @@
 """Concrete resource implementations."""
 
+from __future__ import annotations
+
 import inspect
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anyio
 import anyio.to_thread
 import httpx
 import pydantic
 import pydantic_core
-from pydantic import Field, ValidationInfo, validate_call
+from pydantic import Field, ValidationInfo
 
 from mcp.server.mcpserver.resources.base import Resource
+from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.types import Annotations, Icon
+
+if TYPE_CHECKING:
+    from mcp.server.context import LifespanContextT, RequestT
+    from mcp.server.mcpserver.server import Context
 
 
 class TextResource(Resource):
@@ -22,7 +29,10 @@ class TextResource(Resource):
 
     text: str = Field(description="Text content of the resource")
 
-    async def read(self) -> str:
+    async def read(
+        self,
+        context: Context[LifespanContextT, RequestT] | None = None,
+    ) -> str:
         """Read the text content."""
         return self.text  # pragma: no cover
 
@@ -32,7 +42,10 @@ class BinaryResource(Resource):
 
     data: bytes = Field(description="Binary content of the resource")
 
-    async def read(self) -> bytes:
+    async def read(
+        self,
+        context: Context[LifespanContextT, RequestT] | None = None,
+    ) -> bytes:
         """Read the binary content."""
         return self.data  # pragma: no cover
 
@@ -50,13 +63,22 @@ class FunctionResource(Resource):
     - other types will be converted to JSON
     """
 
-    fn: Callable[[], Any] = Field(exclude=True)
+    fn: Callable[..., Any] = Field(exclude=True)
+    context_kwarg: str | None = Field(default=None, description="Name of the kwarg that should receive context")
 
-    async def read(self) -> str | bytes:
+    async def read(
+        self,
+        context: Context[LifespanContextT, RequestT] | None = None,
+    ) -> str | bytes:
         """Read the resource by calling the wrapped function."""
         try:
-            # Call the function first to see if it returns a coroutine
-            result = self.fn()
+            # Inject context if needed
+            kwargs: dict[str, Any] = {}
+            if self.context_kwarg is not None and context is not None:
+                kwargs[self.context_kwarg] = context
+
+            # Call the function
+            result = self.fn(**kwargs)
             # If it's a coroutine, await it
             if inspect.iscoroutine(result):
                 result = await result
@@ -84,14 +106,14 @@ class FunctionResource(Resource):
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
         meta: dict[str, Any] | None = None,
-    ) -> "FunctionResource":
+    ) -> FunctionResource:
         """Create a FunctionResource from a function."""
         func_name = name or fn.__name__
         if func_name == "<lambda>":  # pragma: no cover
             raise ValueError("You must provide a name for lambda functions")
 
-        # ensure the arguments are properly cast
-        fn = validate_call(fn)
+        # Find context parameter if it exists
+        context_kwarg = find_context_parameter(fn)
 
         return cls(
             uri=uri,
@@ -100,6 +122,7 @@ class FunctionResource(Resource):
             description=description or fn.__doc__ or "",
             mime_type=mime_type or "text/plain",
             fn=fn,
+            context_kwarg=context_kwarg,
             icons=icons,
             annotations=annotations,
             meta=meta,
@@ -139,7 +162,10 @@ class FileResource(Resource):
         mime_type = info.data.get("mime_type", "text/plain")
         return not mime_type.startswith("text/")
 
-    async def read(self) -> str | bytes:
+    async def read(
+        self,
+        context: Context[LifespanContextT, RequestT] | None = None,
+    ) -> str | bytes:
         """Read the file content."""
         try:
             if self.is_binary:
@@ -155,7 +181,10 @@ class HttpResource(Resource):
     url: str = Field(description="URL to fetch content from")
     mime_type: str = Field(default="application/json", description="MIME type of the resource content")
 
-    async def read(self) -> str | bytes:
+    async def read(
+        self,
+        context: Context[LifespanContextT, RequestT] | None = None,
+    ) -> str | bytes:
         """Read the HTTP content."""
         async with httpx.AsyncClient() as client:  # pragma: no cover
             response = await client.get(self.url)
@@ -193,7 +222,10 @@ class DirectoryResource(Resource):
         except Exception as e:
             raise ValueError(f"Error listing directory {self.path}: {e}")
 
-    async def read(self) -> str:  # Always returns JSON string  # pragma: no cover
+    async def read(
+        self,
+        context: Context[LifespanContextT, RequestT] | None = None,
+    ) -> str:  # Always returns JSON string  # pragma: no cover
         """Read the directory listing."""
         try:
             files = await anyio.to_thread.run_sync(self.list_files)

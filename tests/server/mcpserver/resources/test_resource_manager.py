@@ -4,7 +4,9 @@ from tempfile import NamedTemporaryFile
 import pytest
 from pydantic import AnyUrl
 
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.resources import FileResource, FunctionResource, ResourceManager, ResourceTemplate
+from mcp.server.session import ServerSession
 
 
 @pytest.fixture
@@ -174,3 +176,30 @@ class TestResourceManagerMetadata:
         )
 
         assert template.meta is None
+
+    @pytest.mark.anyio
+    async def test_get_resource_passes_context_to_template(self):
+        """Test that get_resource() passes context to template's create_resource()."""
+        received_context = None
+
+        def func_with_context(name: str, ctx: Context[ServerSession, None]) -> str:
+            nonlocal received_context
+            received_context = ctx
+            return f"Hello {name}"
+
+        manager = ResourceManager()
+        template = ResourceTemplate.from_function(
+            fn=func_with_context,
+            uri_template="greet://{name}",
+            name="greeter",
+        )
+        manager._templates[template.uri_template] = template
+
+        mcp = MCPServer()
+        ctx = mcp.get_context()
+        resource = await manager.get_resource(AnyUrl("greet://world"), context=ctx)
+
+        assert received_context is ctx
+        assert isinstance(resource, FunctionResource)
+        content = await resource.read()
+        assert content == "Hello world"
