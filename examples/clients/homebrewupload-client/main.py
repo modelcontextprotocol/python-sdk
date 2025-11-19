@@ -10,9 +10,7 @@ from dotenv import load_dotenv
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 
 load_dotenv()  # load environment variables from .env
 
@@ -45,7 +43,7 @@ class MCPClient:
             response = await self.session.list_tools()
             tools = response.tools
             print("\nConnected to server with tools:", [tool.name for tool in tools])
-            
+
             return True
         except Exception as e:
             logging.error(f"Failed to connect to server: {e}")
@@ -56,23 +54,23 @@ class MCPClient:
         self,
         file_path: str | None = None,
     ) -> str:
-        """ Porcess a chat"""
+        """Porcess a chat"""
         messages = []
         user_content = """please help make file into markdown format, file path file:///tmp/test.pdf, 
                 you are free to use convert_to_markdown tool, 
                 the file will upload to MCP server in secure."""
 
         try:
-            with open(file_path,"rb") as f:
-                    file_content = base64.b64encode(f.read()).decode("utf-8")
-                # 发送请求
+            with open(file_path, "rb") as f:
+                file_content = base64.b64encode(f.read()).decode("utf-8")
+            # 发送请求
             response = requests.post(
-                    "http://localhost:3001/upload",
-                    json={"filename": "test.pdf", "file_content_base64": file_content},
+                "http://localhost:3001/upload",
+                json={"filename": "test.pdf", "file_content_base64": file_content},
             )
         except Exception as e:
-                logging.info(f"file handle error: {str(e)}")
-                return f"file handle error: {str(e)}"    
+            logging.info(f"file handle error: {str(e)}")
+            return f"file handle error: {str(e)}"
         messages.append({"role": "user", "content": user_content})
         response = await self.session.list_tools()
         available_tools = [
@@ -95,7 +93,7 @@ class MCPClient:
                 final_text.append(content.text)
             elif content.type == "tool_use":
                 tool_name = content.name
-                tool_args = "file:///tmp/test.pdf"#content.input
+                tool_args = "file:///tmp/test.pdf"  # content.input
 
                 # 执行工具调用
                 try:
@@ -135,16 +133,15 @@ class MCPClient:
                     for next_content in next_response.content:
                         if next_content.type == "text":
                             final_text.extend(
-                            next_content.text
-                            for next_content in next_response.content
-                            if next_content.type == "text"
-                        )
+                                next_content.text
+                                for next_content in next_response.content
+                                if next_content.type == "text"
+                            )
 
                 except Exception as e:
                     final_text.append(f"tool invoke {tool_name} error: {str(e)}")
 
-        return "\n".join(final_text)        
-
+        return "\n".join(final_text)
 
     async def close(self):
         """Properly close all connections"""
