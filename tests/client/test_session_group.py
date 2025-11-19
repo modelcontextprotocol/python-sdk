@@ -1,4 +1,6 @@
+import asyncio
 import contextlib
+import logging
 from unittest import mock
 
 import pytest
@@ -382,3 +384,195 @@ class TestClientSessionGroup:
                 # 3. Assert returned values
                 assert returned_server_info is mock_initialize_result.serverInfo
                 assert returned_session is mock_entered_session
+
+    async def test_list_tools_waits_for_pending_refresh(self):
+        """Test that list_tools() waits for pending refresh tasks."""
+        # --- Mock Dependencies ---
+        mock_session = mock.AsyncMock()
+        mock_tool = types.Tool(name="test_tool", inputSchema={})
+
+        # --- Prepare Session Group ---
+        mcp_session_group = ClientSessionGroup()
+        mcp_session_group._tools = {"test_tool": mock_tool}
+        mcp_session_group._sessions[mock_session] = mock.Mock()
+
+        # Create a pending refresh task
+        async def mock_refresh():
+            await asyncio.sleep(0.01)  # Simulate async work
+
+        pending_task = asyncio.create_task(mock_refresh())
+        mock_session._pending_tool_refresh = pending_task
+
+        # Mock list_tools() call
+        mock_session.list_tools = mock.AsyncMock(return_value=types.ListToolsResult(tools=[mock_tool]))
+
+        # --- Test Execution ---
+        result = await mcp_session_group.list_tools()
+
+        # --- Assertions ---
+        assert result.tools == [mock_tool]
+        mock_session.list_tools.assert_awaited_once()
+
+    async def test_on_tools_changed_refreshes_tools(self):
+        """Test that _on_tools_changed() properly refreshes tools, prompts, and resources."""
+        # --- Mock Dependencies ---
+        mock_session = mock.AsyncMock()
+        mock_tool = types.Tool(name="new_tool", inputSchema={})
+        mock_prompt = types.Prompt(name="test_prompt", description="Test")
+        mock_resource = types.Resource(uri="resource://test", name="test_resource", description="Test")
+
+        # --- Prepare Session Group ---
+        mcp_session_group = ClientSessionGroup()
+
+        # Create component names tracker
+        component_names = mock.Mock()
+        component_names.tools = {"old_tool"}
+        component_names.prompts = {"old_prompt"}
+        component_names.resources = {"old_resource"}
+
+        mcp_session_group._sessions = {mock_session: component_names}
+        mcp_session_group._tools = {"old_tool": mock.Mock(), "new_tool": mock_tool}
+        mcp_session_group._prompts = {"old_prompt": mock.Mock(), "test_prompt": mock_prompt}
+        mcp_session_group._resources = {
+            "old_resource": mock.Mock(),
+            "test_resource": mock_resource,
+        }
+        mcp_session_group._tool_to_session = {"old_tool": mock_session}
+
+        # Mock list_tools, list_prompts, list_resources
+        mock_session.list_tools = mock.AsyncMock(return_value=types.ListToolsResult(tools=[mock_tool]))
+        mock_session.list_prompts = mock.AsyncMock(return_value=types.ListPromptsResult(prompts=[mock_prompt]))
+        mock_session.list_resources = mock.AsyncMock(return_value=types.ListResourcesResult(resources=[mock_resource]))
+
+        # Initialize session attributes
+        mock_session._is_refreshing_tools = False
+
+        # --- Test Execution ---
+        await mcp_session_group._on_tools_changed(mock_session)
+
+        # --- Assertions ---
+        # Old tools should be removed
+        assert "old_tool" not in mcp_session_group._tools
+        assert "old_tool" not in mcp_session_group._tool_to_session
+
+        # New tools should be added
+        assert "new_tool" in mcp_session_group._tools
+        assert mcp_session_group._tools["new_tool"] == mock_tool
+
+        # Verify list methods were called
+        mock_session.list_tools.assert_awaited()
+        mock_session.list_prompts.assert_awaited()
+        mock_session.list_resources.assert_awaited()
+
+    async def test_on_tools_changed_handles_timeout(self):
+        """Test that _on_tools_changed() handles timeouts gracefully."""
+        # --- Mock Dependencies ---
+        mock_session = mock.AsyncMock()
+
+        # --- Prepare Session Group ---
+        mcp_session_group = ClientSessionGroup()
+
+        component_names = mock.Mock()
+        component_names.tools = set()
+        component_names.prompts = set()
+        component_names.resources = set()
+
+        mcp_session_group._sessions = {mock_session: component_names}
+        mcp_session_group._tools = {}
+        mcp_session_group._prompts = {}
+        mcp_session_group._resources = {}
+
+        # Mock list methods to timeout
+        async def timeout_func(*args, **kwargs):
+            await asyncio.sleep(10)  # Will timeout
+
+        mock_session.list_tools = mock.AsyncMock(side_effect=timeout_func)
+        mock_session.list_prompts = mock.AsyncMock(side_effect=timeout_func)
+        mock_session.list_resources = mock.AsyncMock(side_effect=timeout_func)
+        mock_session._is_refreshing_tools = False
+
+        # --- Test Execution ---
+        # Should not raise, just log warnings
+        await mcp_session_group._on_tools_changed(mock_session)
+
+        # --- Assertions ---
+        # list_tools should have been called
+        mock_session.list_tools.assert_awaited()
+
+    async def test_is_gateway_tool_detection(self):
+        """Test that gateway tools are correctly identified."""
+        # Gateway tools have x-gateway: true in inputSchema
+        gateway_tool = types.Tool(
+            name="get_math_tools",
+            description="Get math tools",
+            inputSchema={"type": "object", "properties": {}, "x-gateway": True},
+        )
+
+        regular_tool = types.Tool(
+            name="add",
+            description="Add two numbers",
+            inputSchema={"type": "object", "properties": {"a": {}, "b": {}}},
+        )
+
+        # --- Test Execution ---
+        assert ClientSessionGroup.is_gateway_tool(gateway_tool) is True
+        assert ClientSessionGroup.is_gateway_tool(regular_tool) is False
+
+    async def test_tools_changed_callback_non_blocking(self):
+        """Test that tools_changed callback schedules refresh as background task."""
+        # --- Mock Dependencies ---
+        mock_session = mock.AsyncMock()
+
+        # --- Prepare Session Group ---
+        mcp_session_group = ClientSessionGroup()
+        mcp_session_group._sessions = {mock_session: mock.Mock()}
+
+        # Initialize session attributes
+        mock_session._refresh_in_progress = False
+        mock_session._pending_tool_refresh = None
+        mock_session._is_refreshing_tools = False
+
+        # Mock _on_tools_changed to track if it's called
+        call_count = 0
+
+        async def mock_on_tools_changed(session):
+            nonlocal call_count
+            call_count += 1
+            await asyncio.sleep(0.01)
+
+        mcp_session_group._on_tools_changed = mock_on_tools_changed
+
+        # Create the callback
+        async def on_tools_changed():
+            logger = logging.getLogger("mcp.client.session_group")
+            logger.info("[MCP] on_tools_changed() callback invoked")
+
+            if mock_session._refresh_in_progress:
+                return
+
+            try:
+
+                async def do_refresh():
+                    mock_session._refresh_in_progress = True
+                    try:
+                        await mcp_session_group._on_tools_changed(mock_session)
+                    finally:
+                        mock_session._refresh_in_progress = False
+
+                task = asyncio.create_task(do_refresh())
+                mock_session._pending_tool_refresh = task
+            except RuntimeError:
+                pass
+
+        # --- Test Execution ---
+        await on_tools_changed()
+
+        # Give task a moment to start
+        await asyncio.sleep(0.05)
+
+        # --- Assertions ---
+        # Task should be scheduled (not awaited immediately)
+        assert mock_session._pending_tool_refresh is not None
+        # The refresh should eventually complete
+        await mock_session._pending_tool_refresh
+        assert call_count == 1

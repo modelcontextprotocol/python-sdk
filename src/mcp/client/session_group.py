@@ -8,6 +8,7 @@ This abstractions can handle naming collisions using a custom user-provided
 hook.
 """
 
+import asyncio
 import contextlib
 import logging
 from collections.abc import Callable
@@ -22,12 +23,20 @@ from typing_extensions import Self, deprecated
 
 import mcp
 from mcp import types
-from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
+from mcp.client.session import (
+    ElicitationFnT,
+    ListRootsFnT,
+    LoggingFnT,
+    MessageHandlerFnT,
+    SamplingFnT,
+)
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.exceptions import McpError
 from mcp.shared.session import ProgressFnT
+
+logger = logging.getLogger(__name__)
 
 
 class SseServerParameters(BaseModel):
@@ -234,6 +243,42 @@ class ClientSessionGroup:
             meta=meta,
         )
 
+    async def list_tools(self) -> types.ListToolsResult:
+        """List all tools from all sessions.
+
+        This method waits for any pending tool refresh notifications (from
+        ToolListChangedNotification) to complete before returning the aggregated
+        tools. This ensures progressive tool discovery works transparently.
+
+        This is particularly important for progressive tool discovery, where
+        tool lists may be updated asynchronously after gateway tool calls.
+
+        Returns:
+            ListToolsResult containing all tools from all connected sessions.
+        """
+        # First, wait for any background refresh tasks to complete
+        # This ensures tools updated by ToolListChangedNotification are included
+        pending_tasks = [
+            session._pending_tool_refresh
+            for session in self._sessions.keys()
+            if session._pending_tool_refresh is not None and not session._pending_tool_refresh.done()
+        ]
+
+        if pending_tasks:
+            logger.debug("[MCP] session_group.list_tools() waiting for %d pending refresh tasks", len(pending_tasks))
+            try:
+                await asyncio.wait(pending_tasks, timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("[MCP] One or more refresh tasks timed out")
+
+        # Call list_tools() on all sessions to get their current tools
+        # The refresh flag will still be true during refresh, but we're already waiting above
+        for session in self._sessions.keys():
+            await session.list_tools()
+
+        # Return aggregated tools result
+        return types.ListToolsResult(tools=list(self._tools.values()))
+
     async def disconnect_from_server(self, session: mcp.ClientSession) -> None:
         """Disconnects from a single MCP server."""
 
@@ -331,6 +376,59 @@ class ClientSessionGroup:
                     client_info=session_params.client_info,
                 )
             )
+
+            # Register tools changed callback for progressive tool discovery
+            async def on_tools_changed() -> None:
+                """Handle server notification that tools have changed.
+
+                Schedules the tool refresh as a background task to avoid blocking
+                the tool call that triggered the notification. Deduplicates concurrent
+                refresh requests to prevent race conditions.
+
+                The task is stored on the session so callers can wait for it with
+                wait_for_tool_refresh().
+                """
+                logger.info("[MCP] on_tools_changed() callback invoked")
+
+                # Deduplicate: Only refresh if not already refreshing
+                if session._refresh_in_progress:
+                    logger.debug("[MCP] Tool refresh already in progress, skipping duplicate notification")
+                    return
+
+                try:
+                    # Schedule refresh as background task (non-blocking)
+                    async def do_refresh() -> None:
+                        """Perform the actual refresh with proper error handling."""
+                        session._refresh_in_progress = True
+                        logger.info("[MCP] Background refresh task started")
+                        try:
+                            await self._on_tools_changed(session)
+                            logger.info("[MCP] ✓ Background refresh task completed successfully")
+                        except Exception as err:
+                            logger.error("[MCP] ✗ Tool refresh failed (tools may be stale): %s", err)
+                        finally:
+                            session._refresh_in_progress = False
+
+                    task = asyncio.create_task(do_refresh())
+                    logger.info("[MCP] Background refresh task scheduled (non-blocking)")
+                    # Store the task so callers can wait for it
+                    session._pending_tool_refresh = task
+                except RuntimeError as err:
+                    # No event loop available - log warning and run synchronously
+                    logger.warning(
+                        "[MCP] No active event loop for background refresh, falling back to blocking refresh: %s",
+                        err,
+                    )
+                    session._refresh_in_progress = True
+                    try:
+                        await self._on_tools_changed(session)
+                        logger.info("[MCP] ✓ Blocking refresh completed")
+                    except Exception as refresh_err:
+                        logger.error("[MCP] ✗ Blocking tool refresh failed: %s", refresh_err)
+                    finally:
+                        session._refresh_in_progress = False
+
+            session.set_tools_changed_callback(on_tools_changed)
 
             result = await session.initialize()
 
@@ -436,3 +534,214 @@ class ClientSessionGroup:
         if self._component_name_hook:
             return self._component_name_hook(name, server_info)
         return name
+
+    async def _on_tools_changed(self, session: mcp.ClientSession) -> None:
+        """Handle ToolListChangedNotification from server.
+
+        When a server's tool list changes (e.g., after calling a gateway tool in
+        progressive disclosure), this method refreshes prompts, resources, and tools:
+        1. Removes old tools/prompts/resources from the session from cache
+        2. Refetches all three from the server (with timeouts)
+        3. Re-aggregates them into the group cache
+
+        Each refetch has a 5-second timeout to prevent hanging indefinitely.
+
+        Args:
+            session: The ClientSession that notified of tools changing.
+        """
+        logger.info("[MCP] _on_tools_changed() starting - will refetch tools, prompts, resources")
+        REFETCH_TIMEOUT = 5.0  # Timeout for each refetch operation
+
+        # Get the component names for this session
+        if session not in self._sessions:
+            logger.warning("[MCP] Received tools changed notification from unknown session")
+            return
+
+        component_names = self._sessions[session]
+        logger.debug("[MCP] Clearing caches for session")
+
+        # Mark that we're in the middle of a refresh so list_tools() won't deadlock
+        session._is_refreshing_tools = True
+        try:
+            # Remove all tools from this session from the aggregate cache
+            for tool_name in list(component_names.tools):
+                if tool_name in self._tools:
+                    del self._tools[tool_name]
+                if tool_name in self._tool_to_session:
+                    del self._tool_to_session[tool_name]
+
+            # Remove all prompts from this session from the aggregate cache
+            for prompt_name in list(component_names.prompts):
+                if prompt_name in self._prompts:
+                    del self._prompts[prompt_name]
+
+            # Remove all resources from this session from the aggregate cache
+            for resource_name in list(component_names.resources):
+                if resource_name in self._resources:
+                    del self._resources[resource_name]
+
+            # Clear the session's lists for refetch
+            component_names.tools.clear()
+            component_names.prompts.clear()
+            component_names.resources.clear()
+
+            # Refetch prompts from the server (with timeout)
+            try:
+                prompts = (await asyncio.wait_for(session.list_prompts(), timeout=REFETCH_TIMEOUT)).prompts
+                for prompt in prompts:
+                    prompt_name = prompt.name
+                    self._prompts[prompt_name] = prompt
+                    component_names.prompts.add(prompt_name)
+                logger.debug("Refetched %d prompts after tools changed", len(prompts))
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Prompt refetch timed out after %.1f seconds (prompts may be stale)",
+                    REFETCH_TIMEOUT,
+                )
+            except McpError as err:
+                logger.error("Could not refetch prompts: %s", err)
+            except Exception as err:
+                logger.error("Unexpected error refetching prompts: %s", err)
+
+            # Refetch resources from the server (with timeout)
+            try:
+                resources = (await asyncio.wait_for(session.list_resources(), timeout=REFETCH_TIMEOUT)).resources
+                for resource in resources:
+                    resource_name = resource.name
+                    self._resources[resource_name] = resource
+                    component_names.resources.add(resource_name)
+                logger.debug("Refetched %d resources after tools changed", len(resources))
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Resource refetch timed out after %.1f seconds (resources may be stale)",
+                    REFETCH_TIMEOUT,
+                )
+            except McpError as err:
+                logger.error("Could not refetch resources: %s", err)
+            except Exception as err:
+                logger.error("Unexpected error refetching resources: %s", err)
+
+            # Refetch tools from the server (with timeout)
+            try:
+                tools = (await asyncio.wait_for(session.list_tools(), timeout=REFETCH_TIMEOUT)).tools
+                for tool in tools:
+                    tool_name = tool.name
+                    self._tools[tool_name] = tool
+                    self._tool_to_session[tool_name] = session
+                    component_names.tools.add(tool_name)
+                logger.debug("Refetched %d tools after tools changed", len(tools))
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Tool refetch timed out after %.1f seconds (tools may be stale)",
+                    REFETCH_TIMEOUT,
+                )
+            except McpError as err:
+                logger.error("Could not refetch tools: %s", err)
+            except Exception as err:
+                logger.error("Unexpected error refetching tools: %s", err)
+
+            logger.info(
+                "[MCP] ✓ Cache refresh completed: %d tools, %d prompts, %d resources",
+                len(component_names.tools),
+                len(component_names.prompts),
+                len(component_names.resources),
+            )
+        finally:
+            # Clear the flag when we're done refreshing
+            session._is_refreshing_tools = False
+
+    # ========================================================================
+    # Progressive Tool Discovery Methods
+    # ========================================================================
+
+    @staticmethod
+    def is_gateway_tool(tool: types.Tool) -> bool:
+        """Check if a tool is a gateway tool (marked with x-gateway: True).
+
+        Gateway tools are used in progressive discovery to lazy-load other tools.
+        They have no required parameters and return a list of available tools.
+
+        Args:
+            tool: The tool to check
+
+        Returns:
+            True if the tool is a gateway tool, False otherwise
+        """
+        if not hasattr(tool, "inputSchema"):
+            return False
+        schema = tool.inputSchema
+        if isinstance(schema, dict):
+            return schema.get("x-gateway") is True
+        return False
+
+    async def list_gateway_tools(self) -> list[types.Tool]:
+        """Get all gateway tools (used for progressive discovery).
+
+        Gateway tools are special tools that, when called, load and return
+        additional tools. They are used to progressively load tool groups
+        without exposing all tools upfront.
+
+        Returns:
+            List of gateway tools
+        """
+        await self.list_tools()  # Ensure we have latest tools
+        return [t for t in self._tools.values() if self.is_gateway_tool(t)]
+
+    async def list_executable_tools(self) -> list[types.Tool]:
+        """Get all non-gateway tools (executable tools).
+
+        These are tools that can be directly called (not gateways).
+
+        Returns:
+            List of executable tools
+        """
+        await self.list_tools()  # Ensure we have latest tools
+        return [t for t in self._tools.values() if not self.is_gateway_tool(t)]
+
+    async def refresh_discovery(self) -> None:
+        """Refresh all tools, prompts, and resources.
+
+        This is useful after calling gateway tools to ensure the latest
+        available tools are loaded into the cache.
+        """
+        await self.list_tools()  # This handles waiting for pending refreshes
+
+    async def get_discovery_summary(self) -> dict[str, Any]:
+        """Get a summary of current discovery state.
+
+        Returns a dict containing:
+        - gateway_tools: List of available gateway tools with names and descriptions
+        - executable_tools: List of available executable tools with names and descriptions
+        - resources: List of available resources
+        - prompts: List of available prompts
+        - stats: Statistics about the discovery state
+
+        Returns:
+            Dictionary with discovery summary
+        """
+        await self.refresh_discovery()
+
+        tools = list(self._tools.values())
+        resources = list(self._resources.values())
+        prompts = list(self._prompts.values())
+
+        gateway_tools = [t for t in tools if self.is_gateway_tool(t)]
+        executable_tools = [t for t in tools if not self.is_gateway_tool(t)]
+
+        return {
+            "gateway_tools": [
+                {"name": t.name, "description": t.description or "No description"} for t in gateway_tools
+            ],
+            "executable_tools": [
+                {"name": t.name, "description": t.description or "No description"} for t in executable_tools
+            ],
+            "resources": [{"name": r.name, "uri": r.uri} for r in resources],
+            "prompts": [{"name": p.name, "description": p.description or "No description"} for p in prompts],
+            "stats": {
+                "total_tools": len(tools),
+                "gateway_tools": len(gateway_tools),
+                "executable_tools": len(executable_tools),
+                "total_resources": len(resources),
+                "total_prompts": len(prompts),
+            },
+        }

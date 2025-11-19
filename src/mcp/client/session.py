@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Any, Protocol, overload
@@ -48,6 +49,12 @@ class LoggingFnT(Protocol):
     ) -> None: ...  # pragma: no branch
 
 
+class ToolsChangedFnT(Protocol):
+    """Callback for when server's available tools have changed."""
+
+    async def __call__(self) -> None: ...  # pragma: no branch
+
+
 class MessageHandlerFnT(Protocol):
     async def __call__(
         self,
@@ -96,6 +103,11 @@ async def _default_logging_callback(
     pass
 
 
+async def _default_tools_changed_callback() -> None:
+    """Default callback when tools change - no-op by default."""
+    pass
+
+
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
 
 
@@ -117,6 +129,7 @@ class ClientSession(
         elicitation_callback: ElicitationFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
         logging_callback: LoggingFnT | None = None,
+        tools_changed_callback: ToolsChangedFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
     ) -> None:
@@ -132,9 +145,14 @@ class ClientSession(
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
+        self._tools_changed_callback = tools_changed_callback or _default_tools_changed_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._server_capabilities: types.ServerCapabilities | None = None
+        self._pending_tool_refresh: asyncio.Task[None] | None = None
+        self._refresh_in_progress: bool = False
+        # Flag to skip refresh wait when we're executing the refresh itself
+        self._is_refreshing_tools: bool = False
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
@@ -364,7 +382,14 @@ class ClientSession(
         return result
 
     async def _validate_tool_result(self, name: str, result: types.CallToolResult) -> None:
-        """Validate the structured content of a tool result against its output schema."""
+        """Validate the structured content of a tool result against its output schema.
+
+        Skips validation if the tool returned text content instead of structured content.
+        """
+        # Skip validation if tool returned text content instead of structured content
+        if result.structuredContent is None:
+            return
+
         if name not in self._tool_output_schemas:
             # refresh output schema cache
             await self.list_tools()
@@ -376,10 +401,6 @@ class ClientSession(
             logger.warning(f"Tool {name} not listed by server, cannot validate any structured content")
 
         if output_schema is not None:
-            if result.structuredContent is None:
-                raise RuntimeError(
-                    f"Tool {name} has an output schema but did not return structured content"
-                )  # pragma: no cover
             try:
                 validate(result.structuredContent, output_schema)
             except ValidationError as e:
@@ -477,10 +498,38 @@ class ClientSession(
     ) -> types.ListToolsResult:
         """Send a tools/list request.
 
+        This method automatically waits for any pending tool refresh to complete
+        before returning. This ensures that if a ToolListChangedNotification was
+        received (e.g., after calling a gateway tool), the cache is fully updated
+        before listing tools.
+
         Args:
             cursor: Simple cursor string for pagination (deprecated, use params instead)
             params: Full pagination parameters including cursor and any future fields
         """
+        # Wait for any pending refresh from ToolListChangedNotification
+        # This ensures progressive tool discovery works transparently
+        # But skip waiting if we're already in the middle of executing a refresh
+        # (to prevent deadlock when _on_tools_changed calls list_tools)
+        if self._is_refreshing_tools:
+            logger.debug("[MCP] list_tools() called during refresh, skipping wait to avoid deadlock")
+        elif self._pending_tool_refresh is not None:
+            logger.info("[MCP] list_tools() called with pending refresh - waiting for completion...")
+            try:
+                await asyncio.wait_for(self._pending_tool_refresh, timeout=5.0)
+                logger.info("[MCP] ✓ Pending refresh completed successfully")
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "[MCP] ⚠ Pending tool refresh timed out after 5.0 seconds, tool list may not be fully updated"
+                )
+            except asyncio.CancelledError:
+                logger.debug("[MCP] Pending refresh task was cancelled")
+            finally:
+                # Clear the reference since we've waited for it
+                self._pending_tool_refresh = None
+        else:
+            logger.debug("[MCP] list_tools() called - no pending refresh")
+
         if params is not None and cursor is not None:
             raise ValueError("Cannot specify both cursor and params")
 
@@ -506,6 +555,46 @@ class ClientSession(
     async def send_roots_list_changed(self) -> None:  # pragma: no cover
         """Send a roots/list_changed notification."""
         await self.send_notification(types.ClientNotification(types.RootsListChangedNotification()))
+
+    async def wait_for_tool_refresh(self, timeout: float = 5.0) -> None:
+        """Wait for pending tool refresh to complete.
+
+        When a ToolListChangedNotification is received from the server (e.g., after
+        calling a gateway tool in progressive disclosure), the client schedules a
+        background task to refresh the available tools. This method allows callers
+        to wait for that background refresh to complete before calling listTools()
+        again.
+
+        This is the robust way to handle progressive tool discovery where gateway
+        tools trigger asynchronous updates to the tool list.
+
+        Args:
+            timeout: Maximum time to wait for refresh in seconds. Defaults to 5.0.
+
+        Raises:
+            asyncio.TimeoutError: If refresh doesn't complete within the timeout period.
+
+        Example:
+            ```python
+            # Call a gateway tool that triggers tool discovery
+            result = await session.call_tool("get_math_tools", {})
+
+            # Wait for the background refresh to complete
+            await session.wait_for_tool_refresh(timeout=5.0)
+
+            # Now safe to call list_tools() to get the updated tool list
+            tools = await session.list_tools()
+            ```
+        """
+        if self._pending_tool_refresh is not None:
+            try:
+                await asyncio.wait_for(self._pending_tool_refresh, timeout)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Tool refresh timed out after %.1f seconds. Tools may not be fully updated.",
+                    timeout,
+                )
+                raise
 
     async def _received_request(self, responder: RequestResponder[types.ServerRequest, types.ClientResult]) -> None:
         ctx = RequestContext[ClientSession, Any](
@@ -545,11 +634,29 @@ class ClientSession(
         """Handle incoming messages by forwarding to the message handler."""
         await self._message_handler(req)
 
+    def set_tools_changed_callback(self, callback: ToolsChangedFnT) -> None:
+        """Set callback for when server's available tools have changed.
+
+        The callback will be invoked when a ToolListChangedNotification is received.
+        Typically used by ClientSessionGroup to trigger tool cache invalidation and refresh.
+
+        Args:
+            callback: Async callable that takes no arguments.
+        """
+        self._tools_changed_callback = callback
+
     async def _received_notification(self, notification: types.ServerNotification) -> None:
         """Handle notifications from the server."""
         # Process specific notification types
         match notification.root:
             case types.LoggingMessageNotification(params=params):
                 await self._logging_callback(params)
+            case types.ToolListChangedNotification():
+                # Clear tool cache when server notifies of changes
+                logger.info("[MCP] ToolListChangedNotification received - tool list has changed")
+                self._tool_output_schemas.clear()
+                logger.debug("[MCP] Cleared cached tool schemas, invoking callback")
+                await self._tools_changed_callback()
+                logger.debug("[MCP] Callback completed")
             case _:
                 pass
