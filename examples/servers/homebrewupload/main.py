@@ -1,20 +1,22 @@
 import base64
 import contextlib
-import sys
-import os
+import json
 import logging
+import os
 from collections.abc import AsyncIterator
-from mcp.server.fastmcp import FastMCP
+
+import uvicorn
+from markitdown import MarkItDown
 from starlette.applications import Starlette
-from mcp.server.sse import SseServerTransport
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 from starlette.types import Receive, Scope, Send
+
 from mcp.server import Server
+from mcp.server.fastmcp import FastMCP
+from mcp.server.sse import SseServerTransport
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from markitdown import MarkItDown
-import uvicorn
 
 # Initialize FastMCP server for MarkItDown (SSE)
 # to different with markitdown official

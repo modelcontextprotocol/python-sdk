@@ -1,13 +1,12 @@
 import asyncio
 import base64
-import json
 import logging
 from contextlib import AsyncExitStack
-from typing import Optional
 
 import requests
 from anthropic import Anthropic
 from dotenv import load_dotenv
+
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 
@@ -21,7 +20,7 @@ load_dotenv()  # load environment variables from .env
 class MCPClient:
     def __init__(self):
         # Initialize session and client objects
-        self.session: Optional[ClientSession] = None
+        self.session: ClientSession | None = None
         self.exit_stack = AsyncExitStack()
         self.anthropic = Anthropic()
         self._streams_context = None
@@ -55,11 +54,13 @@ class MCPClient:
 
     async def process_chat(
         self,
-        file_path: Optional[str] = None,
+        file_path: str | None = None,
     ) -> str:
         """ Porcess a chat"""
         messages = []
-        user_content = f"please help make file into markdown format, file path file:///tmp/test.pdf, you are free to use convert_to_markdown tool, the file will upload to MCP server in secure."
+        user_content = """please help make file into markdown format, file path file:///tmp/test.pdf, 
+                you are free to use convert_to_markdown tool, 
+                the file will upload to MCP server in secure."""
 
         try:
             with open(file_path,"rb") as f:
@@ -133,7 +134,11 @@ class MCPClient:
                     # 添加最终响应
                     for next_content in next_response.content:
                         if next_content.type == "text":
-                            final_text.append(next_content.text)
+                            final_text.extend(
+                            next_content.text
+                            for next_content in next_response.content
+                            if next_content.type == "text"
+                        )
 
                 except Exception as e:
                     final_text.append(f"tool invoke {tool_name} error: {str(e)}")
