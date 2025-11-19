@@ -483,7 +483,7 @@ class ServerTasksRequestsCapability(BaseModel):
     tools: TasksToolsCapability | None = None
 
 
-class TasksServerCapability(BaseModel):
+class ServerTasksCapability(BaseModel):
     """Capability for server tasks operations."""
 
     model_config = ConfigDict(extra="allow")
@@ -508,7 +508,7 @@ class ServerCapabilities(BaseModel):
     """Present if the server offers any tools to call."""
     completions: CompletionsCapability | None = None
     """Present if the server offers autocompletion suggestions for prompts and resources."""
-    tasks: TasksServerCapability | None = None
+    tasks: ServerTasksCapability | None = None
     """Present if the server supports task-augmented requests."""
     model_config = ConfigDict(extra="allow")
 
@@ -1705,7 +1705,6 @@ class CancelledNotification(Notification[CancelledNotificationParams, Literal["n
     method: Literal["notifications/cancelled"] = "notifications/cancelled"
     params: CancelledNotificationParams
 
-
 class ElicitCompleteNotificationParams(NotificationParams):
     """Parameters for elicitation completion notifications."""
 
@@ -1732,39 +1731,41 @@ class ElicitCompleteNotification(
     params: ElicitCompleteNotificationParams
 
 
-class ClientRequest(
-    RootModel[
-        PingRequest
-        | InitializeRequest
-        | CompleteRequest
-        | SetLevelRequest
-        | GetPromptRequest
-        | ListPromptsRequest
-        | ListResourcesRequest
-        | ListResourceTemplatesRequest
-        | ReadResourceRequest
-        | SubscribeRequest
-        | UnsubscribeRequest
-        | CallToolRequest
-        | ListToolsRequest
-        | GetTaskRequest
-        | GetTaskPayloadRequest
-        | ListTasksRequest
-        | CancelTaskRequest
-    ]
-):
+ClientRequestType: TypeAlias = (
+    PingRequest
+    | InitializeRequest
+    | CompleteRequest
+    | SetLevelRequest
+    | GetPromptRequest
+    | ListPromptsRequest
+    | ListResourcesRequest
+    | ListResourceTemplatesRequest
+    | ReadResourceRequest
+    | SubscribeRequest
+    | UnsubscribeRequest
+    | CallToolRequest
+    | ListToolsRequest
+    | GetTaskRequest
+    | GetTaskPayloadRequest
+    | ListTasksRequest
+    | CancelTaskRequest
+)
+
+
+class ClientRequest(RootModel[ClientRequestType]):
     pass
 
 
-class ClientNotification(
-    RootModel[
-        CancelledNotification
-        | ProgressNotification
-        | InitializedNotification
-        | RootsListChangedNotification
-        | TaskStatusNotification
-    ]
-):
+ClientNotificationType: TypeAlias = (
+    CancelledNotification
+    | ProgressNotification
+    | InitializedNotification
+    | RootsListChangedNotification
+    | TaskStatusNotification
+)
+
+
+class ClientNotification(RootModel[ClientNotificationType]):
     pass
 
 
@@ -1865,68 +1866,72 @@ class ElicitationRequiredErrorData(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class ClientResult(
-    RootModel[
-        EmptyResult
-        | CreateMessageResult
-        | ListRootsResult
-        | ElicitResult
-        | GetTaskResult
-        | GetTaskPayloadResult
-        | ListTasksResult
-        | CancelTaskResult
-    ]
-):
+ClientResultType: TypeAlias = (
+    EmptyResult
+    | CreateMessageResult
+    | ListRootsResult
+    | ElicitResult
+    | GetTaskResult
+    | GetTaskPayloadResult
+    | ListTasksResult
+    | CancelTaskResult
+)
+
+
+class ClientResult(RootModel[ClientResultType]):
     pass
 
 
-class ServerRequest(
-    RootModel[
-        PingRequest
-        | CreateMessageRequest
-        | ListRootsRequest
-        | ElicitRequest
-        | GetTaskRequest
-        | GetTaskPayloadRequest
-        | ListTasksRequest
-        | CancelTaskRequest
-    ]
-):
+ServerRequestType: TypeAlias = (
+    PingRequest
+    | CreateMessageRequest
+    | ListRootsRequest
+    | ElicitRequest
+    | GetTaskRequest
+    | GetTaskPayloadRequest
+    | ListTasksRequest
+    | CancelTaskRequest
+)
+
+
+class ServerRequest(RootModel[ServerRequestType]):
     pass
 
 
-class ServerNotification(
-    RootModel[
-        CancelledNotification
-        | ProgressNotification
-        | LoggingMessageNotification
-        | ResourceUpdatedNotification
-        | ResourceListChangedNotification
-        | ToolListChangedNotification
-        | PromptListChangedNotification
-        | ElicitCompleteNotification
+ServerNotificationType: TypeAlias = (
+    CancelledNotification
+    | ProgressNotification
+    | LoggingMessageNotification
+    | ResourceUpdatedNotification
+    | ResourceListChangedNotification
+    | ToolListChangedNotification
+    | PromptListChangedNotification
+    | ElicitCompleteNotification
         | TaskStatusNotification
-    ]
-):
+)
+
+
+class ServerNotification(RootModel[ServerNotificationType]):
     pass
 
 
-class ServerResult(
-    RootModel[
-        EmptyResult
-        | InitializeResult
-        | CompleteResult
-        | GetPromptResult
-        | ListPromptsResult
-        | ListResourcesResult
-        | ListResourceTemplatesResult
-        | ReadResourceResult
-        | CallToolResult
-        | ListToolsResult
-        | GetTaskResult
-        | GetTaskPayloadResult
-        | ListTasksResult
-        | CancelTaskResult
-    ]
-):
+ServerResultType: TypeAlias = (
+    EmptyResult
+    | InitializeResult
+    | CompleteResult
+    | GetPromptResult
+    | ListPromptsResult
+    | ListResourcesResult
+    | ListResourceTemplatesResult
+    | ReadResourceResult
+    | CallToolResult
+    | ListToolsResult
+    | GetTaskResult
+    | GetTaskPayloadResult
+    | ListTasksResult
+    | CancelTaskResult
+)
+
+
+class ServerResult(RootModel[ServerResultType]):
     pass

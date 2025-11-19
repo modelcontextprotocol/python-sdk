@@ -82,11 +82,12 @@ from pydantic import AnyUrl
 from typing_extensions import TypeVar
 
 import mcp.types as types
+from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.lowlevel.func_inspection import create_call_wrapper
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared.context import RequestContext
+from mcp.shared.context import Experimental, RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
@@ -155,6 +156,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self._tool_cache: dict[str, types.Tool] = {}
+        self._experimental_handlers: ExperimentalHandlers | None = None
         logger.debug("Initializing server %r", name)
 
     def create_initialization_options(
@@ -220,7 +222,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         if types.CompleteRequest in self.request_handlers:
             completions_capability = types.CompletionsCapability()
 
-        return types.ServerCapabilities(
+        capabilities = types.ServerCapabilities(
             prompts=prompts_capability,
             resources=resources_capability,
             tools=tools_capability,
@@ -228,6 +230,9 @@ class Server(Generic[LifespanResultT, RequestT]):
             experimental=experimental_capabilities,
             completions=completions_capability,
         )
+        if self._experimental_handlers:
+            self._experimental_handlers.update_capabilities(capabilities)
+        return capabilities
 
     @property
     def request_context(
@@ -235,6 +240,18 @@ class Server(Generic[LifespanResultT, RequestT]):
     ) -> RequestContext[ServerSession, LifespanResultT, RequestT]:
         """If called outside of a request context, this will raise a LookupError."""
         return request_ctx.get()
+
+    @property
+    def experimental(self) -> ExperimentalHandlers:
+        """Experimental APIs for tasks and other features.
+
+        WARNING: These APIs are experimental and may change without notice.
+        """
+
+        # We create this inline so we only add these capabilities _if_ they're actually used
+        if self._experimental_handlers is None:
+            self._experimental_handlers = ExperimentalHandlers(self.request_handlers, self.notification_handlers)
+        return self._experimental_handlers
 
     def list_prompts(self):
         def decorator(
@@ -669,13 +686,14 @@ class Server(Generic[LifespanResultT, RequestT]):
     async def _handle_request(
         self,
         message: RequestResponder[types.ClientRequest, types.ServerResult],
-        req: Any,
+        req: types.ClientRequestType,
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool,
     ):
         logger.info("Processing request of type %s", type(req).__name__)
-        if handler := self.request_handlers.get(type(req)):  # type: ignore
+
+        if handler := self.request_handlers.get(type(req)):
             logger.debug("Dispatching request of type %s", type(req).__name__)
 
             token = None
@@ -695,6 +713,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                         message.request_meta,
                         session,
                         lifespan_context,
+                        Experimental(task_metadata=message.request_params.task if message.request_params else None),
                         request=request_data,
                     )
                 )
