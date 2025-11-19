@@ -11,14 +11,12 @@ This agent demonstrates:
 import asyncio
 import json
 import logging
-import os
 import sys
 from typing import Any, TypedDict
 
 import anthropic
 from anthropic.types import Message, TextBlock
 from dotenv import load_dotenv
-
 from mcp.client.session_group import ClientSessionGroup, StdioServerParameters
 from mcp.types import TextContent
 
@@ -28,7 +26,6 @@ class ToolDict(TypedDict, total=False):
 
     name: str
     description: str
-
 
 # Load environment variables from .env file
 load_dotenv()
@@ -59,7 +56,9 @@ class ColoredFormatter(logging.Formatter):
 
 # Configure detailed logging
 handler = logging.StreamHandler(sys.stdout)
-handler.setFormatter(ColoredFormatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+handler.setFormatter(
+    ColoredFormatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -263,11 +262,10 @@ class ProgressiveDiscoveryAgent:
 
         # Connect to the discovery server via stdio
         logger.info("\n[AGENT] Connecting to MCP server...")
-        discovery_dir = os.path.dirname(os.path.abspath(__file__))
         server_params = StdioServerParameters(
             command="uv",
             args=["run", "progressive_discovery_server.py"],
-            cwd=discovery_dir,
+            cwd="examples/discovery",
         )
 
         try:
@@ -387,7 +385,9 @@ class ProgressiveDiscoveryAgent:
         except Exception as e:
             logger.debug("[DISCOVERY] Could not refresh prompts: %s", e)
 
-    async def _fetch_and_use_prompt(self, prompt_name: str, arguments: dict[str, str] | None = None) -> str:
+    async def _fetch_and_use_prompt(
+        self, prompt_name: str, arguments: dict[str, str] | None = None
+    ) -> str:
         """Fetch a prompt from the server and return its content."""
         if not self.mcp_client:
             return ""
@@ -449,7 +449,7 @@ class ProgressiveDiscoveryAgent:
             resources = self.mcp_client.resources
             if resource_name in resources:
                 resource = resources[resource_name]  # type: ignore
-                logger.info("[DISCOVERY]  Found resource: %s", resource_name)
+                logger.info("[DISCOVERY] 📦 Found resource: %s", resource_name)
                 return {
                     "name": resource.name,  # type: ignore
                     "description": resource.description,  # type: ignore
@@ -531,7 +531,7 @@ class ProgressiveDiscoveryAgent:
             raise RuntimeError("MCP client not initialized")
 
         logger.info(
-            "\033[95m\n[AGENT] Calling tool: %s with args: %s\033[0m",
+            "\n[AGENT] Calling tool: %s with args: %s",
             tool_name,
             json.dumps(tool_input),
         )
@@ -639,7 +639,9 @@ class ProgressiveDiscoveryAgent:
                     # Try to read the resource content
                     content = await self._read_resource(uri)
                     if content:
-                        resource_contents.append(f"[RESOURCE: {resource_info['name']}]\n{content}")
+                        resource_contents.append(
+                            f"[RESOURCE: {resource_info['name']}]\n{content}"
+                        )
                     else:
                         resource_contents.append(
                             f"[RESOURCE: {resource_info['name']}]\n{resource_info['description']}\nURI: {uri}"
@@ -651,7 +653,10 @@ class ProgressiveDiscoveryAgent:
                     )
 
             if resource_contents:
-                resource_context = "[AVAILABLE RESOURCES]\n\n" + "\n\n".join(resource_contents)
+                resource_context = (
+                    "[AVAILABLE RESOURCES]\n\n"
+                    + "\n\n".join(resource_contents)
+                )
                 messages.append(
                     {
                         "role": "user",
@@ -680,7 +685,8 @@ class ProgressiveDiscoveryAgent:
                 self.context_tracker.add_message(response)
 
             logger.info(  # type: ignore
-                "[AGENT] Claude response - stop_reason: %s | Tokens: input=%d, output=%d, total=%d",
+                "[AGENT] Claude response - stop_reason: %s | "
+                "Tokens: input=%d, output=%d, total=%d",
                 response.stop_reason,  # type: ignore
                 response.usage.input_tokens,  # type: ignore
                 response.usage.output_tokens,  # type: ignore
@@ -754,7 +760,9 @@ class ProgressiveDiscoveryAgent:
                                     # Try to read the resource content
                                     content = await self._read_resource(uri)
                                     if content:
-                                        loaded_resources.append(f"[RESOURCE: {resource_info['name']}]\n{content}")
+                                        loaded_resources.append(
+                                            f"[RESOURCE: {resource_info['name']}]\n{content}"
+                                        )
                                     else:
                                         loaded_resources.append(
                                             f"[RESOURCE: {resource_info['name']}]\n{resource_info['description']}\nURI: {uri}"
@@ -767,16 +775,17 @@ class ProgressiveDiscoveryAgent:
 
                             if loaded_resources:
                                 # Inject all resources with their content
-                                resource_context = "[AVAILABLE RESOURCES]\n\n" + "\n\n".join(loaded_resources)
+                                resource_context = (
+                                    "[AVAILABLE RESOURCES]\n\n"
+                                    + "\n\n".join(loaded_resources)
+                                )
                                 messages.append(
                                     {
                                         "role": "user",
                                         "content": resource_context,
                                     }
                                 )
-                                logger.info(
-                                    "[DISCOVERY] ✓ Injected %d resources into conversation", len(loaded_resources)
-                                )
+                                logger.info("[DISCOVERY] ✓ Injected %d resources into conversation", len(loaded_resources))
 
                     # Collect tool result
                     tool_results.append(  # type: ignore
@@ -806,7 +815,9 @@ class ProgressiveDiscoveryAgent:
 
     async def run_test_scenarios(self):
         """Run test scenario demonstrating prompt usage and tool group traversal."""
-        test_question = "whats the weather like right now in my location, after you figured that out, what is 25 * 5"
+        test_question = (
+            "whats the weather like right now in my location"
+        )
 
         try:
             logger.info("\n" + "=" * 80)

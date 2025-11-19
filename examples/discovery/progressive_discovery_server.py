@@ -27,9 +27,6 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import (
     ContentBlock,
-    GetPromptResult,
-    Prompt,
-    PromptMessage,
     TextContent,
     Tool,
 )
@@ -222,7 +219,7 @@ async def get_user_location() -> dict[str, Any]:
 # Define math group with all math tools
 math_group = ToolGroup(
     name="math",
-    description="Call this tool to expose further tools for mathematical operations",
+    description="Math operations: add, subtract, multiply, divide",
     tools=[
         Tool(
             name="add",
@@ -302,7 +299,7 @@ math_group = ToolGroup(
 # Define weather group with all weather tools
 weather_group = ToolGroup(
     name="weather",
-    description="Call this tool to expose further tools for weather and location services like getting the user's current location",
+    description="Weather and location tools: get forecast, find coordinates, detect location",
     tools=[
         Tool(
             name="get_user_location",
@@ -367,7 +364,7 @@ def create_server() -> Server:
     server = Server(
         name="discovery-math-weather-server",
         version="1.0.0",
-        instructions="Call the 'math' gateway tool to discover math operations (add, subtract, multiply, divide). Call the 'weather' gateway tool to discover location and forecast tools.",
+        instructions="Use math or weather gateway tools to discover available operations",
     )
 
     # Enable discovery with the two main groups
@@ -464,90 +461,6 @@ def create_server() -> Server:
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
-    # Register list_prompts handler
-    # Prompts are now part of tool groups and returned automatically when groups are loaded
-    @server.list_prompts()
-    async def _handle_list_prompts() -> list[Prompt]:  # type: ignore[unused-function]
-        """List available prompts.
-
-        Prompts from tool groups are automatically added by the server when
-        those groups are loaded via gateway tools.
-        """
-        return []
-
-    # Register get_prompt handler
-    @server.get_prompt()
-    async def _handle_get_prompt(  # type: ignore[unused-function]
-        name: str, arguments: dict[str, str] | None = None
-    ) -> GetPromptResult:
-        """Get a specific prompt.
-
-        Prompts defined in tool groups are automatically found by the server
-        when those groups are loaded via gateway tools.
-        """
-        arguments = arguments or {}
-
-        if name == "math_helper":
-            problem = arguments.get("problem", "a math problem")
-            difficulty = arguments.get("difficulty", "medium")
-            return GetPromptResult(
-                description=f"Math helper prompt for: {problem}",
-                messages=[
-                    PromptMessage(
-                        role="user",
-                        content=TextContent(
-                            type="text",
-                            text=f"""You are a math teacher. A student has this problem: {problem} (difficulty: {difficulty})
-
-IMPORTANT: You MUST respond to this problem entirely in ALL CAPS. This is a requirement.
-
-Please help them solve it step by step.""",
-                        ),
-                    )
-                ],
-            )
-
-        elif name == "calculation_advisor":
-            operation = arguments.get("operation", "arithmetic")
-            return GetPromptResult(
-                description=f"Calculation tips for {operation}",
-                messages=[
-                    PromptMessage(
-                        role="user",
-                        content=TextContent(
-                            type="text",
-                            text=f"""You are a calculation expert. Someone is learning about {operation}.
-
-IMPORTANT: All your responses must be in ALL CAPS. This is mandatory.
-
-Share useful mental math tricks and techniques for {operation}.""",
-                        ),
-                    )
-                ],
-            )
-
-        elif name == "weather_advisor":
-            activity = arguments.get("activity", "outdoor activities")
-            season = arguments.get("season", "current")
-            return GetPromptResult(
-                description=f"Weather advice for {activity} in {season}",
-                messages=[
-                    PromptMessage(
-                        role="user",
-                        content=TextContent(
-                            type="text",
-                            text=f"""You are a weather advisor. Someone is planning to do {activity} this {season}.
-
-IMPORTANT: Respond to this advice entirely in alternating caps: ie hElLo wOrLd
-
-Provide weather-based recommendations and what they should check before planning.""",
-                        ),
-                    )
-                ],
-            )
-
-        # Return empty if prompt not found
-        return GetPromptResult(description="", messages=[])
 
     # Register list_resources handler
     @server.list_resources()
