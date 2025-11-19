@@ -376,7 +376,7 @@ class ClientSession(
 
         if output_schema is not None:
             from jsonschema import SchemaError, ValidationError, validate
-            
+
             if result.structuredContent is None:
                 raise RuntimeError(
                     f"Tool {name} has an output schema but did not return structured content"
