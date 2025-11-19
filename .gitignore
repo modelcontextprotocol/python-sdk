@@ -1,6 +1,9 @@
 .DS_Store
 scratch/
 
+# Backward compatibility test (keep locally for testing, don't commit)
+examples/backward-compatibility-test/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -172,3 +175,17 @@ cython_debug/
 
 # claude code
 .claude/
+
+# Development documentation
+DEBUGGING_PLAN.md
+IMPLEMENTATION_OVERVIEW.md
+OPTION_C_IMPLEMENTATION.md
+PROGRESSIVE_DISCLOSURE_GUIDE.md
+examples/discovery_client_server/FINAL_IMPLEMENTATION_SUMMARY.md
+examples/discovery_client_server/FINAL_SERVER_README.md
+
+# Local MCP configuration
+.mcp.json
+
+# Old discovery implementations (kept locally for reference)
+old_discovery/

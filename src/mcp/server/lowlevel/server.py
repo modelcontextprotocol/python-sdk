@@ -82,6 +82,7 @@ from pydantic import AnyUrl
 from typing_extensions import TypeVar
 
 import mcp.types as types
+from mcp.server.discovery import ToolGroup, ToolGroupManager
 from mcp.server.lowlevel.func_inspection import create_call_wrapper
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
@@ -154,7 +155,129 @@ class Server(Generic[LifespanResultT, RequestT]):
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self._tool_cache: dict[str, types.Tool] = {}
+        self._discovery: ToolGroupManager | None = None
+        self._loaded_tool_groups: set[str] = set()
         logger.debug("Initializing server %r", name)
+
+    @property
+    def is_discovery_enabled(self) -> bool:
+        """Check if progressive tool discovery is enabled.
+
+        Returns True if discovery has been registered via register_discovery_tools(),
+        False otherwise.
+        """
+        return self._discovery is not None
+
+    def register_discovery_tools(self, manager: ToolGroupManager) -> None:
+        """Enable progressive disclosure of tools through semantic grouping.
+
+        When enabled, listTools() returns only gateway tools (one per tool group),
+        and the LLM can call gateway tools to load the actual tools for that group.
+
+        Args:
+            manager: A ToolGroupManager instance that manages tool groups
+        """
+        self._discovery = manager
+        logger.debug("Discovery tools registered for server %r", self.name)
+
+    def enable_discovery_with_groups(
+        self,
+        items: list[ToolGroup | types.Tool | types.Resource | types.Prompt],
+    ) -> None:
+        """Enable progressive disclosure with programmatic tool groups.
+
+        This is the unified way to set up progressive disclosure. You can pass
+        a mix of ToolGroups, direct Tools, Resources, and Prompts in one call.
+        The method automatically categorizes and registers each type appropriately.
+
+        This is the recommended approach - simpler and more maintainable than
+        using separate register_direct_tool/resource/prompt methods.
+
+        Example:
+            server = Server("my-server")
+
+            # Single unified call for all primitives
+            server.enable_discovery_with_groups([
+                # Direct tool (always visible)
+                divide_tool,
+
+                # Direct resource (always visible)
+                math_formulas_resource,
+
+                # Tool groups (discovered progressively)
+                ToolGroup(
+                    name="math",
+                    description="Math operations",
+                    tools=[add_tool, subtract_tool],
+                    prompts=[math_helper_prompt],
+                ),
+                ToolGroup(
+                    name="weather",
+                    description="Weather operations",
+                    tools=[forecast_tool, geocode_tool],
+                ),
+            ])
+
+        Args:
+            items: List of mixed types:
+                - ToolGroup: Tool groups for progressive discovery
+                - types.Tool: Direct tools (always visible)
+                - types.Resource: Direct resources (always visible)
+                - types.Prompt: Direct prompts (always visible)
+        """
+        # Auto-categorize items by type
+        groups: list[ToolGroup] = []
+        direct_tools: list[types.Tool] = []
+        direct_resources: list[types.Resource] = []
+        direct_prompts: list[types.Prompt] = []
+
+        for item in items:
+            if isinstance(item, ToolGroup):
+                groups.append(item)
+            elif isinstance(item, types.Tool):
+                direct_tools.append(item)
+            elif isinstance(item, types.Resource):
+                direct_resources.append(item)
+            else:  # Must be types.Prompt (only remaining type)
+                direct_prompts.append(item)
+
+        # Register direct items (these are always visible)
+        for tool in direct_tools:
+            if not hasattr(self, "_direct_tools"):
+                self._direct_tools = []  # type: ignore
+            self._direct_tools.append(tool)  # type: ignore
+            logger.debug("Registered direct tool: %s", tool.name)
+
+        for resource in direct_resources:
+            if not hasattr(self, "_direct_resources"):
+                self._direct_resources = []  # type: ignore
+            self._direct_resources.append(resource)  # type: ignore
+            logger.debug("Registered direct resource: %s", resource.name)
+
+        for prompt in direct_prompts:
+            if not hasattr(self, "_direct_prompts"):
+                self._direct_prompts = []  # type: ignore
+            self._direct_prompts.append(prompt)  # type: ignore
+            logger.debug("Registered direct prompt: %s", prompt.name)
+
+        # Enable discovery for grouped items
+        if groups:
+            manager = ToolGroupManager(groups)
+            self.register_discovery_tools(manager)
+            logger.info(
+                "Discovery enabled with %d tool groups: %s",
+                len(groups),
+                ", ".join(g.name for g in groups),
+            )
+
+        # Log summary of what was registered
+        if direct_tools or direct_resources or direct_prompts:
+            logger.info(
+                "Registered %d direct tool(s), %d resource(s), %d prompt(s)",
+                len(direct_tools),
+                len(direct_resources),
+                len(direct_prompts),
+            )
 
     def create_initialization_options(
         self,
@@ -248,10 +371,34 @@ class Server(Generic[LifespanResultT, RequestT]):
                 result = await wrapper(req)
                 # Handle both old style (list[Prompt]) and new style (ListPromptsResult)
                 if isinstance(result, types.ListPromptsResult):
-                    return types.ServerResult(result)
+                    prompts = list(result.prompts) if result.prompts else []
                 else:
                     # Old style returns list[Prompt]
-                    return types.ServerResult(types.ListPromptsResult(prompts=result))
+                    prompts = list(result) if result else []
+
+                # Add direct prompts (hybrid mode support)
+                if hasattr(self, "_direct_prompts"):
+                    direct_prompts: list[types.Prompt] = self._direct_prompts  # type: ignore
+                    prompts.extend(direct_prompts)
+                else:
+                    direct_prompts = []
+
+                # If discovery is enabled, add prompts from loaded groups
+                if self.is_discovery_enabled and self._discovery is not None:
+                    discovery_prompts_dicts = self._discovery.get_prompts_from_loaded_groups(self._loaded_tool_groups)
+                    # Convert dicts to Prompt objects
+                    discovery_prompts = [self._dict_to_prompt(p) for p in discovery_prompts_dicts]
+                    prompts.extend(discovery_prompts)
+                    logger.debug(
+                        "Discovery enabled (hybrid mode): returning %d prompts "
+                        "(%d from user handler + %d direct + %d from loaded groups)",
+                        len(prompts),
+                        len(result) if isinstance(result, list) else len(result.prompts) if result.prompts else 0,
+                        len(direct_prompts),
+                        len(discovery_prompts),
+                    )
+
+                return types.ServerResult(types.ListPromptsResult(prompts=prompts))
 
             self.request_handlers[types.ListPromptsRequest] = handler
             return func
@@ -266,6 +413,24 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(req: types.GetPromptRequest):
                 prompt_get = await func(req.params.name, req.params.arguments)
+
+                # If discovery is enabled and user handler didn't find it (empty result),
+                # search loaded groups
+                if (
+                    self.is_discovery_enabled
+                    and self._discovery is not None
+                    and (not prompt_get.messages or len(prompt_get.messages) == 0)
+                ):
+                    prompt_dict = self._discovery.find_prompt_in_groups(req.params.name, self._loaded_tool_groups)
+                    if prompt_dict:
+                        logger.debug("Found prompt %s in loaded groups", req.params.name)
+                        prompt_obj = self._dict_to_prompt(prompt_dict)
+                        # Return with description, empty messages (client will use Prompt object)
+                        prompt_get = types.GetPromptResult(
+                            description=prompt_obj.description,
+                            messages=[],
+                        )
+
                 return types.ServerResult(prompt_get)
 
             self.request_handlers[types.GetPromptRequest] = handler
@@ -286,10 +451,36 @@ class Server(Generic[LifespanResultT, RequestT]):
                 result = await wrapper(req)
                 # Handle both old style (list[Resource]) and new style (ListResourcesResult)
                 if isinstance(result, types.ListResourcesResult):
-                    return types.ServerResult(result)
+                    resources = list(result.resources) if result.resources else []
                 else:
                     # Old style returns list[Resource]
-                    return types.ServerResult(types.ListResourcesResult(resources=result))
+                    resources = list(result) if result else []
+
+                # Add direct resources (hybrid mode support)
+                if hasattr(self, "_direct_resources"):
+                    direct_resources: list[types.Resource] = self._direct_resources  # type: ignore
+                    resources.extend(direct_resources)
+                else:
+                    direct_resources = []
+
+                # If discovery is enabled, add resources from loaded groups
+                if self.is_discovery_enabled and self._discovery is not None:
+                    discovery_resources_dicts = self._discovery.get_resources_from_loaded_groups(
+                        self._loaded_tool_groups
+                    )
+                    # Convert dicts to Resource objects
+                    discovery_resources = [self._dict_to_resource(r) for r in discovery_resources_dicts]
+                    resources.extend(discovery_resources)
+                    logger.debug(
+                        "Discovery enabled (hybrid mode): returning %d resources "
+                        "(%d from user handler + %d direct + %d from loaded groups)",
+                        len(resources),
+                        len(result) if isinstance(result, list) else len(result.resources) if result.resources else 0,
+                        len(direct_resources),
+                        len(discovery_resources),
+                    )
+
+                return types.ServerResult(types.ListResourcesResult(resources=resources))
 
             self.request_handlers[types.ListResourcesRequest] = handler
             return func
@@ -316,7 +507,31 @@ class Server(Generic[LifespanResultT, RequestT]):
             logger.debug("Registering handler for ReadResourceRequest")
 
             async def handler(req: types.ReadResourceRequest):
-                result = await func(req.params.uri)
+                result: str | bytes | Iterable[ReadResourceContents] | None = None
+                try:
+                    result = await func(req.params.uri)
+                except Exception:  # pragma: no cover
+                    # User handler couldn't find the resource, try discovery
+                    if self.is_discovery_enabled and self._discovery is not None:
+                        resource_dict = self._discovery.find_resource_in_groups(
+                            req.params.uri, self._loaded_tool_groups
+                        )
+                        if resource_dict:
+                            logger.debug("Found resource %s in loaded groups", req.params.uri)
+                            # Return the resource content (empty for now, client will use Resource definition)
+                            return types.ServerResult(
+                                types.ReadResourceResult(
+                                    contents=[
+                                        types.TextResourceContents(
+                                            uri=req.params.uri,
+                                            text="",
+                                            mimeType=resource_dict.get("mimeType", "text/plain"),
+                                        )
+                                    ],
+                                )
+                            )
+                    # If not found in discovery either, re-raise the original exception
+                    raise
 
                 def create_content(data: str | bytes, mime_type: str | None):
                     match data:
@@ -353,8 +568,6 @@ class Server(Generic[LifespanResultT, RequestT]):
                                 contents=contents_list,
                             )
                         )
-                    case _:  # pragma: no cover
-                        raise ValueError(f"Unexpected return type from read_resource: {type(result)}")
 
                 return types.ServerResult(  # pragma: no cover
                     types.ReadResourceResult(
@@ -416,6 +629,84 @@ class Server(Generic[LifespanResultT, RequestT]):
             wrapper = create_call_wrapper(func, types.ListToolsRequest)
 
             async def handler(req: types.ListToolsRequest):
+                # If discovery is enabled, return gateway tools + any loaded group tools
+                if self.is_discovery_enabled and self._discovery is not None:
+                    result_tools: list[types.Tool] = []
+
+                    # Include only gateway tools for groups NOT yet loaded
+                    # Once a group is loaded, hide its gateway to reduce context bloat
+                    gateway_tool_objects: list[types.Tool] = []
+                    for group_name in self._discovery.get_group_names():
+                        # Only include gateway if its group hasn't been loaded yet
+                        if group_name not in self._loaded_tool_groups:
+                            description = self._discovery.get_group_description(group_name)
+                            gateway_tool: dict[str, Any] = {  # type: ignore
+                                "name": group_name,  # Gateway tool named directly after group
+                                "description": description,
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {},
+                                    "required": [],
+                                    "x-gateway": True,  # Explicit marker for gateway tools
+                                },
+                            }
+                            gateway_tool_objects.append(self._dict_to_tool(gateway_tool))  # type: ignore
+                    result_tools.extend(gateway_tool_objects)  # type: ignore
+
+                    # Add tools from any already-loaded groups
+                    for group_name in self._loaded_tool_groups:
+                        group_tools = self._discovery.get_group_tools(group_name)
+                        # Filter out nested gateways for groups that are ALSO already loaded
+                        # But keep sibling gateways available
+                        filtered_tools: list[dict[str, Any]] = []  # type: ignore
+                        for tool in group_tools:
+                            tool_name = tool.get("name", "")  # type: ignore
+                            # Check if this is a gateway tool for another group
+                            if self._discovery.is_gateway_tool(tool_name):
+                                nested_group_name = self._discovery.extract_group_name(tool_name)
+                                if (
+                                    nested_group_name
+                                    and nested_group_name in self._loaded_tool_groups
+                                    and nested_group_name != group_name
+                                ):
+                                    # Skip this gateway tool only if it's for a DIFFERENT
+                                    # already-loaded group. Keep sibling gateways available.
+                                    logger.debug(
+                                        "Filtering out nested gateway %s (group %s already loaded)",
+                                        tool_name,
+                                        nested_group_name,
+                                    )
+                                    continue
+                            filtered_tools.append(tool)  # type: ignore
+                        group_tool_objects: list[types.Tool] = [
+                            self._dict_to_tool(tool)
+                            for tool in filtered_tools  # type: ignore
+                        ]
+                        result_tools.extend(group_tool_objects)  # type: ignore
+
+                    # Add direct tools (hybrid mode support)
+                    # These are tools registered directly via register_tool()
+                    if hasattr(self, "_direct_tools"):
+                        direct_tools: list[types.Tool] = self._direct_tools  # type: ignore
+                        result_tools.extend(direct_tools)
+                    else:
+                        direct_tools = []
+
+                    # Update cache with all returned tools
+                    for tool in result_tools:
+                        self._tool_cache[tool.name] = tool
+
+                    logger.debug(
+                        "Discovery enabled (hybrid mode): returning %d tools "
+                        "(%d unloaded gateways + %d from %d loaded groups + %d direct tools)",
+                        len(result_tools),  # type: ignore
+                        len(gateway_tool_objects),
+                        sum(len(self._discovery.get_group_tools(g)) for g in self._loaded_tool_groups),  # type: ignore
+                        len(self._loaded_tool_groups),
+                        len(direct_tools),
+                    )
+                    return types.ServerResult(types.ListToolsResult(tools=result_tools))
+
                 result = await wrapper(req)
 
                 # Handle both old style (list[Tool]) and new style (ListToolsResult)
@@ -444,6 +735,63 @@ class Server(Generic[LifespanResultT, RequestT]):
                 content=[types.TextContent(type="text", text=error_message)],
                 isError=True,
             )
+        )
+
+    def _dict_to_tool(self, tool_dict: dict[str, Any]) -> types.Tool:
+        """Convert a tool dictionary to a types.Tool object.
+
+        Args:
+            tool_dict: Dictionary with tool definition (name, description, inputSchema, outputSchema)
+
+        Returns:
+            A types.Tool object
+        """
+        return types.Tool(
+            name=tool_dict.get("name", ""),
+            description=tool_dict.get("description", ""),
+            inputSchema=tool_dict.get("inputSchema", {"type": "object"}),
+            outputSchema=tool_dict.get("outputSchema"),
+        )
+
+    def _dict_to_prompt(self, prompt_dict: dict[str, Any]) -> types.Prompt:
+        """Convert a prompt dictionary to a types.Prompt object.
+
+        Args:
+            prompt_dict: Dictionary with prompt definition (name, description, arguments)
+
+        Returns:
+            A types.Prompt object
+        """
+        arguments: list[types.PromptArgument] = []
+        if "arguments" in prompt_dict and prompt_dict["arguments"]:
+            arguments.extend(
+                types.PromptArgument(
+                    name=arg.get("name", ""),
+                    description=arg.get("description", ""),
+                    required=arg.get("required", False),
+                )
+                for arg in prompt_dict["arguments"]
+            )
+        return types.Prompt(
+            name=prompt_dict.get("name", ""),
+            description=prompt_dict.get("description", ""),
+            arguments=arguments,
+        )
+
+    def _dict_to_resource(self, resource_dict: dict[str, Any]) -> types.Resource:
+        """Convert a resource dictionary to a types.Resource object.
+
+        Args:
+            resource_dict: Dictionary with resource definition (uri, name, description, mimeType)
+
+        Returns:
+            A types.Resource object
+        """
+        return types.Resource(
+            uri=AnyUrl(resource_dict.get("uri", "file://unknown")),
+            name=resource_dict.get("name", ""),
+            description=resource_dict.get("description", ""),
+            mimeType=resource_dict.get("mimeType", "text/plain"),
         )
 
     async def _get_cached_tool_definition(self, tool_name: str) -> types.Tool | None:
@@ -489,6 +837,55 @@ class Server(Generic[LifespanResultT, RequestT]):
                 try:
                     tool_name = req.params.name
                     arguments = req.params.arguments or {}
+
+                    # If discovery is enabled and this is a gateway tool, return its tools
+                    if (
+                        self.is_discovery_enabled
+                        and self._discovery is not None
+                        and self._discovery.is_gateway_tool(tool_name)
+                    ):
+                        group_name = self._discovery.extract_group_name(tool_name)
+                        if group_name:
+                            # Track that this group has been loaded
+                            self._loaded_tool_groups.add(group_name)
+                            tools = self._discovery.get_group_tools(group_name)
+                            # Convert tools to types.Tool objects
+                            tool_objects = [self._dict_to_tool(tool) for tool in tools]
+                            # Update tool cache with these tools
+                            for tool in tool_objects:
+                                self._tool_cache[tool.name] = tool
+                            logger.debug(
+                                "Gateway tool %s called: returning %d tools for group %s",
+                                tool_name,
+                                len(tool_objects),
+                                group_name,
+                            )
+                            # Notify client that tools have changed (for progressive disclosure)
+                            try:
+                                ctx = request_ctx.get()
+                                await ctx.session.send_notification(
+                                    types.ServerNotification(types.ToolListChangedNotification()),
+                                    related_request_id=ctx.request_id,
+                                )
+                            except LookupError:  # pragma: no cover
+                                # Request context not available; skip notification
+                                logger.debug(
+                                    "Could not send ToolListChangedNotification: request context not available"
+                                )
+                            # Return tools as text content
+                            tool_descriptions = [f"- {t.name}: {t.description}" for t in tool_objects]
+                            return types.ServerResult(
+                                types.CallToolResult(
+                                    content=[
+                                        types.TextContent(
+                                            type="text",
+                                            text="Available tools:\n" + "\n".join(tool_descriptions),
+                                        )
+                                    ],
+                                    isError=False,
+                                )
+                            )
+
                     tool = await self._get_cached_tool_definition(tool_name)
 
                     # input validation
@@ -734,5 +1131,5 @@ class Server(Generic[LifespanResultT, RequestT]):
                 logger.exception("Uncaught exception in notification handler")
 
 
-async def _ping_handler(request: types.PingRequest) -> types.ServerResult:
+async def _ping_handler(_request: types.PingRequest) -> types.ServerResult:
     return types.ServerResult(types.EmptyResult())
