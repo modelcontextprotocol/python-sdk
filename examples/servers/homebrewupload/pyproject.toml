@@ -3,7 +3,7 @@ name = "mcp-homebrewupload"
 version = "0.1.0"
 description = "A homebrew style mcp server with file upload feature"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
     "markitdown[all]>=0.1.3",
