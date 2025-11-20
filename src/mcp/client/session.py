@@ -8,6 +8,7 @@ from pydantic import AnyUrl, TypeAdapter
 from typing_extensions import deprecated
 
 import mcp.types as types
+from mcp.client.experimental import ExperimentalClientFeatures
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
@@ -134,6 +135,7 @@ class ClientSession(
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._server_capabilities: types.ServerCapabilities | None = None
+        self._experimental: ExperimentalClientFeatures | None = None
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
@@ -187,6 +189,20 @@ class ClientSession(
         Returns None if the session has not been initialized yet.
         """
         return self._server_capabilities
+
+    @property
+    def experimental(self) -> "ExperimentalClientFeatures":
+        """Experimental APIs for tasks and other features.
+
+        WARNING: These APIs are experimental and may change without notice.
+
+        Example:
+            status = await session.experimental.get_task(task_id)
+            result = await session.experimental.get_task_result(task_id, CallToolResult)
+        """
+        if self._experimental is None:
+            self._experimental = ExperimentalClientFeatures(self)
+        return self._experimental
 
     async def send_ping(self) -> types.EmptyResult:
         """Send a ping request."""
