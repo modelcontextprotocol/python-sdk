@@ -14,7 +14,7 @@ import asyncio
 import logging
 import sys
 from datetime import timedelta
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import ParseResult, parse_qs, urlparse
 
 import httpx
 from mcp import ClientSession
@@ -83,12 +83,13 @@ class ConformanceOAuthCallbackHandler:
             if response.status_code in (301, 302, 303, 307, 308):
                 location = response.headers.get("location")
                 if location:
-                    redirect_url = urlparse(location)
-                    query_params = parse_qs(redirect_url.query)
+                    redirect_url: ParseResult = urlparse(location)
+                    query_params: dict[str, list[str]] = parse_qs(redirect_url.query)
 
                     if "code" in query_params:
                         self._auth_code = query_params["code"][0]
-                        self._state = query_params.get("state", [None])[0]
+                        state_values = query_params.get("state")
+                        self._state = state_values[0] if state_values else None
                         logger.debug(f"Got auth code from redirect: {self._auth_code[:10]}...")
                         return
                     else:
@@ -145,7 +146,7 @@ async def run_client(server_url: str) -> None:
         auth=oauth_auth,
         timeout=timedelta(seconds=30),
         sse_read_timeout=timedelta(seconds=60),
-    ) as (read_stream, write_stream, get_session_id):
+    ) as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the session
             await session.initialize()
@@ -175,8 +176,8 @@ def main() -> None:
 
     try:
         asyncio.run(run_client(server_url))
-    except Exception as e:
-        logger.exception(f"Client failed: {e}")
+    except Exception:
+        logger.exception("Client failed")
         sys.exit(1)
 
 
