@@ -602,6 +602,39 @@ class TestOAuthFallback:
         assert request is None
 
     @pytest.mark.anyio
+    async def test_register_client_explicit_auth_method(self, mock_storage: MockTokenStorage):
+        """Test that explicitly set token_endpoint_auth_method is used without auto-selection."""
+
+        async def redirect_handler(url: str) -> None:
+            pass  # pragma: no cover
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"  # pragma: no cover
+
+        # Create client metadata with explicit auth method
+        explicit_metadata = OAuthClientMetadata(
+            client_name="Test Client",
+            client_uri=AnyHttpUrl("https://example.com"),
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+            scope="read write",
+            token_endpoint_auth_method="client_secret_basic",
+        )
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=explicit_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        request = await provider._register_client()
+        assert request is not None
+
+        body = json.loads(request.content)
+        # Should use the explicitly set method, not auto-select
+        assert body["token_endpoint_auth_method"] == "client_secret_basic"
+
+    @pytest.mark.anyio
     async def test_register_client_none_auth_method_with_server_metadata(self, oauth_provider: OAuthClientProvider):
         """Test that token_endpoint_auth_method=None selects from server's supported methods."""
         # Set server metadata with specific supported methods
@@ -611,7 +644,7 @@ class TestOAuthFallback:
             token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
             token_endpoint_auth_methods_supported=["client_secret_post"],
         )
-        # Ensure client_metadata has None for token_endpoint_auth_method is None
+        # Ensure client_metadata has None for token_endpoint_auth_method
 
         request = await oauth_provider._register_client()
         assert request is not None

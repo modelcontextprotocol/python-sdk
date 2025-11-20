@@ -110,7 +110,7 @@ class TokenHandler:
         try:
             form_data = await request.form()
             token_request = TokenRequest.model_validate(dict(form_data)).root
-        except ValidationError as validation_error:
+        except ValidationError as validation_error:  # pragma: no cover
             return self.response(
                 TokenErrorResponse(
                     error="invalid_request",

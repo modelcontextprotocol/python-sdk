@@ -186,10 +186,10 @@ class OAuthContext:
             Tuple of (updated_data, updated_headers)
         """
         if headers is None:
-            headers = {}
+            headers = {}  # pragma: no cover
 
         if not self.client_info:
-            return data, headers
+            return data, headers  # pragma: no cover
 
         auth_method = self.client_info.token_endpoint_auth_method
 

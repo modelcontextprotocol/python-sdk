@@ -1117,6 +1117,189 @@ class TestAuthEndpoints:
         assert error_response["error"] == "unauthorized_client"
         assert "Missing or invalid Basic authentication" in error_response["error_description"]
 
+    @pytest.mark.anyio
+    async def test_basic_auth_invalid_base64_fails(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that invalid base64 in Basic auth header fails."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Basic Auth Client",
+            "token_endpoint_auth_method": "client_secret_basic",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        # Send invalid base64
+        response = await test_client.post(
+            "/token",
+            headers={"Authorization": "Basic !!!invalid-base64!!!"},
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 401
+        error_response = response.json()
+        assert error_response["error"] == "unauthorized_client"
+        assert "Invalid Basic authentication header" in error_response["error_description"]
+
+    @pytest.mark.anyio
+    async def test_basic_auth_no_colon_fails(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that Basic auth without colon separator fails."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Basic Auth Client",
+            "token_endpoint_auth_method": "client_secret_basic",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        # Send base64 without colon (invalid format)
+        import base64
+
+        invalid_creds = base64.b64encode(b"no-colon-here").decode()
+        response = await test_client.post(
+            "/token",
+            headers={"Authorization": f"Basic {invalid_creds}"},
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 401
+        error_response = response.json()
+        assert error_response["error"] == "unauthorized_client"
+        assert "Invalid Basic authentication header" in error_response["error_description"]
+
+    @pytest.mark.anyio
+    async def test_basic_auth_client_id_mismatch_fails(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that client_id mismatch between body and Basic auth fails."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Basic Auth Client",
+            "token_endpoint_auth_method": "client_secret_basic",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        # Send different client_id in Basic auth header
+        import base64
+
+        wrong_creds = base64.b64encode(f"wrong-client-id:{client_info['client_secret']}".encode()).decode()
+        response = await test_client.post(
+            "/token",
+            headers={"Authorization": f"Basic {wrong_creds}"},
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],  # Correct client_id in body
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 401
+        error_response = response.json()
+        assert error_response["error"] == "unauthorized_client"
+        assert "Client ID mismatch" in error_response["error_description"]
+
+    @pytest.mark.anyio
+    async def test_none_auth_method_public_client(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that 'none' authentication method works for public clients."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Public Client",
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+        assert client_info["token_endpoint_auth_method"] == "none"
+        # Public clients should not have a client_secret
+        assert "client_secret" not in client_info or client_info.get("client_secret") is None
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        # Token request without any client secret
+        response = await test_client.post(
+            "/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 200
+        token_response = response.json()
+        assert "access_token" in token_response
+
 
 class TestAuthorizeEndpointErrors:
     """Test error handling in the OAuth authorization endpoint."""

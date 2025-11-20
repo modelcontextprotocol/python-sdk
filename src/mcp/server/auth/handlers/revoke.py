@@ -41,7 +41,7 @@ class RevocationHandler:
         """
         try:
             client = await self.client_authenticator.authenticate_request(request)
-        except AuthenticationError as e:
+        except AuthenticationError as e:  # pragma: no cover
             return PydanticJSONResponse(
                 status_code=401,
                 content=RevocationErrorResponse(

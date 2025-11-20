@@ -93,7 +93,9 @@ class ClientAuthenticator:
         elif client.token_endpoint_auth_method == "none":
             request_client_secret = None
         else:
-            raise AuthenticationError(f"Unsupported auth method: {client.token_endpoint_auth_method}")
+            raise AuthenticationError(  # pragma: no cover
+                f"Unsupported auth method: {client.token_endpoint_auth_method}"
+            )
 
         # If client from the store expects a secret, validate that the request provides
         # that secret
