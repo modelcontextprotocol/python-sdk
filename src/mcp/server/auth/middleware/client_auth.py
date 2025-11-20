@@ -106,9 +106,7 @@ class ClientAuthenticator:
             # hmac.compare_digest requires that both arguments are either bytes or a `str` containing
             # only ASCII characters. Since we do not control `request_client_secret`, we encode both
             # arguments to bytes.
-            if not hmac.compare_digest(
-                client.client_secret.encode(), request_client_secret.encode()
-            ):
+            if not hmac.compare_digest(client.client_secret.encode(), request_client_secret.encode()):
                 raise AuthenticationError("Invalid client_secret")  # pragma: no cover
 
             if client.client_secret_expires_at and client.client_secret_expires_at < int(time.time()):
