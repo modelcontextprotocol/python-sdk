@@ -6,7 +6,7 @@ import os
 from collections.abc import AsyncIterator
 
 import uvicorn
-from markitdown import MarkItDown # type: ignore
+from markitdown import MarkItDown  # type: ignore
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -27,7 +27,7 @@ mcp = FastMCP("markitdown_homebrew")
 @mcp.tool()
 async def convert_to_markdown(uri: str) -> str:
     """Convert a resource described by an http:, https:, file: or data: URI to markdown"""
-    return MarkItDown(enable_plugins=check_plugins_enabled()).convert_uri(uri).markdown # type: ignore
+    return MarkItDown(enable_plugins=check_plugins_enabled()).convert_uri(uri).markdown  # type: ignore
 
 
 # Same with markitdown official
@@ -53,7 +53,7 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
         async with sse.connect_sse(
             request.scope,
             request.receive,
-            request._send, # pyright: ignore[reportPrivateUsage]
+            request._send,  # pyright: ignore[reportPrivateUsage]
         ) as (read_stream, write_stream):
             await mcp_server.run(
                 read_stream,
@@ -143,7 +143,7 @@ async def handle_file_upload(request: Request) -> JSONResponse:
 
 # Main entry point
 def main():
-    mcp_server = mcp._mcp_server # pyright: ignore[reportPrivateUsage]
+    mcp_server = mcp._mcp_server  # pyright: ignore[reportPrivateUsage]
     logging.info("start MCP server at 0.0.0.0:3001")
     starlette_app = create_starlette_app(mcp_server, debug=True)
     uvicorn.run(
