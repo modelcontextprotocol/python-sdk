@@ -19,7 +19,7 @@ import anyio
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
-from mcp.client.auth import OAuthFlowError, OAuthTokenError
+from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -193,7 +193,7 @@ class OAuthContext:
 
         auth_method = self.client_info.token_endpoint_auth_method
 
-        if auth_method == "client_secret_basic" and self.client_info.client_secret:
+        if auth_method == "client_secret_basic" and self.client_info.client_id and self.client_info.client_secret:
             # URL-encode client ID and secret per RFC 6749 Section 2.3.1
             encoded_id = quote(self.client_info.client_id, safe="")
             encoded_secret = quote(self.client_info.client_secret, safe="")
@@ -426,7 +426,7 @@ class OAuthClientProvider(httpx.Auth):
         if not self.context.current_tokens or not self.context.current_tokens.refresh_token:
             raise OAuthTokenError("No refresh token available")  # pragma: no cover
 
-        if not self.context.client_info:
+        if not self.context.client_info or not self.context.client_info.client_id:
             raise OAuthTokenError("No client info available")  # pragma: no cover
 
         if self.context.oauth_metadata and self.context.oauth_metadata.token_endpoint:
@@ -435,7 +435,7 @@ class OAuthClientProvider(httpx.Auth):
             auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             token_url = urljoin(auth_base_url, "/token")
 
-        refresh_data = {
+        refresh_data: dict[str, str] = {
             "grant_type": "refresh_token",
             "refresh_token": self.context.current_tokens.refresh_token,
             "client_id": self.context.client_info.client_id,

@@ -106,8 +106,8 @@ class ClientAuthenticator:
             # arguments to bytes.
             if not hmac.compare_digest(
                 client.client_secret.encode(), request_client_secret.encode()
-            ):  # pragma: no cover
-                raise AuthenticationError("Invalid client_secret")
+            ):
+                raise AuthenticationError("Invalid client_secret")  # pragma: no cover
 
             if client.client_secret_expires_at and client.client_secret_expires_at < int(time.time()):
                 raise AuthenticationError("Client secret has expired")  # pragma: no cover

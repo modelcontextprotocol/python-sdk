@@ -707,7 +707,7 @@ class TestOAuthFallback:
             token_endpoint_auth_method="client_secret_basic",
         )
 
-        request = await oauth_provider._exchange_token("test_auth_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_auth_code", "test_verifier")
 
         # Should use basic auth (registered method)
         assert "Authorization" in request.headers
@@ -784,7 +784,7 @@ class TestOAuthFallback:
             token_endpoint_auth_method="none",
         )
 
-        request = await oauth_provider._exchange_token("test_auth_code", "test_verifier")
+        request = await oauth_provider._exchange_token_authorization_code("test_auth_code", "test_verifier")
 
         # Should NOT have Authorization header
         assert "Authorization" not in request.headers
