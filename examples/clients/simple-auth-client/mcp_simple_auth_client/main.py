@@ -6,8 +6,8 @@ This client connects to an MCP server using streamable HTTP transport with OAuth
 
 """
 
+import argparse
 import asyncio
-import os
 import threading
 import time
 import webbrowser
@@ -330,22 +330,32 @@ class SimpleAuthClient:
 
 async def main():
     """Main entry point."""
-    # Default server URL - can be overridden with environment variable
-    # Most MCP streamable HTTP servers use /mcp as the endpoint
-    server_url = os.getenv("MCP_SERVER_PORT", 8000)
-    transport_type = os.getenv("MCP_TRANSPORT_TYPE", "streamable-http")
-    server_url = (
-        f"http://localhost:{server_url}/mcp"
-        if transport_type == "streamable-http"
-        else f"http://localhost:{server_url}/sse"
+    parser = argparse.ArgumentParser(
+        description="Simple MCP client with OAuth authentication support",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--url",
+        type=str,
+        default="http://localhost:8000/mcp",
+        help="Full URL of the MCP server",
+    )
+    parser.add_argument(
+        "--transport",
+        type=str,
+        choices=["streamable-http", "sse"],
+        default="streamable-http",
+        help="Transport type to use",
     )
 
+    args = parser.parse_args()
+
     print("🚀 Simple MCP Auth Client")
-    print(f"Connecting to: {server_url}")
-    print(f"Transport type: {transport_type}")
+    print(f"Connecting to: {args.url}")
+    print(f"Transport type: {args.transport}")
 
     # Start connection flow - OAuth will be handled automatically
-    client = SimpleAuthClient(server_url, transport_type)
+    client = SimpleAuthClient(args.url, args.transport)
     await client.connect()
 
 

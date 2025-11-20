@@ -43,7 +43,7 @@ uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000  --tra
 ```bash
 cd examples/clients/simple-auth-client
 # Start client with streamable HTTP
-MCP_SERVER_PORT=8001 MCP_TRANSPORT_TYPE=streamable-http uv run mcp-simple-auth-client
+uv run mcp-simple-auth-client --url http://localhost:8001/mcp --transport streamable-http
 ```
 
 ## How It Works
@@ -101,7 +101,7 @@ uv run mcp-simple-auth-legacy --port=8002
 ```bash
 # Test with client (will automatically fall back to legacy discovery)
 cd examples/clients/simple-auth-client
-MCP_SERVER_PORT=8002 MCP_TRANSPORT_TYPE=streamable-http uv run mcp-simple-auth-client
+uv run mcp-simple-auth-client --url http://localhost:8002/mcp --transport streamable-http
 ```
 
 The client will:
