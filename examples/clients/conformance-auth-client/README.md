@@ -25,6 +25,7 @@ npx @modelcontextprotocol/conformance client \
 ```
 
 Available auth test scenarios:
+
 - `auth/basic-dcr` - Tests OAuth Dynamic Client Registration flow
 - `auth/basic-metadata-var1` - Tests OAuth with authorization metadata
 
