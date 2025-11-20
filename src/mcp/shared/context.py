@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Generic
 
 from typing_extensions import TypeVar
@@ -26,5 +26,5 @@ class RequestContext(Generic[SessionT, LifespanContextT, RequestT]):
     meta: RequestParams.Meta | None
     session: SessionT
     lifespan_context: LifespanContextT
-    experimental: Experimental = Experimental()
+    experimental: Experimental = field(default_factory=Experimental)
     request: RequestT | None = None

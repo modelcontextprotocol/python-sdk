@@ -1930,6 +1930,7 @@ ServerResultType: TypeAlias = (
     | GetTaskPayloadResult
     | ListTasksResult
     | CancelTaskResult
+    | CreateTaskResult
 )
 
 

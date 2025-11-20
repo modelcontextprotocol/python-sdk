@@ -500,7 +500,13 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(
             func: Callable[
                 ...,
-                Awaitable[UnstructuredContent | StructuredContent | CombinationContent | types.CallToolResult],
+                Awaitable[
+                    UnstructuredContent
+                    | StructuredContent
+                    | CombinationContent
+                    | types.CallToolResult
+                    | types.CreateTaskResult
+                ],
             ],
         ):
             logger.debug("Registering handler for CallToolRequest")
@@ -525,6 +531,9 @@ class Server(Generic[LifespanResultT, RequestT]):
                     unstructured_content: UnstructuredContent
                     maybe_structured_content: StructuredContent | None
                     if isinstance(results, types.CallToolResult):
+                        return types.ServerResult(results)
+                    elif isinstance(results, types.CreateTaskResult):
+                        # Task-augmented execution returns task info instead of result
                         return types.ServerResult(results)
                     elif isinstance(results, tuple) and len(results) == 2:
                         # tool returned both structured and unstructured content
