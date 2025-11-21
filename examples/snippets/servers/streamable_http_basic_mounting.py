@@ -11,7 +11,7 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create MCP server
-mcp = FastMCP("My App")
+mcp = FastMCP("My App", json_response=True)
 
 
 @mcp.tool()
