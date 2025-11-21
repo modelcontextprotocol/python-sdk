@@ -844,9 +844,7 @@ class ToolResultContent(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-SamplingMessageContentBlock: TypeAlias = (
-    TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
-)
+SamplingMessageContentBlock: TypeAlias = TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
 """Content block types allowed in sampling messages."""
 
 
