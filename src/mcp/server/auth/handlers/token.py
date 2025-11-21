@@ -92,26 +92,29 @@ class TokenHandler:
 
     async def handle(self, request: Request):
         try:
+            client_info = await self.client_authenticator.authenticate_request(request)
+        except AuthenticationError as e:
+            # Authentication failures should return 401
+            return PydanticJSONResponse(
+                content=TokenErrorResponse(
+                    error="unauthorized_client",
+                    error_description=e.message,
+                ),
+                status_code=401,
+                headers={
+                    "Cache-Control": "no-store",
+                    "Pragma": "no-cache",
+                },
+            )
+
+        try:
             form_data = await request.form()
             token_request = TokenRequest.model_validate(dict(form_data)).root
-        except ValidationError as validation_error:
+        except ValidationError as validation_error:  # pragma: no cover
             return self.response(
                 TokenErrorResponse(
                     error="invalid_request",
                     error_description=stringify_pydantic_error(validation_error),
-                )
-            )
-
-        try:
-            client_info = await self.client_authenticator.authenticate(
-                client_id=token_request.client_id,
-                client_secret=token_request.client_secret,
-            )
-        except AuthenticationError as e:  # pragma: no cover
-            return self.response(
-                TokenErrorResponse(
-                    error="unauthorized_client",
-                    error_description=e.message,
                 )
             )
 
