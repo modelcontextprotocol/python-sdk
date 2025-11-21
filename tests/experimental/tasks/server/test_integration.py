@@ -44,7 +44,7 @@ from mcp.types import (
     TaskMetadata,
     TextContent,
     Tool,
-    ToolAnnotations,
+    ToolExecution,
 )
 
 
@@ -83,7 +83,7 @@ async def test_task_lifecycle_with_task_execution() -> None:
                     "type": "object",
                     "properties": {"input": {"type": "string"}},
                 },
-                annotations=ToolAnnotations(taskHint="always"),
+                execution=ToolExecution(task="always"),
             )
         ]
 

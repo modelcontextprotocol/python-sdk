@@ -39,7 +39,7 @@ from mcp.types import (
     TaskMetadata,
     TextContent,
     Tool,
-    ToolAnnotations,
+    ToolExecution,
 )
 
 # --- Experimental handler tests ---
@@ -215,8 +215,8 @@ async def test_server_capabilities_partial_tasks() -> None:
 
 
 @pytest.mark.anyio
-async def test_tool_with_task_hint_annotation() -> None:
-    """Test that tools can declare taskHint in annotations."""
+async def test_tool_with_task_execution_metadata() -> None:
+    """Test that tools can declare task execution mode."""
     server = Server("test")
 
     @server.list_tools()
@@ -226,19 +226,19 @@ async def test_tool_with_task_hint_annotation() -> None:
                 name="quick_tool",
                 description="Fast tool",
                 inputSchema={"type": "object", "properties": {}},
-                annotations=ToolAnnotations(taskHint="never"),
+                execution=ToolExecution(task="never"),
             ),
             Tool(
                 name="long_tool",
                 description="Long running tool",
                 inputSchema={"type": "object", "properties": {}},
-                annotations=ToolAnnotations(taskHint="always"),
+                execution=ToolExecution(task="always"),
             ),
             Tool(
                 name="flexible_tool",
                 description="Can be either",
                 inputSchema={"type": "object", "properties": {}},
-                annotations=ToolAnnotations(taskHint="optional"),
+                execution=ToolExecution(task="optional"),
             ),
         ]
 
@@ -250,12 +250,12 @@ async def test_tool_with_task_hint_annotation() -> None:
     assert isinstance(result.root, ListToolsResult)
     tools = result.root.tools
 
-    assert tools[0].annotations is not None
-    assert tools[0].annotations.taskHint == "never"
-    assert tools[1].annotations is not None
-    assert tools[1].annotations.taskHint == "always"
-    assert tools[2].annotations is not None
-    assert tools[2].annotations.taskHint == "optional"
+    assert tools[0].execution is not None
+    assert tools[0].execution.task == "never"
+    assert tools[1].execution is not None
+    assert tools[1].execution.task == "always"
+    assert tools[2].execution is not None
+    assert tools[2].execution.task == "optional"
 
 
 # --- Integration tests ---
@@ -274,7 +274,7 @@ async def test_task_metadata_in_call_tool_request() -> None:
                 name="long_task",
                 description="A long running task",
                 inputSchema={"type": "object", "properties": {}},
-                annotations=ToolAnnotations(taskHint="optional"),
+                execution=ToolExecution(task="optional"),
             )
         ]
 

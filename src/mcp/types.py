@@ -1264,7 +1264,15 @@ class ToolAnnotations(BaseModel):
     Default: true
     """
 
-    taskHint: TaskHint | None = None
+    model_config = ConfigDict(extra="allow")
+
+
+class ToolExecution(BaseModel):
+    """Execution-related properties for a tool."""
+
+    model_config = ConfigDict(extra="allow")
+
+    task: Literal["never", "optional", "always"] | None = None
     """
     Indicates whether this tool supports task-augmented execution.
     This allows clients to handle long-running operations through polling
@@ -1276,8 +1284,6 @@ class ToolAnnotations(BaseModel):
 
     Default: "never"
     """
-
-    model_config = ConfigDict(extra="allow")
 
 
 class Tool(BaseMetadata):
@@ -1301,6 +1307,9 @@ class Tool(BaseMetadata):
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
     """
+
+    execution: ToolExecution | None = None
+
     model_config = ConfigDict(extra="allow")
 
 
