@@ -20,6 +20,7 @@ async def generate_poem(topic: str, ctx: Context[ServerSession, None]) -> str:
         max_tokens=100,
     )
 
-    if result.content.type == "text":
-        return result.content.text
-    return str(result.content)
+    content = result.content[0] if isinstance(result.content, list) else result.content
+    if content.type == "text":
+        return content.text
+    return str(content)

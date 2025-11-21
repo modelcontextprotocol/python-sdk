@@ -134,8 +134,9 @@ async def test_sampling(prompt: str, ctx: Context[ServerSession, None]) -> str:
             max_tokens=100,
         )
 
-        if result.content.type == "text":
-            model_response = result.content.text
+        content = result.content[0] if isinstance(result.content, list) else result.content
+        if content.type == "text":
+            model_response = content.text
         else:
             model_response = "No response"
 

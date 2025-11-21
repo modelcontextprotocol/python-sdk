@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from mcp.types import (
@@ -142,7 +144,7 @@ async def test_sampling_message_with_user_role():
     assert isinstance(user_msg.content, TextContent)
 
     # Test with array of content including tool result
-    multi_content_data = {
+    multi_content_data: dict[str, Any] = {
         "role": "user",
         "content": [
             {"type": "text", "text": "Here's the result:"},
@@ -173,7 +175,7 @@ async def test_sampling_message_with_assistant_role():
     assert isinstance(assistant_msg.content, ToolUseContent)
 
     # Test with array of mixed content
-    multi_content_data = {
+    multi_content_data: dict[str, Any] = {
         "role": "assistant",
         "content": [
             {"type": "text", "text": "Let me search for that..."},
@@ -195,7 +197,7 @@ async def test_sampling_message_backward_compatibility():
     assert isinstance(old_msg.content, TextContent)
 
     # New-style message with tool content
-    new_style_data = {
+    new_style_data: dict[str, Any] = {
         "role": "assistant",
         "content": {"type": "tool_use", "name": "test", "id": "call_1", "input": {}},
     }
@@ -204,7 +206,7 @@ async def test_sampling_message_backward_compatibility():
     assert isinstance(new_msg.content, ToolUseContent)
 
     # Array content
-    array_style_data = {
+    array_style_data: dict[str, Any] = {
         "role": "user",
         "content": [{"type": "text", "text": "Result:"}, {"type": "tool_result", "toolUseId": "call_1", "content": []}],
     }
@@ -256,7 +258,7 @@ async def test_create_message_result_with_tool_use():
 async def test_client_capabilities_with_sampling_tools():
     """Test ClientCapabilities with nested sampling capabilities for SEP-1577."""
     # New structured format
-    capabilities_data = {
+    capabilities_data: dict[str, Any] = {
         "sampling": {"tools": {}},
     }
     capabilities = ClientCapabilities.model_validate(capabilities_data)
@@ -265,7 +267,7 @@ async def test_client_capabilities_with_sampling_tools():
     assert capabilities.sampling.tools is not None
 
     # With both context and tools
-    full_capabilities_data = {"sampling": {"context": {}, "tools": {}}}
+    full_capabilities_data: dict[str, Any] = {"sampling": {"context": {}, "tools": {}}}
     full_caps = ClientCapabilities.model_validate(full_capabilities_data)
     assert isinstance(full_caps.sampling, SamplingCapability)
     assert full_caps.sampling.context is not None
