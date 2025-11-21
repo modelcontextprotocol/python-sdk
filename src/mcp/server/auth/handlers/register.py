@@ -49,6 +49,11 @@ class RegistrationHandler:
             )
 
         client_id = str(uuid4())
+
+        # If auth method is None, default to client_secret_post
+        if client_metadata.token_endpoint_auth_method is None:
+            client_metadata.token_endpoint_auth_method = "client_secret_post"
+
         client_secret = None
         if client_metadata.token_endpoint_auth_method != "none":  # pragma: no branch
             # cryptographically secure random 32-byte hex string

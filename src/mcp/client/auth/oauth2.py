@@ -13,13 +13,13 @@ import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
-from urllib.parse import urlencode, urljoin, urlparse
+from urllib.parse import quote, urlencode, urljoin, urlparse
 
 import anyio
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
-from mcp.client.auth import OAuthFlowError, OAuthTokenError
+from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -173,6 +173,42 @@ class OAuthContext:
         # Version format is YYYY-MM-DD, so string comparison works
         return protocol_version >= "2025-06-18"
 
+    def prepare_token_auth(
+        self, data: dict[str, str], headers: dict[str, str] | None = None
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """Prepare authentication for token requests.
+
+        Args:
+            data: The form data to send
+            headers: Optional headers dict to update
+
+        Returns:
+            Tuple of (updated_data, updated_headers)
+        """
+        if headers is None:
+            headers = {}  # pragma: no cover
+
+        if not self.client_info:
+            return data, headers  # pragma: no cover
+
+        auth_method = self.client_info.token_endpoint_auth_method
+
+        if auth_method == "client_secret_basic" and self.client_info.client_id and self.client_info.client_secret:
+            # URL-encode client ID and secret per RFC 6749 Section 2.3.1
+            encoded_id = quote(self.client_info.client_id, safe="")
+            encoded_secret = quote(self.client_info.client_secret, safe="")
+            credentials = f"{encoded_id}:{encoded_secret}"
+            encoded_credentials = base64.b64encode(credentials.encode()).decode()
+            headers["Authorization"] = f"Basic {encoded_credentials}"
+            # Don't include client_secret in body for basic auth
+            data = {k: v for k, v in data.items() if k != "client_secret"}
+        elif auth_method == "client_secret_post" and self.client_info.client_secret:
+            # Include client_secret in request body
+            data["client_secret"] = self.client_info.client_secret
+        # For auth_method == "none", don't add any client_secret
+
+        return data, headers
+
 
 class OAuthClientProvider(httpx.Auth):
     """
@@ -246,6 +282,27 @@ class OAuthClientProvider(httpx.Auth):
             registration_url = urljoin(auth_base_url, "/register")
 
         registration_data = self.context.client_metadata.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+        # If token_endpoint_auth_method is None, auto-select based on server support
+        if self.context.client_metadata.token_endpoint_auth_method is None:
+            preference_order = ["client_secret_basic", "client_secret_post", "none"]
+
+            if self.context.oauth_metadata and self.context.oauth_metadata.token_endpoint_auth_methods_supported:
+                supported = self.context.oauth_metadata.token_endpoint_auth_methods_supported
+                for method in preference_order:
+                    if method in supported:
+                        registration_data["token_endpoint_auth_method"] = method
+                        break
+                else:
+                    # No compatible methods between client and server
+                    raise OAuthRegistrationError(
+                        f"No compatible authentication methods. "
+                        f"Server supports: {supported}, "
+                        f"Client supports: {preference_order}"
+                    )
+            else:
+                # No server metadata available, use our default preference
+                registration_data["token_endpoint_auth_method"] = preference_order[0]
 
         return httpx.Request(
             "POST", registration_url, json=registration_data, headers={"Content-Type": "application/json"}
@@ -343,12 +400,11 @@ class OAuthClientProvider(httpx.Auth):
         if self.context.should_include_resource_param(self.context.protocol_version):
             token_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
-        if self.context.client_info.client_secret:
-            token_data["client_secret"] = self.context.client_info.client_secret
+        # Prepare authentication based on preferred method
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        token_data, headers = self.context.prepare_token_auth(token_data, headers)
 
-        return httpx.Request(
-            "POST", token_url, data=token_data, headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
+        return httpx.Request("POST", token_url, data=token_data, headers=headers)
 
     async def _handle_token_response(self, response: httpx.Response) -> None:
         """Handle token exchange response."""
@@ -370,7 +426,7 @@ class OAuthClientProvider(httpx.Auth):
         if not self.context.current_tokens or not self.context.current_tokens.refresh_token:
             raise OAuthTokenError("No refresh token available")  # pragma: no cover
 
-        if not self.context.client_info:
+        if not self.context.client_info or not self.context.client_info.client_id:
             raise OAuthTokenError("No client info available")  # pragma: no cover
 
         if self.context.oauth_metadata and self.context.oauth_metadata.token_endpoint:
@@ -379,7 +435,7 @@ class OAuthClientProvider(httpx.Auth):
             auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             token_url = urljoin(auth_base_url, "/token")
 
-        refresh_data = {
+        refresh_data: dict[str, str] = {
             "grant_type": "refresh_token",
             "refresh_token": self.context.current_tokens.refresh_token,
             "client_id": self.context.client_info.client_id,
@@ -389,12 +445,11 @@ class OAuthClientProvider(httpx.Auth):
         if self.context.should_include_resource_param(self.context.protocol_version):
             refresh_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
-        if self.context.client_info.client_secret:  # pragma: no branch
-            refresh_data["client_secret"] = self.context.client_info.client_secret
+        # Prepare authentication based on preferred method
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        refresh_data, headers = self.context.prepare_token_auth(refresh_data, headers)
 
-        return httpx.Request(
-            "POST", token_url, data=refresh_data, headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
+        return httpx.Request("POST", token_url, data=refresh_data, headers=headers)
 
     async def _handle_refresh_response(self, response: httpx.Response) -> bool:  # pragma: no cover
         """Handle token refresh response. Returns True if successful."""

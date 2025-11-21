@@ -11,8 +11,8 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create multiple MCP servers
-api_mcp = FastMCP("API Server")
-chat_mcp = FastMCP("Chat Server")
+api_mcp = FastMCP("API Server", json_response=True)
+chat_mcp = FastMCP("Chat Server", json_response=True)
 
 
 @api_mcp.tool()
