@@ -27,6 +27,8 @@ async def run(url: str) -> None:
 
             # Call the tool as a task
             print("\nCalling tool as a task...")
+
+            # TODO: make helper for this
             result = await session.send_request(
                 ClientRequest(
                     CallToolRequest(

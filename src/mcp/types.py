@@ -39,7 +39,7 @@ Cursor = str
 Role = Literal["user", "assistant"]
 RequestId = Annotated[int, Field(strict=True)] | str
 AnyFunction: TypeAlias = Callable[..., Any]
-TaskHint = Literal["never", "optional", "always"]
+TaskExecutionMode = Literal["never", "optional", "always"]
 
 
 class TaskMetadata(BaseModel):
@@ -1272,7 +1272,7 @@ class ToolExecution(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    task: Literal["never", "optional", "always"] | None = None
+    task: TaskExecutionMode | None = None
     """
     Indicates whether this tool supports task-augmented execution.
     This allows clients to handle long-running operations through polling

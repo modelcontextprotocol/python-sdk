@@ -40,6 +40,7 @@ async def list_tools() -> list[types.Tool]:
             name="long_running_task",
             description="A task that takes a few seconds to complete with status updates",
             inputSchema={"type": "object", "properties": {}},
+            execution=types.ToolExecution(task="always"),
         )
     ]
 
@@ -49,8 +50,8 @@ async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[types.T
     ctx = server.request_context
     app = ctx.lifespan_context
 
-    if not ctx.experimental.is_task:
-        return [types.TextContent(type="text", text="Error: This tool must be called as a task")]
+    # Validate task mode - raises McpError(-32601) if client didn't use task augmentation
+    ctx.experimental.validate_task_mode("always")
 
     # Create the task
     metadata = ctx.experimental.task_metadata

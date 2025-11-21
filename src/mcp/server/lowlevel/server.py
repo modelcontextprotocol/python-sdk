@@ -716,13 +716,17 @@ class Server(Generic[LifespanResultT, RequestT]):
 
                 # Set our global state that can be retrieved via
                 # app.get_request_context()
+                client_capabilities = session.client_params.capabilities if session.client_params else None
                 token = request_ctx.set(
                     RequestContext(
                         message.request_id,
                         message.request_meta,
                         session,
                         lifespan_context,
-                        Experimental(task_metadata=message.request_params.task if message.request_params else None),
+                        Experimental(
+                            task_metadata=message.request_params.task if message.request_params else None,
+                            _client_capabilities=client_capabilities,
+                        ),
                         request=request_data,
                     )
                 )
