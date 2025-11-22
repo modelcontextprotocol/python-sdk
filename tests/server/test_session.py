@@ -289,6 +289,80 @@ async def test_ping_request_before_initialization():
 
 
 @pytest.mark.anyio
+async def test_create_message_tool_result_validation():
+    """Test tool_use/tool_result validation in create_message."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    async with (
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        session = ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="test",
+                server_version="0.1.0",
+                capabilities=ServerCapabilities(),
+            ),
+        )
+
+        tool = types.Tool(name="test_tool", inputSchema={"type": "object"})
+        text = types.TextContent(type="text", text="hello")
+        tool_use = types.ToolUseContent(type="tool_use", id="call_1", name="test_tool", input={})
+        tool_result = types.ToolResultContent(type="tool_result", toolUseId="call_1", content=[])
+
+        # Case 1: tool_result mixed with other content
+        with pytest.raises(ValueError, match="only tool_result content"):
+            await session.create_message(
+                messages=[
+                    types.SamplingMessage(role="user", content=text),
+                    types.SamplingMessage(role="assistant", content=tool_use),
+                    types.SamplingMessage(role="user", content=[tool_result, text]),  # mixed!
+                ],
+                max_tokens=100,
+                tools=[tool],
+            )
+
+        # Case 2: tool_result without previous message
+        with pytest.raises(ValueError, match="no previous message"):
+            await session.create_message(
+                messages=[types.SamplingMessage(role="user", content=tool_result)],
+                max_tokens=100,
+                tools=[tool],
+            )
+
+        # Case 3: tool_result without previous tool_use
+        with pytest.raises(ValueError, match="previous message must contain tool_use"):
+            await session.create_message(
+                messages=[
+                    types.SamplingMessage(role="user", content=text),
+                    types.SamplingMessage(role="user", content=tool_result),
+                ],
+                max_tokens=100,
+                tools=[tool],
+            )
+
+        # Case 4: mismatched tool IDs
+        with pytest.raises(ValueError, match="must correspond to all tool_use"):
+            await session.create_message(
+                messages=[
+                    types.SamplingMessage(role="user", content=text),
+                    types.SamplingMessage(role="assistant", content=tool_use),
+                    types.SamplingMessage(
+                        role="user",
+                        content=types.ToolResultContent(type="tool_result", toolUseId="wrong_id", content=[]),
+                    ),
+                ],
+                max_tokens=100,
+                tools=[tool],
+            )
+
+
+@pytest.mark.anyio
 async def test_other_requests_blocked_before_initialization():
     """Test that non-ping requests are still blocked before initialization."""
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)

@@ -246,7 +246,41 @@ class ServerSession(
 
         Returns:
             The sampling result from the client.
+
+        Raises:
+            McpError: If tool_use or tool_result blocks are misused
         """
+
+        if messages and tools:
+            last_msg_content = messages[-1].content
+            last_content = last_msg_content if isinstance(last_msg_content, list) else [last_msg_content]
+            has_tool_results = any(c.type == "tool_result" for c in last_content)
+
+            previous_content: list[types.SamplingMessageContentBlock] | None = None
+            if len(messages) >= 2:
+                prev_msg_content = messages[-2].content
+                previous_content = prev_msg_content if isinstance(prev_msg_content, list) else [prev_msg_content]
+            has_previous_tool_use = previous_content and any(c.type == "tool_use" for c in previous_content)
+
+            if has_tool_results:
+                if any(c.type != "tool_result" for c in last_content):
+                    raise ValueError("The last message must contain only tool_result content if any is present")
+                if len(messages) == 1:
+                    raise ValueError(
+                        "The last message cannot contain tool_result content if there is no previous message"
+                    )
+                if not has_previous_tool_use:
+                    raise ValueError(
+                        "The previous message must contain tool_use content if the last message contains tool_result content"
+                    )
+            if has_previous_tool_use and previous_content:
+                tool_use_ids = {c.id for c in previous_content if c.type == "tool_use"}
+                tool_result_ids = {c.toolUseId for c in last_content if c.type == "tool_result"}
+                if tool_use_ids != tool_result_ids:
+                    raise ValueError(
+                        "The tool_result content in the last message must correspond to all tool_use content in the previous message"
+                    )
+
         return await self.send_request(
             request=types.ServerRequest(
                 types.CreateMessageRequest(
