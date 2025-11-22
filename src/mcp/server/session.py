@@ -223,9 +223,30 @@ class ServerSession(
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         model_preferences: types.ModelPreferences | None = None,
+        tools: list[types.Tool] | None = None,
+        tool_choice: types.ToolChoice | None = None,
         related_request_id: types.RequestId | None = None,
     ) -> types.CreateMessageResult:
-        """Send a sampling/create_message request."""
+        """Send a sampling/create_message request.
+
+        Args:
+            messages: The conversation messages to send.
+            max_tokens: Maximum number of tokens to generate.
+            system_prompt: Optional system prompt.
+            include_context: Optional context inclusion setting.
+            temperature: Optional sampling temperature.
+            stop_sequences: Optional stop sequences.
+            metadata: Optional metadata to pass through to the LLM provider.
+            model_preferences: Optional model selection preferences.
+            tools: Optional list of tools the LLM can use during sampling.
+                Requires client to have sampling.tools capability.
+            tool_choice: Optional control over tool usage behavior.
+                Requires client to have sampling.tools capability.
+            related_request_id: Optional ID of a related request.
+
+        Returns:
+            The sampling result from the client.
+        """
         return await self.send_request(
             request=types.ServerRequest(
                 types.CreateMessageRequest(
@@ -238,6 +259,8 @@ class ServerSession(
                         stopSequences=stop_sequences,
                         metadata=metadata,
                         modelPreferences=model_preferences,
+                        tools=tools,
+                        toolChoice=tool_choice,
                     ),
                 )
             ),
