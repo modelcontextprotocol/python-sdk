@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar, Union
+from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
 from pydantic.networks import AnyUrl, UrlConstraints
@@ -822,7 +822,7 @@ class ToolResultContent(BaseModel):
     toolUseId: str
     """The unique identifier that corresponds to the tool call's id field."""
 
-    content: list[Union[TextContent, ImageContent, AudioContent, "ResourceLink", "EmbeddedResource"]] = []
+    content: list["ContentBlock"] = []
     """
     A list of content objects representing the tool result.
     Defaults to empty list if not provided.
