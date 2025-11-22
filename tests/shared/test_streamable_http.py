@@ -23,7 +23,9 @@ from starlette.routing import Mount
 import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.transport_session import ClientTransportSession
 from mcp.server import Server
+from mcp.server.session import ServerSession
 from mcp.server.streamable_http import (
     MCP_PROTOCOL_VERSION_HEADER,
     MCP_SESSION_ID_HEADER,
@@ -198,7 +200,9 @@ class ServerTest(Server):  # pragma: no cover
 
             elif name == "test_sampling_tool":
                 # Test sampling by requesting the client to sample a message
-                sampling_result = await ctx.session.create_message(
+                session = ctx.session
+                assert isinstance(session, ServerSession)
+                sampling_result = await session.create_message(
                     messages=[
                         types.SamplingMessage(
                             role="user",
@@ -1233,7 +1237,7 @@ async def test_streamablehttp_server_sampling(basic_server: None, basic_server_u
 
     # Define sampling callback that returns a mock response
     async def sampling_callback(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientTransportSession, Any],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult:
         nonlocal sampling_callback_invoked, captured_message_params

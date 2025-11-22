@@ -47,6 +47,7 @@ from pydantic import AnyUrl
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
+from mcp.server.transport_session import ServerTransportSession
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (
     BaseSession,
@@ -61,7 +62,7 @@ class InitializationState(Enum):
     Initialized = 3
 
 
-ServerSessionT = TypeVar("ServerSessionT", bound="ServerSession")
+ServerSessionT = TypeVar("ServerSessionT", bound="ServerTransportSession")
 
 ServerRequestResponder = (
     RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception
@@ -69,13 +70,14 @@ ServerRequestResponder = (
 
 
 class ServerSession(
+    ServerTransportSession,
     BaseSession[
         types.ServerRequest,
         types.ServerNotification,
         types.ServerResult,
         types.ClientRequest,
         types.ClientNotification,
-    ]
+    ],
 ):
     _initialized: InitializationState = InitializationState.NotInitialized
     _client_params: types.InitializeRequestParams | None = None

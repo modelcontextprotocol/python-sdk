@@ -54,12 +54,13 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT
 from mcp.server.lowlevel.server import Server as MCPServer
 from mcp.server.lowlevel.server import lifespan as default_lifespan
-from mcp.server.session import ServerSession, ServerSessionT
+from mcp.server.session import ServerSessionT
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.transport_session import ServerTransportSession
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
 from mcp.types import Annotations, AnyFunction, ContentBlock, GetPromptResult, Icon, ToolAnnotations
 from mcp.types import Prompt as MCPPrompt
@@ -315,7 +316,7 @@ class FastMCP(Generic[LifespanResultT]):
             for info in tools
         ]
 
-    def get_context(self) -> Context[ServerSession, LifespanResultT, Request]:
+    def get_context(self) -> Context[ServerTransportSession, LifespanResultT, Request]:
         """
         Returns a Context object. Note that the context will only be valid
         during a request; outside a request, most methods will error.
