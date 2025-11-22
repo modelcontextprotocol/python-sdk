@@ -300,7 +300,7 @@ async def test_create_message_tool_result_validation():
         server_to_client_send,
         server_to_client_receive,
     ):
-        session = ServerSession(
+        async with ServerSession(
             client_to_server_receive,
             server_to_client_send,
             InitializationOptions(
@@ -308,58 +308,57 @@ async def test_create_message_tool_result_validation():
                 server_version="0.1.0",
                 capabilities=ServerCapabilities(),
             ),
-        )
+        ) as session:
+            tool = types.Tool(name="test_tool", inputSchema={"type": "object"})
+            text = types.TextContent(type="text", text="hello")
+            tool_use = types.ToolUseContent(type="tool_use", id="call_1", name="test_tool", input={})
+            tool_result = types.ToolResultContent(type="tool_result", toolUseId="call_1", content=[])
 
-        tool = types.Tool(name="test_tool", inputSchema={"type": "object"})
-        text = types.TextContent(type="text", text="hello")
-        tool_use = types.ToolUseContent(type="tool_use", id="call_1", name="test_tool", input={})
-        tool_result = types.ToolResultContent(type="tool_result", toolUseId="call_1", content=[])
+            # Case 1: tool_result mixed with other content
+            with pytest.raises(ValueError, match="only tool_result content"):
+                await session.create_message(
+                    messages=[
+                        types.SamplingMessage(role="user", content=text),
+                        types.SamplingMessage(role="assistant", content=tool_use),
+                        types.SamplingMessage(role="user", content=[tool_result, text]),  # mixed!
+                    ],
+                    max_tokens=100,
+                    tools=[tool],
+                )
 
-        # Case 1: tool_result mixed with other content
-        with pytest.raises(ValueError, match="only tool_result content"):
-            await session.create_message(
-                messages=[
-                    types.SamplingMessage(role="user", content=text),
-                    types.SamplingMessage(role="assistant", content=tool_use),
-                    types.SamplingMessage(role="user", content=[tool_result, text]),  # mixed!
-                ],
-                max_tokens=100,
-                tools=[tool],
-            )
+            # Case 2: tool_result without previous message
+            with pytest.raises(ValueError, match="not matching any tool_use"):
+                await session.create_message(
+                    messages=[types.SamplingMessage(role="user", content=tool_result)],
+                    max_tokens=100,
+                    tools=[tool],
+                )
 
-        # Case 2: tool_result without previous message
-        with pytest.raises(ValueError, match="no previous message"):
-            await session.create_message(
-                messages=[types.SamplingMessage(role="user", content=tool_result)],
-                max_tokens=100,
-                tools=[tool],
-            )
+            # Case 3: tool_result without previous tool_use
+            with pytest.raises(ValueError, match="not matching any tool_use"):
+                await session.create_message(
+                    messages=[
+                        types.SamplingMessage(role="user", content=text),
+                        types.SamplingMessage(role="user", content=tool_result),
+                    ],
+                    max_tokens=100,
+                    tools=[tool],
+                )
 
-        # Case 3: tool_result without previous tool_use
-        with pytest.raises(ValueError, match="previous message must contain tool_use"):
-            await session.create_message(
-                messages=[
-                    types.SamplingMessage(role="user", content=text),
-                    types.SamplingMessage(role="user", content=tool_result),
-                ],
-                max_tokens=100,
-                tools=[tool],
-            )
-
-        # Case 4: mismatched tool IDs
-        with pytest.raises(ValueError, match="must correspond to all tool_use"):
-            await session.create_message(
-                messages=[
-                    types.SamplingMessage(role="user", content=text),
-                    types.SamplingMessage(role="assistant", content=tool_use),
-                    types.SamplingMessage(
-                        role="user",
-                        content=types.ToolResultContent(type="tool_result", toolUseId="wrong_id", content=[]),
-                    ),
-                ],
-                max_tokens=100,
-                tools=[tool],
-            )
+            # Case 4: mismatched tool IDs
+            with pytest.raises(ValueError, match="ids of tool_result blocks and tool_use blocks"):
+                await session.create_message(
+                    messages=[
+                        types.SamplingMessage(role="user", content=text),
+                        types.SamplingMessage(role="assistant", content=tool_use),
+                        types.SamplingMessage(
+                            role="user",
+                            content=types.ToolResultContent(type="tool_result", toolUseId="wrong_id", content=[]),
+                        ),
+                    ],
+                    max_tokens=100,
+                    tools=[tool],
+                )
 
 
 @pytest.mark.anyio
