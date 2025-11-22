@@ -360,6 +360,29 @@ async def test_create_message_tool_result_validation():
                     tools=[tool],
                 )
 
+            # Case 5: text-only message with tools (no tool_results) - passes validation
+            # This covers branch 261->266 (has_tool_results=False) and 266->272
+            # We use move_on_after since send_request will block waiting for response
+            with anyio.move_on_after(0.01):
+                await session.create_message(
+                    messages=[types.SamplingMessage(role="user", content=text)],
+                    max_tokens=100,
+                    tools=[tool],
+                )
+
+            # Case 6: valid matching tool_result/tool_use IDs - passes validation
+            # This covers branch 269->272 (IDs match, no error raised)
+            with anyio.move_on_after(0.01):
+                await session.create_message(
+                    messages=[
+                        types.SamplingMessage(role="user", content=text),
+                        types.SamplingMessage(role="assistant", content=tool_use),
+                        types.SamplingMessage(role="user", content=tool_result),
+                    ],
+                    max_tokens=100,
+                    tools=[tool],
+                )
+
 
 @pytest.mark.anyio
 async def test_other_requests_blocked_before_initialization():

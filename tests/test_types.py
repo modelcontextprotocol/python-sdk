@@ -253,6 +253,11 @@ async def test_create_message_result_with_tool_use():
     assert result.stopReason == "toolUse"
     assert result.model == "claude-3"
 
+    # Test content_as_list with single content (covers else branch)
+    content_list = result.content_as_list
+    assert len(content_list) == 1
+    assert content_list[0] == result.content
+
 
 @pytest.mark.anyio
 async def test_client_capabilities_with_sampling_tools():
