@@ -309,6 +309,15 @@ async def test_create_message_tool_result_validation():
                 capabilities=ServerCapabilities(),
             ),
         ) as session:
+            # Set up client params with sampling.tools capability for the test
+            session._client_params = types.InitializeRequestParams(
+                protocolVersion=types.LATEST_PROTOCOL_VERSION,
+                capabilities=types.ClientCapabilities(
+                    sampling=types.SamplingCapability(tools=types.SamplingToolsCapability())
+                ),
+                clientInfo=types.Implementation(name="test", version="1.0"),
+            )
+
             tool = types.Tool(name="test_tool", inputSchema={"type": "object"})
             text = types.TextContent(type="text", text="hello")
             tool_use = types.ToolUseContent(type="tool_use", id="call_1", name="test_tool", input={})

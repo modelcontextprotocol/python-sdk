@@ -120,6 +120,12 @@ class ServerSession(
         if capability.sampling is not None:
             if client_caps.sampling is None:
                 return False
+            if capability.sampling.context is not None:
+                if client_caps.sampling.context is None:
+                    return False
+            if capability.sampling.tools is not None:
+                if client_caps.sampling.tools is None:
+                    return False
 
         if capability.elicitation is not None:
             if client_caps.elicitation is None:
@@ -234,6 +240,7 @@ class ServerSession(
             max_tokens: Maximum number of tokens to generate.
             system_prompt: Optional system prompt.
             include_context: Optional context inclusion setting.
+                Requires client to have sampling.context capability.
             temperature: Optional sampling temperature.
             stop_sequences: Optional stop sequences.
             metadata: Optional metadata to pass through to the LLM provider.
@@ -250,6 +257,20 @@ class ServerSession(
         Raises:
             McpError: If tool_use or tool_result blocks are misused when tools are provided.
         """
+
+        if tools is not None or tool_choice is not None:
+            has_tools_cap = self.check_client_capability( \
+                types.ClientCapabilities(sampling=types.SamplingCapability(tools=types.SamplingToolsCapability()))
+            )
+            if not has_tools_cap:
+                from mcp.shared.exceptions import McpError
+
+                raise McpError(
+                    types.ErrorData(
+                        code=types.INVALID_PARAMS,
+                        message="Client does not support sampling tools capability",
+                    )
+                )
 
         if messages and tools:
             last_content = messages[-1].content_as_list
