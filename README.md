@@ -887,7 +887,7 @@ async def generate_poem(topic: str, ctx: Context[ServerSession, None]) -> str:
     )
 
     if all(c.type == "text" for c in result.content_as_list):
-        return '\n'.join(c.text for c in result.content_as_list if c.type == "text")
+        return "\n".join(c.text for c in result.content_as_list if c.type == "text")
     return str(result.content)
 ```
 
