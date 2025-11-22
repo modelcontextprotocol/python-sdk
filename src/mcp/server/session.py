@@ -96,7 +96,9 @@ class ServerSession(
         self._incoming_message_stream_writer, self._incoming_message_stream_reader = anyio.create_memory_object_stream[
             ServerRequestResponder
         ](0)
-        self._exit_stack.push_async_callback(lambda: self._incoming_message_stream_reader.aclose())
+        # Register both streams for cleanup on exit (LIFO order: writer closes first)
+        self._exit_stack.push_async_callback(self._incoming_message_stream_reader.aclose)
+        self._exit_stack.push_async_callback(self._incoming_message_stream_writer.aclose)
 
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
@@ -134,10 +136,6 @@ class ServerSession(
                     return False
 
         return True
-
-    async def _receive_loop(self) -> None:
-        async with self._incoming_message_stream_writer:
-            await super()._receive_loop()
 
     async def _received_request(self, responder: RequestResponder[types.ClientRequest, types.ServerResult]):
         match responder.request.root:
