@@ -260,7 +260,7 @@ class ServerSession(
         """
 
         if tools is not None or tool_choice is not None:
-            has_tools_cap = self.check_client_capability( \
+            has_tools_cap = self.check_client_capability(
                 types.ClientCapabilities(sampling=types.SamplingCapability(tools=types.SamplingToolsCapability()))
             )
             if not has_tools_cap:
