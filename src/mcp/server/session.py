@@ -120,6 +120,12 @@ class ServerSession(
         if capability.sampling is not None:
             if client_caps.sampling is None:
                 return False
+            if capability.sampling.context is not None:
+                if client_caps.sampling.context is None:
+                    return False
+            if capability.sampling.tools is not None:
+                if client_caps.sampling.tools is None:
+                    return False
 
         if capability.elicitation is not None:
             if client_caps.elicitation is None:
@@ -234,6 +240,7 @@ class ServerSession(
             max_tokens: Maximum number of tokens to generate.
             system_prompt: Optional system prompt.
             include_context: Optional context inclusion setting.
+                Requires client to have sampling.context capability.
             temperature: Optional sampling temperature.
             stop_sequences: Optional stop sequences.
             metadata: Optional metadata to pass through to the LLM provider.
