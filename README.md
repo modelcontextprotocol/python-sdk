@@ -886,10 +886,9 @@ async def generate_poem(topic: str, ctx: Context[ServerSession, None]) -> str:
         max_tokens=100,
     )
 
-    content = result.content[0] if isinstance(result.content, list) else result.content
-    if content.type == "text":
-        return content.text
-    return str(content)
+    if all(c.type == "text" for c in result.content_as_list):
+        return '\n'.join(c.text for c in result.content_as_list if c.type == "text")
+    return str(result.content)
 ```
 
 _Full example: [examples/snippets/servers/sampling.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/sampling.py)_

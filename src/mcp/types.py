@@ -864,6 +864,12 @@ class SamplingMessage(BaseModel):
     """
     model_config = ConfigDict(extra="allow")
 
+    @property
+    def content_as_list(self) -> list[SamplingMessageContentBlock]:
+        """Returns the content as a list of content blocks, regardless of whether
+        it was originally a single block or a list."""
+        return self.content if isinstance(self.content, list) else [self.content]
+
 
 class EmbeddedResource(BaseModel):
     """
@@ -1231,6 +1237,12 @@ class CreateMessageResult(Result):
     The reason why sampling stopped, if known.
     'toolUse' indicates the model wants to use a tool.
     """
+
+    @property
+    def content_as_list(self) -> list[SamplingMessageContentBlock]:
+        """Returns the content as a list of content blocks, regardless of whether
+        it was originally a single block or a list."""
+        return self.content if isinstance(self.content, list) else [self.content]
 
 
 class ResourceTemplateReference(BaseModel):
