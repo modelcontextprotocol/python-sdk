@@ -18,6 +18,7 @@ from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
     create_client_info_from_metadata_url,
+    create_client_registration_request,
     create_oauth_metadata_request,
     extract_field_from_www_auth,
     extract_resource_metadata_from_www_auth,
@@ -946,6 +947,49 @@ class TestRegistrationResponse:
         assert mock_response._aread_called
         # Verify the error message includes the response text
         assert "Registration failed: 400" in str(exc_info.value)
+
+
+class TestCreateClientRegistrationRequest:
+    """Test client registration request creation."""
+
+    def test_uses_registration_endpoint_from_metadata(self):
+        """Test that registration URL comes from metadata when available."""
+        oauth_metadata = OAuthMetadata(
+            issuer=AnyHttpUrl("https://auth.example.com"),
+            authorization_endpoint=AnyHttpUrl("https://auth.example.com/authorize"),
+            token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
+            registration_endpoint=AnyHttpUrl("https://auth.example.com/register"),
+        )
+        client_metadata = OAuthClientMetadata(redirect_uris=[AnyHttpUrl("http://localhost:3000/callback")])
+
+        request = create_client_registration_request(oauth_metadata, client_metadata, "https://auth.example.com")
+
+        assert str(request.url) == "https://auth.example.com/register"
+        assert request.method == "POST"
+
+    def test_falls_back_to_default_register_endpoint_when_no_metadata(self):
+        """Test that registration uses fallback URL when auth_server_metadata is None."""
+        client_metadata = OAuthClientMetadata(redirect_uris=[AnyHttpUrl("http://localhost:3000/callback")])
+
+        request = create_client_registration_request(None, client_metadata, "https://auth.example.com")
+
+        assert str(request.url) == "https://auth.example.com/register"
+        assert request.method == "POST"
+
+    def test_falls_back_when_metadata_has_no_registration_endpoint(self):
+        """Test fallback when metadata exists but lacks registration_endpoint."""
+        oauth_metadata = OAuthMetadata(
+            issuer=AnyHttpUrl("https://auth.example.com"),
+            authorization_endpoint=AnyHttpUrl("https://auth.example.com/authorize"),
+            token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
+            # No registration_endpoint
+        )
+        client_metadata = OAuthClientMetadata(redirect_uris=[AnyHttpUrl("http://localhost:3000/callback")])
+
+        request = create_client_registration_request(oauth_metadata, client_metadata, "https://auth.example.com")
+
+        assert str(request.url) == "https://auth.example.com/register"
+        assert request.method == "POST"
 
 
 class TestAuthFlow:
