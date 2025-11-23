@@ -150,9 +150,15 @@ class CallbackServer:
 class SimpleAuthClient:
     """Simple MCP client with auth support."""
 
-    def __init__(self, server_url: str, transport_type: str = "streamable-http"):
+    def __init__(
+        self,
+        server_url: str,
+        transport_type: str = "streamable-http",
+        client_metadata_url: str | None = None,
+    ):
         self.server_url = server_url
         self.transport_type = transport_type
+        self.client_metadata_url = client_metadata_url
         self.session: ClientSession | None = None
 
     async def connect(self):
@@ -192,7 +198,7 @@ class SimpleAuthClient:
                 storage=InMemoryTokenStorage(),
                 redirect_handler=_default_redirect_handler,
                 callback_handler=callback_handler,
-                client_metadata_url="https://example.com/simple-auth-client",
+                client_metadata_url=self.client_metadata_url,
             )
 
             # Create transport with auth handler based on transport type
@@ -336,6 +342,7 @@ async def main():
     # Most MCP streamable HTTP servers use /mcp as the endpoint
     server_url = os.getenv("MCP_SERVER_PORT", 8000)
     transport_type = os.getenv("MCP_TRANSPORT_TYPE", "streamable-http")
+    client_metadata_url = os.getenv("MCP_CLIENT_METADATA_URL")
     server_url = (
         f"http://localhost:{server_url}/mcp"
         if transport_type == "streamable-http"
@@ -345,9 +352,11 @@ async def main():
     print("🚀 Simple MCP Auth Client")
     print(f"Connecting to: {server_url}")
     print(f"Transport type: {transport_type}")
+    if client_metadata_url:
+        print(f"Client metadata URL: {client_metadata_url}")
 
     # Start connection flow - OAuth will be handled automatically
-    client = SimpleAuthClient(server_url, transport_type)
+    client = SimpleAuthClient(server_url, transport_type, client_metadata_url)
     await client.connect()
 
 
