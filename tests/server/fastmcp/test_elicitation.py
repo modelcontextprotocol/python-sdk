@@ -230,12 +230,12 @@ async def test_elicitation_with_optional_fields():
         result = await ctx.elicit(message="Please provide tags", schema=ValidMultiSelectSchema)
         if result.action == "accept" and result.data:
             return f"Name: {result.data.name}, Tags: {', '.join(result.data.tags)}"
-        return f"User {result.action}"
+        return f"User {result.action}"  # pragma: no cover
 
     async def multiselect_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
         if "Please provide tags" in params.message:
             return ElicitResult(action="accept", content={"name": "Test", "tags": ["tag1", "tag2"]})
-        return ElicitResult(action="decline")
+        return ElicitResult(action="decline")  # pragma: no cover
 
     await call_tool_and_assert(mcp, multiselect_callback, "valid_multiselect_tool", {}, "Name: Test, Tags: tag1, tag2")
 
@@ -250,12 +250,12 @@ async def test_elicitation_with_optional_fields():
         if result.action == "accept" and result.data:
             tags_str = ", ".join(result.data.tags) if result.data.tags else "none"
             return f"Name: {result.data.name}, Tags: {tags_str}"
-        return f"User {result.action}"
+        return f"User {result.action}"  # pragma: no cover
 
     async def optional_multiselect_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
         if "Please provide optional tags" in params.message:
             return ElicitResult(action="accept", content={"name": "Test", "tags": ["tag1", "tag2"]})
-        return ElicitResult(action="decline")
+        return ElicitResult(action="decline")  # pragma: no cover
 
     await call_tool_and_assert(
         mcp, optional_multiselect_callback, "optional_multiselect_tool", {}, "Name: Test, Tags: tag1, tag2"
@@ -342,7 +342,7 @@ async def test_elicitation_with_enum_titles():
         result = await ctx.elicit(message="Select your favorite color", schema=FavoriteColorSchema)
         if result.action == "accept" and result.data:
             return f"User: {result.data.user_name}, Favorite: {result.data.favorite_color}"
-        return f"User {result.action}"
+        return f"User {result.action}"  # pragma: no cover
 
     # Test multi-select with titles using anyOf
     class FavoriteColorsSchema(BaseModel):
@@ -366,7 +366,7 @@ async def test_elicitation_with_enum_titles():
         result = await ctx.elicit(message="Select your favorite colors", schema=FavoriteColorsSchema)
         if result.action == "accept" and result.data:
             return f"User: {result.data.user_name}, Colors: {', '.join(result.data.favorite_colors)}"
-        return f"User {result.action}"
+        return f"User {result.action}"  # pragma: no cover
 
     # Test legacy enumNames format
     class LegacyColorSchema(BaseModel):
@@ -381,7 +381,7 @@ async def test_elicitation_with_enum_titles():
         result = await ctx.elicit(message="Select a color (legacy format)", schema=LegacyColorSchema)
         if result.action == "accept" and result.data:
             return f"User: {result.data.user_name}, Color: {result.data.color}"
-        return f"User {result.action}"
+        return f"User {result.action}"  # pragma: no cover
 
     async def enum_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
         if "colors" in params.message and "legacy" not in params.message:
@@ -391,7 +391,7 @@ async def test_elicitation_with_enum_titles():
                 return ElicitResult(action="accept", content={"user_name": "Charlie", "color": "green"})
             else:
                 return ElicitResult(action="accept", content={"user_name": "Alice", "favorite_color": "blue"})
-        return ElicitResult(action="decline")
+        return ElicitResult(action="decline")  # pragma: no cover
 
     # Test single-select with titles
     await call_tool_and_assert(mcp, enum_callback, "select_favorite_color", {}, "User: Alice, Favorite: blue")

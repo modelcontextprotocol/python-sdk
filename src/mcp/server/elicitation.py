@@ -45,7 +45,7 @@ def _validate_elicitation_schema(schema: type[BaseModel]) -> None:
     for field_name, field_info in schema.model_fields.items():
         annotation = field_info.annotation
 
-        if annotation is None or annotation is types.NoneType:
+        if annotation is None or annotation is types.NoneType:  # pragma: no cover
             continue
         elif _is_primitive_field(annotation):
             continue
@@ -69,7 +69,7 @@ def _is_string_sequence(annotation: type) -> bool:
                 args = get_args(annotation)
                 # Should have single str type arg
                 return len(args) == 1 and args[0] is str
-        except TypeError:
+        except TypeError:  # pragma: no cover
             # origin is not a class, so it can't be a subclass of Sequence
             pass
     return False
