@@ -370,8 +370,7 @@ class ServerSession(
         return await self.send_request(
             types.ServerRequest(
                 types.ElicitRequest(
-                    params=types.ElicitRequestParams(
-                        mode="form",
+                    params=types.ElicitRequestFormParams(
                         message=message,
                         requestedSchema=requestedSchema,
                     ),
@@ -405,8 +404,7 @@ class ServerSession(
         return await self.send_request(
             types.ServerRequest(
                 types.ElicitRequest(
-                    params=types.ElicitRequestParams(
-                        mode="url",
+                    params=types.ElicitRequestURLParams(
                         message=message,
                         url=url,
                         elicitationId=elicitation_id,

@@ -151,8 +151,8 @@ URL_ELICITATION_REQUIRED = -32042
 """Error code indicating that a URL mode elicitation is required before the request can be processed."""
 
 # SDK error codes
-CONNECTION_CLOSED = -32001
-# REQUEST_TIMEOUT = -32002  # the typescript sdk uses this
+CONNECTION_CLOSED = -32000
+# REQUEST_TIMEOUT = -32001  # the typescript sdk uses this
 
 # Standard JSON-RPC error codes
 PARSE_ERROR = -32700
@@ -1462,22 +1462,6 @@ class ElicitCompleteNotification(
     params: ElicitCompleteNotificationParams
 
 
-class ElicitTrackRequestParams(RequestParams):
-    """Parameters for elicitation tracking requests."""
-
-    elicitationId: str
-    """The unique identifier of the elicitation to track."""
-
-    model_config = ConfigDict(extra="allow")
-
-
-class ElicitTrackRequest(Request[ElicitTrackRequestParams, Literal["elicitation/track"]]):
-    """A request from the client to track progress of a URL mode elicitation."""
-
-    method: Literal["elicitation/track"] = "elicitation/track"
-    params: ElicitTrackRequestParams
-
-
 class ClientRequest(
     RootModel[
         PingRequest
@@ -1493,7 +1477,6 @@ class ClientRequest(
         | UnsubscribeRequest
         | CallToolRequest
         | ListToolsRequest
-        | ElicitTrackRequest
     ]
 ):
     pass
@@ -1510,32 +1493,56 @@ ElicitRequestedSchema: TypeAlias = dict[str, Any]
 """Schema for elicitation requests."""
 
 
-class ElicitRequestParams(RequestParams):
-    """Parameters for elicitation requests.
+class ElicitRequestFormParams(RequestParams):
+    """Parameters for form mode elicitation requests.
 
-    The mode field determines the type of elicitation:
-    - "form": In-band structured data collection with optional schema validation
-    - "url": Out-of-band interaction via URL navigation
+    Form mode collects non-sensitive information from the user via an in-band form
+    rendered by the client.
     """
 
-    mode: Literal["form", "url"]
-    """The mode of elicitation (form or url)."""
+    mode: Literal["form"] = "form"
+    """The elicitation mode (always "form" for this type)."""
 
     message: str
-    """A human-readable message explaining why the interaction is needed."""
+    """The message to present to the user describing what information is being requested."""
 
-    # Form mode fields
-    requestedSchema: ElicitRequestedSchema | None = None
-    """JSON Schema defining the structure of expected response (form mode only)."""
-
-    # URL mode fields
-    url: str | None = None
-    """The URL that the user should navigate to (url mode only)."""
-
-    elicitationId: str | None = None
-    """A unique identifier for the elicitation (url mode only)."""
+    requestedSchema: ElicitRequestedSchema
+    """
+    A restricted subset of JSON Schema defining the structure of expected response.
+    Only top-level properties are allowed, without nesting.
+    """
 
     model_config = ConfigDict(extra="allow")
+
+
+class ElicitRequestURLParams(RequestParams):
+    """Parameters for URL mode elicitation requests.
+
+    URL mode directs users to external URLs for sensitive out-of-band interactions
+    like OAuth flows, credential collection, or payment processing.
+    """
+
+    mode: Literal["url"] = "url"
+    """The elicitation mode (always "url" for this type)."""
+
+    message: str
+    """The message to present to the user explaining why the interaction is needed."""
+
+    url: str
+    """The URL that the user should navigate to."""
+
+    elicitationId: str
+    """
+    The ID of the elicitation, which must be unique within the context of the server.
+    The client MUST treat this ID as an opaque value.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+
+# Union type for elicitation request parameters
+ElicitRequestParams: TypeAlias = ElicitRequestURLParams | ElicitRequestFormParams
+"""Parameters for elicitation requests - either form or URL mode."""
 
 
 class ElicitRequest(Request[ElicitRequestParams, Literal["elicitation/create"]]):
@@ -1556,59 +1563,29 @@ class ElicitResult(Result):
     - "cancel": User dismissed without making an explicit choice
     """
 
-    content: dict[str, str | int | float | bool | None] | None = None
+    content: dict[str, str | int | bool | list[str]] | None = None
     """
     The submitted form data, only present when action is "accept" in form mode.
-    Contains values matching the requested schema.
+    Contains values matching the requested schema. Values can be strings, integers,
+    booleans, or arrays of strings.
     For URL mode, this field is omitted.
     """
 
 
-class ElicitTrackResult(Result):
-    """The server's response to an elicitation tracking request."""
-
-    status: Literal["pending", "complete"]
-    """
-    The status of the elicitation.
-    - "pending": The elicitation is still in progress
-    - "complete": The elicitation has been completed
-    """
-
-    model_config = ConfigDict(extra="allow")
-
-
-class UrlElicitationInfo(BaseModel):
-    """Information about a URL mode elicitation embedded in an ElicitationRequired error."""
-
-    mode: Literal["url"] = "url"
-    """The mode of elicitation (must be "url")."""
-
-    elicitationId: str
-    """A unique identifier for the elicitation."""
-
-    url: str
-    """The URL that the user should navigate to."""
-
-    message: str
-    """A human-readable message explaining why the interaction is needed."""
-
-    model_config = ConfigDict(extra="allow")
-
-
 class ElicitationRequiredErrorData(BaseModel):
-    """Error data for ElicitationRequired errors.
+    """Error data for URLElicitationRequiredError.
 
     Servers return this when a request cannot be processed until one or more
     URL mode elicitations are completed.
     """
 
-    elicitations: list[UrlElicitationInfo]
+    elicitations: list[ElicitRequestURLParams]
     """List of URL mode elicitations that must be completed."""
 
     model_config = ConfigDict(extra="allow")
 
 
-class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult | ElicitTrackResult]):
+class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult]):
     pass
 
 

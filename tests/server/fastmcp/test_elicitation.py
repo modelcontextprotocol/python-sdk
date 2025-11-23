@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, Field
 
+from mcp import types
 from mcp.client.session import ClientSession, ElicitationFnT
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
@@ -247,8 +248,8 @@ async def test_elicitation_with_default_values():
     # First verify that defaults are present in the JSON schema sent to clients
     async def callback_schema_verify(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         # Verify the schema includes defaults
+        assert isinstance(params, types.ElicitRequestFormParams), "Expected form mode elicitation"
         schema = params.requestedSchema
-        assert schema is not None, "Schema should not be None for form mode elicitation"
         props = schema["properties"]
 
         assert props["name"]["default"] == "Guest"

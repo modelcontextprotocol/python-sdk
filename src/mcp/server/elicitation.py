@@ -139,8 +139,8 @@ async def elicit_url(
     - Any interaction where data should not pass through the LLM context
 
     The response indicates whether the user consented to navigate to the URL.
-    The actual interaction happens out-of-band, and you can track progress using
-    session.track_elicitation().
+    The actual interaction happens out-of-band. When the elicitation completes,
+    the server should send an ElicitCompleteNotification to notify the client.
 
     Args:
         session: The server session

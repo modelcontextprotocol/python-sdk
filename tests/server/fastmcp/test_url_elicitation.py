@@ -157,9 +157,12 @@ async def test_url_no_content_in_response():
         return f"Action: {result.action}, Content: {result.content}"
 
     async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
-        # Verify that no content field is expected for URL mode
+        # Verify that this is URL mode
         assert params.mode == "url"
-        assert params.requestedSchema is None
+        assert isinstance(params, types.ElicitRequestURLParams)
+        # URL params have url and elicitationId, not requestedSchema
+        assert params.url == "https://example.com/test"
+        assert params.elicitationId == "test-001"
         # Return without content - this is correct for URL mode
         return ElicitResult(action="accept")
 
@@ -195,9 +198,9 @@ async def test_form_mode_still_works():
     async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         # Verify form mode parameters
         assert params.mode == "form"
+        assert isinstance(params, types.ElicitRequestFormParams)
+        # Form params have requestedSchema, not url/elicitationId
         assert params.requestedSchema is not None
-        assert params.url is None
-        assert params.elicitationId is None
         return ElicitResult(action="accept", content={"name": "Alice"})
 
     async with create_connected_server_and_client_session(
@@ -259,25 +262,6 @@ async def test_url_elicitation_required_error_code():
     assert types.URL_ELICITATION_REQUIRED == -32042, (
         "URL_ELICITATION_REQUIRED error code must be -32042 per SEP 1036 specification"
     )
-
-
-@pytest.mark.anyio
-async def test_track_elicitation_method_exists():
-    """Test that track_elicitation method exists on ClientSession."""
-    # This test just verifies the method signature and parameter handling exist
-    # without actually calling the server (which may not implement it yet)
-    import inspect
-
-    from mcp.client.session import ClientSession
-
-    # Verify the method exists
-    assert hasattr(ClientSession, "track_elicitation")
-
-    # Verify the method signature
-    sig = inspect.signature(ClientSession.track_elicitation)
-    params = list(sig.parameters.keys())
-    assert "elicitation_id" in params
-    assert "progress_token" in params
 
 
 @pytest.mark.anyio

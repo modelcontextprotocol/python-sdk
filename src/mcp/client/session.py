@@ -509,29 +509,6 @@ class ClientSession(
 
         return result
 
-    async def track_elicitation(
-        self,
-        elicitation_id: str,
-        progress_token: types.ProgressToken | None = None,
-    ) -> types.ElicitTrackResult:
-        """Send an elicitation/track request to monitor URL mode elicitation progress.
-
-        Args:
-            elicitation_id: The unique identifier of the elicitation to track
-            progress_token: Optional token for receiving progress notifications
-
-        Returns:
-            ElicitTrackResult indicating the status of the elicitation
-        """
-        params = types.ElicitTrackRequestParams(elicitationId=elicitation_id)  # pragma: no cover
-        if progress_token is not None:  # pragma: no cover
-            params.meta = types.RequestParams.Meta(progressToken=progress_token)
-
-        return await self.send_request(  # pragma: no cover
-            types.ClientRequest(types.ElicitTrackRequest(params=params)),
-            types.ElicitTrackResult,
-        )
-
     async def send_roots_list_changed(self) -> None:  # pragma: no cover
         """Send a roots/list_changed notification."""
         await self.send_notification(types.ClientNotification(types.RootsListChangedNotification()))
