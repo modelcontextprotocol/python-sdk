@@ -408,6 +408,14 @@ async def test_create_message_tool_result_validation():
                     # Note: no tools parameter
                 )
 
+            # Case 8: empty messages list - skips validation entirely
+            # Covers the `if messages:` branch (line 280->302)
+            with anyio.move_on_after(0.01):
+                await session.create_message(
+                    messages=[],
+                    max_tokens=100,
+                )
+
 
 @pytest.mark.anyio
 async def test_create_message_without_tools_capability():
