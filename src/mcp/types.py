@@ -254,8 +254,24 @@ class RootsCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class SamplingCapability(BaseModel):
-    """Capability for sampling operations."""
+class SamplingContextCapability(BaseModel):
+    """
+    Capability for context inclusion during sampling.
+
+    Indicates support for non-'none' values in the includeContext parameter.
+    SOFT-DEPRECATED: New implementations should use tools parameter instead.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+
+class SamplingToolsCapability(BaseModel):
+    """
+    Capability indicating support for tool calling during sampling.
+
+    When present in ClientCapabilities.sampling, indicates that the client
+    supports the tools and toolChoice parameters in sampling requests.
+    """
 
     model_config = ConfigDict(extra="allow")
 
@@ -287,13 +303,34 @@ class ElicitationCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class SamplingCapability(BaseModel):
+    """
+    Sampling capability structure, allowing fine-grained capability advertisement.
+    """
+
+    context: SamplingContextCapability | None = None
+    """
+    Present if the client supports non-'none' values for includeContext parameter.
+    SOFT-DEPRECATED: New implementations should use tools parameter instead.
+    """
+    tools: SamplingToolsCapability | None = None
+    """
+    Present if the client supports tools and toolChoice parameters in sampling requests.
+    Presence indicates full tool calling support during sampling.
+    """
+    model_config = ConfigDict(extra="allow")
+
+
 class ClientCapabilities(BaseModel):
     """Capabilities a client may support."""
 
     experimental: dict[str, dict[str, Any]] | None = None
     """Experimental, non-standard capabilities that the client supports."""
     sampling: SamplingCapability | None = None
-    """Present if the client supports sampling from an LLM."""
+    """
+    Present if the client supports sampling from an LLM.
+    Can contain fine-grained capabilities like context and tools support.
+    """
     elicitation: ElicitationCapability | None = None
     """Present if the client supports elicitation from the user."""
     roots: RootsCapability | None = None
@@ -767,12 +804,96 @@ class AudioContent(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class ToolUseContent(BaseModel):
+    """
+    Content representing an assistant's request to invoke a tool.
+
+    This content type appears in assistant messages when the LLM wants to call a tool
+    during sampling. The server should execute the tool and return a ToolResultContent
+    in the next user message.
+    """
+
+    type: Literal["tool_use"]
+    """Discriminator for tool use content."""
+
+    name: str
+    """The name of the tool to invoke. Must match a tool name from the request's tools array."""
+
+    id: str
+    """Unique identifier for this tool call, used to correlate with ToolResultContent."""
+
+    input: dict[str, Any]
+    """Arguments to pass to the tool. Must conform to the tool's inputSchema."""
+
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
+    model_config = ConfigDict(extra="allow")
+
+
+class ToolResultContent(BaseModel):
+    """
+    Content representing the result of a tool execution.
+
+    This content type appears in user messages as a response to a ToolUseContent
+    from the assistant. It contains the output of executing the requested tool.
+    """
+
+    type: Literal["tool_result"]
+    """Discriminator for tool result content."""
+
+    toolUseId: str
+    """The unique identifier that corresponds to the tool call's id field."""
+
+    content: list["ContentBlock"] = []
+    """
+    A list of content objects representing the tool result.
+    Defaults to empty list if not provided.
+    """
+
+    structuredContent: dict[str, Any] | None = None
+    """
+    Optional structured tool output that matches the tool's outputSchema (if defined).
+    """
+
+    isError: bool | None = None
+    """Whether the tool execution resulted in an error."""
+
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
+    model_config = ConfigDict(extra="allow")
+
+
+SamplingMessageContentBlock: TypeAlias = TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
+"""Content block types allowed in sampling messages."""
+
+
 class SamplingMessage(BaseModel):
     """Describes a message issued to or received from an LLM API."""
 
     role: Role
-    content: TextContent | ImageContent | AudioContent
+    content: SamplingMessageContentBlock | list[SamplingMessageContentBlock]
+    """
+    Message content. Can be a single content block or an array of content blocks
+    for multi-modal messages and tool interactions.
+    """
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
     model_config = ConfigDict(extra="allow")
+
+    @property
+    def content_as_list(self) -> list[SamplingMessageContentBlock]:
+        """Returns the content as a list of content blocks, regardless of whether
+        it was originally a single block or a list."""
+        return self.content if isinstance(self.content, list) else [self.content]
 
 
 class EmbeddedResource(BaseModel):
@@ -1060,6 +1181,25 @@ class ModelPreferences(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class ToolChoice(BaseModel):
+    """
+    Controls tool usage behavior during sampling.
+
+    Allows the server to specify whether and how the LLM should use tools
+    in its response.
+    """
+
+    mode: Literal["auto", "required", "none"] | None = None
+    """
+    Controls when tools are used:
+    - "auto": Model decides whether to use tools (default)
+    - "required": Model MUST use at least one tool before completing
+    - "none": Model should not use tools
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+
 class CreateMessageRequestParams(RequestParams):
     """Parameters for creating a message."""
 
@@ -1082,6 +1222,16 @@ class CreateMessageRequestParams(RequestParams):
     stopSequences: list[str] | None = None
     metadata: dict[str, Any] | None = None
     """Optional metadata to pass through to the LLM provider."""
+    tools: list["Tool"] | None = None
+    """
+    Tool definitions for the LLM to use during sampling.
+    Requires clientCapabilities.sampling.tools to be present.
+    """
+    toolChoice: ToolChoice | None = None
+    """
+    Controls tool usage behavior.
+    Requires clientCapabilities.sampling.tools and the tools parameter to be present.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -1092,18 +1242,32 @@ class CreateMessageRequest(Request[CreateMessageRequestParams, Literal["sampling
     params: CreateMessageRequestParams
 
 
-StopReason = Literal["endTurn", "stopSequence", "maxTokens"] | str
+StopReason = Literal["endTurn", "stopSequence", "maxTokens", "toolUse"] | str
 
 
 class CreateMessageResult(Result):
     """The client's response to a sampling/create_message request from the server."""
 
     role: Role
-    content: TextContent | ImageContent | AudioContent
+    """The role of the message sender (typically 'assistant' for LLM responses)."""
+    content: SamplingMessageContentBlock | list[SamplingMessageContentBlock]
+    """
+    Response content. May be a single content block or an array.
+    May include ToolUseContent if stopReason is 'toolUse'.
+    """
     model: str
     """The name of the model that generated the message."""
     stopReason: StopReason | None = None
-    """The reason why sampling stopped, if known."""
+    """
+    The reason why sampling stopped, if known.
+    'toolUse' indicates the model wants to use a tool.
+    """
+
+    @property
+    def content_as_list(self) -> list[SamplingMessageContentBlock]:
+        """Returns the content as a list of content blocks, regardless of whether
+        it was originally a single block or a list."""
+        return self.content if isinstance(self.content, list) else [self.content]
 
 
 class ResourceTemplateReference(BaseModel):
