@@ -215,7 +215,8 @@ class EnumSchemasTestSchema(BaseModel):
         },
     )
     untitledMulti: list[str] = Field(
-        description="Multi-select without titles", json_schema_extra={"items": {"enum": ["read", "write", "execute"]}}
+        description="Multi-select without titles",
+        json_schema_extra={"items": {"type": "string", "enum": ["read", "write", "execute"]}},
     )
     titledMulti: list[str] = Field(
         description="Multi-select with titled options",
@@ -239,7 +240,7 @@ class EnumSchemasTestSchema(BaseModel):
 
 
 @mcp.tool()
-async def test_elicitation_sep1330_enum_schemas(ctx: Context[ServerSession, None]) -> str:
+async def test_elicitation_sep1330_enums(ctx: Context[ServerSession, None]) -> str:
     """Tests elicitation with enum schema variations per SEP-1330"""
     try:
         result = await ctx.elicit(
