@@ -23,6 +23,7 @@ from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, O
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
+    create_client_info_from_metadata_url,
     create_client_registration_request,
     create_oauth_metadata_request,
     extract_field_from_www_auth,
@@ -33,6 +34,8 @@ from mcp.client.auth.utils import (
     handle_protected_resource_response,
     handle_registration_response,
     handle_token_response_scopes,
+    is_valid_client_metadata_url,
+    should_use_client_metadata_url,
 )
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.shared.auth import (
@@ -96,6 +99,7 @@ class OAuthContext:
     redirect_handler: Callable[[str], Awaitable[None]] | None
     callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None
     timeout: float = 300.0
+    client_metadata_url: str | None = None  # SEP-991: URL-based client ID
 
     # Discovered metadata
     protected_resource_metadata: ProtectedResourceMetadata | None = None
@@ -226,8 +230,32 @@ class OAuthClientProvider(httpx.Auth):
         redirect_handler: Callable[[str], Awaitable[None]] | None = None,
         callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None = None,
         timeout: float = 300.0,
+        client_metadata_url: str | None = None,
     ):
-        """Initialize OAuth2 authentication."""
+        """Initialize OAuth2 authentication.
+
+        Args:
+            server_url: The MCP server URL.
+            client_metadata: OAuth client metadata for registration.
+            storage: Token storage implementation.
+            redirect_handler: Handler for authorization redirects.
+            callback_handler: Handler for authorization callbacks.
+            timeout: Timeout for the OAuth flow.
+            client_metadata_url: SEP-991 URL-based client ID. When provided and the server
+                advertises client_id_metadata_document_supported=true, this URL will be
+                used as the client_id instead of performing dynamic client registration.
+                Must be a valid HTTPS URL with a non-root pathname.
+
+        Raises:
+            ValueError: If client_metadata_url is provided but not a valid HTTPS URL
+                with a non-root pathname.
+        """
+        # Validate client_metadata_url if provided
+        if client_metadata_url is not None and not is_valid_client_metadata_url(client_metadata_url):
+            raise ValueError(
+                f"client_metadata_url must be a valid HTTPS URL with a non-root pathname, got: {client_metadata_url}"
+            )
+
         self.context = OAuthContext(
             server_url=server_url,
             client_metadata=client_metadata,
@@ -235,6 +263,7 @@ class OAuthClientProvider(httpx.Auth):
             redirect_handler=redirect_handler,
             callback_handler=callback_handler,
             timeout=timeout,
+            client_metadata_url=client_metadata_url,
         )
         self._initialized = False
 
@@ -566,17 +595,30 @@ class OAuthClientProvider(httpx.Auth):
                         self.context.oauth_metadata,
                     )
 
-                    # Step 4: Register client if needed
-                    registration_request = create_client_registration_request(
-                        self.context.oauth_metadata,
-                        self.context.client_metadata,
-                        self.context.get_authorization_base_url(self.context.server_url),
-                    )
+                    # Step 4: Register client or use URL-based client ID (SEP-991)
                     if not self.context.client_info:
-                        registration_response = yield registration_request
-                        client_information = await handle_registration_response(registration_response)
-                        self.context.client_info = client_information
-                        await self.context.storage.set_client_info(client_information)
+                        if should_use_client_metadata_url(
+                            self.context.oauth_metadata, self.context.client_metadata_url
+                        ):
+                            # SEP-991: Use URL-based client ID
+                            logger.debug(f"Using URL-based client ID (CIMD): {self.context.client_metadata_url}")
+                            client_information = create_client_info_from_metadata_url(
+                                self.context.client_metadata_url,  # type: ignore[arg-type]
+                                redirect_uris=self.context.client_metadata.redirect_uris,
+                            )
+                            self.context.client_info = client_information
+                            await self.context.storage.set_client_info(client_information)
+                        else:
+                            # Fallback to Dynamic Client Registration
+                            registration_request = create_client_registration_request(
+                                self.context.oauth_metadata,
+                                self.context.client_metadata,
+                                self.context.get_authorization_base_url(self.context.server_url),
+                            )
+                            registration_response = yield registration_request
+                            client_information = await handle_registration_response(registration_response)
+                            self.context.client_info = client_information
+                            await self.context.storage.set_client_info(client_information)
 
                     # Step 5: Perform authorization and complete token exchange
                     token_response = yield await self._perform_authorization()
