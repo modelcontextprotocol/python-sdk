@@ -423,7 +423,6 @@ class Server(Generic[LifespanResultT, RequestT]):
                 if isinstance(result, types.ListToolsResult):  # pragma: no cover
                     # Refresh the tool cache with returned tools
                     for tool in result.tools:
-                        # Validate tool name according to SEP-986 specification
                         validate_and_warn_tool_name(tool.name)
                         self._tool_cache[tool.name] = tool
                     return types.ServerResult(result)
@@ -432,7 +431,6 @@ class Server(Generic[LifespanResultT, RequestT]):
                     # Clear and refresh the entire tool cache
                     self._tool_cache.clear()
                     for tool in result:
-                        # Validate tool name according to SEP-986 specification
                         validate_and_warn_tool_name(tool.name)
                         self._tool_cache[tool.name] = tool
                     return types.ServerResult(types.ListToolsResult(tools=result))

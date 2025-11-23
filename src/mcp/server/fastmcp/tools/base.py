@@ -57,7 +57,6 @@ class Tool(BaseModel):
         """Create a Tool from a function."""
         func_name = name or fn.__name__
 
-        # Validate tool name according to SEP-986 specification
         validate_and_warn_tool_name(func_name)
 
         if func_name == "<lambda>":
