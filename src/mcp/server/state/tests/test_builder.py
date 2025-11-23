@@ -45,13 +45,16 @@ def test_define_state_does_not_clear_edges(caplog: LogCaptureFixture) -> None:
     sym = InputSymbol.for_tool("t", ToolResultType.SUCCESS)
     b.add_edge("s0", "s1", sym)
 
-    assert len(b._states["s0"].deltas) == 1  # one edge exists
+    # edges are globally stored now; ensure one edge exists from s0
+    edges_from_s0 = [e for e in b._edges if e.from_state == "s0"]
+    assert len(edges_from_s0) == 1  # one edge exists
 
     # Re-define same state → ignored, edges stay intact
     with caplog.at_level("DEBUG"):
         b.add_state("s0", is_initial=True)
 
-    assert len(b._states["s0"].deltas) == 1
+    edges_from_s0_after = [e for e in b._edges if e.from_state == "s0"]
+    assert len(edges_from_s0_after) == 1
     assert any("State 's0' already exists; keeping configuration." in rec.message for rec in caplog.records)
 
 
@@ -69,7 +72,8 @@ def test_add_terminal_marks_target_state() -> None:
     b.add_edge("s0", "s1", sym)
     b.add_terminal("s1", sym)
 
-    assert sym in b._states["s1"].terminals
+    # terminals are symbol-ids now
+    assert sym.id in b._states["s1"].terminals
 
 
 def test_builder_duplicate_edge_warns_and_is_ignored(caplog: LogCaptureFixture) -> None:
@@ -88,8 +92,10 @@ def test_builder_duplicate_edge_warns_and_is_ignored(caplog: LogCaptureFixture) 
         b.add_edge("s0", "s1", sym)
         b.add_edge("s0", "s1", sym)  # duplicate
 
-    s0 = b._states["s0"]
-    assert len(s0.deltas) == 1
+    # only one matching edge (same from_state + symbol_id) should exist
+    matching = [e for e in b._edges if e.from_state == "s0" and e.symbol_id == sym.id]
+    assert len(matching) == 1
+    assert matching[0].to_state == "s1"
     assert any("already exists" in rec.message and "ignored" in rec.message for rec in caplog.records)
 
 
@@ -111,7 +117,7 @@ def test_builder_ambiguous_edge_warns_and_is_ignored(caplog: LogCaptureFixture) 
         b.add_edge("s0", "s1", sym)
         b.add_edge("s0", "s2", sym)  # ambiguous
 
-    s0 = b._states["s0"]
-    assert len(s0.deltas) == 1
-    assert s0.deltas[0].to_state == "s1"
+    matching = [e for e in b._edges if e.from_state == "s0" and e.symbol_id == sym.id]
+    assert len(matching) == 1
+    assert matching[0].to_state == "s1"
     assert any("Ambiguous edge" in rec.message for rec in caplog.records)

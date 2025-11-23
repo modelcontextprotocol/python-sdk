@@ -10,7 +10,7 @@ from mcp.server.state.machine.state_machine import (
     InputSymbol,
     State,
     StateMachine,
-    Edge,  # formerly DeltaEdge
+    Edge, 
 )
 
 from mcp.server.state.types import (
@@ -40,10 +40,9 @@ RT = TypeVar("RT", ToolResultType, PromptResultType, ResourceResultType)  # Resu
 class _InternalStateMachineBuilder:
     """Private, build-only implementation.
 
-    Collects states and edges during DSL usage and produces either a
-    global (process-wide) or session-scoped machine. Validation is invoked
-    from build methods, never by users directly. This class must not be
-    accessed from user code.
+    Collects states and edges during DSL usage and produces state machine. 
+    Validation is invoked from build methods, never by users directly. 
+    This class must not be accessed from user code.
     """
 
     def __init__(
@@ -54,19 +53,23 @@ class _InternalStateMachineBuilder:
         tx_manager: TransactionManager | None,
     ):
         """Capture external managers (for validation) and initialize buffers."""
-        self._states: Dict[str, State] = {}
-        self._initial: Optional[str] = None
+     
         self._tool_manager = tool_manager
         self._resource_manager = resource_manager
         self._prompt_manager = prompt_manager
         self._tx_manager = tx_manager
 
+        self._initial: Optional[str] = None
+        self._states: Dict[str, State] = {}
+        self._edges: List[Edge] = []
+        self._symbols_by_id: Dict[str, InputSymbol] = {}
+
     def add_state(self, name: str, *, is_initial: bool = False) -> None:
         """Declare a state if missing; optionally mark as initial (first-wins; later attempts warn & are ignored)."""
         exists = name in self._states
         if not exists:
-            # Create with empty edge list and empty terminal-symbol list.
-            self._states[name] = State(name=name, deltas=[], terminals=[])
+            # Create with empty terminal-symbol-id list (edges are global on the automaton).
+            self._states[name] = State(name=name, terminals=[])
         else:
             logger.debug("State '%s' already exists; keeping configuration.", name)
 
@@ -79,15 +82,29 @@ class _InternalStateMachineBuilder:
                     self._initial, name
                 )
 
+    def _record_symbol(self, symbol: InputSymbol) -> str:
+        """Ensure symbol is known to Σ and return its stable id."""
+        sid = symbol.id
+        existing = self._symbols_by_id.get(sid)
+        if existing is None:
+            self._symbols_by_id[sid] = symbol
+        else:
+            # same id -> same triple (type, ident, result) by Construct; 
+            # otherwise this would be a major programming error
+            if (existing.type, existing.ident, existing.result) != (symbol.type, symbol.ident, symbol.result):
+                logger.debug("Symbol id collision for %s; keeping first definition.", sid)
+        return sid
+
     def add_terminal(self, state_name: str, symbol: InputSymbol) -> None:
-        """Append a terminal symbol to a state's terminal set (duplicates are ignored)."""
+        """Append a terminal symbol-id to a state's terminal set (duplicates are ignored)."""
         st = self._states.get(state_name)
         if st is None:
             raise KeyError(f"State '{state_name}' not defined")
-        if symbol not in st.terminals:
-            st.terminals.append(symbol)
+        sid = self._record_symbol(symbol)
+        if sid not in st.terminals:
+            st.terminals.append(sid)
         else:
-            logger.debug("Terminal symbol %r already present on state '%s'; ignored.", symbol, state_name)
+            logger.debug("Terminal symbol-id %s already present on state '%s'; ignored.", sid, state_name)
 
     def add_edge(
         self,
@@ -100,8 +117,8 @@ class _InternalStateMachineBuilder:
 
         Behavior:
         - Ensures the *target* state exists (no flags are modified for existing states).
-        - Duplicate (same symbol & same target) → warn and ignore.
-        - Ambiguous (same symbol mapped to a different target from the same source) → warn and ignore.
+        - Duplicate (same symbol-id & same target from same source) → warn and ignore.
+        - Ambiguous (same symbol-id mapped to a different target from the same source) → warn and ignore.
         """
         if from_state not in self._states:
             raise KeyError(f"State '{from_state}' not defined")
@@ -111,23 +128,23 @@ class _InternalStateMachineBuilder:
             self.add_state(to_state, is_initial=False)
             logger.debug("Created placeholder state '%s' for edge target.", to_state)
 
-        src = self._states[from_state]
-        new_edge = Edge(to_state=to_state, input_symbol=symbol, effect=effect)
+        sid = self._record_symbol(symbol)
+        new_edge = Edge(from_state=from_state, to_state=to_state, symbol_id=sid, effect=effect)
 
         # duplicate?
-        if any(e.input_symbol == symbol and e.to_state == to_state for e in src.deltas):
+        if any(e.from_state == from_state and e.symbol_id == sid and e.to_state == to_state for e in self._edges):
             logger.warning("Edge %r already exists; new definition ignored.", new_edge)
             return
 
         # ambiguous?
-        if any(e.input_symbol == symbol and e.to_state != to_state for e in src.deltas):
+        if any(e.from_state == from_state and e.symbol_id == sid and e.to_state != to_state for e in self._edges):
             logger.warning(
-                "Ambiguous edge on %s from '%s': existing target differs; new definition ignored.",
-                symbol, from_state
+                "Ambiguous edge on symbol-id %s from '%s': existing target differs; new definition ignored.",
+                sid, from_state
             )
             return
 
-        src.deltas.append(new_edge)
+        self._edges.append(new_edge)
 
     def add_transaction(
         self,
@@ -146,8 +163,14 @@ class _InternalStateMachineBuilder:
         """Build a global machine (single current state for the process)."""
         self._validate()
         initial = self._initial or next(iter(self._states))
-        return StateMachine(initial_state=initial, states=self._states)
-    
+        # Übergabe der zentralen Kollektive an die Runtime (Q, Σ, δ).
+        return StateMachine(
+            initial_state=initial,
+            states=self._states,
+            symbols=list(self._symbols_by_id.values()),
+            edges=list(self._edges),
+        )
+
     # ----------------------------
     # Validation
     # ----------------------------
@@ -156,6 +179,8 @@ class _InternalStateMachineBuilder:
         """Run structural and reference checks (errors abort; warnings are logged)."""
         issues: List[ValidationIssue] = StateMachineValidator(
             states=self._states,
+            edges=self._edges,                            
+            symbols_by_id=self._symbols_by_id,           
             initial_state=self._initial,
             tool_manager=self._tool_manager,
             prompt_manager=self._prompt_manager,
@@ -328,22 +353,22 @@ class StateMachineDefinition:
 
         @app.statebuilder.state("start", is_initial=True)
         def _(s: StateAPI):
-            s.on_tool("login") 
-             .on_success("home", terminal=True)
-             .build_edge()
-             .on_tool("alt_login")
-             .on_error("start")
+            s.on_tool("login") \
+             .on_success("home", terminal=True) \
+             .build_edge() \
+             .on_tool("alt_login") \
+             .on_error("start") \
              .build_edge()
 
     **Fluent style**::
 
-        app.statebuilder
-            .define_state("start", is_initial=True)
-            .on_prompt("confirm")
-                .on_success("end", terminal=True)
-                .build_edge()
-            .on_tool("help")
-                .on_success("faq")
+        app.statebuilder \
+            .define_state("start", is_initial=True) \
+            .on_prompt("confirm") \
+                .on_success("end", terminal=True) \
+                .build_edge() \
+            .on_tool("help") \
+                .on_success("faq") \
                 .build_edge()
     """
 

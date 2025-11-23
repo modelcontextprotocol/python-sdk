@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import deque, defaultdict
 from dataclasses import dataclass
-from typing import Optional, Dict, Set, List, Tuple, Callable
+from typing import Optional, Dict, Set, List, Tuple
 
 from mcp.server.fastmcp.prompts import PromptManager
 from mcp.server.fastmcp.prompts.base import Prompt
@@ -26,59 +26,117 @@ class StateMachineValidator:
     """
     Validates the structure and references of a State Machine.
 
+    Architecture (updated):
+      - Q (states): Dict[str, State] with `State.terminals: list[str]` of symbol-ids.
+      - Σ (input symbols): provided as `symbols_by_id: Dict[id, InputSymbol]`.
+      - δ (edges): global `List[Edge]` with (from_state, to_state, symbol_id).
+
     Expected manager APIs:
       - tool_manager.list_tools() -> list[Tool]
       - prompt_manager.list_prompts() -> list[Prompt]
       - resource_manager.list_resources() -> list[Resource]
 
     Validation checks performed:
-      - An explicit initial state is defined and present (hard error if missing/not found).
-      - All referenced tools/prompts/resources exist in their managers (errors on missing).
+
+    Structural checks (no mutation):
+      - An explicit initial state is defined and present.
+      - All edges reference known symbol-ids (present in Σ).
+      - All referenced tools/prompts/resources exist in their managers.
       - Reachability (BFS) is computed using ONLY edges whose artifacts are available.
-      - At least one **reachable terminal edge** exists from the initial region (error otherwise).
-      - Unreachable states from the initial state are reported as warnings (and removed as cleanup).
-      - States whose **only** available incoming edges are terminal will have their outgoing edges
-        pruned as unreachable; a warning is emitted.
+      - At least one **reachable terminal edge** exists from the initial region.
+
+    Post-checks (cleanup/pruning):
+      - Unreachable states from the initial state are reported as warnings and removed.
+      - Edges referencing removed states are pruned (single warning with counts).
+      - States whose **only available incoming edges** are terminal will have their outgoing
+        edges pruned as unreachable (warning).
 
     Notes:
-      - Reachability uses BFS and filters edges by available artifacts.
-      - The notion of "terminal" is symbol-based per target state (state.terminals: list[InputSymbol]).
-        Terminal states may still define outgoing edges; semantics are enforced at runtime.
-      - States and edges are treated as immutable; any pruning/rewrite replaces whole State instances.
+      - Terminality is symbol-id based: `symbol_id in target_state.terminals`.
+      - Reachability ignores edges whose artifacts are not available.
+      - The validator mutates the provided `states`/`edges` for cleanup (immutability of
+        State instances is preserved; we replace collections wholesale).
     """
 
     def __init__(
         self,
         *,
         states: Dict[str, State],
+        edges: List[Edge],
+        symbols_by_id: Dict[str, InputSymbol],
         initial_state: Optional[str],
         tool_manager: ToolManager | None,
         prompt_manager: PromptManager | None,
         resource_manager: ResourceManager | None,
     ) -> None:
         self.states: Dict[str, State] = states
+        self.edges: List[Edge] = edges
+        self.symbols_by_id: Dict[str, InputSymbol] = symbols_by_id
         self.initial_state: Optional[str] = initial_state
         self.tool_manager: ToolManager | None = tool_manager
         self.prompt_manager: PromptManager | None = prompt_manager
         self.resource_manager: ResourceManager | None = resource_manager
         self.issues: List[ValidationIssue] = []
 
+        # cached across phases
+        self._available: Optional[Dict[str, Set[str]]] = None
+        self._reachable: Set[str] = set()
+        self._has_reachable_terminal: bool = False
+
     # ----------------------------
     # main entry
     # ----------------------------
     def validate(self) -> List[ValidationIssue]:
-        """Run all structural and reference checks, perform cleanup where applicable, and return issues."""
-        # Hard check: initial must be defined and present
-        self._check_initial_defined_and_exists()
+        """Run structural checks, then post-check cleanup, and return issues."""
+        self._structural_checks()
         if any(i.level == "error" for i in self.issues):
             return self.issues
 
-        available = self._collect_available_and_check_refs()
-        self._prune_terminal_only_incoming(available)
-        reachable, has_reachable_terminal = self._compute_reachable_and_terminal_flag(available)
-        self._check_at_least_one_reachable_terminal(has_reachable_terminal)
-        self._warn_and_prune_unreachable_states(reachable)
+        self._post_checks()
         return self.issues
+
+    # ----------------------------
+    # structural checks (no mutation)
+    # ----------------------------
+    def _structural_checks(self) -> None:
+        """Aggregate all structural validations without mutating states/edges."""
+        # Initial must be defined and present
+        if not self.initial_state:
+            self.issues.append(ValidationIssue("error", "No initial state defined."))
+            return
+        if self.initial_state not in self.states:
+            self.issues.append(
+                ValidationIssue("error", f"Initial state '{self.initial_state}' not found.")
+            )
+            return
+
+        # Edge → Symbol existence
+        unknown_symbol_ids = sorted({e.symbol_id for e in self.edges if e.symbol_id not in self.symbols_by_id})
+        for sid in unknown_symbol_ids:
+            self.issues.append(ValidationIssue("error", f"Edge references unknown symbol-id '{sid}'."))
+
+        # Collect availability and reference errors/warnings
+        self._available = self._collect_available_and_check_refs()
+
+        # Reachability & terminal presence under availability constraints
+        self._reachable, self._has_reachable_terminal = self._compute_reachable_and_terminal_flag(self._available)
+        if not self._has_reachable_terminal:
+            self.issues.append(ValidationIssue("error", "No reachable terminal state from initial."))
+
+    # ----------------------------
+    # post checks (cleanup/pruning)
+    # ----------------------------
+    def _post_checks(self) -> None:
+        """Perform cleanup: prune unreachable and terminal-only-incoming cases."""
+        if not self.states:
+            return
+        available = self._available or {"tools": set(), "prompts": set(), "resources": set()}
+
+        # 1) Remove unreachable states and edges that reference them
+        self._warn_and_prune_unreachable_states(self._reachable)
+
+        # 2) Prune outgoing edges for states with only terminal incoming (w.r.t. availability)
+        self._prune_terminal_only_incoming(available)
 
     # ----------------------------
     # availability + references
@@ -89,24 +147,27 @@ class StateMachineValidator:
 
         Returns:
           {
-            "tools": {tool_name, ...},
-            "prompts": {prompt_name, ...},
-            "resources": {resource_uri_str, ...},
+            "tools": {tool_ident, ...},
+            "prompts": {prompt_ident, ...},
+            "resources": {resource_ident, ...},
           }
         """
         tool_refs: Set[str] = set()
         prompt_refs: Set[str] = set()
         resource_refs: Set[str] = set()
 
-        for s in self.states.values():
-            for e in s.deltas:
-                sym: InputSymbol = e.input_symbol
-                if sym.type == "tool":
-                    tool_refs.add(sym.name)
-                elif sym.type == "prompt":
-                    prompt_refs.add(sym.name)
-                elif sym.type == "resource":
-                    resource_refs.add(sym.name)
+        # Gather referenced artifacts from edges via Σ
+        for e in self.edges:
+            sym = self.symbols_by_id.get(e.symbol_id)
+            if sym is None:
+                # Already reported as structural error above
+                continue
+            if sym.type == "tool":
+                tool_refs.add(sym.ident)
+            elif sym.type == "prompt":
+                prompt_refs.add(sym.ident)
+            elif sym.type == "resource":
+                resource_refs.add(sym.ident)
 
         tool_names: Set[str] = set()
         try:
@@ -130,13 +191,15 @@ class StateMachineValidator:
         except Exception as e:
             self.issues.append(ValidationIssue("warning", f"Prompt check skipped: {e}"))
 
-        resource_uris: Set[str] = set()
+        resource_idents: Set[str] = set()
         try:
             if self.resource_manager is None:
                 raise ValueError("No resource manager provided.")
             resources: List[Resource] = self.resource_manager.list_resources()
-            resource_uris = {str(r.uri) for r in resources}
-            for missing in sorted(resource_refs - resource_uris):
+            # Annahme: sym.ident entspricht der Manager-Identifikation (z. B. r.name oder str(r.uri))
+            # Bewusst konservativ: verwenden str(r.uri) wie bisher.
+            resource_idents = {str(r.uri) for r in resources}
+            for missing in sorted(resource_refs - resource_idents):
                 self.issues.append(ValidationIssue("error", f"Referenced resource '{missing}' is not registered."))
         except Exception as e:
             self.issues.append(ValidationIssue("warning", f"Resource check skipped: {e}"))
@@ -144,53 +207,8 @@ class StateMachineValidator:
         return {
             "tools": tool_names,
             "prompts": prompt_names,
-            "resources": resource_uris,
+            "resources": resource_idents,
         }
-
-    # ----------------------------------------------
-    # prune "terminal-only incoming" (immutability-safe)
-    # ----------------------------------------------
-    def _prune_terminal_only_incoming(self, available: Dict[str, Set[str]]) -> None:
-        """
-        For any state S that has outgoing edges but **all available incoming edges** are terminal
-        w.r.t. S.terminals (and S is not the initial state), its outgoing edges are unreachable.
-        We replace S with a copy that has no deltas and emit a warning.
-        """
-        if not self.states:
-            return
-
-        initial = self.initial_state
-        if initial is None:
-            return  # already reported as error by the initial check
-
-        # Build available-based incoming map: target -> list[(source, symbol)]
-        incoming: Dict[str, List[Tuple[str, InputSymbol]]] = defaultdict(list)
-        for src_name, src in self.states.items():
-            for e in src.deltas:
-                if not self._is_symbol_available(e.input_symbol, available):
-                    continue
-                incoming[e.to_state].append((src_name, e.input_symbol))
-
-        for name, st in list(self.states.items()):
-            if name == initial:
-                continue  # initial state can be entered at startup, keep its outgoings
-            if not st.deltas:
-                continue  # nothing to prune
-            in_list = incoming.get(name, [])
-            if not in_list:
-                # No available incoming → reachability step will handle it.
-                continue
-
-            # Are ALL available incoming symbols terminal for this state?
-            all_terminal = all(sym in st.terminals for _, sym in in_list)
-            if all_terminal:
-                count = len(st.deltas)
-                pruned = self._pruned_copy(st, keep=lambda _e: False)
-                self._replace_state(
-                    name,
-                    pruned,
-                    reason=f"Unreachable edges pruned: only terminal incoming edges present ({count} removed)."
-                )
 
     # ----------------------------
     # reachability (filtered)
@@ -210,20 +228,24 @@ class StateMachineValidator:
         seen: Set[str] = {start}
         found_terminal_edge = False
 
+        # Pre-index edges by source for efficient BFS
+        by_src: Dict[str, List[Edge]] = defaultdict(list)
+        for e in self.edges:
+            by_src[e.from_state].append(e)
+
         while q:
             sname = q.popleft()
-            s = self.states.get(sname)
-            if not s:
-                continue
-
-            for e in s.deltas:
-                sym = e.input_symbol
+            for e in by_src.get(sname, []):
+                sym = self.symbols_by_id.get(e.symbol_id)
+                if sym is None:
+                    # Unknown symbol-id is a structural error; ignore in traversal
+                    continue
                 if not self._is_symbol_available(sym, available):
                     continue
 
                 dst = e.to_state
                 dst_state = self.states.get(dst)
-                if dst_state and sym in dst_state.terminals:
+                if dst_state and e.symbol_id in dst_state.terminals:
                     found_terminal_edge = True
 
                 if dst in self.states and dst not in seen:
@@ -232,82 +254,114 @@ class StateMachineValidator:
 
         return seen, found_terminal_edge
 
-    # ----------------------------
-    # post checks & cleanup (immutability-safe)
-    # ----------------------------
-    def _check_at_least_one_reachable_terminal(self, has_reachable_terminal: bool) -> None:
-        """At least one terminal state must be reachable from the initial region."""
-        if not has_reachable_terminal:
-            self.issues.append(ValidationIssue("error", "No reachable terminal state from initial."))
+    # ----------------------------------------------
+    # prune "terminal-only incoming"
+    # ----------------------------------------------
+    def _prune_terminal_only_incoming(self, available: Dict[str, Set[str]]) -> None:
+        """
+        For any state S that has outgoing edges but **all available incoming edges** are terminal
+        w.r.t. S.terminals (and S is not the initial state), its outgoing edges are unreachable.
+        We remove all edges with from_state == S and emit a warning.
 
+        Implementation note:
+        - We update `self.edges` **in place** (slice assignment) to preserve list identity
+            for callers holding a reference to the same list object.
+        """
+        if not self.states or not self.edges:
+            return
+
+        initial = self.initial_state
+        if initial is None:
+            return  # already handled
+
+        # Build incoming map over available edges: target -> list[symbol_id]
+        incoming: Dict[str, List[str]] = defaultdict(list)
+        for e in self.edges:
+            sym = self.symbols_by_id.get(e.symbol_id)
+            if sym is None or not self._is_symbol_available(sym, available):
+                continue
+            incoming[e.to_state].append(e.symbol_id)
+
+        # Determine states to prune (outgoing)
+        to_prune: List[str] = []
+        has_outgoing: Dict[str, bool] = defaultdict(bool)
+        for e in self.edges:
+            has_outgoing[e.from_state] = True
+
+        for name, st in self.states.items():
+            if name == initial:
+                continue
+            if not has_outgoing.get(name, False):
+                continue
+            in_syms = incoming.get(name, [])
+            if not in_syms:
+                # No available incoming → reachability pruning handles it.
+                continue
+            if all(sid in st.terminals for sid in in_syms):
+                to_prune.append(name)
+
+        if not to_prune:
+            return
+
+        # Remove all edges from these states (in place to preserve aliasing)
+        to_prune_set = set(to_prune)
+        before = len(self.edges)
+        filtered = [e for e in self.edges if e.from_state not in to_prune_set]
+        removed = before - len(filtered)
+        self.edges[:] = filtered  # <-- in-place update (no rebinding)
+
+        for name in to_prune:
+            self.issues.append(
+                ValidationIssue(
+                    "warning",
+                    f"Outgoing edges from state '{name}' pruned: only terminal incoming edges present."
+                )
+            )
+        if removed > 0:
+            logger.debug("Pruned %d edges due to terminal-only incoming.", removed)
+
+    # ----------------------------
+    # post: unreachable cleanup
+    # ----------------------------
     def _warn_and_prune_unreachable_states(self, reachable: Set[str]) -> None:
         """
         Emit warnings for states not reachable from the initial state and remove them.
-        Afterwards, replace remaining states with copies where edges to removed states are filtered out.
+        Afterwards, remove edges that reference removed states.
         """
         if not self.states:
             return
 
-        # Remove unreachable states (with warnings)
         to_remove = [name for name in self.states.keys() if name not in reachable]
-        if to_remove:
-            for name in to_remove:
-                self.issues.append(
-                    ValidationIssue("warning", f"State '{name}' is unreachable from initial and was removed.")
-                )
-                del self.states[name]
-
-            removed_set = set(to_remove)
-
-            # For remaining states, remove edges targeting removed states by replacing the State
-            for name, st in list(self.states.items()):
-                before = len(st.deltas)
-                if before == 0:
-                    continue
-                pruned = self._pruned_copy(st, keep=lambda e: e.to_state not in removed_set)
-                after = len(pruned.deltas)
-                if after < before:
-                    self._replace_state(
-                        name,
-                        pruned,
-                        reason=f"Pruned {before - after} edges targeting removed states."
-                    )
-
-    # ----------------------------
-    # helpers
-    # ----------------------------
-    def _check_initial_defined_and_exists(self) -> None:
-        """Ensure an initial state is explicitly defined and present."""
-        if not self.initial_state:
-            self.issues.append(ValidationIssue("error", "No initial state defined."))
+        if not to_remove:
             return
-        if self.initial_state not in self.states:
+
+        for name in to_remove:
             self.issues.append(
-                ValidationIssue("error", f"Initial state '{self.initial_state}' not found.")
+                ValidationIssue("warning", f"State '{name}' is unreachable from initial and was removed.")
+            )
+            del self.states[name]
+
+        removed_set = set(to_remove)
+
+        # Filter global edges: drop any edge touching removed states
+        before = len(self.edges)
+        self.edges = [e for e in self.edges if e.from_state not in removed_set and e.to_state not in removed_set]
+        pruned = before - len(self.edges)
+        if pruned > 0:
+            self.issues.append(
+                ValidationIssue("warning", f"Pruned {pruned} edges referencing removed states.")
             )
 
+    # ----------------------------
+    # helpers (kept minimal)
+    # ----------------------------
     @staticmethod
     def _is_symbol_available(sym: InputSymbol, available: Dict[str, Set[str]]) -> bool:
         """Check artifact availability for a symbol."""
         if sym.type == "tool":
-            return sym.name in available["tools"]
+            return sym.ident in available["tools"]
         if sym.type == "prompt":
-            return sym.name in available["prompts"]
+            return sym.ident in available["prompts"]
         if sym.type == "resource":
-            return sym.name in available["resources"]
+            return sym.ident in available["resources"]
         return False  # Unknown kinds are treated as unavailable
-
-    @staticmethod
-    def _pruned_copy(state: State, *, keep: Callable[[Edge], bool]) -> State:
-        """
-        Create a new State instance with deltas filtered by `keep`.
-        Preserves name and terminals; never mutates the original (immutability-safe).
-        """
-        new_deltas: List[Edge] = [e for e in state.deltas if keep(e)]
-        # Defensive copies to keep outer code from mutating original lists
-        return State(name=state.name, terminals=list(state.terminals), deltas=new_deltas)
-
-    def _replace_state(self, name: str, new_state: State, *, reason: str) -> None:
-        """Replace a state entry with a new instance and emit a warning describing the reason."""
-        self.states[name] = new_state
-        self.issues.append(ValidationIssue("warning", f"State '{name}' redefined: {reason}"))

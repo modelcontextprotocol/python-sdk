@@ -7,23 +7,30 @@ from mcp.server.state.helper.callback import apply_callback_with_context
 from mcp.server.state.types import FastMCPContext
 
 if TYPE_CHECKING:  # pragma: no cover
-    from mcp.server.state.machine.state_machine import StateMachine, State, InputSymbol
+    from mcp.server.state.machine.state_machine import StateMachine, InputSymbol
 
 logger = get_logger(__name__)
 
 
 class AsyncTransitionScope:
     """
-    Async context manager that wraps an operation and emits SUCCESS/ERROR deltas.
+    Async context manager that wraps an operation and emits SUCCESS/ERROR transitions.
+
+    Session handling:
+      - This scope does **not** bind or resolve sessions.
+      - The ambient session (if any) must be set by the caller (e.g. via SessionScope).
+      - All StateMachine calls use the current ambient session or fall back to global state.
 
     Behavior:
-      - Applies an **exact-match** delta only (no default fallback).
-      - Executes edge effects best-effort; failures are logged as warnings and never
-        influence state updates.
-      - **Terminal rule**: after applying the delta, check terminality for the emitted
-        symbol on the **new** current state; if terminal → reset to initial.
-      - On the error path, apply the ERROR delta, evaluate terminality, then re-raise
-        the mapped exception.
+      - Looks up an exact transition for the emitted symbol from the current state.
+      - If such a transition exists:
+          * the state is updated to the edge's `to_state`
+          * the edge's effect is executed best-effort (failures are logged only).
+      - If no transition exists:
+          * a reflexive self-transition is assumed (stay in the current state, no effect).
+      - After the transition, terminality is evaluated for the symbol-id; if terminal → reset.
+      - On the error path, state is updated, terminality is evaluated, then the mapped exception
+        is re-raised.
     """
 
     def __init__(
@@ -39,7 +46,7 @@ class AsyncTransitionScope:
         self._sm = sm
         self._success = success_symbol
         self._error = error_symbol
-        self._ctx = ctx
+        self._ctx = ctx  # passed to edge effects only
         self._log_exc = log_exc
         self._exc_mapper = exc_mapper
 
@@ -52,15 +59,16 @@ class AsyncTransitionScope:
         exc: Optional[BaseException],
         tb: Optional[TracebackType],
     ) -> Optional[bool]:
-        # Decide which symbol we’re emitting based on success/error path
+        # Decide which symbol to emit based on success/error path
         symbol = self._success if exc_type is None else self._error
+        symbol_id = symbol.id  # stable over (type, ident, result)
 
-        # 1) Apply exact-matching delta if present (updates current state + runs effect)
-        self._apply_exact_if_present(symbol)
+        # 1) Apply exact match OR reflexive self-transition (no-op)
+        self._apply_exact_or_self(symbol_id)
 
-        # 2) If the **new** current state is terminal for this symbol → reset
-        if self._sm.is_terminal(symbol, ctx=self._ctx):
-            self._sm.reset(ctx=self._ctx)
+        # 2) If the **new** current state is terminal for this symbol-id → reset
+        if self._sm.is_terminal(symbol_id):
+            self._sm.reset()
 
         # 3) Re-raise on error path (after state update + potential reset)
         if exc_type is None:
@@ -68,7 +76,7 @@ class AsyncTransitionScope:
 
         self._log_exc(
             "Exception during execution for symbol '%s/%s' in state '%s'",
-            symbol.type, symbol.name, self._sm.current_state(ctx=self._ctx),
+            symbol.type, symbol.ident, self._sm.current_state(),
         )
         raise self._exc_mapper(exc or RuntimeError("Unknown failure")) from exc
 
@@ -76,25 +84,32 @@ class AsyncTransitionScope:
     # internals
     # ----------------------------
 
-    def _apply_exact_if_present(self, symbol: "InputSymbol") -> None:
-        """Apply the exact-match delta for `symbol` if present; otherwise sink => no-op."""
-        state = self._state_or_fail(self._sm.current_state(ctx=self._ctx))
-        for edge in state.deltas:
-            if symbol == edge.input_symbol:
-                # Set state first; effects must not affect semantics.
-                self._sm.set_current_state(edge.to_state, ctx=self._ctx)
-                try:
-                    # Helper takes care of sync/async effect and receives ctx directly
-                    apply_callback_with_context(edge.effect, self._ctx)
-                except Exception as e:  # synchronous invocation failures only
-                    logger.warning(
-                        "Delta effect failed (state '%s' -> '%s', symbol %r): %s",
-                        state.name, edge.to_state, symbol, e
-                    )
-                break  # exact match applied; stop scanning
+    def _apply_exact_or_self(self, symbol_id: str) -> None:
+        """
+        Apply the exact transition for `symbol_id` from the current state if present;
+        otherwise perform a reflexive self-transition (stay in current state, no effect).
 
-    def _state_or_fail(self, name: str) -> "State":
-        state = self._sm.get_state(name)
-        if state is None:
-            raise RuntimeError(f"State '{name}' not defined")
-        return state
+        Self-transition semantics:
+          - If no edge is defined for (current_state, symbol_id), the current state
+            is preserved and no effect is executed.
+          - Terminality is still evaluated afterwards, which allows symbol-driven
+            resets even without an explicit edge.
+        """
+        edge = self._sm.get_edge(symbol_id)
+        if edge is None:
+            cur = self._sm.current_state()
+            logger.debug(
+                "Reflexive self-transition: staying in '%s' for symbol_id=%s",
+                cur, symbol_id,
+            )
+            return
+
+        # Exact match: set next state, then best-effort effect
+        self._sm.set_current_state(edge.to_state)
+        try:
+            apply_callback_with_context(edge.effect, self._ctx)
+        except Exception as e:  # synchronous invocation failures only
+            logger.warning(
+                "Transition effect failed (from '%s' -> '%s', symbol_id=%s): %s",
+                edge.from_state, edge.to_state, symbol_id, e
+            )

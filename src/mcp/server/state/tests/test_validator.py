@@ -52,17 +52,19 @@ def test_validation_warns_and_prunes_unreachable_edges(caplog: LogCaptureFixture
     with caplog.at_level("WARNING"):
         app._build_state_machine()
 
-    # Warning logged about unreachable edges for s1
+    # Warning logged about pruning outgoings for s1 (wording changed in new validator)
     assert any(
-        "unreachable edges" in rec.message.lower() and "'s1'" in rec.message.lower()
+        ("validation warning:" in rec.message.lower())
+        and ("pruned" in rec.message.lower())
+        and ("'s1'" in rec.message.lower())
         for rec in caplog.records
-    ), "Expected warning about unreachable edges for state 's1'"
+    ), "Expected pruning warning for state 's1'"
 
-    # And the outgoings of s1 were pruned
+    # Outgoings of s1 were pruned. States no longer carry deltas; assert via runtime API.
     assert app._state_machine is not None
-    s1 = app._state_machine.get_state("s1")
-    assert s1 is not None
-    assert len(s1.deltas) == 0
+    m = app._state_machine
+    m.set_current_state("s1")
+    assert m.available_symbols("tool") == set()
 
 
 def test_validation_error_no_reachable_terminal() -> None:
@@ -183,5 +185,7 @@ def test_validation_warning_unreachable_state(caplog: LogCaptureFixture) -> None
     with caplog.at_level("WARNING"):
         app._build_state_machine()
 
-    assert any("State machine validation warning: State 'sX' is unreachable from initial and was removed." in rec.message for rec in caplog.records), \
-        "Expected unreachable-state warning was not logged."
+    assert any(
+        "State machine validation warning: State 'sX' is unreachable from initial and was removed." in rec.message
+        for rec in caplog.records
+    ), "Expected unreachable-state warning was not logged."
