@@ -127,6 +127,7 @@ async def run_client(server_url: str) -> None:
     callback_handler = ConformanceOAuthCallbackHandler()
 
     # Create OAuth authentication handler
+    # Use a client_metadata_url to enable CIMD (SEP-991) when the server supports it
     oauth_auth = OAuthClientProvider(
         server_url=server_url,
         client_metadata=OAuthClientMetadata(
@@ -138,6 +139,7 @@ async def run_client(server_url: str) -> None:
         storage=InMemoryTokenStorage(),
         redirect_handler=callback_handler.handle_redirect,
         callback_handler=callback_handler.handle_callback,
+        client_metadata_url="https://conformance.example.com/client",
     )
 
     # Connect using streamable HTTP transport with OAuth
