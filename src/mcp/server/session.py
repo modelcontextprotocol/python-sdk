@@ -47,6 +47,7 @@ from pydantic import AnyUrl
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
+from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (
     BaseSession,
@@ -264,8 +265,6 @@ class ServerSession(
                 types.ClientCapabilities(sampling=types.SamplingCapability(tools=types.SamplingToolsCapability()))
             )
             if not has_tools_cap:
-                from mcp.shared.exceptions import McpError
-
                 raise McpError(
                     types.ErrorData(
                         code=types.INVALID_PARAMS,
@@ -273,7 +272,12 @@ class ServerSession(
                     )
                 )
 
-        if messages and tools:
+        # Validate tool_use/tool_result message structure per SEP-1577:
+        # https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1577
+        # This validation runs regardless of whether `tools` is in this request,
+        # since a tool loop continuation may omit `tools` while still containing
+        # tool_result content that must match previous tool_use.
+        if messages:
             last_content = messages[-1].content_as_list
             has_tool_results = any(c.type == "tool_result" for c in last_content)
 
@@ -281,10 +285,14 @@ class ServerSession(
             has_previous_tool_use = previous_content and any(c.type == "tool_use" for c in previous_content)
 
             if has_tool_results:
+                # Per spec: "SamplingMessage with tool result content blocks
+                # MUST NOT contain other content types."
                 if any(c.type != "tool_result" for c in last_content):
                     raise ValueError("The last message must contain only tool_result content if any is present")
+                if previous_content is None:
+                    raise ValueError("tool_result requires a previous message containing tool_use")
                 if not has_previous_tool_use:
-                    raise ValueError("tool_result blocks are not matching any tool_use from the previous message")
+                    raise ValueError("tool_result blocks do not match any tool_use in the previous message")
             if has_previous_tool_use and previous_content:
                 tool_use_ids = {c.id for c in previous_content if c.type == "tool_use"}
                 tool_result_ids = {c.toolUseId for c in last_content if c.type == "tool_result"}

@@ -337,7 +337,7 @@ async def test_create_message_tool_result_validation():
                 )
 
             # Case 2: tool_result without previous message
-            with pytest.raises(ValueError, match="not matching any tool_use"):
+            with pytest.raises(ValueError, match="requires a previous message"):
                 await session.create_message(
                     messages=[types.SamplingMessage(role="user", content=tool_result)],
                     max_tokens=100,
@@ -345,7 +345,7 @@ async def test_create_message_tool_result_validation():
                 )
 
             # Case 3: tool_result without previous tool_use
-            with pytest.raises(ValueError, match="not matching any tool_use"):
+            with pytest.raises(ValueError, match="do not match any tool_use"):
                 await session.create_message(
                     messages=[
                         types.SamplingMessage(role="user", content=text),
@@ -371,8 +371,10 @@ async def test_create_message_tool_result_validation():
                 )
 
             # Case 5: text-only message with tools (no tool_results) - passes validation
-            # This covers branch 261->266 (has_tool_results=False) and 266->272
-            # We use move_on_after since send_request will block waiting for response
+            # Covers has_tool_results=False branch.
+            # We use move_on_after because validation happens synchronously before
+            # send_request, which would block indefinitely waiting for a response.
+            # The timeout lets validation pass, then cancels the blocked send.
             with anyio.move_on_after(0.01):
                 await session.create_message(
                     messages=[types.SamplingMessage(role="user", content=text)],
@@ -381,7 +383,8 @@ async def test_create_message_tool_result_validation():
                 )
 
             # Case 6: valid matching tool_result/tool_use IDs - passes validation
-            # This covers branch 269->272 (IDs match, no error raised)
+            # Covers tool_use_ids == tool_result_ids branch.
+            # (see Case 5 comment for move_on_after explanation)
             with anyio.move_on_after(0.01):
                 await session.create_message(
                     messages=[
@@ -391,6 +394,18 @@ async def test_create_message_tool_result_validation():
                     ],
                     max_tokens=100,
                     tools=[tool],
+                )
+
+            # Case 7: validation runs even without `tools` parameter
+            # (tool loop continuation may omit tools while containing tool_result)
+            with pytest.raises(ValueError, match="do not match any tool_use"):
+                await session.create_message(
+                    messages=[
+                        types.SamplingMessage(role="user", content=text),
+                        types.SamplingMessage(role="user", content=tool_result),
+                    ],
+                    max_tokens=100,
+                    # Note: no tools parameter
                 )
 
 
