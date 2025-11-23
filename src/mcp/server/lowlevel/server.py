@@ -90,6 +90,7 @@ from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
+from mcp.shared.tool_name_validation import validate_and_warn_tool_name
 
 logger = logging.getLogger(__name__)
 
@@ -422,6 +423,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                 if isinstance(result, types.ListToolsResult):  # pragma: no cover
                     # Refresh the tool cache with returned tools
                     for tool in result.tools:
+                        # Validate tool name according to SEP-986 specification
+                        validate_and_warn_tool_name(tool.name)
                         self._tool_cache[tool.name] = tool
                     return types.ServerResult(result)
                 else:
@@ -429,6 +432,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                     # Clear and refresh the entire tool cache
                     self._tool_cache.clear()
                     for tool in result:
+                        # Validate tool name according to SEP-986 specification
+                        validate_and_warn_tool_name(tool.name)
                         self._tool_cache[tool.name] = tool
                     return types.ServerResult(types.ListToolsResult(tools=result))
 
