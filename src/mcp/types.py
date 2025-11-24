@@ -1884,6 +1884,7 @@ ClientResultType: TypeAlias = (
     | GetTaskPayloadResult
     | ListTasksResult
     | CancelTaskResult
+    | CreateTaskResult
 )
 
 

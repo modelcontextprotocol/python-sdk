@@ -1,4 +1,4 @@
-"""Tests for the RequestContext and Experimental classes."""
+"""Tests for the RequestContext.experimental (Experimental class) task validation helpers."""
 
 import pytest
 

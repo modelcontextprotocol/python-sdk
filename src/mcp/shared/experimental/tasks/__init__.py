@@ -5,10 +5,13 @@ This module provides:
 - TaskStore: Abstract interface for task state storage
 - TaskContext: Context object for task work to interact with state/notifications
 - InMemoryTaskStore: Reference implementation for testing/development
+- TaskMessageQueue: FIFO queue for task messages delivered via tasks/result
+- InMemoryTaskMessageQueue: Reference implementation for message queue
 - Helper functions: run_task, is_terminal, create_task_state, generate_task_id
 
 Architecture:
 - TaskStore is pure storage - it doesn't know about execution
+- TaskMessageQueue stores messages to be delivered via tasks/result
 - TaskContext wraps store + session, providing a clean API for task work
 - run_task is optional convenience for spawning in-process tasks
 
@@ -24,15 +27,31 @@ from mcp.shared.experimental.tasks.helpers import (
     task_execution,
 )
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
+from mcp.shared.experimental.tasks.message_queue import (
+    InMemoryTaskMessageQueue,
+    QueuedMessage,
+    TaskMessageQueue,
+)
+from mcp.shared.experimental.tasks.result_handler import (
+    TaskResultHandler,
+    create_task_result_handler,
+)
 from mcp.shared.experimental.tasks.store import TaskStore
+from mcp.shared.experimental.tasks.task_session import TaskSession
 
 __all__ = [
     "TaskStore",
     "TaskContext",
+    "TaskSession",
+    "TaskResultHandler",
     "InMemoryTaskStore",
+    "TaskMessageQueue",
+    "InMemoryTaskMessageQueue",
+    "QueuedMessage",
     "run_task",
     "task_execution",
     "is_terminal",
     "create_task_state",
     "generate_task_id",
+    "create_task_result_handler",
 ]

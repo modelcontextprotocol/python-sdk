@@ -8,6 +8,7 @@ from typing import Any
 import anyio
 import click
 import mcp.types as types
+import uvicorn
 from anyio.abc import TaskGroup
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
@@ -107,8 +108,6 @@ async def handle_get_task_result(request: types.GetTaskPayloadRequest) -> types.
 @click.command()
 @click.option("--port", default=8000, help="Port to listen on")
 def main(port: int) -> int:
-    import uvicorn
-
     session_manager = StreamableHTTPSessionManager(app=server)
 
     @asynccontextmanager

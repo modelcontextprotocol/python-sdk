@@ -67,12 +67,14 @@ messages from the client.
 
 from __future__ import annotations as _annotations
 
+import base64
 import contextvars
 import json
 import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
+from importlib.metadata import version as pkg_version
 from typing import Any, Generic, TypeAlias, cast
 
 import anyio
@@ -166,11 +168,9 @@ class Server(Generic[LifespanResultT, RequestT]):
     ) -> InitializationOptions:
         """Create initialization options from this server instance."""
 
-        def pkg_version(package: str) -> str:
+        def get_package_version(package: str) -> str:
             try:
-                from importlib.metadata import version
-
-                return version(package)
+                return pkg_version(package)
             except Exception:  # pragma: no cover
                 pass
 
@@ -178,7 +178,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return InitializationOptions(
             server_name=self.name,
-            server_version=self.version if self.version else pkg_version("mcp"),
+            server_version=self.version if self.version else get_package_version("mcp"),
             capabilities=self.get_capabilities(
                 notification_options or NotificationOptions(),
                 experimental_capabilities or {},
@@ -345,8 +345,6 @@ class Server(Generic[LifespanResultT, RequestT]):
                                 mimeType=mime_type or "text/plain",
                             )
                         case bytes() as data:  # pragma: no cover
-                            import base64
-
                             return types.BlobResourceContents(
                                 uri=req.params.uri,
                                 blob=base64.b64encode(data).decode(),

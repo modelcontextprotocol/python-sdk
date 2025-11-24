@@ -122,3 +122,32 @@ class TaskStore(ABC):
         Returns:
             True if deleted, False if not found
         """
+
+    @abstractmethod
+    async def wait_for_update(self, task_id: str) -> None:
+        """
+        Wait until the task status changes.
+
+        This blocks until either:
+        1. The task status changes
+        2. The wait is cancelled
+
+        Used by tasks/result to wait for task completion or status changes.
+
+        Args:
+            task_id: The task identifier
+
+        Raises:
+            ValueError: If task not found
+        """
+
+    @abstractmethod
+    async def notify_update(self, task_id: str) -> None:
+        """
+        Signal that a task has been updated.
+
+        This wakes up any coroutines waiting in wait_for_update().
+
+        Args:
+            task_id: The task identifier
+        """

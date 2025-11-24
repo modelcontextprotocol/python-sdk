@@ -1,0 +1,245 @@
+"""
+Tests for TaskMessageQueue and InMemoryTaskMessageQueue.
+"""
+
+import asyncio
+from datetime import datetime, timezone
+
+import anyio
+import pytest
+
+from mcp.shared.experimental.tasks import (
+    InMemoryTaskMessageQueue,
+    QueuedMessage,
+)
+from mcp.types import JSONRPCNotification, JSONRPCRequest
+
+
+@pytest.fixture
+def queue() -> InMemoryTaskMessageQueue:
+    return InMemoryTaskMessageQueue()
+
+
+def make_request(id: int = 1, method: str = "test/method") -> JSONRPCRequest:
+    return JSONRPCRequest(jsonrpc="2.0", id=id, method=method)
+
+
+def make_notification(method: str = "test/notify") -> JSONRPCNotification:
+    return JSONRPCNotification(jsonrpc="2.0", method=method)
+
+
+class TestInMemoryTaskMessageQueue:
+    @pytest.mark.anyio
+    async def test_enqueue_and_dequeue(self, queue: InMemoryTaskMessageQueue) -> None:
+        """Test basic enqueue and dequeue operations."""
+        task_id = "task-1"
+        msg = QueuedMessage(type="request", message=make_request())
+
+        await queue.enqueue(task_id, msg)
+        result = await queue.dequeue(task_id)
+
+        assert result is not None
+        assert result.type == "request"
+        assert result.message.method == "test/method"
+
+    @pytest.mark.anyio
+    async def test_dequeue_empty_returns_none(self, queue: InMemoryTaskMessageQueue) -> None:
+        """Dequeue from empty queue returns None."""
+        result = await queue.dequeue("nonexistent-task")
+        assert result is None
+
+    @pytest.mark.anyio
+    async def test_fifo_ordering(self, queue: InMemoryTaskMessageQueue) -> None:
+        """Messages are dequeued in FIFO order."""
+        task_id = "task-1"
+
+        await queue.enqueue(task_id, QueuedMessage(type="request", message=make_request(1, "first")))
+        await queue.enqueue(task_id, QueuedMessage(type="request", message=make_request(2, "second")))
+        await queue.enqueue(task_id, QueuedMessage(type="request", message=make_request(3, "third")))
+
+        msg1 = await queue.dequeue(task_id)
+        msg2 = await queue.dequeue(task_id)
+        msg3 = await queue.dequeue(task_id)
+
+        assert msg1 is not None and msg1.message.method == "first"
+        assert msg2 is not None and msg2.message.method == "second"
+        assert msg3 is not None and msg3.message.method == "third"
+
+    @pytest.mark.anyio
+    async def test_separate_queues_per_task(self, queue: InMemoryTaskMessageQueue) -> None:
+        """Each task has its own queue."""
+        await queue.enqueue("task-1", QueuedMessage(type="request", message=make_request(1, "task1-msg")))
+        await queue.enqueue("task-2", QueuedMessage(type="request", message=make_request(2, "task2-msg")))
+
+        msg1 = await queue.dequeue("task-1")
+        msg2 = await queue.dequeue("task-2")
+
+        assert msg1 is not None and msg1.message.method == "task1-msg"
+        assert msg2 is not None and msg2.message.method == "task2-msg"
+
+    @pytest.mark.anyio
+    async def test_peek_does_not_remove(self, queue: InMemoryTaskMessageQueue) -> None:
+        """Peek returns message without removing it."""
+        task_id = "task-1"
+        await queue.enqueue(task_id, QueuedMessage(type="request", message=make_request()))
+
+        peeked = await queue.peek(task_id)
+        dequeued = await queue.dequeue(task_id)
+
+        assert peeked is not None
+        assert dequeued is not None
+        assert isinstance(peeked.message, JSONRPCRequest)
+        assert isinstance(dequeued.message, JSONRPCRequest)
+        assert peeked.message.id == dequeued.message.id
+
+    @pytest.mark.anyio
+    async def test_is_empty(self, queue: InMemoryTaskMessageQueue) -> None:
+        """Test is_empty method."""
+        task_id = "task-1"
+
+        assert await queue.is_empty(task_id) is True
+
+        await queue.enqueue(task_id, QueuedMessage(type="notification", message=make_notification()))
+        assert await queue.is_empty(task_id) is False
+
+        await queue.dequeue(task_id)
+        assert await queue.is_empty(task_id) is True
+
+    @pytest.mark.anyio
+    async def test_clear_returns_all_messages(self, queue: InMemoryTaskMessageQueue) -> None:
+        """Clear removes and returns all messages."""
+        task_id = "task-1"
+
+        await queue.enqueue(task_id, QueuedMessage(type="request", message=make_request(1)))
+        await queue.enqueue(task_id, QueuedMessage(type="request", message=make_request(2)))
+        await queue.enqueue(task_id, QueuedMessage(type="request", message=make_request(3)))
+
+        messages = await queue.clear(task_id)
+
+        assert len(messages) == 3
+        assert await queue.is_empty(task_id) is True
+
+    @pytest.mark.anyio
+    async def test_clear_empty_queue(self, queue: InMemoryTaskMessageQueue) -> None:
+        """Clear on empty queue returns empty list."""
+        messages = await queue.clear("nonexistent")
+        assert messages == []
+
+    @pytest.mark.anyio
+    async def test_notification_messages(self, queue: InMemoryTaskMessageQueue) -> None:
+        """Test queuing notification messages."""
+        task_id = "task-1"
+        msg = QueuedMessage(type="notification", message=make_notification("log/message"))
+
+        await queue.enqueue(task_id, msg)
+        result = await queue.dequeue(task_id)
+
+        assert result is not None
+        assert result.type == "notification"
+        assert result.message.method == "log/message"
+
+    @pytest.mark.anyio
+    async def test_message_timestamp(self, queue: InMemoryTaskMessageQueue) -> None:
+        """Messages have timestamps."""
+        before = datetime.now(timezone.utc)
+        msg = QueuedMessage(type="request", message=make_request())
+        after = datetime.now(timezone.utc)
+
+        assert before <= msg.timestamp <= after
+
+    @pytest.mark.anyio
+    async def test_message_with_resolver(self, queue: InMemoryTaskMessageQueue) -> None:
+        """Messages can have resolver futures."""
+        task_id = "task-1"
+        loop = asyncio.get_running_loop()
+        resolver: asyncio.Future[dict[str, str]] = loop.create_future()
+
+        msg = QueuedMessage(
+            type="request",
+            message=make_request(),
+            resolver=resolver,
+            original_request_id=42,
+        )
+
+        await queue.enqueue(task_id, msg)
+        result = await queue.dequeue(task_id)
+
+        assert result is not None
+        assert result.resolver is resolver
+        assert result.original_request_id == 42
+
+    @pytest.mark.anyio
+    async def test_cleanup_specific_task(self, queue: InMemoryTaskMessageQueue) -> None:
+        """Cleanup removes specific task's data."""
+        await queue.enqueue("task-1", QueuedMessage(type="request", message=make_request(1)))
+        await queue.enqueue("task-2", QueuedMessage(type="request", message=make_request(2)))
+
+        queue.cleanup("task-1")
+
+        assert await queue.is_empty("task-1") is True
+        assert await queue.is_empty("task-2") is False
+
+    @pytest.mark.anyio
+    async def test_cleanup_all(self, queue: InMemoryTaskMessageQueue) -> None:
+        """Cleanup without task_id removes all data."""
+        await queue.enqueue("task-1", QueuedMessage(type="request", message=make_request(1)))
+        await queue.enqueue("task-2", QueuedMessage(type="request", message=make_request(2)))
+
+        queue.cleanup()
+
+        assert await queue.is_empty("task-1") is True
+        assert await queue.is_empty("task-2") is True
+
+    @pytest.mark.anyio
+    async def test_wait_for_message_returns_immediately_if_message_exists(
+        self, queue: InMemoryTaskMessageQueue
+    ) -> None:
+        """wait_for_message returns immediately if queue not empty."""
+        task_id = "task-1"
+        await queue.enqueue(task_id, QueuedMessage(type="request", message=make_request()))
+
+        # Should return immediately, not block
+        with anyio.fail_after(1):
+            await queue.wait_for_message(task_id)
+
+    @pytest.mark.anyio
+    async def test_wait_for_message_blocks_until_message(self, queue: InMemoryTaskMessageQueue) -> None:
+        """wait_for_message blocks until a message is enqueued."""
+        task_id = "task-1"
+        received = False
+
+        async def enqueue_after_delay() -> None:
+            await anyio.sleep(0.1)
+            await queue.enqueue(task_id, QueuedMessage(type="request", message=make_request()))
+
+        async def wait_for_msg() -> None:
+            nonlocal received
+            await queue.wait_for_message(task_id)
+            received = True
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(wait_for_msg)
+            tg.start_soon(enqueue_after_delay)
+
+        assert received is True
+
+    @pytest.mark.anyio
+    async def test_notify_message_available_wakes_waiter(self, queue: InMemoryTaskMessageQueue) -> None:
+        """notify_message_available wakes up waiting coroutines."""
+        task_id = "task-1"
+        notified = False
+
+        async def notify_after_delay() -> None:
+            await anyio.sleep(0.1)
+            await queue.notify_message_available(task_id)
+
+        async def wait_for_notification() -> None:
+            nonlocal notified
+            await queue.wait_for_message(task_id)
+            notified = True
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(wait_for_notification)
+            tg.start_soon(notify_after_delay)
+
+        assert notified is True

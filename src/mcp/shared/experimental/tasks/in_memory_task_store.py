@@ -8,6 +8,7 @@ Note: This is not suitable for production use as all data is lost on restart.
 For production, consider implementing TaskStore with a database or distributed cache.
 """
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -46,6 +47,7 @@ class InMemoryTaskStore(TaskStore):
     def __init__(self, page_size: int = 10) -> None:
         self._tasks: dict[str, StoredTask] = {}
         self._page_size = page_size
+        self._update_events: dict[str, asyncio.Event] = {}
 
     def _calculate_expiry(self, ttl_ms: int | None) -> datetime | None:
         """Calculate expiry time from TTL in milliseconds."""
@@ -111,8 +113,10 @@ class InMemoryTaskStore(TaskStore):
         if stored is None:
             raise ValueError(f"Task with ID {task_id} not found")
 
-        if status is not None:
+        status_changed = False
+        if status is not None and stored.task.status != status:
             stored.task.status = status
+            status_changed = True
 
         if status_message is not None:
             stored.task.statusMessage = status_message
@@ -120,6 +124,10 @@ class InMemoryTaskStore(TaskStore):
         # If task is now terminal and has TTL, reset expiry timer
         if status is not None and is_terminal(status) and stored.task.ttl is not None:
             stored.expires_at = self._calculate_expiry(stored.task.ttl)
+
+        # Notify waiters if status changed
+        if status_changed:
+            await self.notify_update(task_id)
 
         return Task(**stored.task.model_dump())
 
@@ -175,11 +183,31 @@ class InMemoryTaskStore(TaskStore):
         del self._tasks[task_id]
         return True
 
+    async def wait_for_update(self, task_id: str) -> None:
+        """Wait until the task status changes."""
+        if task_id not in self._tasks:
+            raise ValueError(f"Task with ID {task_id} not found")
+
+        # Get or create the event for this task
+        if task_id not in self._update_events:
+            self._update_events[task_id] = asyncio.Event()
+
+        event = self._update_events[task_id]
+        # Clear before waiting so we wait for NEW updates
+        event.clear()
+        await event.wait()
+
+    async def notify_update(self, task_id: str) -> None:
+        """Signal that a task has been updated."""
+        if task_id in self._update_events:
+            self._update_events[task_id].set()
+
     # --- Testing/debugging helpers ---
 
     def cleanup(self) -> None:
         """Cleanup all tasks (useful for testing or graceful shutdown)."""
         self._tasks.clear()
+        self._update_events.clear()
 
     def get_all_tasks(self) -> list[Task]:
         """Get all tasks (useful for debugging). Returns copies to prevent modification."""
