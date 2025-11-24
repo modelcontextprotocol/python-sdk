@@ -12,10 +12,12 @@ Use cases:
 - Server polls client's task status via tasks/get, tasks/result, etc.
 """
 
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 import mcp.types as types
 from mcp.shared.context import RequestContext
+from mcp.shared.session import RequestResponder
 
 if TYPE_CHECKING:
     from mcp.client.session import ClientSession
@@ -109,7 +111,11 @@ class TaskAugmentedElicitationFnT(Protocol):
     ) -> types.CreateTaskResult | types.ErrorData: ...  # pragma: no branch
 
 
-# Default handlers for experimental task requests (return "not supported" errors)
+# =============================================================================
+# Default Handlers (return "not supported" errors)
+# =============================================================================
+
+
 async def default_get_task_handler(
     context: RequestContext["ClientSession", Any],
     params: types.GetTaskRequestParams,
@@ -150,7 +156,7 @@ async def default_cancel_task_handler(
     )
 
 
-async def default_task_augmented_sampling_callback(
+async def default_task_augmented_sampling(
     context: RequestContext["ClientSession", Any],
     params: types.CreateMessageRequestParams,
     task_metadata: types.TaskMetadata,
@@ -161,7 +167,7 @@ async def default_task_augmented_sampling_callback(
     )
 
 
-async def default_task_augmented_elicitation_callback(
+async def default_task_augmented_elicitation(
     context: RequestContext["ClientSession", Any],
     params: types.ElicitRequestParams,
     task_metadata: types.TaskMetadata,
@@ -172,58 +178,118 @@ async def default_task_augmented_elicitation_callback(
     )
 
 
-def build_client_tasks_capability(
-    *,
-    list_tasks_handler: ListTasksHandlerFnT | None = None,
-    cancel_task_handler: CancelTaskHandlerFnT | None = None,
-    task_augmented_sampling_callback: TaskAugmentedSamplingFnT | None = None,
-    task_augmented_elicitation_callback: TaskAugmentedElicitationFnT | None = None,
-) -> types.ClientTasksCapability | None:
-    """Build ClientTasksCapability from the provided handlers.
+@dataclass
+class ExperimentalTaskHandlers:
+    """Container for experimental task handlers.
 
-    This helper builds the appropriate capability object based on which
-    handlers are provided (non-None and not the default handlers).
+    Groups all task-related handlers that handle server -> client requests.
+    This includes both pure task requests (get, list, cancel, result) and
+    task-augmented request handlers (sampling, elicitation with task field).
 
-    WARNING: This is experimental and may change without notice.
+    WARNING: These APIs are experimental and may change without notice.
 
-    Args:
-        list_tasks_handler: Handler for tasks/list requests
-        cancel_task_handler: Handler for tasks/cancel requests
-        task_augmented_sampling_callback: Handler for task-augmented sampling
-        task_augmented_elicitation_callback: Handler for task-augmented elicitation
-
-    Returns:
-        ClientTasksCapability if any handlers are provided, None otherwise
+    Example:
+        handlers = ExperimentalTaskHandlers(
+            get_task=my_get_task_handler,
+            list_tasks=my_list_tasks_handler,
+        )
+        session = ClientSession(..., experimental_task_handlers=handlers)
     """
-    has_list = list_tasks_handler is not None and list_tasks_handler is not default_list_tasks_handler
-    has_cancel = cancel_task_handler is not None and cancel_task_handler is not default_cancel_task_handler
-    has_sampling = (
-        task_augmented_sampling_callback is not None
-        and task_augmented_sampling_callback is not default_task_augmented_sampling_callback
-    )
-    has_elicitation = (
-        task_augmented_elicitation_callback is not None
-        and task_augmented_elicitation_callback is not default_task_augmented_elicitation_callback
-    )
 
-    # If no handlers are provided, return None
-    if not any([has_list, has_cancel, has_sampling, has_elicitation]):
-        return None
+    # Pure task request handlers
+    get_task: GetTaskHandlerFnT = field(default=default_get_task_handler)
+    get_task_result: GetTaskResultHandlerFnT = field(default=default_get_task_result_handler)
+    list_tasks: ListTasksHandlerFnT = field(default=default_list_tasks_handler)
+    cancel_task: CancelTaskHandlerFnT = field(default=default_cancel_task_handler)
 
-    # Build requests capability if any request handlers are provided
-    requests_capability: types.ClientTasksRequestsCapability | None = None
-    if has_sampling or has_elicitation:
-        requests_capability = types.ClientTasksRequestsCapability(
-            sampling=types.TasksSamplingCapability(createMessage=types.TasksCreateMessageCapability())
-            if has_sampling
-            else None,
-            elicitation=types.TasksElicitationCapability(create=types.TasksCreateElicitationCapability())
-            if has_elicitation
-            else None,
+    # Task-augmented request handlers
+    augmented_sampling: TaskAugmentedSamplingFnT = field(default=default_task_augmented_sampling)
+    augmented_elicitation: TaskAugmentedElicitationFnT = field(default=default_task_augmented_elicitation)
+
+    def build_capability(self) -> types.ClientTasksCapability | None:
+        """Build ClientTasksCapability from the configured handlers.
+
+        Returns a capability object that reflects which handlers are configured
+        (i.e., not using the default "not supported" handlers).
+
+        Returns:
+            ClientTasksCapability if any handlers are provided, None otherwise
+        """
+        has_list = self.list_tasks is not default_list_tasks_handler
+        has_cancel = self.cancel_task is not default_cancel_task_handler
+        has_sampling = self.augmented_sampling is not default_task_augmented_sampling
+        has_elicitation = self.augmented_elicitation is not default_task_augmented_elicitation
+
+        # If no handlers are provided, return None
+        if not any([has_list, has_cancel, has_sampling, has_elicitation]):
+            return None
+
+        # Build requests capability if any request handlers are provided
+        requests_capability: types.ClientTasksRequestsCapability | None = None
+        if has_sampling or has_elicitation:
+            requests_capability = types.ClientTasksRequestsCapability(
+                sampling=types.TasksSamplingCapability(createMessage=types.TasksCreateMessageCapability())
+                if has_sampling
+                else None,
+                elicitation=types.TasksElicitationCapability(create=types.TasksCreateElicitationCapability())
+                if has_elicitation
+                else None,
+            )
+
+        return types.ClientTasksCapability(
+            list=types.TasksListCapability() if has_list else None,
+            cancel=types.TasksCancelCapability() if has_cancel else None,
+            requests=requests_capability,
         )
 
-    return types.ClientTasksCapability(
-        list=types.TasksListCapability() if has_list else None,
-        cancel=types.TasksCancelCapability() if has_cancel else None,
-        requests=requests_capability,
-    )
+    @staticmethod
+    def handles_request(request: types.ServerRequest) -> bool:
+        """Check if this handler handles the given request type."""
+        return isinstance(
+            request.root,
+            types.GetTaskRequest | types.GetTaskPayloadRequest | types.ListTasksRequest | types.CancelTaskRequest,
+        )
+
+    async def handle_request(
+        self,
+        ctx: RequestContext["ClientSession", Any],
+        responder: RequestResponder[types.ServerRequest, types.ClientResult],
+    ) -> None:
+        """Handle a task-related request from the server.
+
+        Call handles_request() first to check if this handler can handle the request.
+        """
+        from pydantic import TypeAdapter
+
+        client_response_type: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(
+            types.ClientResult | types.ErrorData
+        )
+
+        match responder.request.root:
+            case types.GetTaskRequest(params=params):
+                response = await self.get_task(ctx, params)
+                client_response = client_response_type.validate_python(response)
+                await responder.respond(client_response)
+
+            case types.GetTaskPayloadRequest(params=params):
+                response = await self.get_task_result(ctx, params)
+                client_response = client_response_type.validate_python(response)
+                await responder.respond(client_response)
+
+            case types.ListTasksRequest(params=params):
+                response = await self.list_tasks(ctx, params)
+                client_response = client_response_type.validate_python(response)
+                await responder.respond(client_response)
+
+            case types.CancelTaskRequest(params=params):
+                response = await self.cancel_task(ctx, params)
+                client_response = client_response_type.validate_python(response)
+                await responder.respond(client_response)
+
+            case _:  # pragma: no cover
+                raise ValueError(f"Unhandled request type: {type(responder.request.root)}")
+
+
+# Backwards compatibility aliases
+default_task_augmented_sampling_callback = default_task_augmented_sampling
+default_task_augmented_elicitation_callback = default_task_augmented_elicitation

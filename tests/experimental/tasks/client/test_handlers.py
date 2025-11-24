@@ -18,6 +18,7 @@ from anyio import Event
 from anyio.abc import TaskGroup
 
 import mcp.types as types
+from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.client.session import ClientSession
 from mcp.shared.context import RequestContext
 from mcp.shared.experimental.tasks import InMemoryTaskStore
@@ -27,8 +28,6 @@ from mcp.types import (
     CancelTaskRequestParams,
     CancelTaskResult,
     ClientResult,
-    ClientTasksCapability,
-    ClientTasksRequestsCapability,
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateTaskResult,
@@ -41,10 +40,6 @@ from mcp.types import (
     ServerNotification,
     ServerRequest,
     TaskMetadata,
-    TasksCancelCapability,
-    TasksCreateMessageCapability,
-    TasksListCapability,
-    TasksSamplingCapability,
     TextContent,
 )
 
@@ -98,10 +93,7 @@ async def test_client_handles_get_task_request() -> None:
             if isinstance(message, Exception):
                 raise message
 
-        tasks_capability = ClientTasksCapability(
-            list=TasksListCapability(),
-            cancel=TasksCancelCapability(),
-        )
+        task_handlers = ExperimentalTaskHandlers(get_task=get_task_handler)
 
         try:
             async with anyio.create_task_group() as tg:
@@ -111,8 +103,7 @@ async def test_client_handles_get_task_request() -> None:
                         server_to_client_receive,
                         client_to_server_send,
                         message_handler=message_handler,
-                        tasks_capability=tasks_capability,
-                        get_task_handler=get_task_handler,
+                        experimental_task_handlers=task_handlers,
                     ):
                         # Keep session alive
                         while True:
@@ -192,6 +183,8 @@ async def test_client_handles_get_task_result_request() -> None:
             if isinstance(message, Exception):
                 raise message
 
+        task_handlers = ExperimentalTaskHandlers(get_task_result=get_task_result_handler)
+
         try:
             async with anyio.create_task_group() as tg:
 
@@ -200,7 +193,7 @@ async def test_client_handles_get_task_result_request() -> None:
                         server_to_client_receive,
                         client_to_server_send,
                         message_handler=message_handler,
-                        get_task_result_handler=get_task_result_handler,
+                        experimental_task_handlers=task_handlers,
                     ):
                         while True:
                             await anyio.sleep(0.01)
@@ -270,7 +263,7 @@ async def test_client_handles_list_tasks_request() -> None:
             if isinstance(message, Exception):
                 raise message
 
-        tasks_capability = ClientTasksCapability(list=TasksListCapability())
+        task_handlers = ExperimentalTaskHandlers(list_tasks=list_tasks_handler)
 
         try:
             async with anyio.create_task_group() as tg:
@@ -280,8 +273,7 @@ async def test_client_handles_list_tasks_request() -> None:
                         server_to_client_receive,
                         client_to_server_send,
                         message_handler=message_handler,
-                        tasks_capability=tasks_capability,
-                        list_tasks_handler=list_tasks_handler,
+                        experimental_task_handlers=task_handlers,
                     ):
                         while True:
                             await anyio.sleep(0.01)
@@ -351,7 +343,7 @@ async def test_client_handles_cancel_task_request() -> None:
             if isinstance(message, Exception):
                 raise message
 
-        tasks_capability = ClientTasksCapability(cancel=TasksCancelCapability())
+        task_handlers = ExperimentalTaskHandlers(cancel_task=cancel_task_handler)
 
         try:
             async with anyio.create_task_group() as tg:
@@ -361,8 +353,7 @@ async def test_client_handles_cancel_task_request() -> None:
                         server_to_client_receive,
                         client_to_server_send,
                         message_handler=message_handler,
-                        tasks_capability=tasks_capability,
-                        cancel_task_handler=cancel_task_handler,
+                        experimental_task_handlers=task_handlers,
                     ):
                         while True:
                             await anyio.sleep(0.01)
@@ -484,10 +475,10 @@ async def test_client_task_augmented_sampling() -> None:
             if isinstance(message, Exception):
                 raise message
 
-        tasks_capability = ClientTasksCapability(
-            requests=ClientTasksRequestsCapability(
-                sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability()),
-            ),
+        task_handlers = ExperimentalTaskHandlers(
+            augmented_sampling=task_augmented_sampling_callback,
+            get_task=get_task_handler,
+            get_task_result=get_task_result_handler,
         )
 
         try:
@@ -500,10 +491,7 @@ async def test_client_task_augmented_sampling() -> None:
                         server_to_client_receive,
                         client_to_server_send,
                         message_handler=message_handler,
-                        tasks_capability=tasks_capability,
-                        task_augmented_sampling_callback=task_augmented_sampling_callback,
-                        get_task_handler=get_task_handler,
-                        get_task_result_handler=get_task_result_handler,
+                        experimental_task_handlers=task_handlers,
                     ):
                         # Keep session alive - do NOT overwrite session._task_group
                         # as that breaks the session's internal lifecycle management
@@ -597,7 +585,7 @@ async def test_client_returns_error_for_unhandled_task_request() -> None:
                 raise message
 
         try:
-            # Client with no task handlers
+            # Client with no task handlers (uses defaults which return errors)
             async with anyio.create_task_group() as tg:
 
                 async def run_client():
