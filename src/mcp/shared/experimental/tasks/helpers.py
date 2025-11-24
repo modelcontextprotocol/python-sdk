@@ -4,7 +4,7 @@ Helper functions for task management.
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -57,7 +57,7 @@ def create_task_state(
     return Task(
         taskId=task_id or generate_task_id(),
         status="working",
-        createdAt=datetime.now(UTC),
+        createdAt=datetime.now(timezone.utc),
         ttl=metadata.ttl,
         pollInterval=500,  # Default 500ms poll interval
     )

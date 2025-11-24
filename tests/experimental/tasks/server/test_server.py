@@ -1,6 +1,6 @@
 """Tests for server-side task support (handlers, capabilities, integration)."""
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import anyio
@@ -54,14 +54,14 @@ async def test_list_tasks_handler() -> None:
         Task(
             taskId="task-1",
             status="working",
-            createdAt=datetime.now(UTC),
+            createdAt=datetime.now(timezone.utc),
             ttl=60000,
             pollInterval=1000,
         ),
         Task(
             taskId="task-2",
             status="completed",
-            createdAt=datetime.now(UTC),
+            createdAt=datetime.now(timezone.utc),
             ttl=60000,
             pollInterval=1000,
         ),
@@ -92,7 +92,7 @@ async def test_get_task_handler() -> None:
         return GetTaskResult(
             taskId=request.params.taskId,
             status="working",
-            createdAt=datetime.now(UTC),
+            createdAt=datetime.now(timezone.utc),
             ttl=60000,
             pollInterval=1000,
         )
@@ -140,7 +140,7 @@ async def test_cancel_task_handler() -> None:
         return CancelTaskResult(
             taskId=request.params.taskId,
             status="cancelled",
-            createdAt=datetime.now(UTC),
+            createdAt=datetime.now(timezone.utc),
             ttl=60000,
         )
 
@@ -174,7 +174,7 @@ async def test_server_capabilities_include_tasks() -> None:
         return CancelTaskResult(
             taskId=request.params.taskId,
             status="cancelled",
-            createdAt=datetime.now(UTC),
+            createdAt=datetime.now(timezone.utc),
             ttl=None,
         )
 

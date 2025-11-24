@@ -70,7 +70,7 @@ class ExperimentalHandlers:
             logger.debug("Registering handler for ListTasksRequest")
             wrapper = create_call_wrapper(func, ListTasksRequest)
 
-            async def handler(req: ListTasksRequest):
+            async def handler(req: ListTasksRequest) -> ServerResult:
                 result = await wrapper(req)
                 return ServerResult(result)
 
@@ -79,17 +79,23 @@ class ExperimentalHandlers:
 
         return decorator
 
-    def get_task(self):
+    def get_task(
+        self,
+    ) -> Callable[
+        [Callable[[GetTaskRequest], Awaitable[GetTaskResult]]], Callable[[GetTaskRequest], Awaitable[GetTaskResult]]
+    ]:
         """Register a handler for getting task status.
 
         WARNING: This API is experimental and may change without notice.
         """
 
-        def decorator(func: Callable[[GetTaskRequest], Awaitable[GetTaskResult]]):
+        def decorator(
+            func: Callable[[GetTaskRequest], Awaitable[GetTaskResult]],
+        ) -> Callable[[GetTaskRequest], Awaitable[GetTaskResult]]:
             logger.debug("Registering handler for GetTaskRequest")
             wrapper = create_call_wrapper(func, GetTaskRequest)
 
-            async def handler(req: GetTaskRequest):
+            async def handler(req: GetTaskRequest) -> ServerResult:
                 result = await wrapper(req)
                 return ServerResult(result)
 
@@ -98,17 +104,24 @@ class ExperimentalHandlers:
 
         return decorator
 
-    def get_task_result(self):
+    def get_task_result(
+        self,
+    ) -> Callable[
+        [Callable[[GetTaskPayloadRequest], Awaitable[GetTaskPayloadResult]]],
+        Callable[[GetTaskPayloadRequest], Awaitable[GetTaskPayloadResult]],
+    ]:
         """Register a handler for getting task results/payload.
 
         WARNING: This API is experimental and may change without notice.
         """
 
-        def decorator(func: Callable[[GetTaskPayloadRequest], Awaitable[GetTaskPayloadResult]]):
+        def decorator(
+            func: Callable[[GetTaskPayloadRequest], Awaitable[GetTaskPayloadResult]],
+        ) -> Callable[[GetTaskPayloadRequest], Awaitable[GetTaskPayloadResult]]:
             logger.debug("Registering handler for GetTaskPayloadRequest")
             wrapper = create_call_wrapper(func, GetTaskPayloadRequest)
 
-            async def handler(req: GetTaskPayloadRequest):
+            async def handler(req: GetTaskPayloadRequest) -> ServerResult:
                 result = await wrapper(req)
                 return ServerResult(result)
 
@@ -117,17 +130,24 @@ class ExperimentalHandlers:
 
         return decorator
 
-    def cancel_task(self):
+    def cancel_task(
+        self,
+    ) -> Callable[
+        [Callable[[CancelTaskRequest], Awaitable[CancelTaskResult]]],
+        Callable[[CancelTaskRequest], Awaitable[CancelTaskResult]],
+    ]:
         """Register a handler for cancelling tasks.
 
         WARNING: This API is experimental and may change without notice.
         """
 
-        def decorator(func: Callable[[CancelTaskRequest], Awaitable[CancelTaskResult]]):
+        def decorator(
+            func: Callable[[CancelTaskRequest], Awaitable[CancelTaskResult]],
+        ) -> Callable[[CancelTaskRequest], Awaitable[CancelTaskResult]]:
             logger.debug("Registering handler for CancelTaskRequest")
             wrapper = create_call_wrapper(func, CancelTaskRequest)
 
-            async def handler(req: CancelTaskRequest):
+            async def handler(req: CancelTaskRequest) -> ServerResult:
                 result = await wrapper(req)
                 return ServerResult(result)
 

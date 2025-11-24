@@ -3,7 +3,7 @@ from typing import Any, Generic
 
 from typing_extensions import TypeVar
 
-from mcp import McpError
+from mcp.shared.exceptions import McpError
 from mcp.shared.session import BaseSession
 from mcp.types import (
     METHOD_NOT_FOUND,

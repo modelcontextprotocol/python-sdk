@@ -9,7 +9,7 @@ For production, consider implementing TaskStore with a database or distributed c
 """
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from mcp.shared.experimental.tasks.helpers import create_task_state, is_terminal
 from mcp.shared.experimental.tasks.store import TaskStore
@@ -51,13 +51,13 @@ class InMemoryTaskStore(TaskStore):
         """Calculate expiry time from TTL in milliseconds."""
         if ttl_ms is None:
             return None
-        return datetime.now(UTC) + timedelta(milliseconds=ttl_ms)
+        return datetime.now(timezone.utc) + timedelta(milliseconds=ttl_ms)
 
     def _is_expired(self, stored: StoredTask) -> bool:
         """Check if a task has expired."""
         if stored.expires_at is None:
             return False
-        return datetime.now(UTC) >= stored.expires_at
+        return datetime.now(timezone.utc) >= stored.expires_at
 
     def _cleanup_expired(self) -> None:
         """Remove all expired tasks. Called lazily during access operations."""
