@@ -134,8 +134,8 @@ async def test_sampling(prompt: str, ctx: Context[ServerSession, None]) -> str:
             max_tokens=100,
         )
 
-        if result.content.type == "text":
-            model_response = result.content.text
+        if any(c.type == "text" for c in result.content_as_list):
+            model_response = "\n".join(c.text for c in result.content_as_list if c.type == "text")
         else:
             model_response = "No response"
 
@@ -194,6 +194,65 @@ async def test_elicitation_sep1034_defaults(ctx: Context[ServerSession, None]) -
             content = "{}"
 
         return f"Elicitation result: action={result.action}, content={content}"
+    except Exception as e:
+        return f"Elicitation not supported or error: {str(e)}"
+
+
+class EnumSchemasTestSchema(BaseModel):
+    """Schema for testing enum schema variations (SEP-1330)"""
+
+    untitledSingle: str = Field(
+        description="Simple enum without titles", json_schema_extra={"enum": ["active", "inactive", "pending"]}
+    )
+    titledSingle: str = Field(
+        description="Enum with titled options (oneOf)",
+        json_schema_extra={
+            "oneOf": [
+                {"const": "low", "title": "Low Priority"},
+                {"const": "medium", "title": "Medium Priority"},
+                {"const": "high", "title": "High Priority"},
+            ]
+        },
+    )
+    untitledMulti: list[str] = Field(
+        description="Multi-select without titles",
+        json_schema_extra={"items": {"type": "string", "enum": ["read", "write", "execute"]}},
+    )
+    titledMulti: list[str] = Field(
+        description="Multi-select with titled options",
+        json_schema_extra={
+            "items": {
+                "anyOf": [
+                    {"const": "feature", "title": "New Feature"},
+                    {"const": "bug", "title": "Bug Fix"},
+                    {"const": "docs", "title": "Documentation"},
+                ]
+            }
+        },
+    )
+    legacyEnum: str = Field(
+        description="Legacy enum with enumNames",
+        json_schema_extra={
+            "enum": ["small", "medium", "large"],
+            "enumNames": ["Small Size", "Medium Size", "Large Size"],
+        },
+    )
+
+
+@mcp.tool()
+async def test_elicitation_sep1330_enums(ctx: Context[ServerSession, None]) -> str:
+    """Tests elicitation with enum schema variations per SEP-1330"""
+    try:
+        result = await ctx.elicit(
+            message="Please select values using different enum schema types", schema=EnumSchemasTestSchema
+        )
+
+        if result.action == "accept":
+            content = result.data.model_dump_json()
+        else:
+            content = "{}"
+
+        return f"Elicitation completed: action={result.action}, content={content}"
     except Exception as e:
         return f"Elicitation not supported or error: {str(e)}"
 
