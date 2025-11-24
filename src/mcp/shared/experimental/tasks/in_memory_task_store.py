@@ -8,9 +8,10 @@ Note: This is not suitable for production use as all data is lost on restart.
 For production, consider implementing TaskStore with a database or distributed cache.
 """
 
-import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+
+import anyio
 
 from mcp.shared.experimental.tasks.helpers import create_task_state, is_terminal
 from mcp.shared.experimental.tasks.store import TaskStore
@@ -47,7 +48,7 @@ class InMemoryTaskStore(TaskStore):
     def __init__(self, page_size: int = 10) -> None:
         self._tasks: dict[str, StoredTask] = {}
         self._page_size = page_size
-        self._update_events: dict[str, asyncio.Event] = {}
+        self._update_events: dict[str, anyio.Event] = {}
 
     def _calculate_expiry(self, ttl_ms: int | None) -> datetime | None:
         """Calculate expiry time from TTL in milliseconds."""
@@ -188,13 +189,9 @@ class InMemoryTaskStore(TaskStore):
         if task_id not in self._tasks:
             raise ValueError(f"Task with ID {task_id} not found")
 
-        # Get or create the event for this task
-        if task_id not in self._update_events:
-            self._update_events[task_id] = asyncio.Event()
-
+        # Create a fresh event for waiting (anyio.Event can't be cleared)
+        self._update_events[task_id] = anyio.Event()
         event = self._update_events[task_id]
-        # Clear before waiting so we wait for NEW updates
-        event.clear()
         await event.wait()
 
     async def notify_update(self, task_id: str) -> None:

@@ -2,7 +2,6 @@
 Tests for TaskMessageQueue and InMemoryTaskMessageQueue.
 """
 
-import asyncio
 from datetime import datetime, timezone
 
 import anyio
@@ -11,6 +10,7 @@ import pytest
 from mcp.shared.experimental.tasks import (
     InMemoryTaskMessageQueue,
     QueuedMessage,
+    Resolver,
 )
 from mcp.types import JSONRPCNotification, JSONRPCRequest
 
@@ -149,10 +149,9 @@ class TestInMemoryTaskMessageQueue:
 
     @pytest.mark.anyio
     async def test_message_with_resolver(self, queue: InMemoryTaskMessageQueue) -> None:
-        """Messages can have resolver futures."""
+        """Messages can have resolvers."""
         task_id = "task-1"
-        loop = asyncio.get_running_loop()
-        resolver: asyncio.Future[dict[str, str]] = loop.create_future()
+        resolver: Resolver[dict[str, str]] = Resolver()
 
         msg = QueuedMessage(
             type="request",

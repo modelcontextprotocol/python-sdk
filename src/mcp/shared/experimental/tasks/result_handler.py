@@ -10,7 +10,6 @@ This implements the dequeue-send-wait pattern from the MCP Tasks spec:
 This is the core of the task message queue pattern.
 """
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +18,7 @@ import anyio
 from mcp.shared.exceptions import McpError
 from mcp.shared.experimental.tasks.helpers import is_terminal
 from mcp.shared.experimental.tasks.message_queue import TaskMessageQueue
+from mcp.shared.experimental.tasks.resolver import Resolver
 from mcp.shared.experimental.tasks.store import TaskStore
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.types import (
@@ -69,7 +69,7 @@ class TaskResultHandler:
         self._store = store
         self._queue = queue
         # Map from internal request ID to resolver for routing responses
-        self._pending_requests: dict[RequestId, asyncio.Future[dict[str, Any]]] = {}
+        self._pending_requests: dict[RequestId, Resolver[dict[str, Any]]] = {}
 
     async def send_message(
         self,
@@ -97,7 +97,7 @@ class TaskResultHandler:
         1. Dequeue all pending messages
         2. Send each via transport with relatedRequestId = this request's ID
         3. If task not terminal, wait for status change
-        4. Recurse until task is terminal
+        4. Loop until task is terminal
         5. Return final result
 
         Args:
@@ -110,34 +110,32 @@ class TaskResultHandler:
         """
         task_id = request.params.taskId
 
-        # Get the task
-        task = await self._store.get_task(task_id)
-        if task is None:
-            raise McpError(
-                ErrorData(
-                    code=INVALID_PARAMS,
-                    message=f"Task not found: {task_id}",
+        while True:
+            # Get fresh task state each iteration
+            task = await self._store.get_task(task_id)
+            if task is None:
+                raise McpError(
+                    ErrorData(
+                        code=INVALID_PARAMS,
+                        message=f"Task not found: {task_id}",
+                    )
                 )
-            )
 
-        # Dequeue and send all pending messages
-        await self._deliver_queued_messages(task_id, session, request_id)
+            # Dequeue and send all pending messages
+            await self._deliver_queued_messages(task_id, session, request_id)
 
-        # If task is terminal, return result
-        if is_terminal(task.status):
-            result = await self._store.get_result(task_id)
-            # GetTaskPayloadResult is a Result with extra="allow"
-            # The stored result contains the actual payload data
-            if result is not None:
-                # Copy result fields into GetTaskPayloadResult
-                return GetTaskPayloadResult.model_validate(result.model_dump(by_alias=True))
-            return GetTaskPayloadResult()
+            # If task is terminal, return result
+            if is_terminal(task.status):
+                result = await self._store.get_result(task_id)
+                # GetTaskPayloadResult is a Result with extra="allow"
+                # The stored result contains the actual payload data
+                if result is not None:
+                    # Copy result fields into GetTaskPayloadResult
+                    return GetTaskPayloadResult.model_validate(result.model_dump(by_alias=True))
+                return GetTaskPayloadResult()
 
-        # Wait for task update (status change or new messages)
-        await self._wait_for_task_update(task_id)
-
-        # Recurse to check for more messages and/or terminal state
-        return await self.handle(request, session, request_id)
+            # Wait for task update (status change or new messages)
+            await self._wait_for_task_update(task_id)
 
     async def _deliver_queued_messages(
         self,
@@ -176,43 +174,28 @@ class TaskResultHandler:
         """
         Wait for task to be updated (status change or new message).
 
-        This uses anyio's wait mechanism to wait for either:
-        1. Task status change (from store)
-        2. New message in queue
+        Races between store update and queue message - first one wins.
         """
-
-        # Create tasks for both conditions
-        async def wait_for_store_update() -> None:
-            await self._store.wait_for_update(task_id)
-
-        async def wait_for_queue_message() -> None:
-            await self._queue.wait_for_message(task_id)
-
-        # Race between the two - first one to complete wins
         async with anyio.create_task_group() as tg:
-            # Use cancel scope to cancel the other when one completes
-            done = asyncio.Event()
 
-            async def wrapped_store() -> None:
+            async def wait_for_store() -> None:
                 try:
-                    await wait_for_store_update()
+                    await self._store.wait_for_update(task_id)
                 except Exception:
                     pass
                 finally:
-                    done.set()
                     tg.cancel_scope.cancel()
 
-            async def wrapped_queue() -> None:
+            async def wait_for_queue() -> None:
                 try:
-                    await wait_for_queue_message()
+                    await self._queue.wait_for_message(task_id)
                 except Exception:
                     pass
                 finally:
-                    done.set()
                     tg.cancel_scope.cancel()
 
-            tg.start_soon(wrapped_store)
-            tg.start_soon(wrapped_queue)
+            tg.start_soon(wait_for_store)
+            tg.start_soon(wait_for_queue)
 
     def route_response(self, request_id: RequestId, response: dict[str, Any]) -> bool:
         """
@@ -249,23 +232,3 @@ class TaskResultHandler:
             resolver.set_exception(McpError(error))
             return True
         return False
-
-
-def create_task_result_handler(
-    store: TaskStore,
-    queue: TaskMessageQueue,
-) -> TaskResultHandler:
-    """
-    Create a TaskResultHandler for use with the server.
-
-    Example:
-        store = InMemoryTaskStore()
-        queue = InMemoryTaskMessageQueue()
-        handler = create_task_result_handler(store, queue)
-
-        @server.experimental.get_task_result()
-        async def handle_task_result(req: GetTaskPayloadRequest) -> GetTaskPayloadResult:
-            ctx = server.request_context
-            return await handler.handle(req, ctx.session, ctx.request_id)
-    """
-    return TaskResultHandler(store, queue)

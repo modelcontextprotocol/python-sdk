@@ -9,6 +9,21 @@ from typing_extensions import deprecated
 
 import mcp.types as types
 from mcp.client.experimental import ExperimentalClientFeatures
+from mcp.client.experimental.task_handlers import (
+    CancelTaskHandlerFnT,
+    GetTaskHandlerFnT,
+    GetTaskResultHandlerFnT,
+    ListTasksHandlerFnT,
+    TaskAugmentedElicitationFnT,
+    TaskAugmentedSamplingFnT,
+    build_client_tasks_capability,
+    default_cancel_task_handler,
+    default_get_task_handler,
+    default_get_task_result_handler,
+    default_list_tasks_handler,
+    default_task_augmented_elicitation_callback,
+    default_task_augmented_sampling_callback,
+)
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
@@ -46,95 +61,6 @@ class LoggingFnT(Protocol):
         self,
         params: types.LoggingMessageNotificationParams,
     ) -> None: ...  # pragma: no branch
-
-
-# Experimental: Task handler protocols for server -> client requests
-class GetTaskHandlerFnT(Protocol):
-    """Handler for tasks/get requests from server.
-
-    WARNING: This is experimental and may change without notice.
-    """
-
-    async def __call__(
-        self,
-        context: RequestContext["ClientSession", Any],
-        params: types.GetTaskRequestParams,
-    ) -> types.GetTaskResult | types.ErrorData: ...  # pragma: no branch
-
-
-class GetTaskResultHandlerFnT(Protocol):
-    """Handler for tasks/result requests from server.
-
-    WARNING: This is experimental and may change without notice.
-    """
-
-    async def __call__(
-        self,
-        context: RequestContext["ClientSession", Any],
-        params: types.GetTaskPayloadRequestParams,
-    ) -> types.GetTaskPayloadResult | types.ErrorData: ...  # pragma: no branch
-
-
-class ListTasksHandlerFnT(Protocol):
-    """Handler for tasks/list requests from server.
-
-    WARNING: This is experimental and may change without notice.
-    """
-
-    async def __call__(
-        self,
-        context: RequestContext["ClientSession", Any],
-        params: types.PaginatedRequestParams | None,
-    ) -> types.ListTasksResult | types.ErrorData: ...  # pragma: no branch
-
-
-class CancelTaskHandlerFnT(Protocol):
-    """Handler for tasks/cancel requests from server.
-
-    WARNING: This is experimental and may change without notice.
-    """
-
-    async def __call__(
-        self,
-        context: RequestContext["ClientSession", Any],
-        params: types.CancelTaskRequestParams,
-    ) -> types.CancelTaskResult | types.ErrorData: ...  # pragma: no branch
-
-
-class TaskAugmentedSamplingFnT(Protocol):
-    """Handler for task-augmented sampling/createMessage requests from server.
-
-    When server sends a CreateMessageRequest with task field, this callback
-    is invoked. The callback should create a task, spawn background work,
-    and return CreateTaskResult immediately.
-
-    WARNING: This is experimental and may change without notice.
-    """
-
-    async def __call__(
-        self,
-        context: RequestContext["ClientSession", Any],
-        params: types.CreateMessageRequestParams,
-        task_metadata: types.TaskMetadata,
-    ) -> types.CreateTaskResult | types.ErrorData: ...  # pragma: no branch
-
-
-class TaskAugmentedElicitationFnT(Protocol):
-    """Handler for task-augmented elicitation/create requests from server.
-
-    When server sends an ElicitRequest with task field, this callback
-    is invoked. The callback should create a task, spawn background work,
-    and return CreateTaskResult immediately.
-
-    WARNING: This is experimental and may change without notice.
-    """
-
-    async def __call__(
-        self,
-        context: RequestContext["ClientSession", Any],
-        params: types.ElicitRequestParams,
-        task_metadata: types.TaskMetadata,
-    ) -> types.CreateTaskResult | types.ErrorData: ...  # pragma: no branch
 
 
 class MessageHandlerFnT(Protocol):
@@ -185,69 +111,6 @@ async def _default_logging_callback(
     pass
 
 
-# Default handlers for experimental task requests (return "not supported" errors)
-async def _default_get_task_handler(
-    context: RequestContext["ClientSession", Any],
-    params: types.GetTaskRequestParams,
-) -> types.GetTaskResult | types.ErrorData:
-    return types.ErrorData(
-        code=types.METHOD_NOT_FOUND,
-        message="tasks/get not supported",
-    )
-
-
-async def _default_get_task_result_handler(
-    context: RequestContext["ClientSession", Any],
-    params: types.GetTaskPayloadRequestParams,
-) -> types.GetTaskPayloadResult | types.ErrorData:
-    return types.ErrorData(
-        code=types.METHOD_NOT_FOUND,
-        message="tasks/result not supported",
-    )
-
-
-async def _default_list_tasks_handler(
-    context: RequestContext["ClientSession", Any],
-    params: types.PaginatedRequestParams | None,
-) -> types.ListTasksResult | types.ErrorData:
-    return types.ErrorData(
-        code=types.METHOD_NOT_FOUND,
-        message="tasks/list not supported",
-    )
-
-
-async def _default_cancel_task_handler(
-    context: RequestContext["ClientSession", Any],
-    params: types.CancelTaskRequestParams,
-) -> types.CancelTaskResult | types.ErrorData:
-    return types.ErrorData(
-        code=types.METHOD_NOT_FOUND,
-        message="tasks/cancel not supported",
-    )
-
-
-async def _default_task_augmented_sampling_callback(
-    context: RequestContext["ClientSession", Any],
-    params: types.CreateMessageRequestParams,
-    task_metadata: types.TaskMetadata,
-) -> types.CreateTaskResult | types.ErrorData:
-    return types.ErrorData(
-        code=types.INVALID_REQUEST,
-        message="Task-augmented sampling not supported",
-    )
-
-
-async def _default_task_augmented_elicitation_callback(
-    context: RequestContext["ClientSession", Any],
-    params: types.ElicitRequestParams,
-    task_metadata: types.TaskMetadata,
-) -> types.CreateTaskResult | types.ErrorData:
-    return types.ErrorData(
-        code=types.INVALID_REQUEST,
-        message="Task-augmented elicitation not supported",
-    )
-
-
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
 
 
@@ -293,20 +156,26 @@ class ClientSession(
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
-        self._tasks_capability = tasks_capability
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._server_capabilities: types.ServerCapabilities | None = None
         self._experimental: ExperimentalClientFeatures | None = None
         # Experimental: Task handlers
-        self._get_task_handler = get_task_handler or _default_get_task_handler
-        self._get_task_result_handler = get_task_result_handler or _default_get_task_result_handler
-        self._list_tasks_handler = list_tasks_handler or _default_list_tasks_handler
-        self._cancel_task_handler = cancel_task_handler or _default_cancel_task_handler
+        self._get_task_handler = get_task_handler or default_get_task_handler
+        self._get_task_result_handler = get_task_result_handler or default_get_task_result_handler
+        self._list_tasks_handler = list_tasks_handler or default_list_tasks_handler
+        self._cancel_task_handler = cancel_task_handler or default_cancel_task_handler
         self._task_augmented_sampling_callback = (
-            task_augmented_sampling_callback or _default_task_augmented_sampling_callback
+            task_augmented_sampling_callback or default_task_augmented_sampling_callback
         )
         self._task_augmented_elicitation_callback = (
-            task_augmented_elicitation_callback or _default_task_augmented_elicitation_callback
+            task_augmented_elicitation_callback or default_task_augmented_elicitation_callback
+        )
+        # Build tasks capability from handlers if not explicitly provided
+        self._tasks_capability = tasks_capability or build_client_tasks_capability(
+            list_tasks_handler=list_tasks_handler,
+            cancel_task_handler=cancel_task_handler,
+            task_augmented_sampling_callback=task_augmented_sampling_callback,
+            task_augmented_elicitation_callback=task_augmented_elicitation_callback,
         )
 
     async def initialize(self) -> types.InitializeResult:

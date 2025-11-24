@@ -11,10 +11,12 @@ instead of ServerSession directly. TaskSession transparently handles:
 This implements the message queue pattern from the MCP Tasks spec.
 """
 
-import asyncio
 from typing import TYPE_CHECKING, Any
 
+import anyio
+
 from mcp.shared.experimental.tasks.message_queue import QueuedMessage, TaskMessageQueue
+from mcp.shared.experimental.tasks.resolver import Resolver
 from mcp.shared.experimental.tasks.store import TaskStore
 from mcp.types import (
     ElicitRequestedSchema,
@@ -125,9 +127,8 @@ class TaskSession:
             **request_data,
         )
 
-        # Create a future to receive the response
-        loop = asyncio.get_running_loop()
-        resolver: asyncio.Future[dict[str, Any]] = loop.create_future()
+        # Create a resolver to receive the response
+        resolver: Resolver[dict[str, Any]] = Resolver()
 
         # Enqueue the request
         queued_message = QueuedMessage(
@@ -140,14 +141,14 @@ class TaskSession:
 
         try:
             # Wait for the response
-            response_data = await resolver
+            response_data = await resolver.wait()
 
             # Update status back to working
             await self._store.update_task(self._task_id, status="working")
 
             # Parse the result
             return ElicitResult.model_validate(response_data)
-        except asyncio.CancelledError:
+        except anyio.get_cancelled_exc_class():
             # If cancelled, update status back to working before re-raising
             await self._store.update_task(self._task_id, status="working")
             raise

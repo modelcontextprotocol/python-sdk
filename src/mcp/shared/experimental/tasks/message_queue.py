@@ -12,13 +12,17 @@ This pattern enables:
 3. Automatic status management (working <-> input_required)
 """
 
-import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+import anyio
 
 from mcp.types import JSONRPCNotification, JSONRPCRequest, RequestId
+
+if TYPE_CHECKING:
+    from mcp.shared.experimental.tasks.resolver import Resolver
 
 
 @dataclass
@@ -26,7 +30,7 @@ class QueuedMessage:
     """
     A message queued for delivery via tasks/result.
 
-    Messages are stored with their type and a resolver future for requests
+    Messages are stored with their type and a resolver for requests
     that expect responses.
     """
 
@@ -39,8 +43,8 @@ class QueuedMessage:
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     """When the message was enqueued."""
 
-    resolver: "asyncio.Future[dict[str, Any]] | None" = None
-    """Future to resolve when response arrives (only for requests)."""
+    resolver: "Resolver[dict[str, Any]] | None" = None
+    """Resolver to set when response arrives (only for requests)."""
 
     original_request_id: RequestId | None = None
     """The original request ID used internally, for routing responses back."""
@@ -161,7 +165,7 @@ class InMemoryTaskMessageQueue(TaskMessageQueue):
 
     def __init__(self) -> None:
         self._queues: dict[str, list[QueuedMessage]] = {}
-        self._events: dict[str, asyncio.Event] = {}
+        self._events: dict[str, anyio.Event] = {}
 
     def _get_queue(self, task_id: str) -> list[QueuedMessage]:
         """Get or create the queue for a task."""
@@ -169,10 +173,10 @@ class InMemoryTaskMessageQueue(TaskMessageQueue):
             self._queues[task_id] = []
         return self._queues[task_id]
 
-    def _get_event(self, task_id: str) -> asyncio.Event:
+    def _get_event(self, task_id: str) -> anyio.Event:
         """Get or create the wait event for a task."""
         if task_id not in self._events:
-            self._events[task_id] = asyncio.Event()
+            self._events[task_id] = anyio.Event()
         return self._events[task_id]
 
     async def enqueue(self, task_id: str, message: QueuedMessage) -> None:
@@ -210,19 +214,25 @@ class InMemoryTaskMessageQueue(TaskMessageQueue):
 
     async def wait_for_message(self, task_id: str) -> None:
         """Wait until a message is available."""
-        event = self._get_event(task_id)
-        # Clear the event before waiting (so we wait for NEW messages)
-        event.clear()
         # Check if there are already messages
         if not await self.is_empty(task_id):
             return
+
+        # Create a fresh event for waiting (anyio.Event can't be cleared)
+        self._events[task_id] = anyio.Event()
+        event = self._events[task_id]
+
+        # Double-check after creating event (avoid race condition)
+        if not await self.is_empty(task_id):
+            return
+
         # Wait for a new message
         await event.wait()
 
     async def notify_message_available(self, task_id: str) -> None:
         """Signal that a message is available."""
-        event = self._get_event(task_id)
-        event.set()
+        if task_id in self._events:
+            self._events[task_id].set()
 
     def cleanup(self, task_id: str | None = None) -> None:
         """
