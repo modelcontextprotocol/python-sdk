@@ -380,9 +380,7 @@ async def test_ctx_elicit_url_convenience_method():
         )
         return f"Result: {result.action}"
 
-    async def elicitation_callback(
-        context: RequestContext[ClientSession, None], params: ElicitRequestParams
-    ):
+    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         assert params.mode == "url"
         assert params.elicitationId == "ctx-test-001"
         return ElicitResult(action="accept")
