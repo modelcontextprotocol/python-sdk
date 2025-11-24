@@ -6,7 +6,7 @@ Allowed characters: uppercase and lowercase ASCII letters (A-Z, a-z),
 digits (0-9), underscore (_), dash (-), and dot (.).
 Tool names SHOULD NOT contain spaces, commas, or other special characters.
 
-See: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986
+See: https://modelcontextprotocol.io/specification/draft/server/tools#tool-names
 """
 
 from __future__ import annotations
