@@ -363,3 +363,34 @@ async def test_deprecated_elicit_method():
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Email: test@example.com"
+
+
+@pytest.mark.anyio
+async def test_ctx_elicit_url_convenience_method():
+    """Test the ctx.elicit_url() convenience method (vs ctx.session.elicit_url())."""
+    mcp = FastMCP(name="CtxElicitUrlServer")
+
+    @mcp.tool(description="A tool that uses ctx.elicit_url() directly")
+    async def direct_elicit_url(ctx: Context[ServerSession, None]) -> str:
+        # Use ctx.elicit_url() directly instead of ctx.session.elicit_url()
+        result = await ctx.elicit_url(
+            message="Test the convenience method",
+            url="https://example.com/test",
+            elicitation_id="ctx-test-001",
+        )
+        return f"Result: {result.action}"
+
+    async def elicitation_callback(
+        context: RequestContext[ClientSession, None], params: ElicitRequestParams
+    ):
+        assert params.mode == "url"
+        assert params.elicitationId == "ctx-test-001"
+        return ElicitResult(action="accept")
+
+    async with create_connected_server_and_client_session(
+        mcp._mcp_server, elicitation_callback=elicitation_callback
+    ) as client_session:
+        await client_session.initialize()
+        result = await client_session.call_tool("direct_elicit_url", {})
+        assert isinstance(result.content[0], TextContent)
+        assert result.content[0].text == "Result: accept"
