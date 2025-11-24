@@ -132,14 +132,14 @@ Let's create a simple MCP server that exposes a calculator tool and some data:
 """
 FastMCP quickstart example.
 
-cd to the `examples/snippets/clients` directory and run:
-    uv run server fastmcp_quickstart stdio
+Run from the repository root:
+    uv run examples/snippets/servers/fastmcp_quickstart.py
 """
 
 from mcp.server.fastmcp import FastMCP
 
 # Create an MCP server
-mcp = FastMCP("Demo")
+mcp = FastMCP("Demo", json_response=True)
 
 
 # Add an addition tool
@@ -167,22 +167,35 @@ def greet_user(name: str, style: str = "friendly") -> str:
     }
 
     return f"{styles.get(style, styles['friendly'])} for someone named {name}."
+
+
+# Run with streamable HTTP transport
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http")
 ```
 
 _Full example: [examples/snippets/servers/fastmcp_quickstart.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/fastmcp_quickstart.py)_
 <!-- /snippet-source -->
 
-You can install this server in [Claude Desktop](https://claude.ai/download) and interact with it right away by running:
+You can install this server in [Claude Code](https://docs.claude.com/en/docs/claude-code/mcp) and interact with it right away. First, run the server:
 
 ```bash
-uv run mcp install server.py
+uv run --with mcp examples/snippets/servers/fastmcp_quickstart.py
 ```
 
-Alternatively, you can test it with the MCP Inspector:
+Then add it to Claude Code:
 
 ```bash
-uv run mcp dev server.py
+claude mcp add --transport http my-server http://localhost:8000/mcp
 ```
+
+Alternatively, you can test it with the MCP Inspector. Start the server as above, then in a separate terminal:
+
+```bash
+npx -y @modelcontextprotocol/inspector
+```
+
+In the inspector UI, connect to `http://localhost:8000/mcp`.
 
 ## What is MCP?
 
@@ -873,8 +886,8 @@ async def generate_poem(topic: str, ctx: Context[ServerSession, None]) -> str:
         max_tokens=100,
     )
 
-    if result.content.type == "text":
-        return result.content.text
+    if all(c.type == "text" for c in result.content_as_list):
+        return "\n".join(c.text for c in result.content_as_list if c.type == "text")
     return str(result.content)
 ```
 
@@ -943,6 +956,7 @@ class SimpleTokenVerifier(TokenVerifier):
 # Create FastMCP instance as a Resource Server
 mcp = FastMCP(
     "Weather Service",
+    json_response=True,
     # Token verifier for authentication
     token_verifier=SimpleTokenVerifier(),
     # Auth settings for RFC 9728 Protected Resource Metadata
@@ -1158,7 +1172,7 @@ Note that `uv run mcp run` or `uv run mcp dev` only supports server using FastMC
 
 ### Streamable HTTP Transport
 
-> **Note**: Streamable HTTP transport is superseding SSE transport for production deployments.
+> **Note**: Streamable HTTP transport is the recommended transport for production deployments. Use `stateless_http=True` and `json_response=True` for optimal scalability.
 
 <!-- snippet-source examples/snippets/servers/streamable_config.py -->
 ```python
@@ -1169,15 +1183,15 @@ Run from the repository root:
 
 from mcp.server.fastmcp import FastMCP
 
-# Stateful server (maintains session state)
-mcp = FastMCP("StatefulServer")
+# Stateless server with JSON responses (recommended)
+mcp = FastMCP("StatelessServer", stateless_http=True, json_response=True)
 
 # Other configuration options:
-# Stateless server (no session persistence)
+# Stateless server with SSE streaming responses
 # mcp = FastMCP("StatelessServer", stateless_http=True)
 
-# Stateless server (no session persistence, no sse stream with supported client)
-# mcp = FastMCP("StatelessServer", stateless_http=True, json_response=True)
+# Stateful server with session persistence
+# mcp = FastMCP("StatefulServer")
 
 
 # Add a simple tool to demonstrate the server
@@ -1212,7 +1226,7 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create the Echo server
-echo_mcp = FastMCP(name="EchoServer", stateless_http=True)
+echo_mcp = FastMCP(name="EchoServer", stateless_http=True, json_response=True)
 
 
 @echo_mcp.tool()
@@ -1222,7 +1236,7 @@ def echo(message: str) -> str:
 
 
 # Create the Math server
-math_mcp = FastMCP(name="MathServer", stateless_http=True)
+math_mcp = FastMCP(name="MathServer", stateless_http=True, json_response=True)
 
 
 @math_mcp.tool()
@@ -1323,7 +1337,7 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create MCP server
-mcp = FastMCP("My App")
+mcp = FastMCP("My App", json_response=True)
 
 
 @mcp.tool()
@@ -1360,7 +1374,7 @@ from starlette.routing import Host
 from mcp.server.fastmcp import FastMCP
 
 # Create MCP server
-mcp = FastMCP("MCP Host App")
+mcp = FastMCP("MCP Host App", json_response=True)
 
 
 @mcp.tool()
@@ -1397,8 +1411,8 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create multiple MCP servers
-api_mcp = FastMCP("API Server")
-chat_mcp = FastMCP("Chat Server")
+api_mcp = FastMCP("API Server", json_response=True)
+chat_mcp = FastMCP("Chat Server", json_response=True)
 
 
 @api_mcp.tool()
@@ -1448,7 +1462,11 @@ from mcp.server.fastmcp import FastMCP
 
 # Configure streamable_http_path during initialization
 # This server will mount at the root of wherever it's mounted
-mcp_at_root = FastMCP("My Server", streamable_http_path="/")
+mcp_at_root = FastMCP(
+    "My Server",
+    json_response=True,
+    streamable_http_path="/",
+)
 
 
 @mcp_at_root.tool()
