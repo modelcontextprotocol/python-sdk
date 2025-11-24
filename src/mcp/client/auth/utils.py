@@ -246,7 +246,7 @@ async def handle_registration_response(response: Response) -> OAuthClientInforma
 def is_valid_client_metadata_url(url: str | None) -> bool:
     """Validate that a URL is suitable for use as a client_id (CIMD).
 
-    Per SEP-991, the URL must be HTTPS with a non-root pathname.
+    The URL must be HTTPS with a non-root pathname.
 
     Args:
         url: The URL to validate
@@ -269,7 +269,7 @@ def should_use_client_metadata_url(
 ) -> bool:
     """Determine if URL-based client ID (CIMD) should be used instead of DCR.
 
-    Per SEP-991, URL-based client IDs should be used when:
+    URL-based client IDs should be used when:
     1. The server advertises client_id_metadata_document_supported=true
     2. The client has a valid client_metadata_url configured
 
@@ -294,7 +294,7 @@ def create_client_info_from_metadata_url(
 ) -> OAuthClientInformationFull:
     """Create client information using a URL-based client ID (CIMD).
 
-    Per SEP-991, when using URL-based client IDs, the URL itself becomes the client_id
+    When using URL-based client IDs, the URL itself becomes the client_id
     and no client_secret is used (token_endpoint_auth_method="none").
 
     Args:

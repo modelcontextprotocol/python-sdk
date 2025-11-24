@@ -191,7 +191,7 @@ class SimpleAuthClient:
                 webbrowser.open(authorization_url)
 
             # Create OAuth authentication handler using the new interface
-            # Use client_metadata_url to enable CIMD (SEP-991) when the server supports it
+            # Use client_metadata_url to enable CIMD when the server supports it
             oauth_auth = OAuthClientProvider(
                 server_url=self.server_url,
                 client_metadata=OAuthClientMetadata.model_validate(client_metadata_dict),

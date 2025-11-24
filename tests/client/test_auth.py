@@ -1833,7 +1833,7 @@ class TestWWWAuthenticate:
 
 
 class TestCIMD:
-    """Test SEP-991 Client ID Metadata Document (CIMD) support."""
+    """Test Client ID Metadata Document (CIMD) support."""
 
     @pytest.mark.parametrize(
         "url,expected",

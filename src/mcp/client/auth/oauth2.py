@@ -99,7 +99,7 @@ class OAuthContext:
     redirect_handler: Callable[[str], Awaitable[None]] | None
     callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None
     timeout: float = 300.0
-    client_metadata_url: str | None = None  # SEP-991: URL-based client ID
+    client_metadata_url: str | None = None
 
     # Discovered metadata
     protected_resource_metadata: ProtectedResourceMetadata | None = None
@@ -241,7 +241,7 @@ class OAuthClientProvider(httpx.Auth):
             redirect_handler: Handler for authorization redirects.
             callback_handler: Handler for authorization callbacks.
             timeout: Timeout for the OAuth flow.
-            client_metadata_url: SEP-991 URL-based client ID. When provided and the server
+            client_metadata_url: URL-based client ID. When provided and the server
                 advertises client_id_metadata_document_supported=true, this URL will be
                 used as the client_id instead of performing dynamic client registration.
                 Must be a valid HTTPS URL with a non-root pathname.
@@ -595,12 +595,12 @@ class OAuthClientProvider(httpx.Auth):
                         self.context.oauth_metadata,
                     )
 
-                    # Step 4: Register client or use URL-based client ID (SEP-991)
+                    # Step 4: Register client or use URL-based client ID (CIMD)
                     if not self.context.client_info:
                         if should_use_client_metadata_url(
                             self.context.oauth_metadata, self.context.client_metadata_url
                         ):
-                            # SEP-991: Use URL-based client ID
+                            # Use URL-based client ID (CIMD)
                             logger.debug(f"Using URL-based client ID (CIMD): {self.context.client_metadata_url}")
                             client_information = create_client_info_from_metadata_url(
                                 self.context.client_metadata_url,  # type: ignore[arg-type]
