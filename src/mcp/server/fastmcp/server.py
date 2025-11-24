@@ -697,6 +697,10 @@ class FastMCP(Generic[LifespanResultT]):
         The handler function must be an async function that accepts a Starlette
         Request and returns a Response.
 
+        Routes using this decorator will not require authorization. It is intended
+        for uses that are either a part of authorization flows or intended to be
+        public such as health check endpoints.
+
         Args:
             path: URL path for the route (e.g., "/oauth/callback")
             methods: List of HTTP methods to support (e.g., ["GET", "POST"])
