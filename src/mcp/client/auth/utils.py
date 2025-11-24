@@ -259,7 +259,7 @@ def is_valid_client_metadata_url(url: str | None) -> bool:
     try:
         parsed = urlparse(url)
         return parsed.scheme == "https" and parsed.path not in ("", "/")
-    except Exception:  # pragma: no cover
+    except Exception:
         return False
 
 

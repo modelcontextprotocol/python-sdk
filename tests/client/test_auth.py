@@ -1851,6 +1851,8 @@ class TestCIMD:
             # Invalid URLs - None or empty
             (None, False),
             ("", False),
+            # Invalid URLs - malformed (triggers urlparse exception)
+            ("http://[::1/foo/", False),
         ],
     )
     def test_is_valid_client_metadata_url(self, url: str | None, expected: bool):
