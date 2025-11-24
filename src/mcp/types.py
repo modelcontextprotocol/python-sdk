@@ -40,6 +40,12 @@ RequestId = Annotated[int, Field(strict=True)] | str
 AnyFunction: TypeAlias = Callable[..., Any]
 
 
+class Depends(BaseModel):
+    """Dependency injection for tool parameters."""
+
+    dependency: Callable[..., Any]
+
+
 class RequestParams(BaseModel):
     class Meta(BaseModel):
         progressToken: ProgressToken | None = None

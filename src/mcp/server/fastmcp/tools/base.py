@@ -10,8 +10,9 @@ from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.context_injection import find_context_parameter
+from mcp.server.fastmcp.utilities.dependencies import DependencyResolver, find_dependencies
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
-from mcp.types import Icon, ToolAnnotations
+from mcp.types import Depends, Icon, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -32,6 +33,7 @@ class Tool(BaseModel):
     )
     is_async: bool = Field(description="Whether the tool is async")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
+    dependencies: dict[str, Depends] | None = Field(None, description="Tool dependencies")
     annotations: ToolAnnotations | None = Field(None, description="Optional annotations for the tool")
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this tool")
     meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for this tool")
@@ -48,6 +50,7 @@ class Tool(BaseModel):
         title: str | None = None,
         description: str | None = None,
         context_kwarg: str | None = None,
+        dependencies: dict[str, Depends] | None = None,
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
@@ -65,9 +68,16 @@ class Tool(BaseModel):
         if context_kwarg is None:  # pragma: no branch
             context_kwarg = find_context_parameter(fn)
 
+        if dependencies is None:
+            dependencies = find_dependencies(fn)
+
+        skip_names = [context_kwarg] if context_kwarg is not None else []
+        if dependencies:
+            skip_names.extend(dependencies.keys())
+
         func_arg_metadata = func_metadata(
             fn,
-            skip_names=[context_kwarg] if context_kwarg is not None else [],
+            skip_names=skip_names,
             structured_output=structured_output,
         )
         parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
@@ -81,6 +91,7 @@ class Tool(BaseModel):
             fn_metadata=func_arg_metadata,
             is_async=is_async,
             context_kwarg=context_kwarg,
+            dependencies=dependencies,
             annotations=annotations,
             icons=icons,
             meta=meta,
@@ -93,12 +104,20 @@ class Tool(BaseModel):
         convert_result: bool = False,
     ) -> Any:
         """Run the tool with arguments."""
+        dependency_resolver = DependencyResolver()
         try:
+            # Resolve dependencies
+            resolved_dependencies = await dependency_resolver.resolve_dependencies(self.dependencies or {})
+
+            # Prepare arguments to pass directly to the function
+            arguments_to_pass_directly = {self.context_kwarg: context} if self.context_kwarg is not None else {}
+            arguments_to_pass_directly.update(resolved_dependencies)
+
             result = await self.fn_metadata.call_fn_with_arg_validation(
                 self.fn,
                 self.is_async,
                 arguments,
-                {self.context_kwarg: context} if self.context_kwarg is not None else None,
+                arguments_to_pass_directly,
             )
 
             if convert_result:

@@ -53,6 +53,7 @@ class TestAddTools:
             is_async=False,
             parameters=AddArguments.model_json_schema(),
             context_kwarg=None,
+            dependencies=None,
             annotations=None,
         )
         manager = ToolManager(tools=[original_tool])
