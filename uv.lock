@@ -5,6 +5,7 @@ requires-python = ">=3.10"
 [manifest]
 members = [
     "mcp",
+    "mcp-conformance-auth-client",
     "mcp-everything-server",
     "mcp-simple-auth",
     "mcp-simple-auth-client",
@@ -851,6 +852,35 @@ docs = [
     { name = "mkdocs-glightbox", specifier = ">=0.4.0" },
     { name = "mkdocs-material", extras = ["imaging"], specifier = ">=9.5.45" },
     { name = "mkdocstrings-python", specifier = ">=1.12.2" },
+]
+
+[[package]]
+name = "mcp-conformance-auth-client"
+version = "0.1.0"
+source = { editable = "examples/clients/conformance-auth-client" }
+dependencies = [
+    { name = "httpx" },
+    { name = "mcp" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "mcp", editable = "." },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.379" },
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "ruff", specifier = ">=0.6.9" },
 ]
 
 [[package]]
