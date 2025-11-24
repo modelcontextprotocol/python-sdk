@@ -6,7 +6,7 @@ Allowed characters: uppercase and lowercase ASCII letters (A-Z, a-z),
 digits (0-9), underscore (_), dash (-), and dot (.).
 Tool names SHOULD NOT contain spaces, commas, or other special characters.
 
-See: https://modelcontextprotocol.io/specification/draft/server/tools#tool-names
+See: https://modelcontextprotocol.io/specification/2025-11-25/server/tools#tool-names
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 TOOL_NAME_REGEX = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 # SEP reference URL for warning messages
-SEP_986_URL = "https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986"
+SEP_986_URL = "https://modelcontextprotocol.io/specification/2025-11-25/server/tools#tool-names"
 
 
 @dataclass
