@@ -82,6 +82,18 @@ class PromptListChangedCollector:
         self.notification_count += 1
 
 
+class ElicitCompleteCollector:
+    """Collector for ElicitCompleteNotification events."""
+
+    def __init__(self) -> None:
+        """Initialize the collector."""
+        self.notifications: list[types.ElicitCompleteNotificationParams] = []
+
+    async def __call__(self, params: types.ElicitCompleteNotificationParams) -> None:
+        """Collect an elicit complete notification."""
+        self.notifications.append(params)
+
+
 @pytest.fixture
 def progress_collector() -> ProgressNotificationCollector:
     """Create a progress notification collector."""
@@ -110,6 +122,12 @@ def tool_list_changed_collector() -> ToolListChangedCollector:
 def prompt_list_changed_collector() -> PromptListChangedCollector:
     """Create a prompt list changed collector."""
     return PromptListChangedCollector()
+
+
+@pytest.fixture
+def elicit_complete_collector() -> ElicitCompleteCollector:
+    """Create an elicit complete collector."""
+    return ElicitCompleteCollector()
 
 
 @pytest.mark.anyio
@@ -299,6 +317,41 @@ async def test_prompt_list_changed_callback(prompt_list_changed_collector: Promp
 
 
 @pytest.mark.anyio
+async def test_elicit_complete_callback(elicit_complete_collector: ElicitCompleteCollector) -> None:
+    """Test that elicit complete notifications are correctly received by the callback."""
+    from mcp.server.fastmcp import FastMCP
+
+    server = FastMCP("test")
+
+    @server.tool("send_elicit_complete")
+    async def send_elicit_complete_tool(elicitation_id: str) -> bool:
+        """Send an elicit complete notification to the client."""
+        await server.get_context().session.send_elicit_complete(elicitation_id)
+        return True
+
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        """Handle exceptions from the session."""
+        if isinstance(message, Exception):  # pragma: no cover
+            raise message
+
+    async with create_session(
+        server._mcp_server,
+        elicit_complete_callback=elicit_complete_collector,
+        message_handler=message_handler,
+    ) as client_session:
+        # Trigger elicit complete notification
+        result = await client_session.call_tool("send_elicit_complete", {"elicitation_id": "test-elicit-123"})
+        assert result.isError is False
+
+        # Verify the notification was received
+        assert len(elicit_complete_collector.notifications) == 1
+        notification = elicit_complete_collector.notifications[0]
+        assert notification.elicitationId == "test-elicit-123"
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "notification_type,callback_param,collector_fixture,tool_name,tool_args,verification",
     [
@@ -349,6 +402,17 @@ async def test_prompt_list_changed_callback(prompt_list_changed_collector: Promp
             "change_prompt_list",
             {},
             lambda c: c.notification_count == 1,  # type: ignore[attr-defined]
+        ),
+        (
+            "elicit_complete",
+            "elicit_complete_callback",
+            "elicit_complete_collector",
+            "send_elicit_complete",
+            {"elicitation_id": "param-test-elicit-456"},
+            lambda c: (  # type: ignore[misc]
+                len(c.notifications) == 1  # type: ignore[attr-defined]
+                and c.notifications[0].elicitationId == "param-test-elicit-456"  # type: ignore[attr-defined]
+            ),
         ),
     ],
 )
@@ -405,6 +469,12 @@ async def test_notification_callback_parametrized(
     async def change_prompt_list_tool() -> bool:
         """Send a prompt list changed notification to the client."""
         await server.get_context().session.send_prompt_list_changed()
+        return True
+
+    @server.tool("send_elicit_complete")
+    async def send_elicit_complete_tool(elicitation_id: str) -> bool:
+        """Send an elicit complete notification to the client."""
+        await server.get_context().session.send_elicit_complete(elicitation_id)
         return True
 
     async def message_handler(
@@ -478,6 +548,12 @@ async def test_all_default_callbacks_with_notifications() -> None:
         await server.get_context().session.send_prompt_list_changed()
         return True
 
+    @server.tool("send_elicit_complete")
+    async def send_elicit_complete_tool(elicitation_id: str) -> bool:
+        """Send an elicit complete notification."""
+        await server.get_context().session.send_elicit_complete(elicitation_id)
+        return True
+
     # Create session WITHOUT custom callbacks - all will use defaults
     async with create_session(server._mcp_server) as client_session:
         # Test progress notification with default callback
@@ -506,6 +582,10 @@ async def test_all_default_callbacks_with_notifications() -> None:
         # Test prompt list changed with default callback
         result5 = await client_session.call_tool("send_prompt_list_changed", {})
         assert result5.isError is False
+
+        # Test elicit complete with default callback
+        result6 = await client_session.call_tool("send_elicit_complete", {"elicitation_id": "test-123"})
+        assert result6.isError is False
 
 
 @pytest.mark.anyio
