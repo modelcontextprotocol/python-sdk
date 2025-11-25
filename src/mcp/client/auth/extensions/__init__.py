@@ -17,4 +17,3 @@ __all__ = [
     "decode_id_jag",
     "validate_token_exchange_params",
 ]
-
