@@ -66,8 +66,8 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             scope=scopes,
         )
         super().__init__(server_url, client_metadata, storage, None, None, 300.0)
-        # Set client_info directly - no need for dynamic registration
-        self.context.client_info = OAuthClientInformationFull(
+        # Store client_info to be set during _initialize - no dynamic registration needed
+        self._fixed_client_info = OAuthClientInformationFull(
             redirect_uris=None,
             client_id=client_id,
             client_secret=client_secret,
@@ -75,6 +75,12 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             token_endpoint_auth_method=token_endpoint_auth_method,
             scope=scopes,
         )
+
+    async def _initialize(self) -> None:
+        """Load stored tokens and set pre-configured client_info."""
+        self.context.current_tokens = await self.context.storage.get_tokens()
+        self.context.client_info = self._fixed_client_info
+        self._initialized = True
 
     async def _perform_authorization(self) -> httpx.Request:
         """Perform client_credentials authorization."""
@@ -275,14 +281,20 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
         )
         super().__init__(server_url, client_metadata, storage, None, None, 300.0)
         self._assertion_provider = assertion_provider
-        # Set client_info directly - no need for dynamic registration
-        self.context.client_info = OAuthClientInformationFull(
+        # Store client_info to be set during _initialize - no dynamic registration needed
+        self._fixed_client_info = OAuthClientInformationFull(
             redirect_uris=None,
             client_id=client_id,
             grant_types=["client_credentials"],
             token_endpoint_auth_method="private_key_jwt",
             scope=scopes,
         )
+
+    async def _initialize(self) -> None:
+        """Load stored tokens and set pre-configured client_info."""
+        self.context.current_tokens = await self.context.storage.get_tokens()
+        self.context.client_info = self._fixed_client_info
+        self._initialized = True
 
     async def _perform_authorization(self) -> httpx.Request:
         """Perform client_credentials authorization with private_key_jwt."""

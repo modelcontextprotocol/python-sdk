@@ -177,8 +177,9 @@ class TestOAuthFlowClientCredentials:
 class TestClientCredentialsOAuthProvider:
     """Test ClientCredentialsOAuthProvider."""
 
-    def test_init_sets_client_info(self, mock_storage: MockTokenStorage):
-        """Test that constructor sets client_info directly."""
+    @pytest.mark.anyio
+    async def test_init_sets_client_info(self, mock_storage: MockTokenStorage):
+        """Test that _initialize sets client_info."""
         provider = ClientCredentialsOAuthProvider(
             server_url="https://api.example.com",
             storage=mock_storage,
@@ -186,13 +187,17 @@ class TestClientCredentialsOAuthProvider:
             client_secret="test-client-secret",
         )
 
+        # client_info is set during _initialize
+        await provider._initialize()
+
         assert provider.context.client_info is not None
         assert provider.context.client_info.client_id == "test-client-id"
         assert provider.context.client_info.client_secret == "test-client-secret"
         assert provider.context.client_info.grant_types == ["client_credentials"]
         assert provider.context.client_info.token_endpoint_auth_method == "client_secret_basic"
 
-    def test_init_with_scopes(self, mock_storage: MockTokenStorage):
+    @pytest.mark.anyio
+    async def test_init_with_scopes(self, mock_storage: MockTokenStorage):
         """Test that constructor accepts scopes."""
         provider = ClientCredentialsOAuthProvider(
             server_url="https://api.example.com",
@@ -202,9 +207,11 @@ class TestClientCredentialsOAuthProvider:
             scopes="read write",
         )
 
+        await provider._initialize()
         assert provider.context.client_info.scope == "read write"
 
-    def test_init_with_client_secret_post(self, mock_storage: MockTokenStorage):
+    @pytest.mark.anyio
+    async def test_init_with_client_secret_post(self, mock_storage: MockTokenStorage):
         """Test that constructor accepts client_secret_post auth method."""
         provider = ClientCredentialsOAuthProvider(
             server_url="https://api.example.com",
@@ -214,6 +221,7 @@ class TestClientCredentialsOAuthProvider:
             token_endpoint_auth_method="client_secret_post",
         )
 
+        await provider._initialize()
         assert provider.context.client_info.token_endpoint_auth_method == "client_secret_post"
 
     @pytest.mark.anyio
@@ -270,8 +278,9 @@ class TestClientCredentialsOAuthProvider:
 class TestPrivateKeyJWTOAuthProvider:
     """Test PrivateKeyJWTOAuthProvider."""
 
-    def test_init_sets_client_info(self, mock_storage: MockTokenStorage):
-        """Test that constructor sets client_info directly."""
+    @pytest.mark.anyio
+    async def test_init_sets_client_info(self, mock_storage: MockTokenStorage):
+        """Test that _initialize sets client_info."""
 
         async def mock_assertion_provider(audience: str) -> str:
             return "mock-jwt"
@@ -282,6 +291,9 @@ class TestPrivateKeyJWTOAuthProvider:
             client_id="test-client-id",
             assertion_provider=mock_assertion_provider,
         )
+
+        # client_info is set during _initialize
+        await provider._initialize()
 
         assert provider.context.client_info is not None
         assert provider.context.client_info.client_id == "test-client-id"
