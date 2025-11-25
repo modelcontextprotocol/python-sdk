@@ -13,7 +13,6 @@ from src.mcp.server.auth.extensions.enterprise_managed_auth import (
     ReplayPreventionStore,
 )
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -50,6 +49,7 @@ def valid_id_jag_claims():
 @pytest.fixture
 def create_id_jag(valid_id_jag_claims):
     """Factory to create ID-JAG tokens."""
+
     def _create(claims=None, secret="test-secret"):
         claims_data = valid_id_jag_claims.copy()
         if claims:
@@ -60,6 +60,7 @@ def create_id_jag(valid_id_jag_claims):
             algorithm="HS256",
             headers={"typ": "oauth-id-jag+jwt"},
         )
+
     return _create
 
 
@@ -540,10 +541,11 @@ def test_validate_id_jag_with_jwks_client(create_id_jag):
     mock_signing_key = MagicMock()
     mock_signing_key.key = "mock-key"
 
-    with patch.object(validator.jwks_client, "get_signing_key_from_jwt", return_value=mock_signing_key), \
-         patch("jwt.decode") as mock_decode, \
-         patch("jwt.get_unverified_header") as mock_header:
-
+    with (
+        patch.object(validator.jwks_client, "get_signing_key_from_jwt", return_value=mock_signing_key),
+        patch("jwt.decode") as mock_decode,
+        patch("jwt.get_unverified_header") as mock_header,
+    ):
         mock_header.return_value = {"typ": "oauth-id-jag+jwt", "alg": "RS256"}
         mock_decode.return_value = {
             "jti": "jti-with-jwks",
@@ -558,6 +560,10 @@ def test_validate_id_jag_with_jwks_client(create_id_jag):
 
         claims = validator.validate_id_jag(id_jag, expected_client_id="client123")
 
+        # Verify claims were returned correctly
+        assert claims.jti == "jti-with-jwks"
+        assert claims.client_id == "client123"
+
         # Verify JWKS client was called
         validator.jwks_client.get_signing_key_from_jwt.assert_called_once_with(id_jag)
         # Verify jwt.decode was called with the key
@@ -569,13 +575,9 @@ def test_validate_id_jag_invalid_token_error(jwt_validation_config, create_id_ja
     validator = IDJAGValidator(jwt_validation_config)
     id_jag = create_id_jag()
 
-    with patch("jwt.get_unverified_header") as mock_header, \
-         patch("jwt.decode") as mock_decode:
-
+    with patch("jwt.get_unverified_header") as mock_header, patch("jwt.decode") as mock_decode:
         mock_header.return_value = {"typ": "oauth-id-jag+jwt", "alg": "HS256"}
         mock_decode.side_effect = jwt.InvalidTokenError("Invalid token")
 
         with pytest.raises(ValueError, match="Invalid ID-JAG: Invalid token"):
             validator.validate_id_jag(id_jag, expected_client_id="client123")
-
-
