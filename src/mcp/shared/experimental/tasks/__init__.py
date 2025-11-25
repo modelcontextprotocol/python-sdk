@@ -20,6 +20,7 @@ WARNING: These APIs are experimental and may change without notice.
 
 from mcp.shared.experimental.tasks.context import TaskContext
 from mcp.shared.experimental.tasks.helpers import (
+    MODEL_IMMEDIATE_RESPONSE_KEY,
     cancel_task,
     create_task_state,
     generate_task_id,
@@ -49,6 +50,7 @@ __all__ = [
     "InMemoryTaskMessageQueue",
     "QueuedMessage",
     "RELATED_TASK_METADATA_KEY",
+    "MODEL_IMMEDIATE_RESPONSE_KEY",
     "run_task",
     "task_execution",
     "is_terminal",

@@ -5,7 +5,7 @@ Helper functions for task management.
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from anyio.abc import TaskGroup
@@ -26,6 +26,11 @@ from mcp.types import (
 
 if TYPE_CHECKING:
     from mcp.server.session import ServerSession
+
+# Metadata key for model-immediate-response (per MCP spec)
+# Servers MAY include this in CreateTaskResult._meta to provide an immediate
+# response string while the task executes in the background.
+MODEL_IMMEDIATE_RESPONSE_KEY = "io.modelcontextprotocol/model-immediate-response"
 
 
 def is_terminal(status: TaskStatus) -> bool:
@@ -194,6 +199,7 @@ async def run_task(
     *,
     session: "ServerSession | None" = None,
     task_id: str | None = None,
+    model_immediate_response: str | None = None,
 ) -> tuple[CreateTaskResult, TaskContext]:
     """
     Create a task and spawn work to execute it.
@@ -209,6 +215,10 @@ async def run_task(
         work: Async function that does the actual work
         session: Optional session for sending notifications
         task_id: Optional task ID (generated if not provided)
+        model_immediate_response: Optional string to include in _meta as
+            io.modelcontextprotocol/model-immediate-response. This allows
+            hosts to pass an immediate response to the model while the
+            task executes in the background.
 
     Returns:
         Tuple of (CreateTaskResult to return to client, TaskContext for cancellation)
@@ -225,6 +235,7 @@ async def run_task(
                         ctx.experimental.task_metadata,
                         lambda ctx: do_long_work(ctx, args),
                         session=ctx.session,
+                        model_immediate_response="Processing started, this may take a while.",
                     )
                     # Optionally store task_ctx for cancellation handling
                     return result
@@ -248,4 +259,9 @@ async def run_task(
     # Spawn the work in the task group
     task_group.start_soon(execute)
 
-    return CreateTaskResult(task=task), ctx
+    # Build _meta if model_immediate_response is provided
+    meta: dict[str, Any] | None = None
+    if model_immediate_response is not None:
+        meta = {MODEL_IMMEDIATE_RESPONSE_KEY: model_immediate_response}
+
+    return CreateTaskResult(task=task, **{"_meta": meta} if meta else {}), ctx

@@ -383,7 +383,37 @@ class TestCreatingTask:
         Receiver MAY include io.modelcontextprotocol/model-immediate-response
         in _meta to provide immediate response while task executes.
         """
-        pytest.skip("TODO")
+        from mcp.shared.experimental.tasks import MODEL_IMMEDIATE_RESPONSE_KEY
+        from mcp.types import CreateTaskResult, Task
+
+        # Verify the constant has the correct value per spec
+        assert MODEL_IMMEDIATE_RESPONSE_KEY == "io.modelcontextprotocol/model-immediate-response"
+
+        # CreateTaskResult can include model-immediate-response in _meta
+        task = Task(
+            taskId="test-123",
+            status="working",
+            createdAt=TEST_DATETIME,
+            lastUpdatedAt=TEST_DATETIME,
+            ttl=60000,
+        )
+        immediate_msg = "Task started, processing your request..."
+        # Note: Must use _meta= (alias) not meta= due to Pydantic alias handling
+        result = CreateTaskResult(
+            task=task,
+            **{"_meta": {MODEL_IMMEDIATE_RESPONSE_KEY: immediate_msg}},
+        )
+
+        # Verify the metadata is present and correct
+        assert result.meta is not None
+        assert MODEL_IMMEDIATE_RESPONSE_KEY in result.meta
+        assert result.meta[MODEL_IMMEDIATE_RESPONSE_KEY] == immediate_msg
+
+        # Verify it serializes correctly with _meta alias
+        serialized = result.model_dump(by_alias=True)
+        assert "_meta" in serialized
+        assert MODEL_IMMEDIATE_RESPONSE_KEY in serialized["_meta"]
+        assert serialized["_meta"][MODEL_IMMEDIATE_RESPONSE_KEY] == immediate_msg
 
 
 # --- Getting Task Status (tasks/get) ---

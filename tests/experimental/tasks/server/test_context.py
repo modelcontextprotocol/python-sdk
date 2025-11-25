@@ -6,6 +6,7 @@ import anyio
 import pytest
 
 from mcp.shared.experimental.tasks import (
+    MODEL_IMMEDIATE_RESPONSE_KEY,
     InMemoryTaskStore,
     TaskContext,
     create_task_state,
@@ -475,5 +476,59 @@ async def test_run_task_doesnt_complete_if_already_terminal() -> None:
         task = await store.get_task(task_id)
         assert task is not None
         assert task.status == "cancelled"
+
+    store.cleanup()
+
+
+@pytest.mark.anyio
+async def test_run_task_with_model_immediate_response() -> None:
+    """Test run_task includes model_immediate_response in _meta when provided."""
+    store = InMemoryTaskStore()
+
+    async def work(ctx: TaskContext) -> CallToolResult:
+        return CallToolResult(content=[TextContent(type="text", text="Done")])
+
+    immediate_msg = "Processing your request, please wait..."
+
+    async with anyio.create_task_group() as tg:
+        result, _ = await run_task(
+            tg,
+            store,
+            TaskMetadata(ttl=60000),
+            work,
+            model_immediate_response=immediate_msg,
+        )
+
+        # Result should have _meta with model-immediate-response
+        assert result.meta is not None
+        assert MODEL_IMMEDIATE_RESPONSE_KEY in result.meta
+        assert result.meta[MODEL_IMMEDIATE_RESPONSE_KEY] == immediate_msg
+
+        # Verify serialization uses _meta alias
+        serialized = result.model_dump(by_alias=True)
+        assert "_meta" in serialized
+        assert serialized["_meta"][MODEL_IMMEDIATE_RESPONSE_KEY] == immediate_msg
+
+    store.cleanup()
+
+
+@pytest.mark.anyio
+async def test_run_task_without_model_immediate_response() -> None:
+    """Test run_task has no _meta when model_immediate_response is not provided."""
+    store = InMemoryTaskStore()
+
+    async def work(ctx: TaskContext) -> CallToolResult:
+        return CallToolResult(content=[TextContent(type="text", text="Done")])
+
+    async with anyio.create_task_group() as tg:
+        result, _ = await run_task(
+            tg,
+            store,
+            TaskMetadata(ttl=60000),
+            work,
+        )
+
+        # Result should not have _meta
+        assert result.meta is None
 
     store.cleanup()
