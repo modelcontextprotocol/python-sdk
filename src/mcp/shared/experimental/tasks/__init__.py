@@ -35,7 +35,7 @@ from mcp.shared.experimental.tasks.message_queue import (
 from mcp.shared.experimental.tasks.resolver import Resolver
 from mcp.shared.experimental.tasks.result_handler import TaskResultHandler
 from mcp.shared.experimental.tasks.store import TaskStore
-from mcp.shared.experimental.tasks.task_session import TaskSession
+from mcp.shared.experimental.tasks.task_session import RELATED_TASK_METADATA_KEY, TaskSession
 
 __all__ = [
     "TaskStore",
@@ -47,6 +47,7 @@ __all__ = [
     "TaskMessageQueue",
     "InMemoryTaskMessageQueue",
     "QueuedMessage",
+    "RELATED_TASK_METADATA_KEY",
     "run_task",
     "task_execution",
     "is_terminal",

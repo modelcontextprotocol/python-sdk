@@ -94,6 +94,7 @@ async def test_client_handles_get_task_request() -> None:
                 raise message
 
         task_handlers = ExperimentalTaskHandlers(get_task=get_task_handler)
+        client_ready = anyio.Event()
 
         try:
             async with anyio.create_task_group() as tg:
@@ -105,14 +106,11 @@ async def test_client_handles_get_task_request() -> None:
                         message_handler=message_handler,
                         experimental_task_handlers=task_handlers,
                     ):
-                        # Keep session alive
-                        while True:
-                            await anyio.sleep(0.01)
+                        client_ready.set()
+                        await anyio.sleep_forever()
 
                 tg.start_soon(run_client)
-
-                # Give client time to start
-                await anyio.sleep(0.05)
+                await client_ready.wait()
 
                 # Server sends GetTaskRequest to client
                 request_id = "req-1"
@@ -184,6 +182,7 @@ async def test_client_handles_get_task_result_request() -> None:
                 raise message
 
         task_handlers = ExperimentalTaskHandlers(get_task_result=get_task_result_handler)
+        client_ready = anyio.Event()
 
         try:
             async with anyio.create_task_group() as tg:
@@ -195,11 +194,11 @@ async def test_client_handles_get_task_result_request() -> None:
                         message_handler=message_handler,
                         experimental_task_handlers=task_handlers,
                     ):
-                        while True:
-                            await anyio.sleep(0.01)
+                        client_ready.set()
+                        await anyio.sleep_forever()
 
                 tg.start_soon(run_client)
-                await anyio.sleep(0.05)
+                await client_ready.wait()
 
                 # Server sends GetTaskPayloadRequest to client
                 request_id = "req-2"
@@ -264,6 +263,7 @@ async def test_client_handles_list_tasks_request() -> None:
                 raise message
 
         task_handlers = ExperimentalTaskHandlers(list_tasks=list_tasks_handler)
+        client_ready = anyio.Event()
 
         try:
             async with anyio.create_task_group() as tg:
@@ -275,11 +275,11 @@ async def test_client_handles_list_tasks_request() -> None:
                         message_handler=message_handler,
                         experimental_task_handlers=task_handlers,
                     ):
-                        while True:
-                            await anyio.sleep(0.01)
+                        client_ready.set()
+                        await anyio.sleep_forever()
 
                 tg.start_soon(run_client)
-                await anyio.sleep(0.05)
+                await client_ready.wait()
 
                 # Server sends ListTasksRequest to client
                 request_id = "req-3"
@@ -344,6 +344,7 @@ async def test_client_handles_cancel_task_request() -> None:
                 raise message
 
         task_handlers = ExperimentalTaskHandlers(cancel_task=cancel_task_handler)
+        client_ready = anyio.Event()
 
         try:
             async with anyio.create_task_group() as tg:
@@ -355,11 +356,11 @@ async def test_client_handles_cancel_task_request() -> None:
                         message_handler=message_handler,
                         experimental_task_handlers=task_handlers,
                     ):
-                        while True:
-                            await anyio.sleep(0.01)
+                        client_ready.set()
+                        await anyio.sleep_forever()
 
                 tg.start_soon(run_client)
-                await anyio.sleep(0.05)
+                await client_ready.wait()
 
                 # Server sends CancelTaskRequest to client
                 request_id = "req-4"
@@ -420,8 +421,6 @@ async def test_client_task_augmented_sampling() -> None:
 
             # Process in background (simulated)
             async def do_sampling():
-                # Simulate sampling work
-                await anyio.sleep(0.1)
                 result = CreateMessageResult(
                     role="assistant",
                     content=TextContent(type="text", text="Sampled response"),
@@ -480,6 +479,7 @@ async def test_client_task_augmented_sampling() -> None:
             get_task=get_task_handler,
             get_task_result=get_task_result_handler,
         )
+        client_ready = anyio.Event()
 
         try:
             async with anyio.create_task_group() as tg:
@@ -493,13 +493,11 @@ async def test_client_task_augmented_sampling() -> None:
                         message_handler=message_handler,
                         experimental_task_handlers=task_handlers,
                     ):
-                        # Keep session alive - do NOT overwrite session._task_group
-                        # as that breaks the session's internal lifecycle management
-                        while True:
-                            await anyio.sleep(0.01)
+                        client_ready.set()
+                        await anyio.sleep_forever()
 
                 tg.start_soon(run_client)
-                await anyio.sleep(0.05)
+                await client_ready.wait()
 
                 # Step 1: Server sends task-augmented CreateMessageRequest
                 request_id = "req-sampling"
@@ -584,6 +582,8 @@ async def test_client_returns_error_for_unhandled_task_request() -> None:
             if isinstance(message, Exception):
                 raise message
 
+        client_ready = anyio.Event()
+
         try:
             # Client with no task handlers (uses defaults which return errors)
             async with anyio.create_task_group() as tg:
@@ -594,11 +594,11 @@ async def test_client_returns_error_for_unhandled_task_request() -> None:
                         client_to_server_send,
                         message_handler=message_handler,
                     ):
-                        while True:
-                            await anyio.sleep(0.01)
+                        client_ready.set()
+                        await anyio.sleep_forever()
 
                 tg.start_soon(run_client)
-                await anyio.sleep(0.05)
+                await client_ready.wait()
 
                 # Server sends GetTaskRequest but client has no handler
                 request = types.JSONRPCRequest(

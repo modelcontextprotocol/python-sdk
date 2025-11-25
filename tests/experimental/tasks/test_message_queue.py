@@ -206,19 +206,23 @@ class TestInMemoryTaskMessageQueue:
         """wait_for_message blocks until a message is enqueued."""
         task_id = "task-1"
         received = False
+        waiter_started = anyio.Event()
 
-        async def enqueue_after_delay() -> None:
-            await anyio.sleep(0.1)
+        async def enqueue_when_ready() -> None:
+            # Wait until the waiter has started before enqueueing
+            await waiter_started.wait()
             await queue.enqueue(task_id, QueuedMessage(type="request", message=make_request()))
 
         async def wait_for_msg() -> None:
             nonlocal received
+            # Signal that we're about to start waiting
+            waiter_started.set()
             await queue.wait_for_message(task_id)
             received = True
 
         async with anyio.create_task_group() as tg:
             tg.start_soon(wait_for_msg)
-            tg.start_soon(enqueue_after_delay)
+            tg.start_soon(enqueue_when_ready)
 
         assert received is True
 
@@ -227,18 +231,22 @@ class TestInMemoryTaskMessageQueue:
         """notify_message_available wakes up waiting coroutines."""
         task_id = "task-1"
         notified = False
+        waiter_started = anyio.Event()
 
-        async def notify_after_delay() -> None:
-            await anyio.sleep(0.1)
+        async def notify_when_ready() -> None:
+            # Wait until the waiter has started before notifying
+            await waiter_started.wait()
             await queue.notify_message_available(task_id)
 
         async def wait_for_notification() -> None:
             nonlocal notified
+            # Signal that we're about to start waiting
+            waiter_started.set()
             await queue.wait_for_message(task_id)
             notified = True
 
         async with anyio.create_task_group() as tg:
             tg.start_soon(wait_for_notification)
-            tg.start_soon(notify_after_delay)
+            tg.start_soon(notify_when_ready)
 
         assert notified is True

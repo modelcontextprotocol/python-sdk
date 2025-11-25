@@ -14,6 +14,18 @@ from mcp.shared.experimental.tasks import (
 )
 from mcp.types import CallToolResult, TaskMetadata, TextContent
 
+
+async def wait_for_terminal_status(store: InMemoryTaskStore, task_id: str, timeout: float = 5.0) -> None:
+    """Wait for a task to reach terminal status (completed, failed, cancelled)."""
+    terminal_statuses = {"completed", "failed", "cancelled"}
+    with anyio.fail_after(timeout):
+        while True:
+            task = await store.get_task(task_id)
+            if task and task.status in terminal_statuses:
+                return
+            await anyio.sleep(0)  # Yield to allow other tasks to run
+
+
 # --- TaskContext tests ---
 
 
@@ -324,7 +336,7 @@ async def test_run_task_successful_completion() -> None:
         task_id = result.task.taskId
 
         # Wait for work to complete
-        await anyio.sleep(0.1)
+        await wait_for_terminal_status(store, task_id)
 
         # Check task is completed
         task = await store.get_task(task_id)
@@ -360,7 +372,7 @@ async def test_run_task_auto_fails_on_exception() -> None:
         task_id = result.task.taskId
 
         # Wait for work to complete (fail)
-        await anyio.sleep(0.1)
+        await wait_for_terminal_status(store, task_id)
 
         # Check task is failed
         task = await store.get_task(task_id)
@@ -391,7 +403,7 @@ async def test_run_task_with_custom_task_id() -> None:
         assert result.task.taskId == "my-custom-task-id"
 
         # Wait for work to complete
-        await anyio.sleep(0.1)
+        await wait_for_terminal_status(store, "my-custom-task-id")
 
         task = await store.get_task("my-custom-task-id")
         assert task is not None
@@ -423,7 +435,7 @@ async def test_run_task_doesnt_fail_if_already_terminal() -> None:
         task_id = result.task.taskId
 
         # Wait for work to complete
-        await anyio.sleep(0.1)
+        await wait_for_terminal_status(store, task_id)
 
         # Task should remain cancelled (not changed to failed)
         task = await store.get_task(task_id)
@@ -457,7 +469,7 @@ async def test_run_task_doesnt_complete_if_already_terminal() -> None:
         task_id = result.task.taskId
 
         # Wait for work to complete
-        await anyio.sleep(0.1)
+        await wait_for_terminal_status(store, task_id)
 
         # Task should remain cancelled (not changed to completed)
         task = await store.get_task(task_id)

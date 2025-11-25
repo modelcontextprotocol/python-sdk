@@ -6,6 +6,10 @@ This module provides client methods for interacting with MCP tasks.
 WARNING: These APIs are experimental and may change without notice.
 
 Example:
+    # Call a tool as a task
+    result = await session.experimental.call_tool_as_task("tool_name", {"arg": "value"})
+    task_id = result.task.taskId
+
     # Get task status
     status = await session.experimental.get_task(task_id)
 
@@ -20,7 +24,7 @@ Example:
     await session.experimental.cancel_task(task_id)
 """
 
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import mcp.types as types
 
@@ -42,6 +46,64 @@ class ExperimentalClientFeatures:
 
     def __init__(self, session: "ClientSession") -> None:
         self._session = session
+
+    async def call_tool_as_task(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        ttl: int = 60000,
+        meta: dict[str, Any] | None = None,
+    ) -> types.CreateTaskResult:
+        """Call a tool as a task, returning a CreateTaskResult for polling.
+
+        This is a convenience method for calling tools that support task execution.
+        The server will return a task reference instead of the immediate result,
+        which can then be polled via `get_task()` and retrieved via `get_task_result()`.
+
+        Args:
+            name: The tool name
+            arguments: Tool arguments
+            ttl: Task time-to-live in milliseconds (default: 60000 = 1 minute)
+            meta: Optional metadata to include in the request
+
+        Returns:
+            CreateTaskResult containing the task reference
+
+        Example:
+            # Create task
+            result = await session.experimental.call_tool_as_task(
+                "long_running_tool", {"input": "data"}
+            )
+            task_id = result.task.taskId
+
+            # Poll for completion
+            while True:
+                status = await session.experimental.get_task(task_id)
+                if status.status == "completed":
+                    break
+                await asyncio.sleep(0.5)
+
+            # Get result
+            final = await session.experimental.get_task_result(task_id, CallToolResult)
+        """
+        _meta: types.RequestParams.Meta | None = None
+        if meta is not None:
+            _meta = types.RequestParams.Meta(**meta)
+
+        return await self._session.send_request(
+            types.ClientRequest(
+                types.CallToolRequest(
+                    params=types.CallToolRequestParams(
+                        name=name,
+                        arguments=arguments,
+                        task=types.TaskMetadata(ttl=ttl),
+                        _meta=_meta,
+                    ),
+                )
+            ),
+            types.CreateTaskResult,
+        )
 
     async def get_task(self, task_id: str) -> types.GetTaskResult:
         """

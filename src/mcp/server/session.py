@@ -38,7 +38,7 @@ be instantiated directly by users of the MCP framework.
 """
 
 from enum import Enum
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import anyio
 import anyio.lowlevel
@@ -54,6 +54,9 @@ from mcp.shared.session import (
     RequestResponder,
 )
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+
+if TYPE_CHECKING:
+    from mcp.shared.experimental.tasks import TaskResultHandler
 
 
 class InitializationState(Enum):
@@ -80,6 +83,7 @@ class ServerSession(
 ):
     _initialized: InitializationState = InitializationState.NotInitialized
     _client_params: types.InitializeRequestParams | None = None
+    _task_result_handler: "TaskResultHandler | None" = None
 
     def __init__(
         self,
@@ -94,6 +98,7 @@ class ServerSession(
         )
 
         self._init_options = init_options
+        self._task_result_handler = None
         self._incoming_message_stream_writer, self._incoming_message_stream_reader = anyio.create_memory_object_stream[
             ServerRequestResponder
         ](0)
@@ -141,6 +146,33 @@ class ServerSession(
                     return False
 
         return True
+
+    def set_task_result_handler(self, handler: "TaskResultHandler") -> None:
+        """
+        Set the TaskResultHandler for this session.
+
+        This enables response routing for task-augmented requests. When a
+        TaskSession enqueues an elicitation request, the response will be
+        routed back through this handler.
+
+        The handler is automatically registered as a response router.
+
+        Args:
+            handler: The TaskResultHandler to use for this session
+
+        Example:
+            task_store = InMemoryTaskStore()
+            message_queue = InMemoryTaskMessageQueue()
+            handler = TaskResultHandler(task_store, message_queue)
+            session.set_task_result_handler(handler)
+        """
+        self._task_result_handler = handler
+        self.add_response_router(handler)
+
+    @property
+    def task_result_handler(self) -> "TaskResultHandler | None":
+        """Get the TaskResultHandler for this session, if set."""
+        return self._task_result_handler
 
     async def _receive_loop(self) -> None:
         async with self._incoming_message_stream_writer:
@@ -480,6 +512,20 @@ class ServerSession(
             ),
             related_request_id,
         )
+
+    async def send_message(self, message: SessionMessage) -> None:
+        """Send a raw session message.
+
+        This is primarily used by TaskResultHandler to deliver queued messages
+        (elicitation/sampling requests) to the client during task execution.
+
+        WARNING: This is a low-level method. Prefer using higher-level methods
+        like send_notification() or send_request() for normal operations.
+
+        Args:
+            message: The session message to send
+        """
+        await self._write_stream.send(message)
 
     async def _handle_incoming(self, req: ServerRequestResponder) -> None:
         await self._incoming_message_stream_writer.send(req)

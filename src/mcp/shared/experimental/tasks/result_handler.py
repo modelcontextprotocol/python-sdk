@@ -77,12 +77,11 @@ class TaskResultHandler:
         message: SessionMessage,
     ) -> None:
         """
-        Send a message via the session's write stream.
+        Send a message via the session.
 
-        This is a helper to avoid directly accessing protected members.
+        This is a helper for delivering queued task messages.
         """
-        # Access the write stream - this is intentional for task message delivery
-        await session._write_stream.send(message)  # type: ignore[reportPrivateUsage]
+        await session.send_message(message)
 
     async def handle(
         self,
