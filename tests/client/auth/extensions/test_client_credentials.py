@@ -282,7 +282,7 @@ class TestPrivateKeyJWTOAuthProvider:
     async def test_init_sets_client_info(self, mock_storage: MockTokenStorage):
         """Test that _initialize sets client_info."""
 
-        async def mock_assertion_provider(audience: str) -> str:
+        async def mock_assertion_provider(audience: str) -> str:  # pragma: no cover
             return "mock-jwt"
 
         provider = PrivateKeyJWTOAuthProvider(

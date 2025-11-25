@@ -58,6 +58,7 @@ def get_conformance_context() -> dict:
     except json.JSONDecodeError as e:
         raise RuntimeError(f"Failed to parse MCP_CONFORMANCE_CONTEXT as JSON: {e}") from e
 
+
 # Set up logging to stderr (stdout is for conformance test output)
 logging.basicConfig(
     level=logging.DEBUG,
