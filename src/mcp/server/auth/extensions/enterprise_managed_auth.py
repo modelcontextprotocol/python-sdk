@@ -117,9 +117,7 @@ class ReplayPreventionStore:
     def _cleanup(self) -> None:
         """Remove expired entries."""
         now = time.time()
-        self._used_jtis = {
-            jti: timestamp for jti, timestamp in self._used_jtis.items() if now - timestamp < self._ttl
-        }
+        self._used_jtis = {jti: timestamp for jti, timestamp in self._used_jtis.items() if now - timestamp < self._ttl}
 
 
 # ============================================================================
@@ -205,22 +203,18 @@ class IDJAGValidator:
         # Step 5: Validate audience
         if claims.get("aud") != self.config.server_auth_issuer:
             raise ValueError(
-                f"Invalid audience: expected '{self.config.server_auth_issuer}', "
-                f"got '{claims.get('aud')}'"
+                f"Invalid audience: expected '{self.config.server_auth_issuer}', got '{claims.get('aud')}'"
             )
 
         # Step 6: Validate resource
         if claims.get("resource") != self.config.server_resource_id:
             raise ValueError(
-                f"Invalid resource: expected '{self.config.server_resource_id}', "
-                f"got '{claims.get('resource')}'"
+                f"Invalid resource: expected '{self.config.server_resource_id}', got '{claims.get('resource')}'"
             )
 
         # Step 7: Validate client_id
         if claims.get("client_id") != expected_client_id:
-            raise ValueError(
-                f"client_id mismatch: expected '{expected_client_id}', " f"got '{claims.get('client_id')}'"
-            )
+            raise ValueError(f"client_id mismatch: expected '{expected_client_id}', got '{claims.get('client_id')}'")
 
         # Step 8: Check for replay (if enabled)
         jti = claims.get("jti")
