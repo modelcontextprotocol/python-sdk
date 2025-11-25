@@ -25,6 +25,7 @@ from mcp.shared.experimental.tasks import InMemoryTaskStore, task_execution
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
+    TASK_REQUIRED,
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -83,7 +84,7 @@ async def test_task_lifecycle_with_task_execution() -> None:
                     "type": "object",
                     "properties": {"input": {"type": "string"}},
                 },
-                execution=ToolExecution(task="always"),
+                execution=ToolExecution(taskSupport=TASK_REQUIRED),
             )
         ]
 

@@ -168,34 +168,34 @@ class TestClientCapabilities:
 
 class TestToolLevelNegotiation:
     """
-    Tools in tools/list responses include execution.task with values:
-    - Not present or "never": No task augmentation allowed
+    Tools in tools/list responses include execution.taskSupport with values:
+    - Not present or "forbidden": No task augmentation allowed
     - "optional": Task augmentation allowed at requestor discretion
-    - "always": Task augmentation is mandatory
+    - "required": Task augmentation is mandatory
     """
 
-    def test_tool_execution_task_never_rejects_task_augmented_call(self) -> None:
-        """Tool with execution.task="never" MUST reject task-augmented calls (-32601)."""
+    def test_tool_execution_task_forbidden_rejects_task_augmented_call(self) -> None:
+        """Tool with execution.taskSupport="forbidden" MUST reject task-augmented calls (-32601)."""
         pytest.skip("TODO")
 
     def test_tool_execution_task_absent_rejects_task_augmented_call(self) -> None:
-        """Tool without execution.task MUST reject task-augmented calls (-32601)."""
+        """Tool without execution.taskSupport MUST reject task-augmented calls (-32601)."""
         pytest.skip("TODO")
 
     def test_tool_execution_task_optional_accepts_normal_call(self) -> None:
-        """Tool with execution.task="optional" accepts normal calls."""
+        """Tool with execution.taskSupport="optional" accepts normal calls."""
         pytest.skip("TODO")
 
     def test_tool_execution_task_optional_accepts_task_augmented_call(self) -> None:
-        """Tool with execution.task="optional" accepts task-augmented calls."""
+        """Tool with execution.taskSupport="optional" accepts task-augmented calls."""
         pytest.skip("TODO")
 
-    def test_tool_execution_task_always_rejects_normal_call(self) -> None:
-        """Tool with execution.task="always" MUST reject non-task calls (-32601)."""
+    def test_tool_execution_task_required_rejects_normal_call(self) -> None:
+        """Tool with execution.taskSupport="required" MUST reject non-task calls (-32601)."""
         pytest.skip("TODO")
 
-    def test_tool_execution_task_always_accepts_task_augmented_call(self) -> None:
-        """Tool with execution.task="always" accepts task-augmented calls."""
+    def test_tool_execution_task_required_accepts_task_augmented_call(self) -> None:
+        """Tool with execution.taskSupport="required" accepts task-augmented calls."""
         pytest.skip("TODO")
 
 

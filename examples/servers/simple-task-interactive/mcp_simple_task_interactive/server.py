@@ -69,13 +69,13 @@ async def list_tools() -> list[types.Tool]:
             name="confirm_delete",
             description="Asks for confirmation before deleting (demonstrates elicitation)",
             inputSchema={"type": "object", "properties": {"filename": {"type": "string"}}},
-            execution=types.ToolExecution(task="always"),
+            execution=types.ToolExecution(taskSupport=types.TASK_REQUIRED),
         ),
         types.Tool(
             name="write_haiku",
             description="Asks LLM to write a haiku (demonstrates sampling)",
             inputSchema={"type": "object", "properties": {"topic": {"type": "string"}}},
-            execution=types.ToolExecution(task="always"),
+            execution=types.ToolExecution(taskSupport=types.TASK_REQUIRED),
         ),
     ]
 
@@ -86,7 +86,7 @@ async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[types.T
     app = ctx.lifespan_context
 
     # Validate task mode
-    ctx.experimental.validate_task_mode("always")
+    ctx.experimental.validate_task_mode(types.TASK_REQUIRED)
 
     # Ensure handler is configured for response routing
     ensure_handler_configured(ctx.session, app)

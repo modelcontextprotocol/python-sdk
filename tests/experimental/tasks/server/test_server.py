@@ -14,6 +14,9 @@ from mcp.server.session import ServerSession
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
+    TASK_FORBIDDEN,
+    TASK_OPTIONAL,
+    TASK_REQUIRED,
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -226,19 +229,19 @@ async def test_tool_with_task_execution_metadata() -> None:
                 name="quick_tool",
                 description="Fast tool",
                 inputSchema={"type": "object", "properties": {}},
-                execution=ToolExecution(task="never"),
+                execution=ToolExecution(taskSupport=TASK_FORBIDDEN),
             ),
             Tool(
                 name="long_tool",
                 description="Long running tool",
                 inputSchema={"type": "object", "properties": {}},
-                execution=ToolExecution(task="always"),
+                execution=ToolExecution(taskSupport=TASK_REQUIRED),
             ),
             Tool(
                 name="flexible_tool",
                 description="Can be either",
                 inputSchema={"type": "object", "properties": {}},
-                execution=ToolExecution(task="optional"),
+                execution=ToolExecution(taskSupport=TASK_OPTIONAL),
             ),
         ]
 
@@ -251,11 +254,11 @@ async def test_tool_with_task_execution_metadata() -> None:
     tools = result.root.tools
 
     assert tools[0].execution is not None
-    assert tools[0].execution.task == "never"
+    assert tools[0].execution.taskSupport == TASK_FORBIDDEN
     assert tools[1].execution is not None
-    assert tools[1].execution.task == "always"
+    assert tools[1].execution.taskSupport == TASK_REQUIRED
     assert tools[2].execution is not None
-    assert tools[2].execution.task == "optional"
+    assert tools[2].execution.taskSupport == TASK_OPTIONAL
 
 
 # --- Integration tests ---
@@ -274,7 +277,7 @@ async def test_task_metadata_in_call_tool_request() -> None:
                 name="long_task",
                 description="A long running task",
                 inputSchema={"type": "object", "properties": {}},
-                execution=ToolExecution(task="optional"),
+                execution=ToolExecution(taskSupport="optional"),
             )
         ]
 

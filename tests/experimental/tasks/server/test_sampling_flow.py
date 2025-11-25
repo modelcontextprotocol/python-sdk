@@ -35,6 +35,7 @@ from mcp.shared.experimental.tasks import (
 )
 from mcp.shared.message import SessionMessage
 from mcp.types import (
+    TASK_REQUIRED,
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -95,7 +96,7 @@ async def test_sampling_during_task_with_response_routing() -> None:
                     "type": "object",
                     "properties": {"question": {"type": "string"}},
                 },
-                execution=ToolExecution(task="always"),
+                execution=ToolExecution(taskSupport=TASK_REQUIRED),
             )
         ]
 

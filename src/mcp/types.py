@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from datetime import datetime
-from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
+from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
 from pydantic.networks import AnyUrl, UrlConstraints
@@ -39,7 +39,11 @@ Cursor = str
 Role = Literal["user", "assistant"]
 RequestId = Annotated[int, Field(strict=True)] | str
 AnyFunction: TypeAlias = Callable[..., Any]
-TaskExecutionMode = Literal["never", "optional", "always"]
+
+TaskExecutionMode = Literal["forbidden", "optional", "required"]
+TASK_FORBIDDEN: Final[Literal["forbidden"]] = "forbidden"
+TASK_OPTIONAL: Final[Literal["optional"]] = "optional"
+TASK_REQUIRED: Final[Literal["required"]] = "required"
 
 
 class TaskMetadata(BaseModel):
@@ -1272,17 +1276,17 @@ class ToolExecution(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    task: TaskExecutionMode | None = None
+    taskSupport: TaskExecutionMode | None = None
     """
     Indicates whether this tool supports task-augmented execution.
     This allows clients to handle long-running operations through polling
     the task system.
 
-    - "never": Tool does not support task-augmented execution (default when absent)
+    - "forbidden": Tool does not support task-augmented execution (default when absent)
     - "optional": Tool may support task-augmented execution
-    - "always": Tool requires task-augmented execution
+    - "required": Tool requires task-augmented execution
 
-    Default: "never"
+    Default: "forbidden"
     """
 
 

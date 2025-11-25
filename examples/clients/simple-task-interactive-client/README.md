@@ -49,7 +49,7 @@ async def sampling_callback(context, params) -> CreateMessageResult:
 ```python
 # Call a tool as a task (returns immediately with task reference)
 result = await session.experimental.call_tool_as_task("tool_name", {"arg": "value"})
-task_id = result.task.taskId
+task_id = result.taskSupport.taskId
 
 # Get result - this delivers elicitation/sampling requests and blocks until complete
 final = await session.experimental.get_task_result(task_id, CallToolResult)

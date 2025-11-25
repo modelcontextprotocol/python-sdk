@@ -41,6 +41,7 @@ from mcp.shared.experimental.tasks import (
 )
 from mcp.shared.message import SessionMessage
 from mcp.types import (
+    TASK_REQUIRED,
     CallToolResult,
     CreateMessageRequestParams,
     CreateMessageResult,
@@ -79,13 +80,13 @@ def create_server() -> Server[AppContext, Any]:
                 name="confirm_delete",
                 description="Asks for confirmation before deleting (demonstrates elicitation)",
                 inputSchema={"type": "object", "properties": {"filename": {"type": "string"}}},
-                execution=ToolExecution(task="always"),
+                execution=ToolExecution(taskSupport=TASK_REQUIRED),
             ),
             Tool(
                 name="write_haiku",
                 description="Asks LLM to write a haiku (demonstrates sampling)",
                 inputSchema={"type": "object", "properties": {"topic": {"type": "string"}}},
-                execution=ToolExecution(task="always"),
+                execution=ToolExecution(taskSupport=TASK_REQUIRED),
             ),
         ]
 
@@ -95,7 +96,7 @@ def create_server() -> Server[AppContext, Any]:
         app = ctx.lifespan_context
 
         # Validate task mode
-        ctx.experimental.validate_task_mode("always")
+        ctx.experimental.validate_task_mode(TASK_REQUIRED)
 
         # Ensure handler is configured for response routing
         session_id = id(ctx.session)
