@@ -114,6 +114,10 @@ class InMemoryTaskStore(TaskStore):
         if stored is None:
             raise ValueError(f"Task with ID {task_id} not found")
 
+        # Per spec: Terminal states MUST NOT transition to any other status
+        if status is not None and status != stored.task.status and is_terminal(stored.task.status):
+            raise ValueError(f"Cannot transition from terminal status '{stored.task.status}'")
+
         status_changed = False
         if status is not None and stored.task.status != status:
             stored.task.status = status

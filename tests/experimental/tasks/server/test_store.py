@@ -4,8 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from mcp.shared.experimental.tasks import InMemoryTaskStore
-from mcp.types import CallToolResult, TaskMetadata, TextContent
+from mcp.shared.exceptions import McpError
+from mcp.shared.experimental.tasks import InMemoryTaskStore, cancel_task
+from mcp.types import INVALID_PARAMS, CallToolResult, TaskMetadata, TextContent
 
 
 @pytest.mark.anyio
@@ -337,5 +338,162 @@ async def test_terminal_task_ttl_reset() -> None:
     new_expiry = stored.expires_at
     assert new_expiry is not None
     assert new_expiry >= initial_expiry
+
+    store.cleanup()
+
+
+@pytest.mark.anyio
+async def test_terminal_status_transition_rejected() -> None:
+    """Test that transitions from terminal states are rejected.
+
+    Per spec: Terminal states (completed, failed, cancelled) MUST NOT
+    transition to any other status.
+    """
+    store = InMemoryTaskStore()
+
+    # Test each terminal status
+    for terminal_status in ("completed", "failed", "cancelled"):
+        task = await store.create_task(metadata=TaskMetadata(ttl=60000))
+
+        # Move to terminal state
+        await store.update_task(task.taskId, status=terminal_status)
+
+        # Attempting to transition to any other status should raise
+        with pytest.raises(ValueError, match="Cannot transition from terminal status"):
+            await store.update_task(task.taskId, status="working")
+
+        # Also test transitioning to another terminal state
+        other_terminal = "failed" if terminal_status != "failed" else "completed"
+        with pytest.raises(ValueError, match="Cannot transition from terminal status"):
+            await store.update_task(task.taskId, status=other_terminal)
+
+    store.cleanup()
+
+
+@pytest.mark.anyio
+async def test_terminal_status_allows_same_status() -> None:
+    """Test that setting the same terminal status doesn't raise.
+
+    This is not a transition, so it should be allowed (no-op).
+    """
+    store = InMemoryTaskStore()
+
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000))
+    await store.update_task(task.taskId, status="completed")
+
+    # Setting the same status should not raise
+    updated = await store.update_task(task.taskId, status="completed")
+    assert updated.status == "completed"
+
+    # Updating just the message should also work
+    updated = await store.update_task(task.taskId, status_message="Updated message")
+    assert updated.statusMessage == "Updated message"
+
+    store.cleanup()
+
+
+# =============================================================================
+# cancel_task helper function tests
+# =============================================================================
+
+
+@pytest.mark.anyio
+async def test_cancel_task_succeeds_for_working_task() -> None:
+    """Test cancel_task helper succeeds for a working task."""
+    store = InMemoryTaskStore()
+
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000))
+    assert task.status == "working"
+
+    result = await cancel_task(store, task.taskId)
+
+    assert result.taskId == task.taskId
+    assert result.status == "cancelled"
+
+    # Verify store is updated
+    retrieved = await store.get_task(task.taskId)
+    assert retrieved is not None
+    assert retrieved.status == "cancelled"
+
+    store.cleanup()
+
+
+@pytest.mark.anyio
+async def test_cancel_task_rejects_nonexistent_task() -> None:
+    """Test cancel_task raises McpError with INVALID_PARAMS for nonexistent task."""
+    store = InMemoryTaskStore()
+
+    with pytest.raises(McpError) as exc_info:
+        await cancel_task(store, "nonexistent-task-id")
+
+    assert exc_info.value.error.code == INVALID_PARAMS
+    assert "not found" in exc_info.value.error.message
+
+    store.cleanup()
+
+
+@pytest.mark.anyio
+async def test_cancel_task_rejects_completed_task() -> None:
+    """Test cancel_task raises McpError with INVALID_PARAMS for completed task."""
+    store = InMemoryTaskStore()
+
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000))
+    await store.update_task(task.taskId, status="completed")
+
+    with pytest.raises(McpError) as exc_info:
+        await cancel_task(store, task.taskId)
+
+    assert exc_info.value.error.code == INVALID_PARAMS
+    assert "terminal state 'completed'" in exc_info.value.error.message
+
+    store.cleanup()
+
+
+@pytest.mark.anyio
+async def test_cancel_task_rejects_failed_task() -> None:
+    """Test cancel_task raises McpError with INVALID_PARAMS for failed task."""
+    store = InMemoryTaskStore()
+
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000))
+    await store.update_task(task.taskId, status="failed")
+
+    with pytest.raises(McpError) as exc_info:
+        await cancel_task(store, task.taskId)
+
+    assert exc_info.value.error.code == INVALID_PARAMS
+    assert "terminal state 'failed'" in exc_info.value.error.message
+
+    store.cleanup()
+
+
+@pytest.mark.anyio
+async def test_cancel_task_rejects_already_cancelled_task() -> None:
+    """Test cancel_task raises McpError with INVALID_PARAMS for already cancelled task."""
+    store = InMemoryTaskStore()
+
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000))
+    await store.update_task(task.taskId, status="cancelled")
+
+    with pytest.raises(McpError) as exc_info:
+        await cancel_task(store, task.taskId)
+
+    assert exc_info.value.error.code == INVALID_PARAMS
+    assert "terminal state 'cancelled'" in exc_info.value.error.message
+
+    store.cleanup()
+
+
+@pytest.mark.anyio
+async def test_cancel_task_succeeds_for_input_required_task() -> None:
+    """Test cancel_task helper succeeds for a task in input_required status."""
+    store = InMemoryTaskStore()
+
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000))
+    await store.update_task(task.taskId, status="input_required")
+
+    result = await cancel_task(store, task.taskId)
+
+    assert result.taskId == task.taskId
+    assert result.status == "cancelled"
 
     store.cleanup()

@@ -7,7 +7,7 @@ This module provides:
 - InMemoryTaskStore: Reference implementation for testing/development
 - TaskMessageQueue: FIFO queue for task messages delivered via tasks/result
 - InMemoryTaskMessageQueue: Reference implementation for message queue
-- Helper functions: run_task, is_terminal, create_task_state, generate_task_id
+- Helper functions: run_task, is_terminal, create_task_state, generate_task_id, cancel_task
 
 Architecture:
 - TaskStore is pure storage - it doesn't know about execution
@@ -20,6 +20,7 @@ WARNING: These APIs are experimental and may change without notice.
 
 from mcp.shared.experimental.tasks.context import TaskContext
 from mcp.shared.experimental.tasks.helpers import (
+    cancel_task,
     create_task_state,
     generate_task_id,
     is_terminal,
@@ -53,4 +54,5 @@ __all__ = [
     "is_terminal",
     "create_task_state",
     "generate_task_id",
+    "cancel_task",
 ]

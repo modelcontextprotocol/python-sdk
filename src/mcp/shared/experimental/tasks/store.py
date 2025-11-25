@@ -69,6 +69,9 @@ class TaskStore(ABC):
 
         Raises:
             ValueError: If task not found
+            ValueError: If attempting to transition from a terminal status
+                (completed, failed, cancelled). Per spec, terminal states
+                MUST NOT transition to any other status.
         """
 
     @abstractmethod

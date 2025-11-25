@@ -10,9 +10,19 @@ from uuid import uuid4
 
 from anyio.abc import TaskGroup
 
+from mcp.shared.exceptions import McpError
 from mcp.shared.experimental.tasks.context import TaskContext
 from mcp.shared.experimental.tasks.store import TaskStore
-from mcp.types import CreateTaskResult, Result, Task, TaskMetadata, TaskStatus
+from mcp.types import (
+    INVALID_PARAMS,
+    CancelTaskResult,
+    CreateTaskResult,
+    ErrorData,
+    Result,
+    Task,
+    TaskMetadata,
+    TaskStatus,
+)
 
 if TYPE_CHECKING:
     from mcp.server.session import ServerSession
@@ -31,6 +41,58 @@ def is_terminal(status: TaskStatus) -> bool:
         True if the status is terminal (completed, failed, or cancelled)
     """
     return status in ("completed", "failed", "cancelled")
+
+
+async def cancel_task(
+    store: TaskStore,
+    task_id: str,
+) -> CancelTaskResult:
+    """
+    Cancel a task with spec-compliant validation.
+
+    Per spec: "Receivers MUST reject cancellation of terminal status tasks
+    with -32602 (Invalid params)"
+
+    This helper validates that the task exists and is not in a terminal state
+    before setting it to "cancelled".
+
+    Args:
+        store: The task store
+        task_id: The task identifier to cancel
+
+    Returns:
+        CancelTaskResult with the cancelled task state
+
+    Raises:
+        McpError: With INVALID_PARAMS (-32602) if:
+            - Task does not exist
+            - Task is already in a terminal state (completed, failed, cancelled)
+
+    Example:
+        @server.experimental.cancel_task()
+        async def handle_cancel(request: CancelTaskRequest) -> CancelTaskResult:
+            return await cancel_task(store, request.params.taskId)
+    """
+    task = await store.get_task(task_id)
+    if task is None:
+        raise McpError(
+            ErrorData(
+                code=INVALID_PARAMS,
+                message=f"Task not found: {task_id}",
+            )
+        )
+
+    if is_terminal(task.status):
+        raise McpError(
+            ErrorData(
+                code=INVALID_PARAMS,
+                message=f"Cannot cancel task in terminal state '{task.status}'",
+            )
+        )
+
+    # Update task to cancelled status
+    cancelled_task = await store.update_task(task_id, status="cancelled")
+    return CancelTaskResult(**cancelled_task.model_dump())
 
 
 def generate_task_id() -> str:
