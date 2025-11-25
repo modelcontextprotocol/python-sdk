@@ -42,7 +42,11 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.elicitation import (
     ElicitationResult,
     ElicitSchemaModelT,
+    UrlElicitationResult,
     elicit_with_validation,
+)
+from mcp.server.elicitation import (
+    elicit_url as _elicit_url,
 )
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
@@ -697,6 +701,10 @@ class FastMCP(Generic[LifespanResultT]):
         The handler function must be an async function that accepts a Starlette
         Request and returns a Response.
 
+        Routes using this decorator will not require authorization. It is intended
+        for uses that are either a part of authorization flows or intended to be
+        public such as health check endpoints.
+
         Args:
             path: URL path for the route (e.g., "/oauth/callback")
             methods: List of HTTP methods to support (e.g., ["GET", "POST"])
@@ -1197,6 +1205,41 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             session=self.request_context.session,
             message=message,
             schema=schema,
+            related_request_id=self.request_id,
+        )
+
+    async def elicit_url(
+        self,
+        message: str,
+        url: str,
+        elicitation_id: str,
+    ) -> UrlElicitationResult:
+        """Request URL mode elicitation from the client.
+
+        This directs the user to an external URL for out-of-band interactions
+        that must not pass through the MCP client. Use this for:
+        - Collecting sensitive credentials (API keys, passwords)
+        - OAuth authorization flows with third-party services
+        - Payment and subscription flows
+        - Any interaction where data should not pass through the LLM context
+
+        The response indicates whether the user consented to navigate to the URL.
+        The actual interaction happens out-of-band. When the elicitation completes,
+        call `self.session.send_elicit_complete(elicitation_id)` to notify the client.
+
+        Args:
+            message: Human-readable explanation of why the interaction is needed
+            url: The URL the user should navigate to
+            elicitation_id: Unique identifier for tracking this elicitation
+
+        Returns:
+            UrlElicitationResult indicating accept, decline, or cancel
+        """
+        return await _elicit_url(
+            session=self.request_context.session,
+            message=message,
+            url=url,
+            elicitation_id=elicitation_id,
             related_request_id=self.request_id,
         )
 

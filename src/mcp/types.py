@@ -146,6 +146,10 @@ class JSONRPCResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+# MCP-specific error codes in the range [-32000, -32099]
+URL_ELICITATION_REQUIRED = -32042
+"""Error code indicating that a URL mode elicitation is required before the request can be processed."""
+
 # SDK error codes
 CONNECTION_CLOSED = -32000
 # REQUEST_TIMEOUT = -32001  # the typescript sdk uses this
@@ -272,8 +276,29 @@ class SamplingToolsCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class FormElicitationCapability(BaseModel):
+    """Capability for form mode elicitation."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class UrlElicitationCapability(BaseModel):
+    """Capability for URL mode elicitation."""
+
+    model_config = ConfigDict(extra="allow")
+
+
 class ElicitationCapability(BaseModel):
-    """Capability for elicitation operations."""
+    """Capability for elicitation operations.
+
+    Clients must support at least one mode (form or url).
+    """
+
+    form: FormElicitationCapability | None = None
+    """Present if the client supports form mode elicitation."""
+
+    url: UrlElicitationCapability | None = None
+    """Present if the client supports URL mode elicitation."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -1411,6 +1436,32 @@ class CancelledNotification(Notification[CancelledNotificationParams, Literal["n
     params: CancelledNotificationParams
 
 
+class ElicitCompleteNotificationParams(NotificationParams):
+    """Parameters for elicitation completion notifications."""
+
+    elicitationId: str
+    """The unique identifier of the elicitation that was completed."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ElicitCompleteNotification(
+    Notification[ElicitCompleteNotificationParams, Literal["notifications/elicitation/complete"]]
+):
+    """
+    A notification from the server to the client, informing it that a URL mode
+    elicitation has been completed.
+
+    Clients MAY use the notification to automatically retry requests that received a
+    URLElicitationRequiredError, update the user interface, or otherwise continue
+    an interaction. However, because delivery of the notification is not guaranteed,
+    clients must not wait indefinitely for a notification from the server.
+    """
+
+    method: Literal["notifications/elicitation/complete"] = "notifications/elicitation/complete"
+    params: ElicitCompleteNotificationParams
+
+
 class ClientRequest(
     RootModel[
         PingRequest
@@ -1442,12 +1493,56 @@ ElicitRequestedSchema: TypeAlias = dict[str, Any]
 """Schema for elicitation requests."""
 
 
-class ElicitRequestParams(RequestParams):
-    """Parameters for elicitation requests."""
+class ElicitRequestFormParams(RequestParams):
+    """Parameters for form mode elicitation requests.
+
+    Form mode collects non-sensitive information from the user via an in-band form
+    rendered by the client.
+    """
+
+    mode: Literal["form"] = "form"
+    """The elicitation mode (always "form" for this type)."""
 
     message: str
+    """The message to present to the user describing what information is being requested."""
+
     requestedSchema: ElicitRequestedSchema
+    """
+    A restricted subset of JSON Schema defining the structure of expected response.
+    Only top-level properties are allowed, without nesting.
+    """
+
     model_config = ConfigDict(extra="allow")
+
+
+class ElicitRequestURLParams(RequestParams):
+    """Parameters for URL mode elicitation requests.
+
+    URL mode directs users to external URLs for sensitive out-of-band interactions
+    like OAuth flows, credential collection, or payment processing.
+    """
+
+    mode: Literal["url"] = "url"
+    """The elicitation mode (always "url" for this type)."""
+
+    message: str
+    """The message to present to the user explaining why the interaction is needed."""
+
+    url: str
+    """The URL that the user should navigate to."""
+
+    elicitationId: str
+    """
+    The ID of the elicitation, which must be unique within the context of the server.
+    The client MUST treat this ID as an opaque value.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+
+# Union type for elicitation request parameters
+ElicitRequestParams: TypeAlias = ElicitRequestURLParams | ElicitRequestFormParams
+"""Parameters for elicitation requests - either form or URL mode."""
 
 
 class ElicitRequest(Request[ElicitRequestParams, Literal["elicitation/create"]]):
@@ -1463,16 +1558,31 @@ class ElicitResult(Result):
     action: Literal["accept", "decline", "cancel"]
     """
     The user action in response to the elicitation.
-    - "accept": User submitted the form/confirmed the action
+    - "accept": User submitted the form/confirmed the action (or consented to URL navigation)
     - "decline": User explicitly declined the action
     - "cancel": User dismissed without making an explicit choice
     """
 
-    content: dict[str, str | int | float | bool | None] | None = None
+    content: dict[str, str | int | float | bool | list[str] | None] | None = None
     """
-    The submitted form data, only present when action is "accept".
-    Contains values matching the requested schema.
+    The submitted form data, only present when action is "accept" in form mode.
+    Contains values matching the requested schema. Values can be strings, integers,
+    booleans, or arrays of strings.
+    For URL mode, this field is omitted.
     """
+
+
+class ElicitationRequiredErrorData(BaseModel):
+    """Error data for URLElicitationRequiredError.
+
+    Servers return this when a request cannot be processed until one or more
+    URL mode elicitations are completed.
+    """
+
+    elicitations: list[ElicitRequestURLParams]
+    """List of URL mode elicitations that must be completed."""
+
+    model_config = ConfigDict(extra="allow")
 
 
 class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult]):
@@ -1492,6 +1602,7 @@ class ServerNotification(
         | ResourceListChangedNotification
         | ToolListChangedNotification
         | PromptListChangedNotification
+        | ElicitCompleteNotification
     ]
 ):
     pass
