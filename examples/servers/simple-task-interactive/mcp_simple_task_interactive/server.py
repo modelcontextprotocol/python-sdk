@@ -187,6 +187,7 @@ async def handle_get_task(request: types.GetTaskRequest) -> types.GetTaskResult:
         status=task.status,
         statusMessage=task.statusMessage,
         createdAt=task.createdAt,
+        lastUpdatedAt=task.lastUpdatedAt,
         ttl=task.ttl,
         pollInterval=task.pollInterval,
     )

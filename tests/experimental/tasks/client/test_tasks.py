@@ -96,6 +96,7 @@ async def test_session_experimental_get_task() -> None:
             status=task.status,
             statusMessage=task.statusMessage,
             createdAt=task.createdAt,
+            lastUpdatedAt=task.lastUpdatedAt,
             ttl=task.ttl,
             pollInterval=task.pollInterval,
         )
@@ -419,6 +420,7 @@ async def test_session_experimental_cancel_task() -> None:
             status=task.status,
             statusMessage=task.statusMessage,
             createdAt=task.createdAt,
+            lastUpdatedAt=task.lastUpdatedAt,
             ttl=task.ttl,
             pollInterval=task.pollInterval,
         )
@@ -437,6 +439,7 @@ async def test_session_experimental_cancel_task() -> None:
             taskId=updated_task.taskId,
             status=updated_task.status,
             createdAt=updated_task.createdAt,
+            lastUpdatedAt=updated_task.lastUpdatedAt,
             ttl=updated_task.ttl,
         )
 

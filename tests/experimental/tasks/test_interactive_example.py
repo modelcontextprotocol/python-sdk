@@ -192,6 +192,7 @@ def create_server() -> Server[AppContext, Any]:
             status=task.status,
             statusMessage=task.statusMessage,
             createdAt=task.createdAt,
+            lastUpdatedAt=task.lastUpdatedAt,
             ttl=task.ttl,
             pollInterval=task.pollInterval,
         )

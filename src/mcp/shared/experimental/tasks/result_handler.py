@@ -128,10 +128,17 @@ class TaskResultHandler:
                 result = await self._store.get_result(task_id)
                 # GetTaskPayloadResult is a Result with extra="allow"
                 # The stored result contains the actual payload data
+                # Per spec: tasks/result MUST include _meta.io.modelcontextprotocol/related-task
+                # with taskId, as the result structure itself does not contain the task ID
+                related_task_meta: dict[str, Any] = {"io.modelcontextprotocol/related-task": {"taskId": task_id}}
                 if result is not None:
-                    # Copy result fields into GetTaskPayloadResult
-                    return GetTaskPayloadResult.model_validate(result.model_dump(by_alias=True))
-                return GetTaskPayloadResult()
+                    # Copy result fields and add required metadata
+                    result_data = result.model_dump(by_alias=True)
+                    # Merge with existing _meta if present
+                    existing_meta: dict[str, Any] = result_data.get("_meta") or {}
+                    result_data["_meta"] = {**existing_meta, **related_task_meta}
+                    return GetTaskPayloadResult.model_validate(result_data)
+                return GetTaskPayloadResult.model_validate({"_meta": related_task_meta})
 
             # Wait for task update (status change or new messages)
             await self._wait_for_task_update(task_id)

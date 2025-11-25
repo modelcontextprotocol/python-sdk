@@ -70,7 +70,9 @@ def test_server_with_cancel_task_handler_declares_cancel_capability() -> None:
 
     @server.experimental.cancel_task()
     async def handle_cancel(req: CancelTaskRequest) -> CancelTaskResult:
-        return CancelTaskResult(taskId="test", status="cancelled", createdAt=TEST_DATETIME, ttl=None)
+        return CancelTaskResult(
+            taskId="test", status="cancelled", createdAt=TEST_DATETIME, lastUpdatedAt=TEST_DATETIME, ttl=None
+        )
 
     caps = _get_capabilities(server)
     assert caps.tasks is not None
@@ -86,7 +88,9 @@ def test_server_with_get_task_handler_declares_requests_tools_call_capability() 
 
     @server.experimental.get_task()
     async def handle_get(req: GetTaskRequest) -> GetTaskResult:
-        return GetTaskResult(taskId="test", status="working", createdAt=TEST_DATETIME, ttl=None)
+        return GetTaskResult(
+            taskId="test", status="working", createdAt=TEST_DATETIME, lastUpdatedAt=TEST_DATETIME, ttl=None
+        )
 
     caps = _get_capabilities(server)
     assert caps.tasks is not None
@@ -101,7 +105,9 @@ def test_server_without_list_handler_has_no_list_capability() -> None:
     # Register only get_task (not list_tasks)
     @server.experimental.get_task()
     async def handle_get(req: GetTaskRequest) -> GetTaskResult:
-        return GetTaskResult(taskId="test", status="working", createdAt=TEST_DATETIME, ttl=None)
+        return GetTaskResult(
+            taskId="test", status="working", createdAt=TEST_DATETIME, lastUpdatedAt=TEST_DATETIME, ttl=None
+        )
 
     caps = _get_capabilities(server)
     assert caps.tasks is not None
@@ -115,7 +121,9 @@ def test_server_without_cancel_handler_has_no_cancel_capability() -> None:
     # Register only get_task (not cancel_task)
     @server.experimental.get_task()
     async def handle_get(req: GetTaskRequest) -> GetTaskResult:
-        return GetTaskResult(taskId="test", status="working", createdAt=TEST_DATETIME, ttl=None)
+        return GetTaskResult(
+            taskId="test", status="working", createdAt=TEST_DATETIME, lastUpdatedAt=TEST_DATETIME, ttl=None
+        )
 
     caps = _get_capabilities(server)
     assert caps.tasks is not None
@@ -132,11 +140,15 @@ def test_server_with_all_task_handlers_has_full_capability() -> None:
 
     @server.experimental.cancel_task()
     async def handle_cancel(req: CancelTaskRequest) -> CancelTaskResult:
-        return CancelTaskResult(taskId="test", status="cancelled", createdAt=TEST_DATETIME, ttl=None)
+        return CancelTaskResult(
+            taskId="test", status="cancelled", createdAt=TEST_DATETIME, lastUpdatedAt=TEST_DATETIME, ttl=None
+        )
 
     @server.experimental.get_task()
     async def handle_get(req: GetTaskRequest) -> GetTaskResult:
-        return GetTaskResult(taskId="test", status="working", createdAt=TEST_DATETIME, ttl=None)
+        return GetTaskResult(
+            taskId="test", status="working", createdAt=TEST_DATETIME, lastUpdatedAt=TEST_DATETIME, ttl=None
+        )
 
     caps = _get_capabilities(server)
     assert caps.tasks is not None

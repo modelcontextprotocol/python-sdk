@@ -138,6 +138,7 @@ async def test_task_lifecycle_with_task_execution() -> None:
             status=task.status,
             statusMessage=task.statusMessage,
             createdAt=task.createdAt,
+            lastUpdatedAt=task.lastUpdatedAt,
             ttl=task.ttl,
             pollInterval=task.pollInterval,
         )
@@ -299,6 +300,7 @@ async def test_task_auto_fails_on_exception() -> None:
             status=task.status,
             statusMessage=task.statusMessage,
             createdAt=task.createdAt,
+            lastUpdatedAt=task.lastUpdatedAt,
             ttl=task.ttl,
             pollInterval=task.pollInterval,
         )

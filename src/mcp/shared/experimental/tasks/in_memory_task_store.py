@@ -122,6 +122,9 @@ class InMemoryTaskStore(TaskStore):
         if status_message is not None:
             stored.task.statusMessage = status_message
 
+        # Update lastUpdatedAt on any change
+        stored.task.lastUpdatedAt = datetime.now(timezone.utc)
+
         # If task is now terminal and has TTL, reset expiry timer
         if status is not None and is_terminal(status) and stored.task.ttl is not None:
             stored.expires_at = self._calculate_expiry(stored.task.ttl)

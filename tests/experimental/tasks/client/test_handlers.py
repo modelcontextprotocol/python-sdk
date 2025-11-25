@@ -76,6 +76,7 @@ async def test_client_handles_get_task_request() -> None:
                 status=task.status,
                 statusMessage=task.statusMessage,
                 createdAt=task.createdAt,
+                lastUpdatedAt=task.lastUpdatedAt,
                 ttl=task.ttl,
                 pollInterval=task.pollInterval,
             )
@@ -327,6 +328,7 @@ async def test_client_handles_cancel_task_request() -> None:
                 taskId=updated.taskId,
                 status=updated.status,
                 createdAt=updated.createdAt,
+                lastUpdatedAt=updated.lastUpdatedAt,
                 ttl=updated.ttl,
             )
 
@@ -450,6 +452,7 @@ async def test_client_task_augmented_sampling() -> None:
                 status=task.status,
                 statusMessage=task.statusMessage,
                 createdAt=task.createdAt,
+                lastUpdatedAt=task.lastUpdatedAt,
                 ttl=task.ttl,
                 pollInterval=task.pollInterval,
             )

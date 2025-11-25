@@ -169,6 +169,7 @@ async def test_elicitation_during_task_with_response_routing() -> None:
             status=task.status,
             statusMessage=task.statusMessage,
             createdAt=task.createdAt,
+            lastUpdatedAt=task.lastUpdatedAt,
             ttl=task.ttl,
             pollInterval=task.pollInterval,
         )

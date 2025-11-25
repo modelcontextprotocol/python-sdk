@@ -53,18 +53,21 @@ async def test_list_tasks_handler() -> None:
     """Test that experimental list_tasks handler works."""
     server = Server("test")
 
+    now = datetime.now(timezone.utc)
     test_tasks = [
         Task(
             taskId="task-1",
             status="working",
-            createdAt=datetime.now(timezone.utc),
+            createdAt=now,
+            lastUpdatedAt=now,
             ttl=60000,
             pollInterval=1000,
         ),
         Task(
             taskId="task-2",
             status="completed",
-            createdAt=datetime.now(timezone.utc),
+            createdAt=now,
+            lastUpdatedAt=now,
             ttl=60000,
             pollInterval=1000,
         ),
@@ -92,10 +95,12 @@ async def test_get_task_handler() -> None:
 
     @server.experimental.get_task()
     async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
+        now = datetime.now(timezone.utc)
         return GetTaskResult(
             taskId=request.params.taskId,
             status="working",
-            createdAt=datetime.now(timezone.utc),
+            createdAt=now,
+            lastUpdatedAt=now,
             ttl=60000,
             pollInterval=1000,
         )
@@ -140,10 +145,12 @@ async def test_cancel_task_handler() -> None:
 
     @server.experimental.cancel_task()
     async def handle_cancel_task(request: CancelTaskRequest) -> CancelTaskResult:
+        now = datetime.now(timezone.utc)
         return CancelTaskResult(
             taskId=request.params.taskId,
             status="cancelled",
-            createdAt=datetime.now(timezone.utc),
+            createdAt=now,
+            lastUpdatedAt=now,
             ttl=60000,
         )
 
@@ -174,10 +181,12 @@ async def test_server_capabilities_include_tasks() -> None:
 
     @server.experimental.cancel_task()
     async def handle_cancel_task(request: CancelTaskRequest) -> CancelTaskResult:
+        now = datetime.now(timezone.utc)
         return CancelTaskResult(
             taskId=request.params.taskId,
             status="cancelled",
-            createdAt=datetime.now(timezone.utc),
+            createdAt=now,
+            lastUpdatedAt=now,
             ttl=None,
         )
 

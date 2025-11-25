@@ -132,6 +132,7 @@ class TaskContext:
                         status=self._task.status,
                         statusMessage=self._task.statusMessage,
                         createdAt=self._task.createdAt,
+                        lastUpdatedAt=self._task.lastUpdatedAt,
                         ttl=self._task.ttl,
                         pollInterval=self._task.pollInterval,
                     )

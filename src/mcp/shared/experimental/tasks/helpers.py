@@ -54,10 +54,12 @@ def create_task_state(
     Returns:
         A new Task in "working" status
     """
+    now = datetime.now(timezone.utc)
     return Task(
         taskId=task_id or generate_task_id(),
         status="working",
-        createdAt=datetime.now(timezone.utc),
+        createdAt=now,
+        lastUpdatedAt=now,
         ttl=metadata.ttl,
         pollInterval=500,  # Default 500ms poll interval
     )

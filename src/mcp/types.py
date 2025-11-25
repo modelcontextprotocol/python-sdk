@@ -554,6 +554,9 @@ class Task(BaseModel):
     createdAt: datetime  # Pydantic will enforce ISO 8601 and re-serialize as a string later
     """ISO 8601 timestamp when the task was created."""
 
+    lastUpdatedAt: datetime
+    """ISO 8601 timestamp when the task was last updated."""
+
     ttl: Annotated[int, Field(strict=True)] | None
     """Actual retention duration from creation in milliseconds, null for unlimited."""
 
