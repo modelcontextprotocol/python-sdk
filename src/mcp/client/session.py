@@ -33,10 +33,13 @@ class ElicitationFnT(Protocol):
         params: types.ElicitRequestParams,
     ) -> types.ElicitResult | types.ErrorData: ...  # pragma: no branch
 
+
 class ElicitCompleteFnT(Protocol):
     async def __call__(
-            self, params: types.ElicitCompleteNotificationParams,
-    ) -> None: ... #pragma: no branch
+        self,
+        params: types.ElicitCompleteNotificationParams,
+    ) -> None: ...  # pragma: no branch
+
 
 class ListRootsFnT(Protocol):
     async def __call__(
@@ -115,9 +118,8 @@ async def _default_elicitation_callback(
         message="Elicitation not supported",
     )
 
-async def _default_elicit_complete_callback(
-        params: types.ElicitCompleteNotificationParams
-) -> None:
+
+async def _default_elicit_complete_callback(params: types.ElicitCompleteNotificationParams) -> None:
     pass
 
 
