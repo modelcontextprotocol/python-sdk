@@ -274,4 +274,3 @@ class IDJAGValidator:
             "expires_in": 3600,
             "scope": claims.scope,
         }
-
