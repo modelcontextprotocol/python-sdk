@@ -241,9 +241,7 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
 
             if response.status_code != 200:
                 error_data = (
-                    response.json()
-                    if response.headers.get("content-type", "").startswith("application/json")
-                    else {}
+                    response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
                 )
                 error = error_data.get("error", "unknown_error")
                 error_description = error_data.get("error_description", "Token exchange failed")
@@ -313,9 +311,7 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
 
             if response.status_code != 200:
                 error_data = (
-                    response.json()
-                    if response.headers.get("content-type", "").startswith("application/json")
-                    else {}
+                    response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
                 )
                 error = error_data.get("error", "unknown_error")
                 error_description = error_data.get("error_description", "JWT bearer grant failed")
