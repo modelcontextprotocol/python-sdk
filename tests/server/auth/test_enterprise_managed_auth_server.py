@@ -521,3 +521,61 @@ async def test_handle_jwt_bearer_grant_validation_failure(jwt_validation_config,
                 client_id="client123",
             )
 
+
+def test_validate_id_jag_with_jwks_client(create_id_jag):
+    """Test ID-JAG validation with JWKS client for signature verification."""
+    from unittest.mock import MagicMock
+
+    config = JWTValidationConfig(
+        trusted_idp_issuers=["https://idp.example.com"],
+        server_auth_issuer="https://auth.mcp-server.example/",
+        server_resource_id="https://mcp-server.example/",
+        jwks_uri="https://idp.example.com/.well-known/jwks.json",
+    )
+
+    validator = IDJAGValidator(config)
+    id_jag = create_id_jag()
+
+    # Mock the JWKS client
+    mock_signing_key = MagicMock()
+    mock_signing_key.key = "mock-key"
+
+    with patch.object(validator.jwks_client, "get_signing_key_from_jwt", return_value=mock_signing_key), \
+         patch("jwt.decode") as mock_decode, \
+         patch("jwt.get_unverified_header") as mock_header:
+
+        mock_header.return_value = {"typ": "oauth-id-jag+jwt", "alg": "RS256"}
+        mock_decode.return_value = {
+            "jti": "jti-with-jwks",
+            "iss": "https://idp.example.com",
+            "sub": "user123",
+            "aud": "https://auth.mcp-server.example/",
+            "resource": "https://mcp-server.example/",
+            "client_id": "client123",
+            "exp": int(time.time()) + 300,
+            "iat": int(time.time()),
+        }
+
+        claims = validator.validate_id_jag(id_jag, expected_client_id="client123")
+
+        # Verify JWKS client was called
+        validator.jwks_client.get_signing_key_from_jwt.assert_called_once_with(id_jag)
+        # Verify jwt.decode was called with the key
+        assert mock_decode.call_args[0][1] == "mock-key"
+
+
+def test_validate_id_jag_invalid_token_error(jwt_validation_config, create_id_jag):
+    """Test validation handles InvalidTokenError."""
+    validator = IDJAGValidator(jwt_validation_config)
+    id_jag = create_id_jag()
+
+    with patch("jwt.get_unverified_header") as mock_header, \
+         patch("jwt.decode") as mock_decode:
+
+        mock_header.return_value = {"typ": "oauth-id-jag+jwt", "alg": "HS256"}
+        mock_decode.side_effect = jwt.InvalidTokenError("Invalid token")
+
+        with pytest.raises(ValueError, match="Invalid ID-JAG: Invalid token"):
+            validator.validate_id_jag(id_jag, expected_client_id="client123")
+
+
