@@ -208,6 +208,7 @@ class TestClientCredentialsOAuthProvider:
         )
 
         await provider._initialize()
+        assert provider.context.client_info is not None
         assert provider.context.client_info.scope == "read write"
 
     @pytest.mark.anyio
@@ -222,6 +223,7 @@ class TestClientCredentialsOAuthProvider:
         )
 
         await provider._initialize()
+        assert provider.context.client_info is not None
         assert provider.context.client_info.token_endpoint_auth_method == "client_secret_post"
 
     @pytest.mark.anyio
