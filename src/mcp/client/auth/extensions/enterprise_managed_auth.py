@@ -412,4 +412,3 @@ def validate_token_exchange_params(
         "urn:ietf:params:oauth:token-type:saml2",
     ]:
         raise ValueError(f"Invalid subject_token_type: {params.subject_token_type}")
-
