@@ -15,14 +15,12 @@ This pattern enables:
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 import anyio
 
+from mcp.shared.experimental.tasks.resolver import Resolver
 from mcp.types import JSONRPCNotification, JSONRPCRequest, RequestId
-
-if TYPE_CHECKING:
-    from mcp.shared.experimental.tasks.resolver import Resolver
 
 
 @dataclass
@@ -43,7 +41,7 @@ class QueuedMessage:
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     """When the message was enqueued."""
 
-    resolver: "Resolver[dict[str, Any]] | None" = None
+    resolver: Resolver[dict[str, Any]] | None = None
     """Resolver to set when response arrives (only for requests)."""
 
     original_request_id: RequestId | None = None

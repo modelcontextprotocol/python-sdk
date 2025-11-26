@@ -42,11 +42,11 @@ from mcp.types import (
     ServerNotification,
 )
 
-# Metadata key for associating requests with a task (per MCP spec)
-RELATED_TASK_METADATA_KEY = "io.modelcontextprotocol/related-task"
-
 if TYPE_CHECKING:
     from mcp.server.session import ServerSession
+
+# Metadata key for associating requests with a task (per MCP spec)
+RELATED_TASK_METADATA_KEY = "io.modelcontextprotocol/related-task"
 
 
 class TaskSession:

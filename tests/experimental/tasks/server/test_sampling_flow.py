@@ -175,7 +175,9 @@ async def test_sampling_during_task_with_response_routing() -> None:
         )
 
     @server.experimental.get_task_result()
-    async def handle_get_task_result(request: GetTaskPayloadRequest) -> GetTaskPayloadResult:
+    async def handle_get_task_result(
+        request: GetTaskPayloadRequest,
+    ) -> GetTaskPayloadResult:
         app = server.request_context.lifespan_context
         # Use the TaskResultHandler to handle the dequeue-send-wait pattern
         return await app.task_result_handler.handle(
@@ -231,7 +233,7 @@ async def test_sampling_during_task_with_response_routing() -> None:
         )
 
         # Wire up the task result handler for response routing
-        server_session.set_task_result_handler(task_result_handler)
+        server_session.add_response_router(task_result_handler)
 
         async with server_session:
             tg.start_soon(run_server, app_context, server_session)

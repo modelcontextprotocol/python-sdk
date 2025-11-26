@@ -58,7 +58,7 @@ def ensure_handler_configured(session: ServerSession, app: AppContext) -> None:
     """Ensure the task result handler is configured for this session (once)."""
     session_id = id(session)
     if session_id not in app.configured_sessions:
-        session.set_task_result_handler(app.handler)
+        session.add_response_router(app.handler)
         app.configured_sessions[session_id] = True
 
 
@@ -68,7 +68,10 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="confirm_delete",
             description="Asks for confirmation before deleting (demonstrates elicitation)",
-            inputSchema={"type": "object", "properties": {"filename": {"type": "string"}}},
+            inputSchema={
+                "type": "object",
+                "properties": {"filename": {"type": "string"}},
+            },
             execution=types.ToolExecution(taskSupport=types.TASK_REQUIRED),
         ),
         types.Tool(
@@ -194,7 +197,9 @@ async def handle_get_task(request: types.GetTaskRequest) -> types.GetTaskResult:
 
 
 @server.experimental.get_task_result()
-async def handle_get_task_result(request: types.GetTaskPayloadRequest) -> types.GetTaskPayloadResult:
+async def handle_get_task_result(
+    request: types.GetTaskPayloadRequest,
+) -> types.GetTaskPayloadResult:
     ctx = server.request_context
     app = ctx.lifespan_context
 

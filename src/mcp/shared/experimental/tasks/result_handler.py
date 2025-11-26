@@ -160,6 +160,13 @@ class TaskResultHandler:
             if message is None:
                 break
 
+            # If this is a request (not notification), wait for response
+            if message.type == "request" and message.resolver is not None:
+                # Store the resolver so we can route the response back
+                original_id = message.original_request_id
+                if original_id is not None:
+                    self._pending_requests[original_id] = message.resolver
+
             logger.debug("Delivering queued message for task %s: %s", task_id, message.type)
 
             # Send the message with relatedRequestId for routing
@@ -168,13 +175,6 @@ class TaskResultHandler:
                 metadata=ServerMessageMetadata(related_request_id=request_id),
             )
             await self.send_message(session, session_message)
-
-            # If this is a request (not notification), wait for response
-            if message.type == "request" and message.resolver is not None:
-                # Store the resolver so we can route the response back
-                original_id = message.original_request_id
-                if original_id is not None:
-                    self._pending_requests[original_id] = message.resolver
 
     async def _wait_for_task_update(self, task_id: str) -> None:
         """

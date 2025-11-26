@@ -3,7 +3,7 @@ from collections.abc import Callable
 from contextlib import AsyncExitStack
 from datetime import timedelta
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
+from typing import Any, Generic, Protocol, TypeVar
 
 import anyio
 import httpx
@@ -13,6 +13,7 @@ from typing_extensions import Self
 
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.response_router import ResponseRouter
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
@@ -32,9 +33,6 @@ from mcp.types import (
     ServerRequest,
     ServerResult,
 )
-
-if TYPE_CHECKING:
-    from mcp.shared.response_router import ResponseRouter
 
 SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
 SendResultT = TypeVar("SendResultT", ClientResult, ServerResult)
@@ -207,7 +205,7 @@ class BaseSession(
         self._response_routers = []
         self._exit_stack = AsyncExitStack()
 
-    def add_response_router(self, router: "ResponseRouter") -> None:
+    def add_response_router(self, router: ResponseRouter) -> None:
         """
         Register a response router to handle responses for non-standard requests.
 

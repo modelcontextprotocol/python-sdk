@@ -38,7 +38,7 @@ be instantiated directly by users of the MCP framework.
 """
 
 from enum import Enum
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 
 import anyio
 import anyio.lowlevel
@@ -47,6 +47,7 @@ from pydantic import AnyUrl
 
 import mcp.types as types
 from mcp.server.models import InitializationOptions
+from mcp.shared.experimental.tasks import TaskResultHandler
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (
@@ -54,9 +55,6 @@ from mcp.shared.session import (
     RequestResponder,
 )
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
-
-if TYPE_CHECKING:
-    from mcp.shared.experimental.tasks import TaskResultHandler
 
 
 class InitializationState(Enum):
@@ -83,7 +81,6 @@ class ServerSession(
 ):
     _initialized: InitializationState = InitializationState.NotInitialized
     _client_params: types.InitializeRequestParams | None = None
-    _task_result_handler: "TaskResultHandler | None" = None
 
     def __init__(
         self,
@@ -98,7 +95,6 @@ class ServerSession(
         )
 
         self._init_options = init_options
-        self._task_result_handler = None
         self._incoming_message_stream_writer, self._incoming_message_stream_reader = anyio.create_memory_object_stream[
             ServerRequestResponder
         ](0)
@@ -147,7 +143,7 @@ class ServerSession(
 
         return True
 
-    def set_task_result_handler(self, handler: "TaskResultHandler") -> None:
+    def set_task_result_handler(self, handler: TaskResultHandler) -> None:
         """
         Set the TaskResultHandler for this session.
 
@@ -166,13 +162,7 @@ class ServerSession(
             handler = TaskResultHandler(task_store, message_queue)
             session.set_task_result_handler(handler)
         """
-        self._task_result_handler = handler
         self.add_response_router(handler)
-
-    @property
-    def task_result_handler(self) -> "TaskResultHandler | None":
-        """Get the TaskResultHandler for this session, if set."""
-        return self._task_result_handler
 
     async def _receive_loop(self) -> None:
         async with self._incoming_message_stream_writer:

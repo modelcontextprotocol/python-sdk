@@ -79,13 +79,19 @@ def create_server() -> Server[AppContext, Any]:
             Tool(
                 name="confirm_delete",
                 description="Asks for confirmation before deleting (demonstrates elicitation)",
-                inputSchema={"type": "object", "properties": {"filename": {"type": "string"}}},
+                inputSchema={
+                    "type": "object",
+                    "properties": {"filename": {"type": "string"}},
+                },
                 execution=ToolExecution(taskSupport=TASK_REQUIRED),
             ),
             Tool(
                 name="write_haiku",
                 description="Asks LLM to write a haiku (demonstrates sampling)",
-                inputSchema={"type": "object", "properties": {"topic": {"type": "string"}}},
+                inputSchema={
+                    "type": "object",
+                    "properties": {"topic": {"type": "string"}},
+                },
                 execution=ToolExecution(taskSupport=TASK_REQUIRED),
             ),
         ]
@@ -101,7 +107,7 @@ def create_server() -> Server[AppContext, Any]:
         # Ensure handler is configured for response routing
         session_id = id(ctx.session)
         if session_id not in app.configured_sessions:
-            ctx.session.set_task_result_handler(app.handler)
+            ctx.session.add_response_router(app.handler)
             app.configured_sessions[session_id] = True
 
         # Create task
@@ -198,14 +204,16 @@ def create_server() -> Server[AppContext, Any]:
         )
 
     @server.experimental.get_task_result()
-    async def handle_get_task_result(request: GetTaskPayloadRequest) -> GetTaskPayloadResult:
+    async def handle_get_task_result(
+        request: GetTaskPayloadRequest,
+    ) -> GetTaskPayloadResult:
         ctx = server.request_context
         app = ctx.lifespan_context
 
         # Ensure handler is configured for this session
         session_id = id(ctx.session)
         if session_id not in app.configured_sessions:
-            ctx.session.set_task_result_handler(app.handler)
+            ctx.session.add_response_router(app.handler)
             app.configured_sessions[session_id] = True
 
         return await app.handler.handle(request, ctx.session, ctx.request_id)
@@ -269,7 +277,7 @@ async def test_confirm_delete_with_elicitation() -> None:
                 ),
             ),
         )
-        server_session.set_task_result_handler(handler)
+        server_session.add_response_router(handler)
 
         async with server_session:
             tg.start_soon(run_server, app_context, server_session)
@@ -359,7 +367,7 @@ async def test_confirm_delete_user_declines() -> None:
                 ),
             ),
         )
-        server_session.set_task_result_handler(handler)
+        server_session.add_response_router(handler)
 
         async with server_session:
             tg.start_soon(run_server, app_context, server_session)
@@ -453,7 +461,7 @@ Nature whispers peace"""
                 ),
             ),
         )
-        server_session.set_task_result_handler(handler)
+        server_session.add_response_router(handler)
 
         async with server_session:
             tg.start_soon(run_server, app_context, server_session)
@@ -557,7 +565,7 @@ async def test_both_tools_sequentially() -> None:
                 ),
             ),
         )
-        server_session.set_task_result_handler(handler)
+        server_session.add_response_router(handler)
 
         async with server_session:
             tg.start_soon(run_server, app_context, server_session)

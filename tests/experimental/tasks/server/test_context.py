@@ -270,6 +270,8 @@ async def test_task_execution_raises_on_nonexistent_task() -> None:
     store.cleanup()
 
 
+# the context handler swallows the error, therefore the code after is reachable even though IDEs say it's not.
+# noinspection PyUnreachableCode
 @pytest.mark.anyio
 async def test_task_execution_auto_fails_on_exception() -> None:
     """Test task_execution automatically fails task on unhandled exception."""
@@ -291,6 +293,8 @@ async def test_task_execution_auto_fails_on_exception() -> None:
     store.cleanup()
 
 
+# the context handler swallows the error, therefore the code after is reachable even though IDEs say it's not.
+# noinspection PyUnreachableCode
 @pytest.mark.anyio
 async def test_task_execution_doesnt_fail_if_already_terminal() -> None:
     """Test task_execution doesn't re-fail if task is already in terminal state."""
