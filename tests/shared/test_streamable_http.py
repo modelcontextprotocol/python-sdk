@@ -23,7 +23,7 @@ from starlette.routing import Mount
 
 import mcp.types as types
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import StreamableHTTPTransport, streamablehttp_client
 from mcp.server import Server
 from mcp.server.streamable_http import (
     MCP_PROTOCOL_VERSION_HEADER,
@@ -1612,8 +1612,6 @@ async def test_client_crash_handled(basic_server: None, basic_server_url: str):
 @pytest.mark.anyio
 async def test_handle_sse_event_skips_empty_data():
     """Test that _handle_sse_event skips empty SSE data (keep-alive pings)."""
-    from mcp.client.streamable_http import StreamableHTTPTransport
-
     transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
 
     # Create a mock SSE event with empty data (keep-alive ping)
