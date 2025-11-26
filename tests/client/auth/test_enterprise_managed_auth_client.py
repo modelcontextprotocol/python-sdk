@@ -553,6 +553,9 @@ async def test_exchange_token_with_client_authentication(sample_id_token, sample
     # Perform token exchange
     id_jag = await provider.exchange_token_for_id_jag(mock_client)
 
+    # Verify the ID-JAG was returned
+    assert id_jag == sample_id_jag
+
     # Verify client credentials were included
     call_args = mock_client.post.call_args
     assert call_args[1]["data"]["client_id"] == "test-client-id"
@@ -606,6 +609,9 @@ async def test_exchange_token_with_client_id_only(sample_id_token, sample_id_jag
 
     # Perform token exchange
     id_jag = await provider.exchange_token_for_id_jag(mock_client)
+
+    # Verify the ID-JAG was returned
+    assert id_jag == sample_id_jag
 
     # Verify client_id was included but NOT client_secret
     call_args = mock_client.post.call_args
