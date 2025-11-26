@@ -74,6 +74,10 @@ class StreamableHTTPReconnectionOptions:
     reconnection_delay_grow_factor: float = 1.5
     max_retries: int = 2
 
+    def __post_init__(self) -> None:
+        if self.initial_reconnection_delay > self.max_reconnection_delay:
+            raise ValueError("initial_reconnection_delay cannot exceed max_reconnection_delay")
+
 
 @dataclass
 class RequestContext:
@@ -617,6 +621,11 @@ class StreamableHTTPTransport:
                         await on_resumption_token(sse.id)
 
         except httpx.HTTPStatusError as exc:
+            # Read response body so consumers can access error details
+            try:
+                await exc.response.aread()
+            except Exception:
+                pass  # Best effort - don't fail if we can't read body
             if exc.response.status_code == 405:
                 logger.debug("Server does not support SSE resumption via GET")  # pragma: no cover
             else:
