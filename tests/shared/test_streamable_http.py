@@ -1646,7 +1646,7 @@ async def test_streamablehttp_no_race_condition_on_consecutive_requests(basic_se
 
     We run multiple iterations to catch any intermittent issues.
     """
-    for iteration in range(10):
+    for iteration in range(10):  # pragma: no branch
         async with streamablehttp_client(f"{basic_server_url}/mcp") as (
             read_stream,
             write_stream,
