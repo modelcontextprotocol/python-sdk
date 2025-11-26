@@ -26,7 +26,7 @@ from mcp.types import (
     CreateMessageResult,
     ElicitationCapability,
     ElicitRequestedSchema,
-    ElicitRequestParams,
+    ElicitRequestFormParams,
     ElicitResult,
     ErrorData,
     IncludeContext,
@@ -161,7 +161,8 @@ class TaskSession:
         request_id = self._next_request_id()
 
         # Build params with _meta containing related-task info
-        params = ElicitRequestParams(
+        # Use ElicitRequestFormParams (form mode) since we have message + requestedSchema
+        params = ElicitRequestFormParams(
             message=message,
             requestedSchema=requestedSchema,
         )

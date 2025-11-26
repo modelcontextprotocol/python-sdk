@@ -1721,6 +1721,7 @@ class CancelledNotification(Notification[CancelledNotificationParams, Literal["n
     method: Literal["notifications/cancelled"] = "notifications/cancelled"
     params: CancelledNotificationParams
 
+
 class ElicitCompleteNotificationParams(NotificationParams):
     """Parameters for elicitation completion notifications."""
 
@@ -1924,7 +1925,7 @@ ServerNotificationType: TypeAlias = (
     | ToolListChangedNotification
     | PromptListChangedNotification
     | ElicitCompleteNotification
-        | TaskStatusNotification
+    | TaskStatusNotification
 )
 
 
