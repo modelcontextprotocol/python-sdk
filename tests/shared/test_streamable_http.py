@@ -15,6 +15,7 @@ import httpx
 import pytest
 import requests
 import uvicorn
+from httpx_sse import ServerSentEvent
 from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -39,7 +40,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
-from mcp.shared.message import ClientMessageMetadata
+from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import InitializeResult, TextContent, TextResourceContents, Tool
 from tests.test_helpers import wait_for_server
@@ -1606,3 +1607,31 @@ async def test_client_crash_handled(basic_server: None, basic_server_url: str):
             assert isinstance(result, InitializeResult)
             tools = await session.list_tools()
             assert tools.tools
+
+
+@pytest.mark.anyio
+async def test_handle_sse_event_skips_empty_data():
+    """Test that _handle_sse_event skips empty SSE data (keep-alive pings)."""
+    from mcp.client.streamable_http import StreamableHTTPTransport
+
+    transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
+
+    # Create a mock SSE event with empty data (keep-alive ping)
+    mock_sse = ServerSentEvent(event="message", data="", id=None, retry=None)
+
+    # Create a mock stream writer
+    write_stream, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    try:
+        # Call _handle_sse_event with empty data - should return False and not raise
+        result = await transport._handle_sse_event(mock_sse, write_stream)
+
+        # Should return False (not complete) for empty data
+        assert result is False
+
+        # Nothing should have been written to the stream
+        # Check buffer is empty (statistics().current_buffer_used returns buffer size)
+        assert write_stream.statistics().current_buffer_used == 0
+    finally:
+        await write_stream.aclose()
+        await read_stream.aclose()
