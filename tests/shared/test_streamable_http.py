@@ -1633,3 +1633,67 @@ async def test_handle_sse_event_skips_empty_data():
     finally:
         await write_stream.aclose()
         await read_stream.aclose()
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_no_race_condition_on_consecutive_requests(basic_server: None, basic_server_url: str):
+    """Test that consecutive requests after initialize() work reliably.
+
+    This test verifies the fix for the race condition where list_tools()
+    could intermittently return empty results immediately after initialize().
+    The fix ensures post_writer is fully ready before yielding from the
+    context manager by using tg.start() instead of tg.start_soon().
+
+    We run multiple iterations to catch any intermittent issues.
+    """
+    for iteration in range(10):
+        async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                # Initialize the session
+                result = await session.initialize()
+                assert isinstance(result, InitializeResult)
+                assert result.serverInfo.name == SERVER_NAME
+
+                # Immediately call list_tools() - this should never fail or return empty
+                tools = await session.list_tools()
+                assert len(tools.tools) > 0, f"Iteration {iteration}: list_tools() returned empty"
+                assert tools.tools[0].name == "test_tool"
+
+                # Make several more consecutive requests to ensure stability
+                tools2 = await session.list_tools()
+                assert len(tools2.tools) == len(tools.tools)
+
+                # Read a resource
+                resource = await session.read_resource(uri=AnyUrl("foobar://test-iteration"))
+                assert len(resource.contents) == 1
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_rapid_request_sequence(basic_server: None, basic_server_url: str):
+    """Test that rapid sequences of requests work correctly.
+
+    This stress test verifies that the transport handles rapid request sequences
+    without race conditions or message loss.
+    """
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            # Initialize
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+            # Rapid sequence of requests
+            for i in range(20):
+                tools = await session.list_tools()
+                assert len(tools.tools) == 6, f"Request {i}: Expected 6 tools, got {len(tools.tools)}"
+
+            # Verify we can still make other types of requests
+            resource = await session.read_resource(uri=AnyUrl("foobar://final-test"))
+            assert len(resource.contents) == 1
