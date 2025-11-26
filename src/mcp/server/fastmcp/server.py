@@ -42,7 +42,11 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.elicitation import (
     ElicitationResult,
     ElicitSchemaModelT,
+    UrlElicitationResult,
     elicit_with_validation,
+)
+from mcp.server.elicitation import (
+    elicit_url as _elicit_url,
 )
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
@@ -60,7 +64,7 @@ from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.context import LifespanContextT, RequestContext, RequestT
+from mcp.shared.context import CloseSSEStreamCallback, LifespanContextT, RequestContext, RequestT
 from mcp.types import Annotations, AnyFunction, ContentBlock, GetPromptResult, Icon, ToolAnnotations
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
@@ -102,6 +106,8 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     json_response: bool
     stateless_http: bool
     """Define if the server should create a new transport per request."""
+    sse_retry_interval: int | None
+    """SSE retry interval in milliseconds sent in priming event for client reconnection."""
 
     # resource settings
     warn_on_duplicate_resources: bool
@@ -161,6 +167,7 @@ class FastMCP(Generic[LifespanResultT]):
         streamable_http_path: str = "/mcp",
         json_response: bool = False,
         stateless_http: bool = False,
+        sse_retry_interval: int | None = None,
         warn_on_duplicate_resources: bool = True,
         warn_on_duplicate_tools: bool = True,
         warn_on_duplicate_prompts: bool = True,
@@ -180,6 +187,7 @@ class FastMCP(Generic[LifespanResultT]):
             streamable_http_path=streamable_http_path,
             json_response=json_response,
             stateless_http=stateless_http,
+            sse_retry_interval=sse_retry_interval,
             warn_on_duplicate_resources=warn_on_duplicate_resources,
             warn_on_duplicate_tools=warn_on_duplicate_tools,
             warn_on_duplicate_prompts=warn_on_duplicate_prompts,
@@ -697,6 +705,10 @@ class FastMCP(Generic[LifespanResultT]):
         The handler function must be an async function that accepts a Starlette
         Request and returns a Response.
 
+        Routes using this decorator will not require authorization. It is intended
+        for uses that are either a part of authorization flows or intended to be
+        public such as health check endpoints.
+
         Args:
             path: URL path for the route (e.g., "/oauth/callback")
             methods: List of HTTP methods to support (e.g., ["GET", "POST"])
@@ -935,6 +947,7 @@ class FastMCP(Generic[LifespanResultT]):
                 json_response=self.settings.json_response,
                 stateless=self.settings.stateless_http,  # Use the stateless setting
                 security_settings=self.settings.transport_security,
+                retry_interval=self.settings.sse_retry_interval,
             )
 
         # Create the ASGI handler
@@ -1200,6 +1213,41 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             related_request_id=self.request_id,
         )
 
+    async def elicit_url(
+        self,
+        message: str,
+        url: str,
+        elicitation_id: str,
+    ) -> UrlElicitationResult:
+        """Request URL mode elicitation from the client.
+
+        This directs the user to an external URL for out-of-band interactions
+        that must not pass through the MCP client. Use this for:
+        - Collecting sensitive credentials (API keys, passwords)
+        - OAuth authorization flows with third-party services
+        - Payment and subscription flows
+        - Any interaction where data should not pass through the LLM context
+
+        The response indicates whether the user consented to navigate to the URL.
+        The actual interaction happens out-of-band. When the elicitation completes,
+        call `self.session.send_elicit_complete(elicitation_id)` to notify the client.
+
+        Args:
+            message: Human-readable explanation of why the interaction is needed
+            url: The URL the user should navigate to
+            elicitation_id: Unique identifier for tracking this elicitation
+
+        Returns:
+            UrlElicitationResult indicating accept, decline, or cancel
+        """
+        return await _elicit_url(
+            session=self.request_context.session,
+            message=message,
+            url=url,
+            elicitation_id=elicitation_id,
+            related_request_id=self.request_id,
+        )
+
     async def log(
         self,
         level: Literal["debug", "info", "warning", "error"],
@@ -1238,6 +1286,23 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     def session(self):
         """Access to the underlying session for advanced usage."""
         return self.request_context.session
+
+    @property
+    def close_sse_stream(self) -> CloseSSEStreamCallback | None:
+        """Callback to close SSE stream for polling behavior (SEP-1699).
+
+        This allows tools to trigger server-initiated SSE disconnect during
+        long-running operations, enabling client reconnection with polling.
+
+        Returns None if:
+        - Not running on streamable HTTP transport
+        - No event store configured (events would be lost)
+
+        Usage:
+            if ctx.close_sse_stream:
+                await ctx.close_sse_stream(retry_interval=3000)  # Reconnect after 3s
+        """
+        return self.request_context.close_sse_stream
 
     # Convenience methods for common log levels
     async def debug(self, message: str, **extra: Any) -> None:

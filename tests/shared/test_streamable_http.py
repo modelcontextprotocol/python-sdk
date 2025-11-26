@@ -22,7 +22,7 @@ from starlette.routing import Mount
 
 import mcp.types as types
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import StreamableHTTPReconnectionOptions, streamablehttp_client
 from mcp.server import Server
 from mcp.server.streamable_http import (
     MCP_PROTOCOL_VERSION_HEADER,
@@ -39,7 +39,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
-from mcp.shared.message import ClientMessageMetadata
+from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import InitializeResult, TextContent, TextResourceContents, Tool
 from tests.test_helpers import wait_for_server
@@ -115,9 +115,10 @@ class SimpleEventStore(EventStore):
 
 # Test server implementation that follows MCP protocol
 class ServerTest(Server):  # pragma: no cover
-    def __init__(self):
+    def __init__(self, session_manager_ref: list[StreamableHTTPSessionManager] | None = None):
         super().__init__(SERVER_NAME)
         self._lock = None  # Will be initialized in async context
+        self._session_manager_ref = session_manager_ref or []
 
         @self.read_resource()
         async def handle_read_resource(uri: AnyUrl) -> str | bytes:
@@ -161,6 +162,11 @@ class ServerTest(Server):  # pragma: no cover
                 Tool(
                     name="release_lock",
                     description="A tool that releases the lock",
+                    inputSchema={"type": "object", "properties": {}},
+                ),
+                Tool(
+                    name="tool_with_server_disconnect",
+                    description="A tool that triggers server-initiated SSE disconnect",
                     inputSchema={"type": "object", "properties": {}},
                 ),
             ]
@@ -254,6 +260,37 @@ class ServerTest(Server):  # pragma: no cover
                 self._lock.set()
                 return [TextContent(type="text", text="Lock released")]
 
+            elif name == "tool_with_server_disconnect":
+                # Send first notification
+                await ctx.session.send_log_message(
+                    level="info",
+                    data="First notification before disconnect",
+                    logger="disconnect_tool",
+                    related_request_id=ctx.request_id,
+                )
+
+                # Trigger server-initiated SSE disconnect
+                if self._session_manager_ref:
+                    session_manager = self._session_manager_ref[0]
+                    request = ctx.request
+                    if isinstance(request, Request):
+                        session_id = request.headers.get("mcp-session-id")
+                        if session_id:
+                            await session_manager.close_sse_stream(session_id, ctx.request_id)
+
+                # Wait a bit for client to reconnect
+                await anyio.sleep(0.2)
+
+                # Send second notification after disconnect
+                await ctx.session.send_log_message(
+                    level="info",
+                    data="Second notification after disconnect",
+                    logger="disconnect_tool",
+                    related_request_id=ctx.request_id,
+                )
+
+                return [TextContent(type="text", text="Completed with disconnect")]
+
             return [TextContent(type="text", text=f"Called {name}")]
 
 
@@ -266,8 +303,11 @@ def create_app(
         is_json_response_enabled: If True, use JSON responses instead of SSE streams.
         event_store: Optional event store for testing resumability.
     """
-    # Create server instance
-    server = ServerTest()
+    # Create a reference holder for the session manager
+    session_manager_ref: list[StreamableHTTPSessionManager] = []
+
+    # Create server instance with session manager reference
+    server = ServerTest(session_manager_ref=session_manager_ref)
 
     # Create the session manager
     security_settings = TransportSecuritySettings(
@@ -279,6 +319,9 @@ def create_app(
         json_response=is_json_response_enabled,
         security_settings=security_settings,
     )
+
+    # Store session manager reference for server to access
+    session_manager_ref.append(session_manager)
 
     # Create an ASGI application that uses the session manager
     app = Starlette(
@@ -882,7 +925,7 @@ async def test_streamablehttp_client_tool_invocation(initialized_client_session:
     """Test client tool invocation."""
     # First list tools
     tools = await initialized_client_session.list_tools()
-    assert len(tools.tools) == 6
+    assert len(tools.tools) == 7
     assert tools.tools[0].name == "test_tool"
 
     # Call the tool
@@ -919,7 +962,7 @@ async def test_streamablehttp_client_session_persistence(basic_server: None, bas
 
             # Make multiple requests to verify session persistence
             tools = await session.list_tools()
-            assert len(tools.tools) == 6
+            assert len(tools.tools) == 7
 
             # Read a resource
             resource = await session.read_resource(uri=AnyUrl("foobar://test-persist"))
@@ -948,7 +991,7 @@ async def test_streamablehttp_client_json_response(json_response_server: None, j
 
             # Check tool listing
             tools = await session.list_tools()
-            assert len(tools.tools) == 6
+            assert len(tools.tools) == 7
 
             # Call a tool and verify JSON response handling
             result = await session.call_tool("test_tool", {})
@@ -1019,7 +1062,7 @@ async def test_streamablehttp_client_session_termination(basic_server: None, bas
 
             # Make a request to confirm session is working
             tools = await session.list_tools()
-            assert len(tools.tools) == 6
+            assert len(tools.tools) == 7
 
     headers: dict[str, str] = {}  # pragma: no cover
     if captured_session_id:  # pragma: no cover
@@ -1085,7 +1128,7 @@ async def test_streamablehttp_client_session_termination_204(
 
             # Make a request to confirm session is working
             tools = await session.list_tools()
-            assert len(tools.tools) == 6
+            assert len(tools.tools) == 7
 
     headers: dict[str, str] = {}  # pragma: no cover
     if captured_session_id:  # pragma: no cover
@@ -1606,3 +1649,333 @@ async def test_client_crash_handled(basic_server: None, basic_server_url: str):
             assert isinstance(result, InitializeResult)
             tools = await session.list_tools()
             assert tools.tools
+
+
+@pytest.mark.anyio
+async def test_reconnection_delay_with_server_retry():
+    """Test _get_next_reconnection_delay uses server-provided retry value."""
+    from mcp.client.streamable_http import (
+        StreamableHTTPReconnectionOptions,
+        StreamableHTTPTransport,
+    )
+
+    transport = StreamableHTTPTransport(
+        "http://localhost:8000",
+        reconnection_options=StreamableHTTPReconnectionOptions(
+            initial_reconnection_delay=1.0,
+            max_reconnection_delay=30.0,
+            reconnection_delay_grow_factor=2.0,
+            max_retries=5,
+        ),
+    )
+
+    # Without server retry, should use exponential backoff
+    delay_0 = transport._get_next_reconnection_delay(0)
+    assert delay_0 == 1.0  # initial_delay * 2^0 = 1.0
+
+    delay_1 = transport._get_next_reconnection_delay(1)
+    assert delay_1 == 2.0  # initial_delay * 2^1 = 2.0
+
+    delay_2 = transport._get_next_reconnection_delay(2)
+    assert delay_2 == 4.0  # initial_delay * 2^2 = 4.0
+
+    # Should cap at max_reconnection_delay
+    delay_large = transport._get_next_reconnection_delay(10)
+    assert delay_large == 30.0  # capped at max
+
+    # Set server-provided retry value
+    transport._server_retry_seconds = 5.0
+
+    # Should now use server-provided value regardless of attempt
+    assert transport._get_next_reconnection_delay(0) == 5.0
+    assert transport._get_next_reconnection_delay(5) == 5.0
+    assert transport._get_next_reconnection_delay(100) == 5.0
+
+
+@pytest.mark.anyio
+async def test_create_priming_event_with_event_store():
+    """Test _create_priming_event generates correct event when event store configured."""
+    event_store = SimpleEventStore()
+
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id="test-session",
+        event_store=event_store,
+        retry_interval=5000,  # 5 seconds in ms
+    )
+
+    # Create priming event
+    priming_event = await transport._create_priming_event("stream-123")
+
+    assert priming_event is not None
+    assert "id" in priming_event
+    assert priming_event["id"] == "1"  # First event ID from SimpleEventStore
+    assert priming_event["data"] == ""  # Empty data for priming
+    assert priming_event["retry"] == 5000
+
+
+@pytest.mark.anyio
+async def test_create_priming_event_without_retry_interval():
+    """Test _create_priming_event without retry interval configured."""
+    event_store = SimpleEventStore()
+
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id="test-session",
+        event_store=event_store,
+        # No retry_interval
+    )
+
+    priming_event = await transport._create_priming_event("stream-456")
+
+    assert priming_event is not None
+    assert "id" in priming_event
+    assert priming_event["data"] == ""
+    assert "retry" not in priming_event  # No retry field
+
+
+@pytest.mark.anyio
+async def test_create_priming_event_without_event_store():
+    """Test _create_priming_event returns None without event store."""
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id="test-session",
+        # No event_store
+    )
+
+    priming_event = await transport._create_priming_event("stream-789")
+
+    assert priming_event is None
+
+
+@pytest.mark.anyio
+async def test_close_sse_stream():
+    """Test close_sse_stream closes the stream and cleans up."""
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id="test-session",
+    )
+
+    # Manually add a stream to _request_streams
+    send_stream, recv_stream = anyio.create_memory_object_stream[EventMessage](0)
+    transport._request_streams["request-123"] = (send_stream, recv_stream)
+
+    assert "request-123" in transport._request_streams
+
+    # Close the stream
+    await transport.close_sse_stream("request-123")
+
+    # Stream should be removed
+    assert "request-123" not in transport._request_streams
+
+
+@pytest.mark.anyio
+async def test_close_sse_stream_nonexistent():
+    """Test close_sse_stream handles nonexistent stream gracefully."""
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id="test-session",
+    )
+
+    # Should not raise even if stream doesn't exist
+    await transport.close_sse_stream("nonexistent-stream")
+
+
+@pytest.mark.anyio
+async def test_close_sse_stream_already_closed():
+    """Test close_sse_stream handles already-closed streams gracefully."""
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id="test-session",
+    )
+
+    # Manually add a stream and close it before calling close_sse_stream
+    send_stream, recv_stream = anyio.create_memory_object_stream[EventMessage](0)
+    transport._request_streams["request-456"] = (send_stream, recv_stream)
+
+    # Close streams manually first
+    await send_stream.aclose()
+    await recv_stream.aclose()
+
+    # Should handle gracefully without error
+    await transport.close_sse_stream("request-456")
+
+    # Stream should still be removed from dict
+    assert "request-456" not in transport._request_streams
+
+
+@pytest.mark.anyio
+async def test_resume_stream_without_session_id():
+    """Test resume_stream returns early without session ID."""
+    from mcp.client.streamable_http import StreamableHTTPTransport
+
+    transport = StreamableHTTPTransport("http://localhost:8000")
+    assert transport.session_id is None
+
+    # Create a dummy stream writer with type annotation
+    read_stream_writer, read_stream_reader = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+
+    async with httpx.AsyncClient() as client:
+        # Should return early without making request
+        await transport.resume_stream(
+            client,
+            read_stream_writer,
+            "event-123",
+        )
+
+    # Clean up streams to avoid resource warnings
+    await read_stream_writer.aclose()
+    await read_stream_reader.aclose()
+
+    # No errors should occur
+
+
+@pytest.mark.anyio
+async def test_resume_stream_with_405_response(basic_server: None, basic_server_url: str):
+    """Test resume_stream handles 405 Method Not Allowed gracefully."""
+    from mcp.client.streamable_http import StreamableHTTPTransport
+
+    transport = StreamableHTTPTransport(f"{basic_server_url}/mcp")
+
+    # First establish a session via initialization
+    async with streamablehttp_client(f"{basic_server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        get_session_id,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+            transport.session_id = get_session_id()
+
+    # Now try to resume with the session - server might return 405
+    read_stream_writer, read_stream_reader = anyio.create_memory_object_stream[SessionMessage | Exception](
+        0
+    )  # pragma: no cover - xdist coverage bug on 3.11
+
+    async with httpx.AsyncClient() as client:
+        # This should handle the 405 gracefully
+        await transport.resume_stream(
+            client,
+            read_stream_writer,
+            "nonexistent-event-id",
+        )
+
+    # Clean up streams to avoid resource warnings
+    await read_stream_writer.aclose()
+    await read_stream_reader.aclose()
+
+
+@pytest.mark.anyio
+async def test_reconnection_options_dataclass():
+    """Test StreamableHTTPReconnectionOptions defaults."""
+    from mcp.client.streamable_http import StreamableHTTPReconnectionOptions
+
+    options = StreamableHTTPReconnectionOptions()
+
+    assert options.initial_reconnection_delay == 1.0
+    assert options.max_reconnection_delay == 30.0
+    assert options.reconnection_delay_grow_factor == 1.5
+    assert options.max_retries == 2
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_client_with_reconnection_options(basic_server: None, basic_server_url: str):
+    """Test streamablehttp_client accepts reconnection_options parameter."""
+    from mcp.client.streamable_http import StreamableHTTPReconnectionOptions
+
+    options = StreamableHTTPReconnectionOptions(
+        initial_reconnection_delay=0.5,
+        max_reconnection_delay=10.0,
+        reconnection_delay_grow_factor=1.2,
+        max_retries=3,
+    )
+
+    async with streamablehttp_client(
+        f"{basic_server_url}/mcp",
+        reconnection_options=options,
+    ) as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_client_auto_reconnection(event_server: tuple[SimpleEventStore, str]):
+    """Test automatic client reconnection when server closes SSE stream mid-operation."""
+    _, server_url = event_server
+
+    # Track notifications received via logging callback
+    notifications_received: list[str] = []
+
+    async def logging_callback(params: types.LoggingMessageNotificationParams) -> None:
+        """Called when a log message notification is received from the server."""
+        if params.data:  # pragma: no branch
+            notifications_received.append(str(params.data))
+
+    # Configure client with reconnection options (fast delays for testing)
+    reconnection_options = StreamableHTTPReconnectionOptions(
+        initial_reconnection_delay=0.1,
+        max_reconnection_delay=1.0,
+        reconnection_delay_grow_factor=1.2,
+        max_retries=5,
+    )
+
+    async with streamablehttp_client(
+        f"{server_url}/mcp",
+        reconnection_options=reconnection_options,
+    ) as (read_stream, write_stream, get_session_id):
+        async with ClientSession(
+            read_stream,
+            write_stream,
+            logging_callback=logging_callback,
+        ) as session:
+            # Initialize the session
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+            session_id = get_session_id()
+            assert session_id is not None
+
+            # Call the tool that triggers server-initiated disconnect
+            tool_result = await session.call_tool("tool_with_server_disconnect", {})
+
+            # Verify the tool completed successfully
+            assert len(tool_result.content) == 1
+            assert tool_result.content[0].type == "text"
+            assert tool_result.content[0].text == "Completed with disconnect"
+
+            # Verify we received all notifications (before and after disconnect)
+            assert len(notifications_received) >= 2, (
+                f"Expected at least 2 notifications, got {len(notifications_received)}: {notifications_received}"
+            )
+            assert any("before disconnect" in n for n in notifications_received), (
+                f"Missing 'before disconnect' notification in: {notifications_received}"
+            )
+            assert any("after disconnect" in n for n in notifications_received), (
+                f"Missing 'after disconnect' notification in: {notifications_received}"
+            )
+
+
+def test_create_close_sse_stream_callback_without_event_store():
+    """Test that _create_close_sse_stream_callback returns None without event store."""
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id="test-session",
+        event_store=None,  # No event store
+    )
+    callback = transport._create_close_sse_stream_callback("test-request-id")
+    assert callback is None
+
+
+@pytest.mark.anyio
+async def test_create_close_sse_stream_callback_with_event_store():
+    """Test that _create_close_sse_stream_callback returns a working callback with event store."""
+    event_store = SimpleEventStore()
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id="test-session",
+        event_store=event_store,
+    )
+
+    callback = transport._create_close_sse_stream_callback("test-request-id")
+    assert callback is not None
+
+    # The callback should call close_sse_stream which returns False for non-existent stream
+    result = await callback(retry_interval=1000)
+    assert result is False  # No stream to close

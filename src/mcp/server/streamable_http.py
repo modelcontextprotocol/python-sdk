@@ -28,6 +28,7 @@ from mcp.server.transport_security import (
     TransportSecurityMiddleware,
     TransportSecuritySettings,
 )
+from mcp.shared.context import CloseSSEStreamCallback
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -140,6 +141,7 @@ class StreamableHTTPServerTransport:
         is_json_response_enabled: bool = False,
         event_store: EventStore | None = None,
         security_settings: TransportSecuritySettings | None = None,
+        retry_interval: int | None = None,
     ) -> None:
         """
         Initialize a new StreamableHTTP server transport.
@@ -153,6 +155,10 @@ class StreamableHTTPServerTransport:
                         resumability will be enabled, allowing clients to
                         reconnect and resume messages.
             security_settings: Optional security settings for DNS rebinding protection.
+            retry_interval: Optional SSE retry interval in milliseconds.
+                           When set, this value is sent to clients in the SSE
+                           `retry` field, telling them how long to wait before
+                           reconnecting after a disconnect.
 
         Raises:
             ValueError: If the session ID contains invalid characters.
@@ -164,6 +170,7 @@ class StreamableHTTPServerTransport:
         self.is_json_response_enabled = is_json_response_enabled
         self._event_store = event_store
         self._security = TransportSecurityMiddleware(security_settings)
+        self._retry_interval = retry_interval
         self._request_streams: dict[
             RequestId,
             tuple[
@@ -233,9 +240,9 @@ class StreamableHTTPServerTransport:
         """Extract the session ID from request headers."""
         return request.headers.get(MCP_SESSION_ID_HEADER)
 
-    def _create_event_data(self, event_message: EventMessage) -> dict[str, str]:  # pragma: no cover
+    def _create_event_data(self, event_message: EventMessage) -> dict[str, str | int]:  # pragma: no cover
         """Create event data dictionary from an EventMessage."""
-        event_data = {
+        event_data: dict[str, str | int] = {
             "event": "message",
             "data": event_message.message.model_dump_json(by_alias=True, exclude_none=True),
         }
@@ -245,6 +252,57 @@ class StreamableHTTPServerTransport:
             event_data["id"] = event_message.event_id
 
         return event_data
+
+    async def _create_priming_event(self, stream_id: str) -> dict[str, str | int] | None:
+        """Create a priming event to establish resumption capability.
+
+        Only sends if eventStore is configured (opt-in for resumability).
+
+        Args:
+            stream_id: The ID of the stream to create the priming event for
+
+        Returns:
+            Event data dictionary for the priming event, or None if no event store
+        """
+        if self._event_store is None:
+            return None
+
+        # Store an empty message to get an event ID
+        # Using an empty dict as a placeholder - it won't be sent as actual data
+        priming_event_id = await self._event_store.store_event(
+            stream_id, JSONRPCMessage.model_validate({"jsonrpc": "2.0", "method": "_priming"})
+        )
+
+        event_data: dict[str, str | int] = {
+            "id": priming_event_id,
+            "data": "",  # Empty data for priming event
+        }
+
+        # Add retry interval if configured (sse_starlette expects int, not str)
+        if self._retry_interval is not None:
+            event_data["retry"] = self._retry_interval
+
+        return event_data
+
+    def _create_close_sse_stream_callback(self, request_id: RequestId) -> CloseSSEStreamCallback | None:
+        """Create a bound callback for closing SSE streams.
+
+        Args:
+            request_id: The request ID to bind to the callback
+
+        Returns:
+            A callback that closes the SSE stream for this request,
+            or None if no event store is configured (events would be lost).
+        """
+        # Only provide callback if event store is configured
+        # Without an event store, closing the stream would lose events
+        if self._event_store is None:
+            return None
+
+        async def callback(retry_interval: int | None = None) -> bool:
+            return await self.close_sse_stream(request_id, retry_interval)
+
+        return callback
 
     async def _clean_up_memory_streams(self, request_id: RequestId) -> None:  # pragma: no cover
         """Clean up memory streams for a given request ID."""
@@ -457,12 +515,17 @@ class StreamableHTTPServerTransport:
                     await self._clean_up_memory_streams(request_id)
             else:  # pragma: no cover
                 # Create SSE stream
-                sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
+                sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str | int]](0)
 
                 async def sse_writer():
                     # Get the request ID from the incoming request message
                     try:
                         async with sse_stream_writer, request_stream_reader:
+                            # Send priming event first if event store is configured
+                            priming_event = await self._create_priming_event(request_id)
+                            if priming_event is not None:
+                                await sse_stream_writer.send(priming_event)
+
                             # Process messages from the request-specific stream
                             async for event_message in request_stream_reader:
                                 # Build the event data
@@ -502,7 +565,12 @@ class StreamableHTTPServerTransport:
                     async with anyio.create_task_group() as tg:
                         tg.start_soon(response, scope, receive, send)
                         # Then send the message to be processed by the server
-                        metadata = ServerMessageMetadata(request_context=request)
+                        # Create callback for closing SSE stream (only if event store configured)
+                        close_callback = self._create_close_sse_stream_callback(request_id)
+                        metadata = ServerMessageMetadata(
+                            request_context=request,
+                            close_sse_stream=close_callback,
+                        )
                         session_message = SessionMessage(message, metadata=metadata)
                         await writer.send(session_message)
                 except Exception:
@@ -573,7 +641,7 @@ class StreamableHTTPServerTransport:
             return
 
         # Create SSE stream
-        sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
+        sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str | int]](0)
 
         async def standalone_sse_writer():
             try:
@@ -583,6 +651,11 @@ class StreamableHTTPServerTransport:
                 standalone_stream_reader = self._request_streams[GET_STREAM_KEY][1]
 
                 async with sse_stream_writer, standalone_stream_reader:
+                    # Send priming event first if event store is configured
+                    priming_event = await self._create_priming_event(GET_STREAM_KEY)
+                    if priming_event is not None:
+                        await sse_stream_writer.send(priming_event)
+
                     # Process messages from the standalone stream
                     async for event_message in standalone_stream_reader:
                         # For the standalone stream, we handle:
@@ -668,6 +741,36 @@ class StreamableHTTPServerTransport:
         except Exception as e:  # pragma: no cover
             # During cleanup, we catch all exceptions since streams might be in various states
             logger.debug(f"Error closing streams: {e}")
+
+    async def close_sse_stream(self, request_id: RequestId, retry_interval: int | None = None) -> bool:
+        """Close an SSE stream for a specific request, triggering client reconnection.
+
+        Use this to implement polling behavior during long-running operations -
+        client will reconnect after the retry interval specified in the priming event.
+
+        Args:
+            request_id: The request ID (or stream key) of the stream to close
+            retry_interval: Optional retry interval in ms to send before closing.
+                           If provided, overrides the transport's default retry interval.
+
+        Returns:
+            True if the stream was found and closed, False otherwise.
+        """
+        request_id_str = str(request_id)
+        if request_id_str not in self._request_streams:
+            return False
+
+        try:
+            sender, receiver = self._request_streams[request_id_str]
+            await sender.aclose()
+            await receiver.aclose()
+            return True
+        except Exception:  # pragma: no cover
+            # Stream might already be closed
+            logger.debug(f"Error closing SSE stream {request_id_str} - may already be closed")
+            return False
+        finally:
+            self._request_streams.pop(request_id_str, None)
 
     async def _handle_unsupported_request(self, request: Request, send: Send) -> None:  # pragma: no cover
         """Handle unsupported HTTP methods."""
@@ -763,7 +866,7 @@ class StreamableHTTPServerTransport:
                 headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
             # Create SSE stream for replay
-            sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
+            sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str | int]](0)
 
             async def replay_sender():
                 try:

@@ -60,12 +60,14 @@ class StreamableHTTPSessionManager:
         json_response: bool = False,
         stateless: bool = False,
         security_settings: TransportSecuritySettings | None = None,
+        retry_interval: int | None = None,
     ):
         self.app = app
         self.event_store = event_store
         self.json_response = json_response
         self.stateless = stateless
         self.security_settings = security_settings
+        self.retry_interval = retry_interval
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
@@ -226,6 +228,7 @@ class StreamableHTTPSessionManager:
                     is_json_response_enabled=self.json_response,
                     event_store=self.event_store,  # May be None (no resumability)
                     security_settings=self.security_settings,
+                    retry_interval=self.retry_interval,
                 )
 
                 assert http_transport.mcp_session_id is not None
@@ -277,3 +280,25 @@ class StreamableHTTPSessionManager:
                 status_code=HTTPStatus.BAD_REQUEST,
             )
             await response(scope, receive, send)
+
+    async def close_sse_stream(  # pragma: no cover
+        self, session_id: str, request_id: str | int, retry_interval: int | None = None
+    ) -> bool:
+        """Close an SSE stream for a specific request, triggering client reconnection.
+
+        Use this to implement polling behavior during long-running operations.
+        The client will reconnect after the retry interval specified in the priming event.
+
+        Args:
+            session_id: The MCP session ID (from mcp-session-id header)
+            request_id: The request ID of the stream to close
+            retry_interval: Optional retry interval in ms to send before closing.
+                           If provided, overrides the transport's default retry interval.
+
+        Returns:
+            True if the stream was found and closed, False otherwise
+        """
+        if session_id not in self._server_instances:
+            return False
+        transport = self._server_instances[session_id]
+        return await transport.close_sse_stream(request_id, retry_interval)

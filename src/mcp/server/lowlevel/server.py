@@ -680,12 +680,14 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             token = None
             try:
-                # Extract request context from message metadata
+                # Extract request context and callback from message metadata
                 request_data = None
+                close_sse_stream_callback = None
                 if message.message_metadata is not None and isinstance(
                     message.message_metadata, ServerMessageMetadata
                 ):  # pragma: no cover
                     request_data = message.message_metadata.request_context
+                    close_sse_stream_callback = message.message_metadata.close_sse_stream
 
                 # Set our global state that can be retrieved via
                 # app.get_request_context()
@@ -696,6 +698,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                         session,
                         lifespan_context,
                         request=request_data,
+                        close_sse_stream=close_sse_stream_callback,
                     )
                 )
                 response = await handler(req)

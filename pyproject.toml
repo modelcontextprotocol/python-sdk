@@ -104,6 +104,7 @@ venv = ".venv"
 executionEnvironments = [
     { root = "tests", extraPaths = ["."], reportUnusedFunction = false, reportPrivateUsage = false },
     { root = "examples/servers", reportUnusedFunction = false },
+    { root = "examples/snippets", reportUnusedFunction = false },
 ]
 
 [tool.ruff]

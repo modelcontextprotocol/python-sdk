@@ -7,8 +7,12 @@ to support transport-specific features like resumability.
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from mcp.types import JSONRPCMessage, RequestId
+
+if TYPE_CHECKING:
+    from mcp.shared.context import CloseSSEStreamCallback
 
 ResumptionToken = str
 
@@ -30,6 +34,9 @@ class ServerMessageMetadata:
     related_request_id: RequestId | None = None
     # Request-specific context (e.g., headers, auth info)
     request_context: object | None = None
+    # Callback to close SSE stream for polling behavior (SEP-1699)
+    # None if not on streamable HTTP transport or no event store configured
+    close_sse_stream: "CloseSSEStreamCallback | None" = None
 
 
 MessageMetadata = ClientMessageMetadata | ServerMessageMetadata | None

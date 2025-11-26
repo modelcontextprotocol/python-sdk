@@ -1358,6 +1358,26 @@ class TestServerPrompts:
                 await client.get_prompt("prompt_fn")
 
 
+class TestContextCloseSSEStream:
+    """Tests for the Context.close_sse_stream property."""
+
+    @pytest.mark.anyio
+    async def test_close_sse_stream_none_without_streamable_http(self):
+        """Test that close_sse_stream is None when not using streamable HTTP transport."""
+        mcp = FastMCP()
+        result_holder: list[bool] = []
+
+        @mcp.tool()
+        async def check_callback(ctx: Context[ServerSession, None]) -> str:
+            # Without streamable HTTP transport, close_sse_stream should be None
+            result_holder.append(ctx.close_sse_stream is None)
+            return "done"
+
+        async with client_session(mcp._mcp_server) as client:
+            await client.call_tool("check_callback", {})
+            assert result_holder[0] is True
+
+
 def test_streamable_http_no_redirect() -> None:
     """Test that streamable HTTP routes are correctly configured."""
     mcp = FastMCP()

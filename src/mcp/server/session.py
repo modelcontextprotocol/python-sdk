@@ -335,21 +335,79 @@ class ServerSession(
         requestedSchema: types.ElicitRequestedSchema,
         related_request_id: types.RequestId | None = None,
     ) -> types.ElicitResult:
-        """Send an elicitation/create request.
+        """Send a form mode elicitation/create request.
 
         Args:
             message: The message to present to the user
             requestedSchema: Schema defining the expected response structure
+            related_request_id: Optional ID of the request that triggered this elicitation
 
         Returns:
             The client's response
+
+        Note:
+            This method is deprecated in favor of elicit_form(). It remains for
+            backward compatibility but new code should use elicit_form().
+        """
+        return await self.elicit_form(message, requestedSchema, related_request_id)
+
+    async def elicit_form(
+        self,
+        message: str,
+        requestedSchema: types.ElicitRequestedSchema,
+        related_request_id: types.RequestId | None = None,
+    ) -> types.ElicitResult:
+        """Send a form mode elicitation/create request.
+
+        Args:
+            message: The message to present to the user
+            requestedSchema: Schema defining the expected response structure
+            related_request_id: Optional ID of the request that triggered this elicitation
+
+        Returns:
+            The client's response with form data
         """
         return await self.send_request(
             types.ServerRequest(
                 types.ElicitRequest(
-                    params=types.ElicitRequestParams(
+                    params=types.ElicitRequestFormParams(
                         message=message,
                         requestedSchema=requestedSchema,
+                    ),
+                )
+            ),
+            types.ElicitResult,
+            metadata=ServerMessageMetadata(related_request_id=related_request_id),
+        )
+
+    async def elicit_url(
+        self,
+        message: str,
+        url: str,
+        elicitation_id: str,
+        related_request_id: types.RequestId | None = None,
+    ) -> types.ElicitResult:
+        """Send a URL mode elicitation/create request.
+
+        This directs the user to an external URL for out-of-band interactions
+        like OAuth flows, credential collection, or payment processing.
+
+        Args:
+            message: Human-readable explanation of why the interaction is needed
+            url: The URL the user should navigate to
+            elicitation_id: Unique identifier for tracking this elicitation
+            related_request_id: Optional ID of the request that triggered this elicitation
+
+        Returns:
+            The client's response indicating acceptance, decline, or cancellation
+        """
+        return await self.send_request(
+            types.ServerRequest(
+                types.ElicitRequest(
+                    params=types.ElicitRequestURLParams(
+                        message=message,
+                        url=url,
+                        elicitationId=elicitation_id,
                     ),
                 )
             ),
@@ -398,6 +456,30 @@ class ServerSession(
     async def send_prompt_list_changed(self) -> None:  # pragma: no cover
         """Send a prompt list changed notification."""
         await self.send_notification(types.ServerNotification(types.PromptListChangedNotification()))
+
+    async def send_elicit_complete(
+        self,
+        elicitation_id: str,
+        related_request_id: types.RequestId | None = None,
+    ) -> None:
+        """Send an elicitation completion notification.
+
+        This should be sent when a URL mode elicitation has been completed
+        out-of-band to inform the client that it may retry any requests
+        that were waiting for this elicitation.
+
+        Args:
+            elicitation_id: The unique identifier of the completed elicitation
+            related_request_id: Optional ID of the request that triggered this
+        """
+        await self.send_notification(
+            types.ServerNotification(
+                types.ElicitCompleteNotification(
+                    params=types.ElicitCompleteNotificationParams(elicitationId=elicitation_id)
+                )
+            ),
+            related_request_id,
+        )
 
     async def _handle_incoming(self, req: ServerRequestResponder) -> None:
         await self._incoming_message_stream_writer.send(req)
