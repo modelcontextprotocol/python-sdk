@@ -69,6 +69,7 @@
     - [Writing MCP Clients](#writing-mcp-clients)
     - [Client Display Utilities](#client-display-utilities)
     - [OAuth Authentication for Clients](#oauth-authentication-for-clients)
+      - [Enterprise Managed Authorization](#enterprise-managed-authorization)
     - [Parsing Tool Results](#parsing-tool-results)
     - [MCP Primitives](#mcp-primitives)
     - [Server Capabilities](#server-capabilities)
@@ -2461,6 +2462,140 @@ _Full example: [examples/snippets/clients/oauth_client.py](https://github.com/mo
 <!-- /snippet-source -->
 
 For a complete working example, see [`examples/clients/simple-auth-client/`](examples/clients/simple-auth-client/).
+
+#### Enterprise Managed Authorization
+
+The SDK includes support for Enterprise Managed Authorization (SEP-990), which enables MCP clients to connect to protected servers using enterprise Single Sign-On (SSO) systems. This implementation supports:
+
+- **RFC 8693**: OAuth 2.0 Token Exchange (ID Token → ID-JAG)
+- **RFC 7523**: JSON Web Token (JWT) Profile for OAuth 2.0 Authorization Grants (ID-JAG → Access Token)
+- Integration with enterprise identity providers (Okta, Azure AD, etc.)
+
+**Key Components:**
+
+The `EnterpriseAuthOAuthClientProvider` class extends the standard OAuth provider to implement the enterprise authorization flow:
+
+```python
+from mcp.client.auth.extensions import (
+    EnterpriseAuthOAuthClientProvider,
+    TokenExchangeParameters,
+    IDJAGClaims,
+    decode_id_jag,
+)
+from mcp.shared.auth import OAuthClientMetadata, OAuthToken
+from mcp.client.auth import TokenStorage
+```
+
+**Token Exchange Flow:**
+
+1. **Obtain ID Token** from your enterprise IdP (e.g., Okta, Azure AD)
+2. **Exchange ID Token for ID-JAG** using RFC 8693 Token Exchange
+3. **Exchange ID-JAG for Access Token** using RFC 7523 JWT Bearer Grant
+4. **Use Access Token** to call protected MCP server tools
+
+**Example Usage:**
+
+```python
+import asyncio
+import httpx
+from pydantic import AnyUrl
+
+from mcp.client.auth.extensions import (
+    EnterpriseAuthOAuthClientProvider,
+    TokenExchangeParameters,
+)
+from mcp.shared.auth import OAuthClientMetadata, OAuthToken
+from mcp.client.auth import TokenStorage
+
+# Define token storage implementation
+class SimpleTokenStorage(TokenStorage):
+    def __init__(self):
+        self._tokens = None
+        self._client_info = None
+    
+    async def get_tokens(self):
+        return self._tokens
+    
+    async def set_tokens(self, tokens):
+        self._tokens = tokens
+    
+    async def get_client_info(self):
+        return self._client_info
+    
+    async def set_client_info(self, client_info):
+        self._client_info = client_info
+
+async def main():
+    # Step 1: Get ID token from your IdP (example with Okta)
+    id_token = await get_id_token_from_idp()  # Your IdP authentication
+    
+    # Step 2: Configure token exchange parameters
+    token_exchange_params = TokenExchangeParameters.from_id_token(
+        id_token=id_token,
+        mcp_server_auth_issuer="https://your-idp.com",  # IdP issuer URL
+        mcp_server_resource_id="https://mcp-server.example.com",  # MCP server resource ID
+        scope="mcp:tools mcp:resources",  # Optional scopes
+    )
+    
+    # Step 3: Create enterprise auth provider
+    enterprise_auth = EnterpriseAuthOAuthClientProvider(
+        server_url="https://mcp-server.example.com",
+        client_metadata=OAuthClientMetadata(
+            client_name="Enterprise MCP Client",
+            client_id="your-client-id",
+            redirect_uris=[AnyUrl("http://localhost:3000/callback")],
+            grant_types=["urn:ietf:params:oauth:grant-type:jwt-bearer"],
+            response_types=["token"],
+        ),
+        storage=SimpleTokenStorage(),
+        idp_token_endpoint="https://your-idp.com/oauth2/v1/token",
+        token_exchange_params=token_exchange_params,
+    )
+    
+    # Step 4: Perform token exchange and get access token
+    async with httpx.AsyncClient() as client:
+        # Exchange ID token for ID-JAG
+        id_jag = await enterprise_auth.exchange_token_for_id_jag(client)
+        print(f"Obtained ID-JAG: {id_jag[:50]}...")
+        
+        # Exchange ID-JAG for access token
+        access_token = await enterprise_auth.exchange_id_jag_for_access_token(
+            client, id_jag
+        )
+        print(f"Access token obtained, expires in: {access_token.expires_in}s")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+**Working with SAML Assertions:**
+
+If your enterprise uses SAML instead of OIDC, you can exchange SAML assertions:
+
+```python
+token_exchange_params = TokenExchangeParameters.from_saml_assertion(
+    saml_assertion=saml_assertion_string,
+    mcp_server_auth_issuer="https://your-idp.com",
+    mcp_server_resource_id="https://mcp-server.example.com",
+    scope="mcp:tools",
+)
+```
+
+**Decoding and Inspecting ID-JAG Tokens:**
+
+You can decode ID-JAG tokens to inspect their claims:
+
+```python
+from mcp.client.auth.extensions import decode_id_jag
+
+# Decode without signature verification (for inspection only)
+claims = decode_id_jag(id_jag)
+print(f"Subject: {claims.sub}")
+print(f"Issuer: {claims.iss}")
+print(f"Audience: {claims.aud}")
+print(f"Client ID: {claims.client_id}")
+print(f"Resource: {claims.resource}")
+```
 
 ### Parsing Tool Results
 
