@@ -6,7 +6,7 @@ enterprise SSO integration.
 """
 
 import logging
-from typing import Any
+from collections.abc import Awaitable, Callable
 
 import httpx
 from pydantic import BaseModel, Field
@@ -166,8 +166,8 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         storage: TokenStorage,
         idp_token_endpoint: str,
         token_exchange_params: TokenExchangeParameters,
-        redirect_handler: Any = None,
-        callback_handler: Any = None,
+        redirect_handler: Callable[[str], Awaitable[None]] | None = None,
+        callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None = None,
         timeout: float = 300.0,
     ) -> None:
         """
@@ -228,7 +228,8 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
 
         # Add client authentication if needed
         if self.context.client_info:
-            token_data["client_id"] = self.context.client_info.client_id
+            if self.context.client_info.client_id is not None:
+                token_data["client_id"] = self.context.client_info.client_id
             if self.context.client_info.client_secret is not None:
                 token_data["client_secret"] = self.context.client_info.client_secret
 
@@ -240,11 +241,11 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
             )
 
             if response.status_code != 200:
-                error_data: dict[str, str] = (
+                error_data: dict[str, object] = (
                     response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
                 )
-                error: str = error_data.get("error", "unknown_error")
-                error_description: str = error_data.get("error_description", "Token exchange failed")
+                error = str(error_data.get("error", "unknown_error"))
+                error_description = str(error_data.get("error_description", "Token exchange failed"))
                 raise OAuthTokenError(f"Token exchange failed: {error} - {error_description}")
 
             # Parse response
@@ -298,7 +299,8 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
 
         # Add client authentication
         if self.context.client_info:
-            token_data["client_id"] = self.context.client_info.client_id
+            if self.context.client_info.client_id is not None:
+                token_data["client_id"] = self.context.client_info.client_id
             if self.context.client_info.client_secret is not None:
                 token_data["client_secret"] = self.context.client_info.client_secret
 
@@ -310,11 +312,11 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
             )
 
             if response.status_code != 200:
-                error_data: dict[str, str] = (
+                error_data: dict[str, object] = (
                     response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
                 )
-                error: str = error_data.get("error", "unknown_error")
-                error_description: str = error_data.get("error_description", "JWT bearer grant failed")
+                error = str(error_data.get("error", "unknown_error"))
+                error_description = str(error_data.get("error_description", "JWT bearer grant failed"))
                 raise OAuthTokenError(f"JWT bearer grant failed: {error} - {error_description}")
 
             # Parse OAuth token response
