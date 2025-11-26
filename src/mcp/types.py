@@ -1,7 +1,8 @@
+import re
 from collections.abc import Callable
 from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
+from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel, model_validator
 from pydantic.networks import AnyUrl, UrlConstraints
 from typing_extensions import deprecated
 
@@ -51,6 +52,49 @@ class RequestParams(BaseModel):
         """
 
         model_config = ConfigDict(extra="allow")
+
+        @model_validator(mode="before")
+        @classmethod
+        def validate_metadata_keys(cls, data: Any) -> Any:
+            """
+            Validate if metadata keys follows the protocol specification
+            See section "General fields" at https://modelcontextprotocol.io/specification/
+            """
+            for metadata_key in data.keys():
+                key_parts = metadata_key.split("/")
+
+                match len(key_parts):
+                    case 1:
+                        cls._validate_metadata_name(key_parts[0])
+
+                    case 2:
+                        cls._validate_metadata_prefix(key_parts[0])
+                        cls._validate_metadata_name(key_parts[1])
+
+                    case _:
+                        raise ValueError(f"The metadata key {metadata_key} does not comply with MCP specification")
+
+            return data
+
+        @classmethod
+        def _validate_metadata_prefix(cls, prefix: str):
+            if len(prefix) == 0:
+                raise ValueError(
+                    "One of the metadata keys is empty, and therefore does not comply with MCP specification"
+                )
+
+            for label in prefix.split("."):
+                cls._validate_prefix_label(prefix=prefix, label=label)
+
+        @classmethod
+        def _validate_metadata_name(cls, name: str):
+            if re.match(r"^[a-zA-Z0-9]([a-zA-Z0-9-._]*[a-zA-Z0-9])?$", name) is None:
+                raise ValueError(f"The metadata name {name} does not comply with MCP specification")
+
+        @classmethod
+        def _validate_prefix_label(cls, label: str, prefix: str):
+            if re.match(r"^[a-zA-Z][a-zA-Z0-9-]*[a-zA-Z0-9]$", label) is None:
+                raise ValueError(f"The label {label} inside of prefix {prefix} does not comply with MCP specification")
 
     meta: Meta | None = Field(alias="_meta", default=None)
 
