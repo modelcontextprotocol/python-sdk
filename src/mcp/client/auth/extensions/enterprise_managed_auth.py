@@ -229,7 +229,7 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         # Add client authentication if needed
         if self.context.client_info:
             token_data["client_id"] = self.context.client_info.client_id
-            if self.context.client_info.client_secret:
+            if self.context.client_info.client_secret is not None:
                 token_data["client_secret"] = self.context.client_info.client_secret
 
         try:
@@ -240,11 +240,11 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
             )
 
             if response.status_code != 200:
-                error_data = (
+                error_data: dict[str, str] = (
                     response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
                 )
-                error = error_data.get("error", "unknown_error")
-                error_description = error_data.get("error_description", "Token exchange failed")
+                error: str = error_data.get("error", "unknown_error")
+                error_description: str = error_data.get("error_description", "Token exchange failed")
                 raise OAuthTokenError(f"Token exchange failed: {error} - {error_description}")
 
             # Parse response
@@ -299,7 +299,7 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         # Add client authentication
         if self.context.client_info:
             token_data["client_id"] = self.context.client_info.client_id
-            if self.context.client_info.client_secret:
+            if self.context.client_info.client_secret is not None:
                 token_data["client_secret"] = self.context.client_info.client_secret
 
         try:
@@ -310,11 +310,11 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
             )
 
             if response.status_code != 200:
-                error_data = (
+                error_data: dict[str, str] = (
                     response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
                 )
-                error = error_data.get("error", "unknown_error")
-                error_description = error_data.get("error_description", "JWT bearer grant failed")
+                error: str = error_data.get("error", "unknown_error")
+                error_description: str = error_data.get("error_description", "JWT bearer grant failed")
                 raise OAuthTokenError(f"JWT bearer grant failed: {error} - {error_description}")
 
             # Parse OAuth token response
