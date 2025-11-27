@@ -110,7 +110,9 @@ class SimpleEventStore(EventStore):
         # Replay only events from the same stream with ID > last_event_id
         for stream_id, event_id, message in self._events:
             if stream_id == target_stream_id and int(event_id) > last_event_id_int:
-                await send_callback(EventMessage(message, event_id))
+                # Skip priming events (None message)
+                if message is not None:
+                    await send_callback(EventMessage(message, event_id))
 
         return target_stream_id
 

@@ -153,6 +153,7 @@ class FastMCP(Generic[LifespanResultT]):
         auth_server_provider: (OAuthAuthorizationServerProvider[Any, Any, Any] | None) = None,
         token_verifier: TokenVerifier | None = None,
         event_store: EventStore | None = None,
+        retry_interval: int | None = None,
         *,
         tools: list[Tool] | None = None,
         debug: bool = False,
@@ -221,6 +222,7 @@ class FastMCP(Generic[LifespanResultT]):
         if auth_server_provider and not token_verifier:  # pragma: no cover
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._event_store = event_store
+        self._retry_interval = retry_interval
         self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
         self._session_manager: StreamableHTTPSessionManager | None = None
@@ -940,6 +942,7 @@ class FastMCP(Generic[LifespanResultT]):
             self._session_manager = StreamableHTTPSessionManager(
                 app=self._mcp_server,
                 event_store=self._event_store,
+                retry_interval=self._retry_interval,
                 json_response=self.settings.json_response,
                 stateless=self.settings.stateless_http,  # Use the stateless setting
                 security_settings=self.settings.transport_security,

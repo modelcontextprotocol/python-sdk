@@ -24,7 +24,7 @@ uv run mcp-sse-polling-client --url http://localhost:3000/mcp --items 20 --check
 
 ## Options
 
-- `--url`: Server URL (default: http://localhost:3000/mcp)
+- `--url`: Server URL (default: <http://localhost:3000/mcp>)
 - `--items`: Number of items to process (default: 10)
 - `--checkpoint-every`: Checkpoint interval (default: 3)
 - `--log-level`: Logging level (default: DEBUG)
