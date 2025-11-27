@@ -81,14 +81,13 @@ async def test_session_experimental_get_task() -> None:
             app.task_group.start_soon(do_work)
             return CreateTaskResult(task=task)
 
-        return [TextContent(type="text", text="Sync")]
+        raise NotImplementedError
 
     @server.experimental.get_task()
     async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
         app = server.request_context.lifespan_context
         task = await app.store.get_task(request.params.taskId)
-        if task is None:
-            raise ValueError(f"Task {request.params.taskId} not found")
+        assert task is not None, f"Test setup error: task {request.params.taskId} should exist"
         return GetTaskResult(
             taskId=task.taskId,
             status=task.status,
@@ -105,9 +104,7 @@ async def test_session_experimental_get_task() -> None:
 
     async def message_handler(
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
-    ) -> None:
-        if isinstance(message, Exception):
-            raise message
+    ) -> None: ...  # pragma: no branch
 
     async def run_server(app_context: AppContext):
         async with ServerSession(
@@ -162,8 +159,6 @@ async def test_session_experimental_get_task() -> None:
 
             tg.cancel_scope.cancel()
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
 async def test_session_experimental_get_task_result() -> None:
@@ -198,14 +193,15 @@ async def test_session_experimental_get_task_result() -> None:
             app.task_group.start_soon(do_work)
             return CreateTaskResult(task=task)
 
-        return [TextContent(type="text", text="Sync")]
+        raise NotImplementedError
 
     @server.experimental.get_task_result()
-    async def handle_get_task_result(request: GetTaskPayloadRequest) -> GetTaskPayloadResult:
+    async def handle_get_task_result(
+        request: GetTaskPayloadRequest,
+    ) -> GetTaskPayloadResult:
         app = server.request_context.lifespan_context
         result = await app.store.get_result(request.params.taskId)
-        if result is None:
-            raise ValueError(f"Result for task {request.params.taskId} not found")
+        assert result is not None, f"Test setup error: result for {request.params.taskId} should exist"
         assert isinstance(result, CallToolResult)
         return GetTaskPayloadResult(**result.model_dump())
 
@@ -215,9 +211,7 @@ async def test_session_experimental_get_task_result() -> None:
 
     async def message_handler(
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
-    ) -> None:
-        if isinstance(message, Exception):
-            raise message
+    ) -> None: ...  # pragma: no branch
 
     async def run_server(app_context: AppContext):
         async with ServerSession(
@@ -274,8 +268,6 @@ async def test_session_experimental_get_task_result() -> None:
 
             tg.cancel_scope.cancel()
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
 async def test_session_experimental_list_tasks() -> None:
@@ -308,7 +300,7 @@ async def test_session_experimental_list_tasks() -> None:
             app.task_group.start_soon(do_work)
             return CreateTaskResult(task=task)
 
-        return [TextContent(type="text", text="Sync")]
+        raise NotImplementedError
 
     @server.experimental.list_tasks()
     async def handle_list_tasks(request: ListTasksRequest) -> ListTasksResult:
@@ -322,9 +314,7 @@ async def test_session_experimental_list_tasks() -> None:
 
     async def message_handler(
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
-    ) -> None:
-        if isinstance(message, Exception):
-            raise message
+    ) -> None: ...  # pragma: no branch
 
     async def run_server(app_context: AppContext):
         async with ServerSession(
@@ -376,8 +366,6 @@ async def test_session_experimental_list_tasks() -> None:
 
             tg.cancel_scope.cancel()
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
 async def test_session_experimental_cancel_task() -> None:
@@ -401,14 +389,13 @@ async def test_session_experimental_cancel_task() -> None:
             # Don't start any work - task stays in "working" status
             return CreateTaskResult(task=task)
 
-        return [TextContent(type="text", text="Sync")]
+        raise NotImplementedError
 
     @server.experimental.get_task()
     async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
         app = server.request_context.lifespan_context
         task = await app.store.get_task(request.params.taskId)
-        if task is None:
-            raise ValueError(f"Task {request.params.taskId} not found")
+        assert task is not None, f"Test setup error: task {request.params.taskId} should exist"
         return GetTaskResult(
             taskId=task.taskId,
             status=task.status,
@@ -423,8 +410,7 @@ async def test_session_experimental_cancel_task() -> None:
     async def handle_cancel_task(request: CancelTaskRequest) -> CancelTaskResult:
         app = server.request_context.lifespan_context
         task = await app.store.get_task(request.params.taskId)
-        if task is None:
-            raise ValueError(f"Task {request.params.taskId} not found")
+        assert task is not None, f"Test setup error: task {request.params.taskId} should exist"
         await app.store.update_task(request.params.taskId, status="cancelled")
         # CancelTaskResult extends Task, so we need to return the updated task info
         updated_task = await app.store.get_task(request.params.taskId)
@@ -443,9 +429,7 @@ async def test_session_experimental_cancel_task() -> None:
 
     async def message_handler(
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
-    ) -> None:
-        if isinstance(message, Exception):
-            raise message
+    ) -> None: ...  # pragma: no branch
 
     async def run_server(app_context: AppContext):
         async with ServerSession(
@@ -501,5 +485,3 @@ async def test_session_experimental_cancel_task() -> None:
             assert status_after.status == "cancelled"
 
             tg.cancel_scope.cancel()
-
-    store.cleanup()

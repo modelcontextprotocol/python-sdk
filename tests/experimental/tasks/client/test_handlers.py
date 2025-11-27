@@ -101,9 +101,8 @@ async def client_streams() -> AsyncIterator[ClientTestStreams]:
 async def _default_message_handler(
     message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
 ) -> None:
-    """Default message handler that re-raises exceptions."""
-    if isinstance(message, Exception):
-        raise message
+    """Default message handler that ignores messages (tests handle them explicitly)."""
+    ...
 
 
 @pytest.mark.anyio
@@ -120,8 +119,7 @@ async def test_client_handles_get_task_request(client_streams: ClientTestStreams
             nonlocal received_task_id
             received_task_id = params.taskId
             task = await store.get_task(params.taskId)
-            if task is None:
-                return ErrorData(code=types.INVALID_REQUEST, message=f"Task {params.taskId} not found")
+            assert task is not None, f"Test setup error: task {params.taskId} should exist"
             return GetTaskResult(
                 taskId=task.taskId,
                 status=task.status,
@@ -186,8 +184,7 @@ async def test_client_handles_get_task_result_request(client_streams: ClientTest
             params: GetTaskPayloadRequestParams,
         ) -> GetTaskPayloadResult | ErrorData:
             result = await store.get_result(params.taskId)
-            if result is None:
-                return ErrorData(code=types.INVALID_REQUEST, message=f"Result for {params.taskId} not found")
+            assert result is not None, f"Test setup error: result for {params.taskId} should exist"
             assert isinstance(result, types.CallToolResult)
             return GetTaskPayloadResult(**result.model_dump())
 
@@ -305,8 +302,7 @@ async def test_client_handles_cancel_task_request(client_streams: ClientTestStre
             params: CancelTaskRequestParams,
         ) -> CancelTaskResult | ErrorData:
             task = await store.get_task(params.taskId)
-            if task is None:
-                return ErrorData(code=types.INVALID_REQUEST, message=f"Task {params.taskId} not found")
+            assert task is not None, f"Test setup error: task {params.taskId} should exist"
             await store.update_task(params.taskId, status="cancelled")
             updated = await store.get_task(params.taskId)
             assert updated is not None
@@ -396,8 +392,7 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
             params: GetTaskRequestParams,
         ) -> GetTaskResult | ErrorData:
             task = await store.get_task(params.taskId)
-            if task is None:
-                return ErrorData(code=types.INVALID_REQUEST, message="Task not found")
+            assert task is not None, f"Test setup error: task {params.taskId} should exist"
             return GetTaskResult(
                 taskId=task.taskId,
                 status=task.status,
@@ -413,8 +408,7 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
             params: GetTaskPayloadRequestParams,
         ) -> GetTaskPayloadResult | ErrorData:
             result = await store.get_result(params.taskId)
-            if result is None:
-                return ErrorData(code=types.INVALID_REQUEST, message="Result not found")
+            assert result is not None, f"Test setup error: result for {params.taskId} should exist"
             assert isinstance(result, CreateMessageResult)
             return GetTaskPayloadResult(**result.model_dump())
 
@@ -538,8 +532,7 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
             params: GetTaskRequestParams,
         ) -> GetTaskResult | ErrorData:
             task = await store.get_task(params.taskId)
-            if task is None:
-                return ErrorData(code=types.INVALID_REQUEST, message="Task not found")
+            assert task is not None, f"Test setup error: task {params.taskId} should exist"
             return GetTaskResult(
                 taskId=task.taskId,
                 status=task.status,
@@ -555,8 +548,7 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
             params: GetTaskPayloadRequestParams,
         ) -> GetTaskPayloadResult | ErrorData:
             result = await store.get_result(params.taskId)
-            if result is None:
-                return ErrorData(code=types.INVALID_REQUEST, message="Result not found")
+            assert result is not None, f"Test setup error: result for {params.taskId} should exist"
             assert isinstance(result, ElicitResult)
             return GetTaskPayloadResult(**result.model_dump())
 

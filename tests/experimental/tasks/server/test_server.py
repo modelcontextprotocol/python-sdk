@@ -184,18 +184,11 @@ async def test_server_capabilities_include_tasks() -> None:
 
     @server.experimental.list_tasks()
     async def handle_list_tasks(request: ListTasksRequest) -> ListTasksResult:
-        return ListTasksResult(tasks=[])
+        raise NotImplementedError
 
     @server.experimental.cancel_task()
     async def handle_cancel_task(request: CancelTaskRequest) -> CancelTaskResult:
-        now = datetime.now(timezone.utc)
-        return CancelTaskResult(
-            taskId=request.params.taskId,
-            status="cancelled",
-            createdAt=now,
-            lastUpdatedAt=now,
-            ttl=None,
-        )
+        raise NotImplementedError
 
     capabilities = server.get_capabilities(
         notification_options=NotificationOptions(),
@@ -216,7 +209,7 @@ async def test_server_capabilities_partial_tasks() -> None:
 
     @server.experimental.list_tasks()
     async def handle_list_tasks(request: ListTasksRequest) -> ListTasksResult:
-        return ListTasksResult(tasks=[])
+        raise NotImplementedError
 
     # Only list_tasks registered, not cancel_task
 
@@ -309,9 +302,7 @@ async def test_task_metadata_in_call_tool_request() -> None:
 
     async def message_handler(
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
-    ) -> None:
-        if isinstance(message, Exception):
-            raise message
+    ) -> None: ...  # pragma: no branch
 
     async def run_server():
         async with ServerSession(
@@ -392,9 +383,7 @@ async def test_task_metadata_is_task_property() -> None:
 
     async def message_handler(
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
-    ) -> None:
-        if isinstance(message, Exception):
-            raise message
+    ) -> None: ...  # pragma: no branch
 
     async def run_server():
         async with ServerSession(
@@ -494,9 +483,7 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
 
     async def message_handler(
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
-    ) -> None:
-        if isinstance(message, Exception):
-            raise message
+    ) -> None: ...  # pragma: no branch
 
     async def run_server() -> None:
         async with task_support.run():
@@ -546,14 +533,11 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
             assert get_result.status == "working"
 
             # Test get_task (default handler - not found path)
-            try:
+            with pytest.raises(McpError, match="not found"):
                 await client_session.send_request(
                     ClientRequest(GetTaskRequest(params=GetTaskRequestParams(taskId="nonexistent-task"))),
                     GetTaskResult,
                 )
-                raise AssertionError("Expected McpError")
-            except McpError as e:
-                assert "not found" in e.error.message
 
             # Create a completed task to test get_task_result
             completed_task = await store.create_task(TaskMetadata(ttl=60000))
@@ -611,7 +595,7 @@ async def test_set_task_result_handler() -> None:
 
             # Verify handler was added as a response router
             assert handler in server_session._response_routers
-    finally:
+    finally:  # pragma: no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -656,7 +640,7 @@ async def test_build_elicit_request() -> None:
             assert (
                 request_with_task.params["_meta"]["io.modelcontextprotocol/related-task"]["taskId"] == "test-task-123"
             )
-    finally:
+    finally:  # pragma: no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -707,7 +691,7 @@ async def test_build_create_message_request() -> None:
                 request_with_task.params["_meta"]["io.modelcontextprotocol/related-task"]["taskId"]
                 == "sampling-task-456"
             )
-    finally:
+    finally:  # pragma: no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -746,7 +730,7 @@ async def test_send_message() -> None:
             received = await server_to_client_receive.receive()
             assert isinstance(received.message.root, JSONRPCNotification)
             assert received.message.root.method == "test/notification"
-    finally:
+    finally:  # pragma: no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -772,7 +756,7 @@ async def test_response_routing_success() -> None:
             return True  # Handled
 
         def route_error(self, request_id: str | int, error: ErrorData) -> bool:
-            return False
+            raise NotImplementedError
 
     try:
         async with ServerSession(
@@ -802,7 +786,7 @@ async def test_response_routing_success() -> None:
             assert len(routed_responses) == 1
             assert routed_responses[0]["id"] == "test-req-1"
             assert routed_responses[0]["response"]["status"] == "ok"
-    finally:
+    finally:  # pragma: no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -823,7 +807,7 @@ async def test_response_routing_error() -> None:
 
     class TestRouter(ResponseRouter):
         def route_response(self, request_id: str | int, response: dict[str, Any]) -> bool:
-            return False
+            raise NotImplementedError
 
         def route_error(self, request_id: str | int, error: ErrorData) -> bool:
             routed_errors.append({"id": request_id, "error": error})
@@ -859,7 +843,7 @@ async def test_response_routing_error() -> None:
             assert len(routed_errors) == 1
             assert routed_errors[0]["id"] == "test-req-2"
             assert routed_errors[0]["error"].message == "Test error"
-    finally:
+    finally:  # pragma: no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -884,8 +868,7 @@ async def test_response_routing_skips_non_matching_routers() -> None:
             return False  # Doesn't handle it
 
         def route_error(self, request_id: str | int, error: ErrorData) -> bool:
-            router_calls.append("non_matching_error")
-            return False  # Doesn't handle it
+            raise NotImplementedError
 
     class MatchingRouter(ResponseRouter):
         def route_response(self, request_id: str | int, response: dict[str, Any]) -> bool:
@@ -894,9 +877,7 @@ async def test_response_routing_skips_non_matching_routers() -> None:
             return True  # Handles it
 
         def route_error(self, request_id: str | int, error: ErrorData) -> bool:
-            router_calls.append("matching_error")
-            response_received.set()
-            return True  # Handles it
+            raise NotImplementedError
 
     try:
         async with ServerSession(
@@ -922,7 +903,7 @@ async def test_response_routing_skips_non_matching_routers() -> None:
 
             # Verify both routers were called (first returned False, second returned True)
             assert router_calls == ["non_matching_response", "matching_response"]
-    finally:
+    finally:  # pragma: no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -943,8 +924,7 @@ async def test_error_routing_skips_non_matching_routers() -> None:
 
     class NonMatchingRouter(ResponseRouter):
         def route_response(self, request_id: str | int, response: dict[str, Any]) -> bool:
-            router_calls.append("non_matching_response")
-            return False
+            raise NotImplementedError
 
         def route_error(self, request_id: str | int, error: ErrorData) -> bool:
             router_calls.append("non_matching_error")
@@ -952,8 +932,7 @@ async def test_error_routing_skips_non_matching_routers() -> None:
 
     class MatchingRouter(ResponseRouter):
         def route_response(self, request_id: str | int, response: dict[str, Any]) -> bool:
-            router_calls.append("matching_response")
-            return True
+            raise NotImplementedError
 
         def route_error(self, request_id: str | int, error: ErrorData) -> bool:
             router_calls.append("matching_error")
@@ -985,7 +964,7 @@ async def test_error_routing_skips_non_matching_routers() -> None:
 
             # Verify both routers were called (first returned False, second returned True)
             assert router_calls == ["non_matching_error", "matching_error"]
-    finally:
+    finally:  # pragma: no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()

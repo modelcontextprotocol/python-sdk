@@ -121,16 +121,14 @@ async def test_task_lifecycle_with_task_execution() -> None:
             # 5. Return CreateTaskResult immediately
             return CreateTaskResult(task=task)
 
-        # Non-task execution path
-        return [TextContent(type="text", text="Sync result")]
+        raise NotImplementedError
 
     # Register task query handlers (delegate to store)
     @server.experimental.get_task()
     async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
         app = server.request_context.lifespan_context
         task = await app.store.get_task(request.params.taskId)
-        if task is None:
-            raise ValueError(f"Task {request.params.taskId} not found")
+        assert task is not None, f"Test setup error: task {request.params.taskId} should exist"
         return GetTaskResult(
             taskId=task.taskId,
             status=task.status,
@@ -147,17 +145,14 @@ async def test_task_lifecycle_with_task_execution() -> None:
     ) -> GetTaskPayloadResult:
         app = server.request_context.lifespan_context
         result = await app.store.get_result(request.params.taskId)
-        if result is None:
-            raise ValueError(f"Result for task {request.params.taskId} not found")
+        assert result is not None, f"Test setup error: result for {request.params.taskId} should exist"
         assert isinstance(result, CallToolResult)
         # Return as GetTaskPayloadResult (which accepts extra fields)
         return GetTaskPayloadResult(**result.model_dump())
 
     @server.experimental.list_tasks()
     async def handle_list_tasks(request: ListTasksRequest) -> ListTasksResult:
-        app = server.request_context.lifespan_context
-        tasks, next_cursor = await app.store.list_tasks(cursor=request.params.cursor if request.params else None)
-        return ListTasksResult(tasks=tasks, nextCursor=next_cursor)
+        raise NotImplementedError
 
     # Set up client-server communication
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
@@ -165,9 +160,7 @@ async def test_task_lifecycle_with_task_execution() -> None:
 
     async def message_handler(
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
-    ) -> None:
-        if isinstance(message, Exception):
-            raise message
+    ) -> None: ...  # pragma: no cover
 
     async def run_server(app_context: AppContext):
         async with ServerSession(
@@ -239,8 +232,6 @@ async def test_task_lifecycle_with_task_execution() -> None:
 
             tg.cancel_scope.cancel()
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
 async def test_task_auto_fails_on_exception() -> None:
@@ -285,14 +276,13 @@ async def test_task_auto_fails_on_exception() -> None:
             app.task_group.start_soon(do_failing_work)
             return CreateTaskResult(task=task)
 
-        return [TextContent(type="text", text="Sync")]
+        raise NotImplementedError
 
     @server.experimental.get_task()
     async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
         app = server.request_context.lifespan_context
         task = await app.store.get_task(request.params.taskId)
-        if task is None:
-            raise ValueError(f"Task {request.params.taskId} not found")
+        assert task is not None, f"Test setup error: task {request.params.taskId} should exist"
         return GetTaskResult(
             taskId=task.taskId,
             status=task.status,
@@ -309,9 +299,7 @@ async def test_task_auto_fails_on_exception() -> None:
 
     async def message_handler(
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
-    ) -> None:
-        if isinstance(message, Exception):
-            raise message
+    ) -> None: ...  # pragma: no cover
 
     async def run_server(app_context: AppContext):
         async with ServerSession(
@@ -369,5 +357,3 @@ async def test_task_auto_fails_on_exception() -> None:
             assert task_status.statusMessage == "Something went wrong!"
 
             tg.cancel_scope.cancel()
-
-    store.cleanup()

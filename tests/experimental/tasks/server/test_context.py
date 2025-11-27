@@ -1,24 +1,11 @@
 """Tests for TaskContext and helper functions."""
 
-import anyio
 import pytest
 
 from mcp.shared.experimental.tasks.context import TaskContext
 from mcp.shared.experimental.tasks.helpers import create_task_state, task_execution
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.types import CallToolResult, TaskMetadata, TextContent
-
-
-async def wait_for_terminal_status(store: InMemoryTaskStore, task_id: str, timeout: float = 5.0) -> None:
-    """Wait for a task to reach terminal status (completed, failed, cancelled)."""
-    terminal_statuses = {"completed", "failed", "cancelled"}
-    with anyio.fail_after(timeout):
-        while True:
-            task = await store.get_task(task_id)
-            if task and task.status in terminal_statuses:
-                return
-            await anyio.sleep(0)  # Yield to allow other tasks to run
-
 
 # --- TaskContext tests ---
 
@@ -201,6 +188,4 @@ async def test_task_execution_not_found() -> None:
 
     with pytest.raises(ValueError, match="not found"):
         async with task_execution("nonexistent", store):
-            pass
-
-    store.cleanup()
+            ...

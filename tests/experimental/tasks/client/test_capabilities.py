@@ -92,18 +92,18 @@ async def test_client_capabilities_with_tasks():
 
     received_capabilities: ClientCapabilities | None = None
 
-    # Define custom handlers to trigger capability building
+    # Define custom handlers to trigger capability building (never actually called)
     async def my_list_tasks_handler(
         context: RequestContext[ClientSession, None],
         params: types.PaginatedRequestParams | None,
     ) -> types.ListTasksResult | types.ErrorData:
-        return types.ListTasksResult(tasks=[])
+        raise NotImplementedError
 
     async def my_cancel_task_handler(
         context: RequestContext[ClientSession, None],
         params: types.CancelTaskRequestParams,
     ) -> types.CancelTaskResult | types.ErrorData:
-        return types.ErrorData(code=types.INVALID_REQUEST, message="Not found")
+        raise NotImplementedError
 
     async def mock_server():
         nonlocal received_capabilities
@@ -181,13 +181,13 @@ async def test_client_capabilities_auto_built_from_handlers():
         context: RequestContext[ClientSession, None],
         params: types.PaginatedRequestParams | None,
     ) -> types.ListTasksResult | types.ErrorData:
-        return types.ListTasksResult(tasks=[])
+        raise NotImplementedError
 
     async def my_cancel_task_handler(
         context: RequestContext[ClientSession, None],
         params: types.CancelTaskRequestParams,
     ) -> types.CancelTaskResult | types.ErrorData:
-        return types.ErrorData(code=types.INVALID_REQUEST, message="Not found")
+        raise NotImplementedError
 
     async def mock_server():
         nonlocal received_capabilities
@@ -267,7 +267,7 @@ async def test_client_capabilities_with_task_augmented_handlers():
         params: types.CreateMessageRequestParams,
         task_metadata: types.TaskMetadata,
     ) -> types.CreateTaskResult | types.ErrorData:
-        return types.ErrorData(code=types.INVALID_REQUEST, message="Not implemented")
+        raise NotImplementedError
 
     async def mock_server():
         nonlocal received_capabilities

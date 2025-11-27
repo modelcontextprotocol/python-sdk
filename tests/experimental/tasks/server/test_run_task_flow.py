@@ -9,7 +9,6 @@ This tests the recommended user flow:
 These are integration tests that verify the complete flow works end-to-end.
 """
 
-from datetime import datetime, timezone
 from typing import Any
 
 import anyio
@@ -67,8 +66,8 @@ async def test_run_task_basic_flow() -> None:
         ctx = server.request_context
         ctx.experimental.validate_task_mode(TASK_REQUIRED)
 
-        # Capture the meta from the request
-        if ctx.meta is not None and ctx.meta.model_extra:
+        # Capture the meta from the request (if present)
+        if ctx.meta is not None and ctx.meta.model_extra:  # pragma: no branch
             received_meta[0] = ctx.meta.model_extra.get("custom_field")
 
         async def work(task: ServerTaskContext) -> CallToolResult:
@@ -251,44 +250,22 @@ async def test_enable_tasks_skips_default_handlers_when_custom_registered() -> N
 
     server = Server("test-custom-handlers")
 
-    # Track which custom handlers were called
-    custom_handlers_called: list[str] = []
-
-    # Use a fixed timestamp for deterministic tests
-    fixed_time = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-
-    # Register custom handlers BEFORE enable_tasks
+    # Register custom handlers BEFORE enable_tasks (never called, just for registration)
     @server.experimental.get_task()
     async def custom_get_task(req: GetTaskRequest) -> GetTaskResult:
-        custom_handlers_called.append("get_task")
-        return GetTaskResult(
-            taskId="custom",
-            status="working",
-            createdAt=fixed_time,
-            lastUpdatedAt=fixed_time,
-            ttl=60000,
-        )
+        raise NotImplementedError
 
     @server.experimental.get_task_result()
     async def custom_get_task_result(req: GetTaskPayloadRequest) -> GetTaskPayloadResult:
-        custom_handlers_called.append("get_task_result")
-        return GetTaskPayloadResult()
+        raise NotImplementedError
 
     @server.experimental.list_tasks()
     async def custom_list_tasks(req: ListTasksRequest) -> ListTasksResult:
-        custom_handlers_called.append("list_tasks")
-        return ListTasksResult(tasks=[])
+        raise NotImplementedError
 
     @server.experimental.cancel_task()
     async def custom_cancel_task(req: CancelTaskRequest) -> CancelTaskResult:
-        custom_handlers_called.append("cancel_task")
-        return CancelTaskResult(
-            taskId="custom",
-            status="cancelled",
-            createdAt=fixed_time,
-            lastUpdatedAt=fixed_time,
-            ttl=60000,
-        )
+        raise NotImplementedError
 
     # Now enable tasks - should NOT override our custom handlers
     server.experimental.enable_tasks()
@@ -314,7 +291,7 @@ async def test_run_task_without_enable_tasks_raises() -> None:
     )
 
     async def work(task: ServerTaskContext) -> CallToolResult:
-        return CallToolResult(content=[TextContent(type="text", text="Done")])
+        raise NotImplementedError
 
     with pytest.raises(RuntimeError, match="Task support not enabled"):
         await experimental.run_task(work)
@@ -347,7 +324,7 @@ async def test_run_task_without_session_raises() -> None:
     )
 
     async def work(task: ServerTaskContext) -> CallToolResult:
-        return CallToolResult(content=[TextContent(type="text", text="Done")])
+        raise NotImplementedError
 
     with pytest.raises(RuntimeError, match="Session not available"):
         await experimental.run_task(work)
@@ -372,7 +349,7 @@ async def test_run_task_without_task_metadata_raises() -> None:
     )
 
     async def work(task: ServerTaskContext) -> CallToolResult:
-        return CallToolResult(content=[TextContent(type="text", text="Done")])
+        raise NotImplementedError
 
     with pytest.raises(RuntimeError, match="Request is not task-augmented"):
         await experimental.run_task(work)
