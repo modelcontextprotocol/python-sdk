@@ -80,7 +80,7 @@ class SimpleEventStore(EventStore):
         self._events: list[tuple[StreamId, EventId, types.JSONRPCMessage | None]] = []
         self._event_id_counter = 0
 
-    async def store_event(self, stream_id: StreamId, message: types.JSONRPCMessage | None) -> EventId:  # pragma: no cover
+    async def store_event(self, stream_id: StreamId, message: types.JSONRPCMessage | None) -> EventId:
         """Store an event and return its ID."""
         self._event_id_counter += 1
         event_id = str(self._event_id_counter)
@@ -174,6 +174,17 @@ class ServerTest(Server):  # pragma: no cover
                     name="tool_with_multiple_notifications_and_close",
                     description="Tool that sends notification1, closes stream, sends notification2, notification3",
                     inputSchema={"type": "object", "properties": {}},
+                ),
+                Tool(
+                    name="tool_with_multiple_stream_closes",
+                    description="Tool that closes SSE stream multiple times during execution",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "checkpoints": {"type": "integer", "default": 3},
+                            "sleep_time": {"type": "number", "default": 0.2},
+                        },
+                    },
                 ),
             ]
 
@@ -313,6 +324,25 @@ class ServerTest(Server):  # pragma: no cover
                     related_request_id=ctx.request_id,
                 )
                 return [TextContent(type="text", text="All notifications sent")]
+
+            elif name == "tool_with_multiple_stream_closes":
+                num_checkpoints = args.get("checkpoints", 3)
+                sleep_time = args.get("sleep_time", 0.2)
+
+                for i in range(num_checkpoints):
+                    await ctx.session.send_log_message(
+                        level="info",
+                        data=f"checkpoint_{i}",
+                        logger="multi_close_tool",
+                        related_request_id=ctx.request_id,
+                    )
+
+                    if ctx.close_sse_stream:
+                        await ctx.close_sse_stream()
+
+                    await anyio.sleep(sleep_time)
+
+                return [TextContent(type="text", text=f"Completed {num_checkpoints} checkpoints")]
 
             return [TextContent(type="text", text=f"Called {name}")]
 
@@ -950,7 +980,7 @@ async def test_streamablehttp_client_tool_invocation(initialized_client_session:
     """Test client tool invocation."""
     # First list tools
     tools = await initialized_client_session.list_tools()
-    assert len(tools.tools) == 8
+    assert len(tools.tools) == 9
     assert tools.tools[0].name == "test_tool"
 
     # Call the tool
@@ -987,7 +1017,7 @@ async def test_streamablehttp_client_session_persistence(basic_server: None, bas
 
             # Make multiple requests to verify session persistence
             tools = await session.list_tools()
-            assert len(tools.tools) == 8
+            assert len(tools.tools) == 9
 
             # Read a resource
             resource = await session.read_resource(uri=AnyUrl("foobar://test-persist"))
@@ -1016,7 +1046,7 @@ async def test_streamablehttp_client_json_response(json_response_server: None, j
 
             # Check tool listing
             tools = await session.list_tools()
-            assert len(tools.tools) == 8
+            assert len(tools.tools) == 9
 
             # Call a tool and verify JSON response handling
             result = await session.call_tool("test_tool", {})
@@ -1086,7 +1116,7 @@ async def test_streamablehttp_client_session_termination(basic_server: None, bas
 
             # Make a request to confirm session is working
             tools = await session.list_tools()
-            assert len(tools.tools) == 8
+            assert len(tools.tools) == 9
 
     headers: dict[str, str] = {}  # pragma: no cover
     if captured_session_id:  # pragma: no cover
@@ -1152,7 +1182,7 @@ async def test_streamablehttp_client_session_termination_204(
 
             # Make a request to confirm session is working
             tools = await session.list_tools()
-            assert len(tools.tools) == 8
+            assert len(tools.tools) == 9
 
     headers: dict[str, str] = {}  # pragma: no cover
     if captured_session_id:  # pragma: no cover
@@ -1944,3 +1974,56 @@ async def test_streamablehttp_events_replayed_after_disconnect(
             assert result.content[0].type == "text"
             assert isinstance(result.content[0], TextContent)
             assert result.content[0].text == "All notifications sent"
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_multiple_reconnections(
+    event_server: tuple[SimpleEventStore, str],
+):
+    """Verify multiple close_sse_stream() calls each trigger a client reconnect.
+
+    Server uses retry_interval=500ms, tool sleeps 600ms after each close to ensure
+    client has time to reconnect before the next checkpoint.
+
+    With 3 checkpoints, we expect 8 resumption tokens:
+    - 1 priming (initial POST connection)
+    - 3 notifications (checkpoint_0, checkpoint_1, checkpoint_2)
+    - 3 priming (one per reconnect after each close)
+    - 1 response
+    """
+    _, server_url = event_server
+    resumption_tokens: list[str] = []
+
+    async def on_resumption_token(token: str) -> None:
+        resumption_tokens.append(token)
+
+    async with streamablehttp_client(f"{server_url}/mcp") as (read_stream, write_stream, _):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+
+            # Use send_request with metadata to track resumption tokens
+            metadata = ClientMessageMetadata(on_resumption_token_update=on_resumption_token)
+            result = await session.send_request(
+                types.ClientRequest(
+                    types.CallToolRequest(
+                        method="tools/call",
+                        params=types.CallToolRequestParams(
+                            name="tool_with_multiple_stream_closes",
+                            # retry_interval=500ms, so sleep 600ms to ensure reconnect completes
+                            arguments={"checkpoints": 3, "sleep_time": 0.6},
+                        ),
+                    )
+                ),
+                types.CallToolResult,
+                metadata=metadata,
+            )
+
+            assert result.content[0].type == "text"
+            assert isinstance(result.content[0], TextContent)
+            assert "Completed 3 checkpoints" in result.content[0].text
+
+    # 4 priming + 3 notifications + 1 response = 8 tokens
+    assert len(resumption_tokens) == 8, (
+        f"Expected 8 resumption tokens (4 priming + 3 notifs + 1 response), "
+        f"got {len(resumption_tokens)}: {resumption_tokens}"
+    )

@@ -363,6 +363,7 @@ class StreamableHTTPTransport:
 
         # Stream ended without response - reconnect if we received an event with ID
         if last_event_id is not None:
+            logger.info("SSE stream disconnected, reconnecting...")
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
 
     async def _handle_reconnection(
@@ -399,7 +400,7 @@ class StreamableHTTPTransport:
                 timeout=httpx.Timeout(self.timeout, read=self.sse_read_timeout),
             ) as event_source:
                 event_source.response.raise_for_status()
-                logger.debug("Reconnection GET SSE connection established")
+                logger.info("Reconnected to SSE stream")
 
                 # Track for potential further reconnection
                 reconnect_last_event_id: str | None = last_event_id
@@ -423,6 +424,7 @@ class StreamableHTTPTransport:
 
                 # Stream ended again without response - reconnect again (reset attempt counter)
                 if reconnect_last_event_id is not None:
+                    logger.info("SSE stream disconnected, reconnecting...")
                     await self._handle_reconnection(
                         ctx, reconnect_last_event_id, reconnect_retry_ms, 0
                     )

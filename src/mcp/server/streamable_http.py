@@ -208,6 +208,12 @@ class StreamableHTTPServerTransport:
         if writer:
             writer.close()
 
+        # Also close and remove request streams
+        if request_id in self._request_streams:
+            send_stream, receive_stream = self._request_streams.pop(request_id)
+            send_stream.close()
+            receive_stream.close()
+
     def _create_session_message(
         self,
         message: JSONRPCMessage,
@@ -545,6 +551,9 @@ class StreamableHTTPServerTransport:
                                     JSONRPCResponse | JSONRPCError,
                                 ):
                                     break
+                    except anyio.ClosedResourceError:
+                        # Expected when close_sse_stream() is called
+                        logger.debug("SSE stream closed by close_sse_stream()")
                     except Exception:
                         logger.exception("Error in SSE writer")
                     finally:
@@ -848,6 +857,13 @@ class StreamableHTTPServerTransport:
 
                         # If stream ID not in mapping, create it
                         if stream_id and stream_id not in self._request_streams:
+                            # Register SSE writer so close_sse_stream() can close it
+                            self._sse_stream_writers[stream_id] = sse_stream_writer
+
+                            # Send priming event for this new connection
+                            await self._send_priming_event(stream_id, sse_stream_writer)
+
+                            # Create new request streams for this connection
                             self._request_streams[stream_id] = anyio.create_memory_object_stream[EventMessage](0)
                             msg_reader = self._request_streams[stream_id][1]
 
@@ -857,6 +873,9 @@ class StreamableHTTPServerTransport:
                                     event_data = self._create_event_data(event_message)
 
                                     await sse_stream_writer.send(event_data)
+                except anyio.ClosedResourceError:
+                    # Expected when close_sse_stream() is called
+                    logger.debug("Replay SSE stream closed by close_sse_stream()")
                 except Exception:
                     logger.exception("Error in replay sender")
 
