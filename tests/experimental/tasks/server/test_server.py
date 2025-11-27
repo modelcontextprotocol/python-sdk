@@ -25,16 +25,23 @@ from mcp.types import (
     CancelTaskResult,
     ClientRequest,
     ClientResult,
+    ErrorData,
     GetTaskPayloadRequest,
     GetTaskPayloadRequestParams,
     GetTaskPayloadResult,
     GetTaskRequest,
     GetTaskRequestParams,
     GetTaskResult,
+    JSONRPCError,
+    JSONRPCMessage,
+    JSONRPCNotification,
+    JSONRPCResponse,
     ListTasksRequest,
     ListTasksResult,
     ListToolsRequest,
     ListToolsResult,
+    SamplingMessage,
+    ServerCapabilities,
     ServerNotification,
     ServerRequest,
     ServerResult,
@@ -450,3 +457,410 @@ async def test_task_metadata_is_task_property() -> None:
     assert len(is_task_values) == 2
     assert is_task_values[0] is False  # First call without task
     assert is_task_values[1] is True  # Second call with task
+
+
+@pytest.mark.anyio
+async def test_update_capabilities_no_handlers() -> None:
+    """Test that update_capabilities returns early when no task handlers are registered."""
+    server = Server("test-no-handlers")
+    # Access experimental to initialize it, but don't register any task handlers
+    _ = server.experimental
+
+    caps = server.get_capabilities(NotificationOptions(), {})
+
+    # Without any task handlers registered, tasks capability should be None
+    assert caps.tasks is None
+
+
+@pytest.mark.anyio
+async def test_default_task_handlers_via_enable_tasks() -> None:
+    """Test that enable_tasks() auto-registers working default handlers.
+
+    This exercises the default handlers in lowlevel/experimental.py:
+    - _default_get_task (task not found)
+    - _default_get_task_result
+    - _default_list_tasks
+    - _default_cancel_task
+    """
+    from mcp.shared.exceptions import McpError
+
+    server = Server("test-default-handlers")
+    # Enable tasks with default handlers (no custom handlers registered)
+    task_support = server.experimental.enable_tasks()
+    store = task_support.store
+
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    async def message_handler(
+        message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
+
+    async def run_server() -> None:
+        async with task_support.run():
+            async with ServerSession(
+                client_to_server_receive,
+                server_to_client_send,
+                InitializationOptions(
+                    server_name="test-server",
+                    server_version="1.0.0",
+                    capabilities=server.get_capabilities(
+                        notification_options=NotificationOptions(),
+                        experimental_capabilities={},
+                    ),
+                ),
+            ) as server_session:
+                task_support.configure_session(server_session)
+                async for message in server_session.incoming_messages:
+                    await server._handle_message(message, server_session, {}, False)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(run_server)
+
+        async with ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=message_handler,
+        ) as client_session:
+            await client_session.initialize()
+
+            # Create a task directly in the store for testing
+            task = await store.create_task(TaskMetadata(ttl=60000))
+
+            # Test list_tasks (default handler)
+            list_result = await client_session.send_request(
+                ClientRequest(ListTasksRequest()),
+                ListTasksResult,
+            )
+            assert len(list_result.tasks) == 1
+            assert list_result.tasks[0].taskId == task.taskId
+
+            # Test get_task (default handler - found)
+            get_result = await client_session.send_request(
+                ClientRequest(GetTaskRequest(params=GetTaskRequestParams(taskId=task.taskId))),
+                GetTaskResult,
+            )
+            assert get_result.taskId == task.taskId
+            assert get_result.status == "working"
+
+            # Test get_task (default handler - not found path)
+            try:
+                await client_session.send_request(
+                    ClientRequest(GetTaskRequest(params=GetTaskRequestParams(taskId="nonexistent-task"))),
+                    GetTaskResult,
+                )
+                raise AssertionError("Expected McpError")
+            except McpError as e:
+                assert "not found" in e.error.message
+
+            # Create a completed task to test get_task_result
+            completed_task = await store.create_task(TaskMetadata(ttl=60000))
+            await store.store_result(
+                completed_task.taskId, CallToolResult(content=[TextContent(type="text", text="Test result")])
+            )
+            await store.update_task(completed_task.taskId, status="completed")
+
+            # Test get_task_result (default handler)
+            payload_result = await client_session.send_request(
+                ClientRequest(GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId=completed_task.taskId))),
+                GetTaskPayloadResult,
+            )
+            # The result should have the related-task metadata
+            assert payload_result.meta is not None
+            assert "io.modelcontextprotocol/related-task" in payload_result.meta
+
+            # Test cancel_task (default handler)
+            cancel_result = await client_session.send_request(
+                ClientRequest(CancelTaskRequest(params=CancelTaskRequestParams(taskId=task.taskId))),
+                CancelTaskResult,
+            )
+            assert cancel_result.taskId == task.taskId
+            assert cancel_result.status == "cancelled"
+
+            tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_set_task_result_handler() -> None:
+    """Test that set_task_result_handler adds the handler as a response router."""
+    from mcp.server.experimental.task_result_handler import TaskResultHandler
+    from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
+    from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
+
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    store = InMemoryTaskStore()
+    queue = InMemoryTaskMessageQueue()
+    handler = TaskResultHandler(store, queue)
+
+    try:
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="test-server",
+                server_version="1.0.0",
+                capabilities=ServerCapabilities(),
+            ),
+        ) as server_session:
+            # Use set_task_result_handler (the method we're testing)
+            server_session.set_task_result_handler(handler)
+
+            # Verify handler was added as a response router
+            assert handler in server_session._response_routers
+    finally:
+        await server_to_client_send.aclose()
+        await server_to_client_receive.aclose()
+        await client_to_server_send.aclose()
+        await client_to_server_receive.aclose()
+
+
+@pytest.mark.anyio
+async def test_build_elicit_request() -> None:
+    """Test that _build_elicit_request builds a proper elicitation request."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    try:
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="test-server",
+                server_version="1.0.0",
+                capabilities=ServerCapabilities(),
+            ),
+        ) as server_session:
+            # Test without task_id
+            request = server_session._build_elicit_request(
+                message="Test message",
+                requestedSchema={"type": "object", "properties": {"answer": {"type": "string"}}},
+            )
+            assert request.method == "elicitation/create"
+            assert request.params is not None
+            assert request.params["message"] == "Test message"
+
+            # Test with task_id (adds related-task metadata)
+            request_with_task = server_session._build_elicit_request(
+                message="Task message",
+                requestedSchema={"type": "object"},
+                task_id="test-task-123",
+            )
+            assert request_with_task.method == "elicitation/create"
+            assert request_with_task.params is not None
+            assert "_meta" in request_with_task.params
+            assert "io.modelcontextprotocol/related-task" in request_with_task.params["_meta"]
+            assert (
+                request_with_task.params["_meta"]["io.modelcontextprotocol/related-task"]["taskId"] == "test-task-123"
+            )
+    finally:
+        await server_to_client_send.aclose()
+        await server_to_client_receive.aclose()
+        await client_to_server_send.aclose()
+        await client_to_server_receive.aclose()
+
+
+@pytest.mark.anyio
+async def test_build_create_message_request() -> None:
+    """Test that _build_create_message_request builds a proper sampling request."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    try:
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="test-server",
+                server_version="1.0.0",
+                capabilities=ServerCapabilities(),
+            ),
+        ) as server_session:
+            messages = [
+                SamplingMessage(role="user", content=TextContent(type="text", text="Hello")),
+            ]
+
+            # Test without task_id
+            request = server_session._build_create_message_request(
+                messages=messages,
+                max_tokens=100,
+                system_prompt="You are helpful",
+            )
+            assert request.method == "sampling/createMessage"
+            assert request.params is not None
+            assert request.params["maxTokens"] == 100
+
+            # Test with task_id (adds related-task metadata)
+            request_with_task = server_session._build_create_message_request(
+                messages=messages,
+                max_tokens=50,
+                task_id="sampling-task-456",
+            )
+            assert request_with_task.method == "sampling/createMessage"
+            assert request_with_task.params is not None
+            assert "_meta" in request_with_task.params
+            assert "io.modelcontextprotocol/related-task" in request_with_task.params["_meta"]
+            assert (
+                request_with_task.params["_meta"]["io.modelcontextprotocol/related-task"]["taskId"]
+                == "sampling-task-456"
+            )
+    finally:
+        await server_to_client_send.aclose()
+        await server_to_client_receive.aclose()
+        await client_to_server_send.aclose()
+        await client_to_server_receive.aclose()
+
+
+@pytest.mark.anyio
+async def test_send_message() -> None:
+    """Test that send_message sends a raw session message."""
+    from mcp.shared.message import ServerMessageMetadata
+
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    try:
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="test-server",
+                server_version="1.0.0",
+                capabilities=ServerCapabilities(),
+            ),
+        ) as server_session:
+            # Create a test message
+            notification = JSONRPCNotification(jsonrpc="2.0", method="test/notification")
+            message = SessionMessage(
+                message=JSONRPCMessage(notification),
+                metadata=ServerMessageMetadata(related_request_id="test-req-1"),
+            )
+
+            # Send the message
+            await server_session.send_message(message)
+
+            # Verify it was sent to the stream
+            received = await server_to_client_receive.receive()
+            assert isinstance(received.message.root, JSONRPCNotification)
+            assert received.message.root.method == "test/notification"
+    finally:
+        await server_to_client_send.aclose()
+        await server_to_client_receive.aclose()
+        await client_to_server_send.aclose()
+        await client_to_server_receive.aclose()
+
+
+@pytest.mark.anyio
+async def test_response_routing_success() -> None:
+    """Test that response routing works for success responses."""
+    from mcp.shared.session import ResponseRouter
+
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    # Track routed responses with event for synchronization
+    routed_responses: list[dict[str, Any]] = []
+    response_received = anyio.Event()
+
+    class TestRouter(ResponseRouter):
+        def route_response(self, request_id: str | int, response: dict[str, Any]) -> bool:
+            routed_responses.append({"id": request_id, "response": response})
+            response_received.set()
+            return True  # Handled
+
+        def route_error(self, request_id: str | int, error: ErrorData) -> bool:
+            return False
+
+    try:
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="test-server",
+                server_version="1.0.0",
+                capabilities=ServerCapabilities(),
+            ),
+        ) as server_session:
+            router = TestRouter()
+            server_session.add_response_router(router)
+
+            # Simulate receiving a response from client
+            response = JSONRPCResponse(jsonrpc="2.0", id="test-req-1", result={"status": "ok"})
+            message = SessionMessage(message=JSONRPCMessage(response))
+
+            # Send from "client" side
+            await client_to_server_send.send(message)
+
+            # Wait for response to be routed
+            with anyio.fail_after(5):
+                await response_received.wait()
+
+            # Verify response was routed
+            assert len(routed_responses) == 1
+            assert routed_responses[0]["id"] == "test-req-1"
+            assert routed_responses[0]["response"]["status"] == "ok"
+    finally:
+        await server_to_client_send.aclose()
+        await server_to_client_receive.aclose()
+        await client_to_server_send.aclose()
+        await client_to_server_receive.aclose()
+
+
+@pytest.mark.anyio
+async def test_response_routing_error() -> None:
+    """Test that error routing works for error responses."""
+    from mcp.shared.session import ResponseRouter
+
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    # Track routed errors with event for synchronization
+    routed_errors: list[dict[str, Any]] = []
+    error_received = anyio.Event()
+
+    class TestRouter(ResponseRouter):
+        def route_response(self, request_id: str | int, response: dict[str, Any]) -> bool:
+            return False
+
+        def route_error(self, request_id: str | int, error: ErrorData) -> bool:
+            routed_errors.append({"id": request_id, "error": error})
+            error_received.set()
+            return True  # Handled
+
+    try:
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="test-server",
+                server_version="1.0.0",
+                capabilities=ServerCapabilities(),
+            ),
+        ) as server_session:
+            router = TestRouter()
+            server_session.add_response_router(router)
+
+            # Simulate receiving an error response from client
+            error_data = ErrorData(code=-32600, message="Test error")
+            error_response = JSONRPCError(jsonrpc="2.0", id="test-req-2", error=error_data)
+            message = SessionMessage(message=JSONRPCMessage(error_response))
+
+            # Send from "client" side
+            await client_to_server_send.send(message)
+
+            # Wait for error to be routed
+            with anyio.fail_after(5):
+                await error_received.wait()
+
+            # Verify error was routed
+            assert len(routed_errors) == 1
+            assert routed_errors[0]["id"] == "test-req-2"
+            assert routed_errors[0]["error"].message == "Test error"
+    finally:
+        await server_to_client_send.aclose()
+        await server_to_client_receive.aclose()
+        await client_to_server_send.aclose()
+        await client_to_server_receive.aclose()
