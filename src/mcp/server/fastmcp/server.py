@@ -1295,11 +1295,9 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         Note:
             This is a no-op if not using StreamableHTTP transport with event_store.
             The callback is only available when event_store is configured.
-
-        Raises:
-            NotImplementedError: Feature not yet implemented.
         """
-        raise NotImplementedError("close_sse_stream not yet implemented")
+        if self._request_context and self._request_context.close_sse_stream:
+            await self._request_context.close_sse_stream()
 
     # Convenience methods for common log levels
     async def debug(self, message: str, **extra: Any) -> None:

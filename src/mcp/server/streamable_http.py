@@ -177,6 +177,7 @@ class StreamableHTTPServerTransport:
                 MemoryObjectReceiveStream[EventMessage],
             ],
         ] = {}
+        self._sse_stream_writers: dict[RequestId, MemoryObjectSendStream[dict[str, str]]] = {}
         self._terminated = False
 
     @property
@@ -202,7 +203,26 @@ class StreamableHTTPServerTransport:
             Requires event_store to be configured for events to be stored during
             the disconnect.
         """
-        raise NotImplementedError("close_sse_stream not yet implemented")
+        writer = self._sse_stream_writers.pop(request_id, None)
+        if writer:
+            writer.close()
+
+    def _create_session_message(
+        self,
+        message: JSONRPCMessage,
+        request: Request,
+        request_id: RequestId,
+    ) -> SessionMessage:
+        """Create a session message with metadata including close_sse_stream callback."""
+
+        async def close_stream_callback() -> None:
+            self.close_sse_stream(request_id)
+
+        metadata = ServerMessageMetadata(
+            request_context=request,
+            close_sse_stream=close_stream_callback,
+        )
+        return SessionMessage(message, metadata=metadata)
 
     def _create_error_response(
         self,
@@ -485,6 +505,9 @@ class StreamableHTTPServerTransport:
                 # Create SSE stream
                 sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
 
+                # Store writer reference so close_sse_stream() can close it
+                self._sse_stream_writers[request_id] = sse_stream_writer
+
                 async def sse_writer():
                     # Get the request ID from the incoming request message
                     try:
@@ -516,6 +539,7 @@ class StreamableHTTPServerTransport:
                         logger.exception("Error in SSE writer")
                     finally:
                         logger.debug("Closing SSE writer")
+                        self._sse_stream_writers.pop(request_id, None)
                         await self._clean_up_memory_streams(request_id)
 
                 # Create and start EventSourceResponse
@@ -539,8 +563,7 @@ class StreamableHTTPServerTransport:
                     async with anyio.create_task_group() as tg:
                         tg.start_soon(response, scope, receive, send)
                         # Then send the message to be processed by the server
-                        metadata = ServerMessageMetadata(request_context=request)
-                        session_message = SessionMessage(message, metadata=metadata)
+                        session_message = self._create_session_message(message, request, request_id)
                         await writer.send(session_message)
                 except Exception:
                     logger.exception("SSE response error")

@@ -329,9 +329,15 @@ class StreamableHTTPTransport:
         is_initialization: bool = False,
     ) -> None:
         """Handle SSE response from the server."""
+        last_event_id: str | None = None
+
         try:
             event_source = EventSource(response)
             async for sse in event_source.aiter_sse():  # pragma: no branch
+                # Track last event ID for potential reconnection
+                if sse.id:
+                    last_event_id = sse.id
+
                 is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
@@ -342,10 +348,63 @@ class StreamableHTTPTransport:
                 # break the loop
                 if is_complete:
                     await response.aclose()
-                    break
+                    return  # Normal completion, no reconnect needed
         except Exception as e:
-            logger.exception("Error reading SSE stream:")  # pragma: no cover
-            await ctx.read_stream_writer.send(e)  # pragma: no cover
+            logger.debug(f"SSE stream ended: {e}")
+
+        # Stream ended without response - reconnect if we have priming event
+        if last_event_id is not None:
+            await self._handle_reconnection(ctx, last_event_id)
+
+    async def _handle_reconnection(
+        self,
+        ctx: RequestContext,
+        last_event_id: str,
+    ) -> None:
+        """Reconnect with Last-Event-ID to resume stream after server disconnect."""
+        headers = self._prepare_request_headers(ctx.headers)
+        headers[LAST_EVENT_ID] = last_event_id
+
+        # Extract original request ID to map responses
+        original_request_id = None
+        if isinstance(ctx.session_message.message.root, JSONRPCRequest):
+            original_request_id = ctx.session_message.message.root.id
+
+        try:
+            async with aconnect_sse(
+                ctx.client,
+                "GET",
+                self.url,
+                headers=headers,
+                timeout=httpx.Timeout(self.timeout, read=self.sse_read_timeout),
+            ) as event_source:
+                event_source.response.raise_for_status()
+                logger.debug("Reconnection GET SSE connection established")
+
+                # Track for potential further reconnection
+                reconnect_last_event_id: str | None = last_event_id
+
+                async for sse in event_source.aiter_sse():
+                    if sse.id:
+                        reconnect_last_event_id = sse.id
+
+                    is_complete = await self._handle_sse_event(
+                        sse,
+                        ctx.read_stream_writer,
+                        original_request_id,
+                        ctx.metadata.on_resumption_token_update if ctx.metadata else None,
+                    )
+                    if is_complete:
+                        await event_source.response.aclose()
+                        return
+
+                # Stream ended again without response - reconnect again
+                if reconnect_last_event_id is not None:
+                    await self._handle_reconnection(ctx, reconnect_last_event_id)
+        except Exception as e:
+            logger.debug(f"Reconnection failed: {e}")
+            # Try to reconnect again if we still have an event ID
+            await self._handle_reconnection(ctx, last_event_id)
 
     async def _handle_unexpected_content_type(
         self,
