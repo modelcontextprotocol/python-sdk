@@ -42,6 +42,10 @@ GetSessionIdCallback = Callable[[], str | None]
 MCP_SESSION_ID = "mcp-session-id"
 MCP_PROTOCOL_VERSION = "mcp-protocol-version"
 LAST_EVENT_ID = "last-event-id"
+
+# Reconnection defaults
+DEFAULT_RECONNECTION_DELAY_MS = 1000  # 1 second fallback when server doesn't provide retry
+MAX_RECONNECTION_ATTEMPTS = 2  # Max retry attempts before giving up
 CONTENT_TYPE = "content-type"
 ACCEPT = "accept"
 
@@ -366,11 +370,17 @@ class StreamableHTTPTransport:
         ctx: RequestContext,
         last_event_id: str,
         retry_interval_ms: int | None = None,
+        attempt: int = 0,
     ) -> None:
         """Reconnect with Last-Event-ID to resume stream after server disconnect."""
-        # Wait for retry interval if specified by server
-        if retry_interval_ms is not None:
-            await anyio.sleep(retry_interval_ms / 1000.0)
+        # Bail if max retries exceeded
+        if attempt >= MAX_RECONNECTION_ATTEMPTS:
+            logger.debug(f"Max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
+            return
+
+        # Always wait - use server value or default
+        delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
+        await anyio.sleep(delay_ms / 1000.0)
 
         headers = self._prepare_request_headers(ctx.headers)
         headers[LAST_EVENT_ID] = last_event_id
@@ -411,13 +421,15 @@ class StreamableHTTPTransport:
                         await event_source.response.aclose()
                         return
 
-                # Stream ended again without response - reconnect again
+                # Stream ended again without response - reconnect again (reset attempt counter)
                 if reconnect_last_event_id is not None:
-                    await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms)
+                    await self._handle_reconnection(
+                        ctx, reconnect_last_event_id, reconnect_retry_ms, 0
+                    )
         except Exception as e:
             logger.debug(f"Reconnection failed: {e}")
             # Try to reconnect again if we still have an event ID
-            await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
+            await self._handle_reconnection(ctx, last_event_id, retry_interval_ms, attempt + 1)
 
     async def _handle_unexpected_content_type(
         self,
