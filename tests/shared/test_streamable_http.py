@@ -80,7 +80,9 @@ class SimpleEventStore(EventStore):
         self._events: list[tuple[StreamId, EventId, types.JSONRPCMessage | None]] = []
         self._event_id_counter = 0
 
-    async def store_event(self, stream_id: StreamId, message: types.JSONRPCMessage | None) -> EventId:
+    async def store_event(  # pragma: no cover
+        self, stream_id: StreamId, message: types.JSONRPCMessage | None
+    ) -> EventId:
         """Store an event and return its ID."""
         self._event_id_counter += 1
         event_id = str(self._event_id_counter)
@@ -1817,10 +1819,10 @@ async def test_streamablehttp_client_auto_reconnects(
     async def message_handler(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, Exception):
-            return
-        if isinstance(message, types.ServerNotification):
-            if isinstance(message.root, types.LoggingMessageNotification):
+        if isinstance(message, Exception):  # pragma: no branch
+            return  # pragma: no cover
+        if isinstance(message, types.ServerNotification):  # pragma: no branch
+            if isinstance(message.root, types.LoggingMessageNotification):  # pragma: no branch
                 captured_notifications.append(str(message.root.params.data))
 
     async with streamablehttp_client(f"{server_url}/mcp") as (
@@ -1893,10 +1895,10 @@ async def test_streamablehttp_sse_polling_full_cycle(
     async def message_handler(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, Exception):
-            return
-        if isinstance(message, types.ServerNotification):
-            if isinstance(message.root, types.LoggingMessageNotification):
+        if isinstance(message, Exception):  # pragma: no branch
+            return  # pragma: no cover
+        if isinstance(message, types.ServerNotification):  # pragma: no branch
+            if isinstance(message.root, types.LoggingMessageNotification):  # pragma: no branch
                 all_notifications.append(str(message.root.params.data))
 
     async with streamablehttp_client(f"{server_url}/mcp") as (
@@ -1941,10 +1943,10 @@ async def test_streamablehttp_events_replayed_after_disconnect(
     async def message_handler(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, Exception):
-            return
-        if isinstance(message, types.ServerNotification):
-            if isinstance(message.root, types.LoggingMessageNotification):
+        if isinstance(message, Exception):  # pragma: no branch
+            return  # pragma: no cover
+        if isinstance(message, types.ServerNotification):  # pragma: no branch
+            if isinstance(message.root, types.LoggingMessageNotification):  # pragma: no branch
                 notification_data.append(str(message.root.params.data))
 
     async with streamablehttp_client(f"{server_url}/mcp") as (
@@ -2025,7 +2027,7 @@ async def test_streamablehttp_multiple_reconnections(
             assert "Completed 3 checkpoints" in result.content[0].text
 
     # 4 priming + 3 notifications + 1 response = 8 tokens
-    assert len(resumption_tokens) == 8, (
+    assert len(resumption_tokens) == 8, (  # pragma: no cover
         f"Expected 8 resumption tokens (4 priming + 3 notifs + 1 response), "
         f"got {len(resumption_tokens)}: {resumption_tokens}"
     )

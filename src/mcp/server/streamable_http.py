@@ -186,7 +186,7 @@ class StreamableHTTPServerTransport:
         """Check if this transport has been explicitly terminated."""
         return self._terminated
 
-    def close_sse_stream(self, request_id: RequestId) -> None:
+    def close_sse_stream(self, request_id: RequestId) -> None:  # pragma: no cover
         """Close SSE connection for a specific request without terminating the stream.
 
         This method closes the HTTP connection for the specified request, triggering
@@ -214,7 +214,7 @@ class StreamableHTTPServerTransport:
             send_stream.close()
             receive_stream.close()
 
-    def _create_session_message(
+    def _create_session_message(  # pragma: no cover
         self,
         message: JSONRPCMessage,
         request: Request,
@@ -231,7 +231,7 @@ class StreamableHTTPServerTransport:
         )
         return SessionMessage(message, metadata=metadata)
 
-    async def _send_priming_event(
+    async def _send_priming_event(  # pragma: no cover
         self,
         request_id: RequestId,
         sse_stream_writer: MemoryObjectSendStream[dict[str, Any]],

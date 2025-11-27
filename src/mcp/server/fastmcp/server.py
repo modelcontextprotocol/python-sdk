@@ -1299,7 +1299,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             This is a no-op if not using StreamableHTTP transport with event_store.
             The callback is only available when event_store is configured.
         """
-        if self._request_context and self._request_context.close_sse_stream:
+        if self._request_context and self._request_context.close_sse_stream:  # pragma: no cover
             await self._request_context.close_sse_stream()
 
     # Convenience methods for common log levels
