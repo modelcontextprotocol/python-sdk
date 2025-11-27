@@ -2,37 +2,22 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from typing import Any
 
 import anyio
 import click
 import mcp.types as types
 import uvicorn
-from anyio.abc import TaskGroup
+from mcp.server.experimental.task_context import ServerTaskContext
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.shared.experimental.tasks.helpers import task_execution
-from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
+server = Server("simple-task-server")
 
-@dataclass
-class AppContext:
-    task_group: TaskGroup
-    store: InMemoryTaskStore
-
-
-@asynccontextmanager
-async def lifespan(server: Server[AppContext, Any]) -> AsyncIterator[AppContext]:
-    store = InMemoryTaskStore()
-    async with anyio.create_task_group() as tg:
-        yield AppContext(task_group=tg, store=store)
-    store.cleanup()
-
-
-server: Server[AppContext, Any] = Server("simple-task-server", lifespan=lifespan)
+# One-line setup: auto-registers get_task, get_task_result, list_tasks, cancel_task
+server.experimental.enable_tasks()
 
 
 @server.list_tools()
@@ -50,61 +35,21 @@ async def list_tools() -> list[types.Tool]:
 @server.call_tool()
 async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent] | types.CreateTaskResult:
     ctx = server.request_context
-    app = ctx.lifespan_context
-
-    # Validate task mode - raises McpError(-32601) if client didn't use task augmentation
     ctx.experimental.validate_task_mode(types.TASK_REQUIRED)
 
-    # Create the task
-    metadata = ctx.experimental.task_metadata
-    assert metadata is not None
-    task = await app.store.create_task(metadata)
+    async def work(task: ServerTaskContext) -> types.CallToolResult:
+        await task.update_status("Starting work...")
+        await anyio.sleep(1)
 
-    # Spawn background work
-    async def do_work() -> None:
-        async with task_execution(task.taskId, app.store) as task_ctx:
-            await task_ctx.update_status("Starting work...")
-            await anyio.sleep(1)
+        await task.update_status("Processing step 1...")
+        await anyio.sleep(1)
 
-            await task_ctx.update_status("Processing step 1...")
-            await anyio.sleep(1)
+        await task.update_status("Processing step 2...")
+        await anyio.sleep(1)
 
-            await task_ctx.update_status("Processing step 2...")
-            await anyio.sleep(1)
+        return types.CallToolResult(content=[types.TextContent(type="text", text="Task completed!")])
 
-            await task_ctx.complete(
-                types.CallToolResult(content=[types.TextContent(type="text", text="Task completed!")])
-            )
-
-    app.task_group.start_soon(do_work)
-    return types.CreateTaskResult(task=task)
-
-
-@server.experimental.get_task()
-async def handle_get_task(request: types.GetTaskRequest) -> types.GetTaskResult:
-    app = server.request_context.lifespan_context
-    task = await app.store.get_task(request.params.taskId)
-    if task is None:
-        raise ValueError(f"Task {request.params.taskId} not found")
-    return types.GetTaskResult(
-        taskId=task.taskId,
-        status=task.status,
-        statusMessage=task.statusMessage,
-        createdAt=task.createdAt,
-        lastUpdatedAt=task.lastUpdatedAt,
-        ttl=task.ttl,
-        pollInterval=task.pollInterval,
-    )
-
-
-@server.experimental.get_task_result()
-async def handle_get_task_result(request: types.GetTaskPayloadRequest) -> types.GetTaskPayloadResult:
-    app = server.request_context.lifespan_context
-    result = await app.store.get_result(request.params.taskId)
-    if result is None:
-        raise ValueError(f"Result for task {request.params.taskId} not found")
-    assert isinstance(result, types.CallToolResult)
-    return types.GetTaskPayloadResult(**result.model_dump())
+    return await ctx.experimental.run_task(work)
 
 
 @click.command()
