@@ -507,8 +507,7 @@ async def test_perform_authorization_with_valid_tokens(mock_token_storage: Any):
 
 @pytest.mark.anyio
 async def test_exchange_token_with_client_authentication(
-        sample_id_token: str, sample_id_jag: str,
-        mock_token_storage: Any
+    sample_id_token: str, sample_id_jag: str, mock_token_storage: Any
 ):
     """Test token exchange with client authentication."""
     from mcp.shared.auth import OAuthClientInformationFull
@@ -566,10 +565,7 @@ async def test_exchange_token_with_client_authentication(
 
 
 @pytest.mark.anyio
-async def test_exchange_token_with_client_id_only(
-        sample_id_token: str, sample_id_jag: str,
-        mock_token_storage: Any
-):
+async def test_exchange_token_with_client_id_only(sample_id_token: str, sample_id_jag: str, mock_token_storage: Any):
     """Test token exchange with client_id but no client_secret (covers branch 232->235)."""
     from mcp.shared.auth import OAuthClientInformationFull
 
@@ -688,7 +684,7 @@ async def test_exchange_token_non_json_error_response(sample_id_token: str, mock
 
 @pytest.mark.anyio
 async def test_exchange_token_warning_for_non_na_token_type(
-        sample_id_token: str, sample_id_jag: str, mock_token_storage: Any
+    sample_id_token: str, sample_id_jag: str, mock_token_storage: Any
 ):
     """Test token exchange logs warning for non-N_A token type."""
     token_exchange_params = TokenExchangeParameters.from_id_token(
@@ -726,7 +722,7 @@ async def test_exchange_token_warning_for_non_na_token_type(
     import logging
 
     with patch.object(
-            logging.getLogger("mcp.client.auth.extensions.enterprise_managed_auth"), "warning"
+        logging.getLogger("mcp.client.auth.extensions.enterprise_managed_auth"), "warning"
     ) as mock_warning:
         id_jag = await provider.exchange_token_for_id_jag(mock_client)
         assert id_jag == sample_id_jag
@@ -1035,14 +1031,12 @@ async def test_exchange_token_with_client_info_but_no_client_id(
 
     # Verify client_id was not included (None), but client_secret was included
     call_args = mock_client.post.call_args
-    assert call_args[1]["data"]["client_id"] is None
+    assert "client_id" not in call_args[1]["data"]
     assert call_args[1]["data"]["client_secret"] == "test-secret"
 
 
 @pytest.mark.anyio
-async def test_exchange_id_jag_with_client_info_but_no_client_id(
-    sample_id_jag: str, mock_token_storage: Any
-):
+async def test_exchange_id_jag_with_client_info_but_no_client_id(sample_id_jag: str, mock_token_storage: Any):
     """Test ID-JAG exchange when client_info exists but client_id is None (covers line 302)."""
     from pydantic import AnyHttpUrl
 
@@ -1102,7 +1096,7 @@ async def test_exchange_id_jag_with_client_info_but_no_client_id(
 
     # Verify client_id was not included (None), but client_secret was included
     call_args = mock_client.post.call_args
-    assert call_args[1]["data"]["client_id"] is None
+    assert "client_id" not in call_args[1]["data"]
     assert call_args[1]["data"]["client_secret"] == "test-secret"
 
 
