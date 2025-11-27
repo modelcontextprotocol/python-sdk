@@ -14,6 +14,7 @@ from pydantic import (
     WithJsonSchema,
     create_model,
 )
+from pydantic.errors import PydanticSchemaGenerationError
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
 from typing_extensions import is_typeddict
@@ -364,7 +365,7 @@ def _try_create_model_and_schema(
             if len(args) == 2 and args[0] is str:
                 # TODO: should we use the original annotation? We are loosing any potential `Annotated`
                 # metadata for Pydantic here:
-                model = _create_dict_model(func_name, type_expr)
+                model = _create_dict_model(func_name, original_annotation)
             else:
                 # dict with non-str keys needs wrapping
                 model = _create_wrapped_model(func_name, original_annotation)
@@ -411,12 +412,19 @@ def _try_create_model_and_schema(
         # Use StrictJsonSchema to raise exceptions instead of warnings
         try:
             schema = model.model_json_schema(schema_generator=StrictJsonSchema)
-        except (TypeError, ValueError, pydantic_core.SchemaError, pydantic_core.ValidationError) as e:
+        except (
+            TypeError,
+            ValueError,
+            pydantic_core.SchemaError,
+            pydantic_core.ValidationError,
+            PydanticSchemaGenerationError,
+        ) as e:
             # These are expected errors when a type can't be converted to a Pydantic schema
             # TypeError: When Pydantic can't handle the type
             # ValueError: When there are issues with the type definition (including our custom warnings)
             # SchemaError: When Pydantic can't build a schema
             # ValidationError: When validation fails
+            # PydanticSchemaGenerationError: When pydantic-core cannot generate a schema for a type
             logger.info(f"Cannot create schema for type {type_expr} in {func_name}: {type(e).__name__}: {e}")
             return None, None, False
 
