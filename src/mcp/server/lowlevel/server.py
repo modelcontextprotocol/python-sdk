@@ -723,6 +723,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                 # app.get_request_context()
                 client_capabilities = session.client_params.capabilities if session.client_params else None
                 task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
+                # Get task metadata from request params if present
+                task_metadata = None
+                if hasattr(req, "params") and req.params is not None:
+                    task_metadata = getattr(req.params, "task", None)
                 token = request_ctx.set(
                     RequestContext(
                         message.request_id,
@@ -730,7 +734,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                         session,
                         lifespan_context,
                         Experimental(
-                            task_metadata=message.request_params.task if message.request_params else None,
+                            task_metadata=task_metadata,
                             _client_capabilities=client_capabilities,
                             _session=session,
                             _task_support=task_support,
