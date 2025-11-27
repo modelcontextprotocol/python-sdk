@@ -21,7 +21,8 @@ from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared.experimental.tasks import InMemoryTaskStore, task_execution
+from mcp.shared.experimental.tasks.helpers import task_execution
+from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
@@ -106,14 +107,11 @@ async def test_task_lifecycle_with_task_execution() -> None:
             # 3. Define work function using task_execution for safety
             async def do_work():
                 async with task_execution(task.taskId, app.store) as task_ctx:
-                    await task_ctx.update_status("Processing input...", notify=False)
+                    await task_ctx.update_status("Processing input...")
                     # Simulate work
                     input_value = arguments.get("input", "")
                     result_text = f"Processed: {input_value.upper()}"
-                    await task_ctx.complete(
-                        CallToolResult(content=[TextContent(type="text", text=result_text)]),
-                        notify=False,
-                    )
+                    await task_ctx.complete(CallToolResult(content=[TextContent(type="text", text=result_text)]))
                 # Signal completion
                 done_event.set()
 
@@ -277,7 +275,7 @@ async def test_task_auto_fails_on_exception() -> None:
 
             async def do_failing_work():
                 async with task_execution(task.taskId, app.store) as task_ctx:
-                    await task_ctx.update_status("About to fail...", notify=False)
+                    await task_ctx.update_status("About to fail...")
                     raise RuntimeError("Something went wrong!")
                     # Note: complete() is never called, but task_execution
                     # will automatically call fail() due to the exception

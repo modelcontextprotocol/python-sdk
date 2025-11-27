@@ -7,11 +7,8 @@ from datetime import datetime, timezone
 import anyio
 import pytest
 
-from mcp.shared.experimental.tasks import (
-    InMemoryTaskMessageQueue,
-    QueuedMessage,
-    Resolver,
-)
+from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue, QueuedMessage
+from mcp.shared.experimental.tasks.resolver import Resolver
 from mcp.types import JSONRPCNotification, JSONRPCRequest
 
 

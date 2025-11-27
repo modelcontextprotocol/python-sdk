@@ -5,7 +5,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from mcp.shared.exceptions import McpError
-from mcp.shared.experimental.tasks import InMemoryTaskStore, cancel_task
+from mcp.shared.experimental.tasks.helpers import cancel_task
+from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.types import INVALID_PARAMS, CallToolResult, TaskMetadata, TextContent
 
 

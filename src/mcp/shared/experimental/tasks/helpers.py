@@ -1,14 +1,14 @@
 """
-Helper functions for task management.
+Helper functions for pure task management.
+
+These helpers work with pure TaskContext and don't require server dependencies.
+For server-integrated task helpers, use mcp.server.experimental.
 """
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
 from uuid import uuid4
-
-from anyio.abc import TaskGroup
 
 from mcp.shared.exceptions import McpError
 from mcp.shared.experimental.tasks.context import TaskContext
@@ -16,21 +16,19 @@ from mcp.shared.experimental.tasks.store import TaskStore
 from mcp.types import (
     INVALID_PARAMS,
     CancelTaskResult,
-    CreateTaskResult,
     ErrorData,
-    Result,
     Task,
     TaskMetadata,
     TaskStatus,
 )
 
-if TYPE_CHECKING:
-    from mcp.server.session import ServerSession
-
 # Metadata key for model-immediate-response (per MCP spec)
 # Servers MAY include this in CreateTaskResult._meta to provide an immediate
 # response string while the task executes in the background.
 MODEL_IMMEDIATE_RESPONSE_KEY = "io.modelcontextprotocol/model-immediate-response"
+
+# Metadata key for associating requests with a task (per MCP spec)
+RELATED_TASK_METADATA_KEY = "io.modelcontextprotocol/related-task"
 
 
 def is_terminal(status: TaskStatus) -> bool:
@@ -136,37 +134,25 @@ def create_task_state(
 async def task_execution(
     task_id: str,
     store: TaskStore,
-    session: "ServerSession | None" = None,
 ) -> AsyncIterator[TaskContext]:
     """
-    Context manager for safe task execution.
+    Context manager for safe task execution (pure, no server dependencies).
 
     Loads a task from the store and provides a TaskContext for the work.
     If an unhandled exception occurs, the task is automatically marked as failed
     and the exception is suppressed (since the failure is captured in task state).
 
-    This is the recommended pattern for executing task work, especially in
-    distributed scenarios where the worker may be a separate process.
+    This is useful for distributed workers that don't have a server session.
 
     Args:
         task_id: The task identifier to execute
         store: The task store (must be accessible by the worker)
-        session: Optional session for sending notifications (often None for workers)
 
     Yields:
         TaskContext for updating status and completing/failing the task
 
     Raises:
         ValueError: If the task is not found in the store
-
-    Example (in-memory):
-        async def work():
-            async with task_execution(task.taskId, store) as ctx:
-                await ctx.update_status("Processing...")
-                result = await do_work()
-                await ctx.complete(result)
-
-        task_group.start_soon(work)
 
     Example (distributed worker):
         async def worker_process(task_id: str):
@@ -180,88 +166,12 @@ async def task_execution(
     if task is None:
         raise ValueError(f"Task {task_id} not found")
 
-    ctx = TaskContext(task, store, session)
+    ctx = TaskContext(task, store)
     try:
         yield ctx
     except Exception as e:
         # Auto-fail the task if an exception occurs and task isn't already terminal
         # Exception is suppressed since failure is captured in task state
         if not is_terminal(ctx.task.status):
-            await ctx.fail(str(e), notify=session is not None)
+            await ctx.fail(str(e))
         # Don't re-raise - the failure is recorded in task state
-
-
-async def run_task(
-    task_group: TaskGroup,
-    store: TaskStore,
-    metadata: TaskMetadata,
-    work: Callable[[TaskContext], Awaitable[Result]],
-    *,
-    session: "ServerSession | None" = None,
-    task_id: str | None = None,
-    model_immediate_response: str | None = None,
-) -> tuple[CreateTaskResult, TaskContext]:
-    """
-    Create a task and spawn work to execute it.
-
-    This is a convenience helper for in-process task execution.
-    For distributed systems, you'll want to handle task creation
-    and execution separately.
-
-    Args:
-        task_group: The anyio TaskGroup to spawn work in
-        store: The task store for state management
-        metadata: Task metadata (ttl, etc.)
-        work: Async function that does the actual work
-        session: Optional session for sending notifications
-        task_id: Optional task ID (generated if not provided)
-        model_immediate_response: Optional string to include in _meta as
-            io.modelcontextprotocol/model-immediate-response. This allows
-            hosts to pass an immediate response to the model while the
-            task executes in the background.
-
-    Returns:
-        Tuple of (CreateTaskResult to return to client, TaskContext for cancellation)
-
-    Example:
-        async with anyio.create_task_group() as tg:
-            @server.call_tool()
-            async def handle_tool(name: str, args: dict):
-                ctx = server.request_context
-                if ctx.experimental.is_task:
-                    result, task_ctx = await run_task(
-                        tg,
-                        store,
-                        ctx.experimental.task_metadata,
-                        lambda ctx: do_long_work(ctx, args),
-                        session=ctx.session,
-                        model_immediate_response="Processing started, this may take a while.",
-                    )
-                    # Optionally store task_ctx for cancellation handling
-                    return result
-                else:
-                    return await do_work_sync(args)
-    """
-    task = await store.create_task(metadata, task_id)
-    ctx = TaskContext(task, store, session)
-
-    async def execute() -> None:
-        try:
-            result = await work(ctx)
-            # Only complete if not already in terminal state (e.g., cancelled)
-            if not is_terminal(ctx.task.status):
-                await ctx.complete(result)
-        except Exception as e:
-            # Only fail if not already in terminal state
-            if not is_terminal(ctx.task.status):
-                await ctx.fail(str(e))
-
-    # Spawn the work in the task group
-    task_group.start_soon(execute)
-
-    # Build _meta if model_immediate_response is provided
-    meta: dict[str, Any] | None = None
-    if model_immediate_response is not None:
-        meta = {MODEL_IMMEDIATE_RESPONSE_KEY: model_immediate_response}
-
-    return CreateTaskResult(task=task, **{"_meta": meta} if meta else {}), ctx

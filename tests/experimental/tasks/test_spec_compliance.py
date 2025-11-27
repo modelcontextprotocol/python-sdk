@@ -383,7 +383,7 @@ class TestCreatingTask:
         Receiver MAY include io.modelcontextprotocol/model-immediate-response
         in _meta to provide immediate response while task executes.
         """
-        from mcp.shared.experimental.tasks import MODEL_IMMEDIATE_RESPONSE_KEY
+        from mcp.shared.experimental.tasks.helpers import MODEL_IMMEDIATE_RESPONSE_KEY
         from mcp.types import CreateTaskResult, Task
 
         # Verify the constant has the correct value per spec

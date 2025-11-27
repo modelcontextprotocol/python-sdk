@@ -1,51 +1,41 @@
 """
-TaskContext - Context for task work to interact with state and notifications.
+TaskContext - Pure task state management.
+
+This module provides TaskContext, which manages task state without any
+server/session dependencies. It can be used standalone for distributed
+workers or wrapped by ServerTaskContext for full server integration.
 """
 
-from typing import TYPE_CHECKING
-
 from mcp.shared.experimental.tasks.store import TaskStore
-from mcp.types import (
-    Result,
-    ServerNotification,
-    Task,
-    TaskStatusNotification,
-    TaskStatusNotificationParams,
-)
-
-if TYPE_CHECKING:
-    from mcp.server.session import ServerSession
+from mcp.types import Result, Task
 
 
 class TaskContext:
     """
-    Context provided to task work for state management and notifications.
+    Pure task state management - no session dependencies.
 
-    This wraps a TaskStore and optional session, providing a clean API
-    for task work to update status, complete, fail, and send notifications.
+    This class handles:
+    - Task state (status, result)
+    - Cancellation tracking
+    - Store interactions
 
-    Example:
-        async def my_task_work(ctx: TaskContext) -> CallToolResult:
-            await ctx.update_status("Starting processing...")
+    For server-integrated features (elicit, create_message, notifications),
+    use ServerTaskContext from mcp.server.experimental.
 
-            for i, item in enumerate(items):
-                await ctx.update_status(f"Processing item {i+1}/{len(items)}")
-                if ctx.is_cancelled:
-                    return CallToolResult(content=[TextContent(type="text", text="Cancelled")])
-                process(item)
+    Example (distributed worker):
+        async def worker_job(task_id: str):
+            store = RedisTaskStore(redis_url)
+            task = await store.get_task(task_id)
+            ctx = TaskContext(task=task, store=store)
 
-            return CallToolResult(content=[TextContent(type="text", text="Done!")])
+            await ctx.update_status("Working...")
+            result = await do_work()
+            await ctx.complete(result)
     """
 
-    def __init__(
-        self,
-        task: Task,
-        store: TaskStore,
-        session: "ServerSession | None" = None,
-    ):
+    def __init__(self, task: Task, store: TaskStore):
         self._task = task
         self._store = store
-        self._session = session
         self._cancelled = False
 
     @property
@@ -72,70 +62,40 @@ class TaskContext:
         """
         self._cancelled = True
 
-    async def update_status(self, message: str, *, notify: bool = True) -> None:
+    async def update_status(self, message: str) -> None:
         """
         Update the task's status message.
 
         Args:
             message: The new status message
-            notify: Whether to send a notification to the client
         """
         self._task = await self._store.update_task(
             self.task_id,
             status_message=message,
         )
-        if notify:
-            await self._send_notification()
 
-    async def complete(self, result: Result, *, notify: bool = True) -> None:
+    async def complete(self, result: Result) -> None:
         """
         Mark the task as completed with the given result.
 
         Args:
             result: The task result
-            notify: Whether to send a notification to the client
         """
         await self._store.store_result(self.task_id, result)
         self._task = await self._store.update_task(
             self.task_id,
             status="completed",
         )
-        if notify:
-            await self._send_notification()
 
-    async def fail(self, error: str, *, notify: bool = True) -> None:
+    async def fail(self, error: str) -> None:
         """
         Mark the task as failed with an error message.
 
         Args:
             error: The error message
-            notify: Whether to send a notification to the client
         """
         self._task = await self._store.update_task(
             self.task_id,
             status="failed",
             status_message=error,
-        )
-        if notify:
-            await self._send_notification()
-
-    async def _send_notification(self) -> None:
-        """Send a task status notification to the client."""
-        if self._session is None:
-            return
-
-        await self._session.send_notification(
-            ServerNotification(
-                TaskStatusNotification(
-                    params=TaskStatusNotificationParams(
-                        taskId=self._task.taskId,
-                        status=self._task.status,
-                        statusMessage=self._task.statusMessage,
-                        createdAt=self._task.createdAt,
-                        lastUpdatedAt=self._task.lastUpdatedAt,
-                        ttl=self._task.ttl,
-                        pollInterval=self._task.pollInterval,
-                    )
-                )
-            )
         )

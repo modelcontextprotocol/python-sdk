@@ -2,7 +2,7 @@
 
 import pytest
 
-from mcp.shared.context import Experimental
+from mcp.server.experimental.request_context import Experimental
 from mcp.shared.exceptions import McpError
 from mcp.types import (
     METHOD_NOT_FOUND,

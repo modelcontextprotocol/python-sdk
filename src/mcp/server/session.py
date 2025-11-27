@@ -48,8 +48,8 @@ from pydantic import AnyUrl
 import mcp.types as types
 from mcp.server.models import InitializationOptions
 from mcp.shared.exceptions import McpError
-from mcp.shared.experimental.tasks import TaskResultHandler
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.response_router import ResponseRouter
 from mcp.shared.session import (
     BaseSession,
     RequestResponder,
@@ -143,20 +143,21 @@ class ServerSession(
 
         return True
 
-    def set_task_result_handler(self, handler: TaskResultHandler) -> None:
+    def set_task_result_handler(self, handler: ResponseRouter) -> None:
         """
-        Set the TaskResultHandler for this session.
+        Set a response router for task-augmented requests.
 
         This enables response routing for task-augmented requests. When a
-        TaskSession enqueues an elicitation request, the response will be
+        ServerTaskContext enqueues an elicitation request, the response will be
         routed back through this handler.
 
         The handler is automatically registered as a response router.
 
         Args:
-            handler: The TaskResultHandler to use for this session
+            handler: The ResponseRouter (typically TaskResultHandler) to use
 
         Example:
+            from mcp.server.experimental.task_result_handler import TaskResultHandler
             task_store = InMemoryTaskStore()
             message_queue = InMemoryTaskMessageQueue()
             handler = TaskResultHandler(task_store, message_queue)
@@ -501,6 +502,111 @@ class ServerSession(
                 )
             ),
             related_request_id,
+        )
+
+    # =========================================================================
+    # Request builders for task queueing (internal use)
+    # =========================================================================
+    #
+    # These methods build JSON-RPC requests without sending them. They are used
+    # by TaskContext to construct requests that will be queued instead of sent
+    # directly, avoiding code duplication between ServerSession and TaskContext.
+
+    def _build_elicit_request(
+        self,
+        message: str,
+        requestedSchema: types.ElicitRequestedSchema,
+        task_id: str | None = None,
+    ) -> types.JSONRPCRequest:
+        """Build an elicitation request without sending it.
+
+        Args:
+            message: The message to present to the user
+            requestedSchema: Schema defining the expected response structure
+            task_id: If provided, adds io.modelcontextprotocol/related-task metadata
+
+        Returns:
+            A JSONRPCRequest ready to be sent or queued
+        """
+        params = types.ElicitRequestFormParams(
+            message=message,
+            requestedSchema=requestedSchema,
+        )
+        params_data = params.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+        # Add related-task metadata if in task mode
+        if task_id is not None:
+            if "_meta" not in params_data:
+                params_data["_meta"] = {}
+            params_data["_meta"]["io.modelcontextprotocol/related-task"] = {"taskId": task_id}
+
+        request_id = f"task-{task_id}-{id(params)}" if task_id else self._request_id
+        if task_id is None:
+            self._request_id += 1
+
+        return types.JSONRPCRequest(
+            jsonrpc="2.0",
+            id=request_id,
+            method="elicitation/create",
+            params=params_data,
+        )
+
+    def _build_create_message_request(
+        self,
+        messages: list[types.SamplingMessage],
+        *,
+        max_tokens: int,
+        system_prompt: str | None = None,
+        include_context: types.IncludeContext | None = None,
+        temperature: float | None = None,
+        stop_sequences: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        model_preferences: types.ModelPreferences | None = None,
+        task_id: str | None = None,
+    ) -> types.JSONRPCRequest:
+        """Build a sampling/createMessage request without sending it.
+
+        Args:
+            messages: The conversation messages to send
+            max_tokens: Maximum number of tokens to generate
+            system_prompt: Optional system prompt
+            include_context: Optional context inclusion setting
+            temperature: Optional sampling temperature
+            stop_sequences: Optional stop sequences
+            metadata: Optional metadata to pass through to the LLM provider
+            model_preferences: Optional model selection preferences
+            task_id: If provided, adds io.modelcontextprotocol/related-task metadata
+
+        Returns:
+            A JSONRPCRequest ready to be sent or queued
+        """
+        params = types.CreateMessageRequestParams(
+            messages=messages,
+            systemPrompt=system_prompt,
+            includeContext=include_context,
+            temperature=temperature,
+            maxTokens=max_tokens,
+            stopSequences=stop_sequences,
+            metadata=metadata,
+            modelPreferences=model_preferences,
+        )
+        params_data = params.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+        # Add related-task metadata if in task mode
+        if task_id is not None:
+            if "_meta" not in params_data:
+                params_data["_meta"] = {}
+            params_data["_meta"]["io.modelcontextprotocol/related-task"] = {"taskId": task_id}
+
+        request_id = f"task-{task_id}-{id(params)}" if task_id else self._request_id
+        if task_id is None:
+            self._request_id += 1
+
+        return types.JSONRPCRequest(
+            jsonrpc="2.0",
+            id=request_id,
+            method="sampling/createMessage",
+            params=params_data,
         )
 
     async def send_message(self, message: SessionMessage) -> None:

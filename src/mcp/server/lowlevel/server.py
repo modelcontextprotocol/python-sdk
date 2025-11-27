@@ -84,12 +84,13 @@ from pydantic import AnyUrl
 from typing_extensions import TypeVar
 
 import mcp.types as types
+from mcp.server.experimental.request_context import Experimental
 from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.lowlevel.func_inspection import create_call_wrapper
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared.context import Experimental, RequestContext
+from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
@@ -250,7 +251,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         # We create this inline so we only add these capabilities _if_ they're actually used
         if self._experimental_handlers is None:
-            self._experimental_handlers = ExperimentalHandlers(self.request_handlers, self.notification_handlers)
+            self._experimental_handlers = ExperimentalHandlers(self, self.request_handlers, self.notification_handlers)
         return self._experimental_handlers
 
     def list_prompts(self):
@@ -651,6 +652,12 @@ class Server(Generic[LifespanResultT, RequestT]):
                 )
             )
 
+            # Configure task support for this session if enabled
+            task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
+            if task_support is not None:
+                task_support.configure_session(session)
+                await stack.enter_async_context(task_support.run())
+
             async with anyio.create_task_group() as tg:
                 async for message in session.incoming_messages:
                     logger.debug("Received message: %s", message)
@@ -715,6 +722,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                 # Set our global state that can be retrieved via
                 # app.get_request_context()
                 client_capabilities = session.client_params.capabilities if session.client_params else None
+                task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
                 token = request_ctx.set(
                     RequestContext(
                         message.request_id,
@@ -724,6 +732,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                         Experimental(
                             task_metadata=message.request_params.task if message.request_params else None,
                             _client_capabilities=client_capabilities,
+                            _session=session,
+                            _task_support=task_support,
                         ),
                         request=request_data,
                     )

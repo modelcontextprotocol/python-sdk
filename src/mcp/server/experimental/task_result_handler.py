@@ -11,10 +11,11 @@ This is the core of the task message queue pattern.
 """
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import anyio
 
+from mcp.server.session import ServerSession
 from mcp.shared.exceptions import McpError
 from mcp.shared.experimental.tasks.helpers import is_terminal
 from mcp.shared.experimental.tasks.message_queue import TaskMessageQueue
@@ -29,9 +30,6 @@ from mcp.types import (
     JSONRPCMessage,
     RequestId,
 )
-
-if TYPE_CHECKING:
-    from mcp.server.session import ServerSession
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +71,7 @@ class TaskResultHandler:
 
     async def send_message(
         self,
-        session: "ServerSession",
+        session: ServerSession,
         message: SessionMessage,
     ) -> None:
         """
@@ -86,7 +84,7 @@ class TaskResultHandler:
     async def handle(
         self,
         request: GetTaskPayloadRequest,
-        session: "ServerSession",
+        session: ServerSession,
         request_id: RequestId,
     ) -> GetTaskPayloadResult:
         """
@@ -146,7 +144,7 @@ class TaskResultHandler:
     async def _deliver_queued_messages(
         self,
         task_id: str,
-        session: "ServerSession",
+        session: ServerSession,
         request_id: RequestId,
     ) -> None:
         """

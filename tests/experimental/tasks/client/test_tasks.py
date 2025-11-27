@@ -13,7 +13,8 @@ from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared.experimental.tasks import InMemoryTaskStore, task_execution
+from mcp.shared.experimental.tasks.helpers import task_execution
+from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
@@ -74,10 +75,7 @@ async def test_session_experimental_get_task() -> None:
 
             async def do_work():
                 async with task_execution(task.taskId, app.store) as task_ctx:
-                    await task_ctx.complete(
-                        CallToolResult(content=[TextContent(type="text", text="Done")]),
-                        notify=False,
-                    )
+                    await task_ctx.complete(CallToolResult(content=[TextContent(type="text", text="Done")]))
                 done_event.set()
 
             app.task_group.start_soon(do_work)
@@ -193,8 +191,7 @@ async def test_session_experimental_get_task_result() -> None:
             async def do_work():
                 async with task_execution(task.taskId, app.store) as task_ctx:
                     await task_ctx.complete(
-                        CallToolResult(content=[TextContent(type="text", text="Task result content")]),
-                        notify=False,
+                        CallToolResult(content=[TextContent(type="text", text="Task result content")])
                     )
                 done_event.set()
 
@@ -305,10 +302,7 @@ async def test_session_experimental_list_tasks() -> None:
 
             async def do_work():
                 async with task_execution(task.taskId, app.store) as task_ctx:
-                    await task_ctx.complete(
-                        CallToolResult(content=[TextContent(type="text", text="Done")]),
-                        notify=False,
-                    )
+                    await task_ctx.complete(CallToolResult(content=[TextContent(type="text", text="Done")]))
                 done_event.set()
 
             app.task_group.start_soon(do_work)

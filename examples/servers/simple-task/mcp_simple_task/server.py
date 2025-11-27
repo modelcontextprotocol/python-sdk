@@ -12,7 +12,8 @@ import uvicorn
 from anyio.abc import TaskGroup
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.shared.experimental.tasks import InMemoryTaskStore, task_execution
+from mcp.shared.experimental.tasks.helpers import task_execution
+from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
