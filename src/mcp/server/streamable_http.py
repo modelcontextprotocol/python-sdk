@@ -140,6 +140,7 @@ class StreamableHTTPServerTransport:
         is_json_response_enabled: bool = False,
         event_store: EventStore | None = None,
         security_settings: TransportSecuritySettings | None = None,
+        retry_interval: int | None = None,
     ) -> None:
         """
         Initialize a new StreamableHTTP server transport.
@@ -153,6 +154,10 @@ class StreamableHTTPServerTransport:
                         resumability will be enabled, allowing clients to
                         reconnect and resume messages.
             security_settings: Optional security settings for DNS rebinding protection.
+            retry_interval: Retry interval in milliseconds to suggest to clients in SSE
+                           retry field. When set, the server will send a retry field in
+                           SSE priming events to control client reconnection timing for
+                           polling behavior. Only used when event_store is provided.
 
         Raises:
             ValueError: If the session ID contains invalid characters.
@@ -164,6 +169,7 @@ class StreamableHTTPServerTransport:
         self.is_json_response_enabled = is_json_response_enabled
         self._event_store = event_store
         self._security = TransportSecurityMiddleware(security_settings)
+        self._retry_interval = retry_interval
         self._request_streams: dict[
             RequestId,
             tuple[
@@ -177,6 +183,26 @@ class StreamableHTTPServerTransport:
     def is_terminated(self) -> bool:
         """Check if this transport has been explicitly terminated."""
         return self._terminated
+
+    def close_sse_stream(self, request_id: RequestId) -> None:
+        """Close SSE connection for a specific request without terminating the stream.
+
+        This method closes the HTTP connection for the specified request, triggering
+        client reconnection. Events continue to be stored in the event store and will
+        be replayed when the client reconnects with Last-Event-ID.
+
+        Use this to implement polling behavior during long-running operations -
+        client will reconnect after the retry interval specified in the priming event.
+
+        Args:
+            request_id: The request ID whose SSE stream should be closed.
+
+        Note:
+            This is a no-op if there is no active stream for the request ID.
+            Requires event_store to be configured for events to be stored during
+            the disconnect.
+        """
+        raise NotImplementedError("close_sse_stream not yet implemented")
 
     def _create_error_response(
         self,

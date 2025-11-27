@@ -7,6 +7,7 @@ Contains tests for both server and client sides of the StreamableHTTP transport.
 import json
 import multiprocessing
 import socket
+import time
 from collections.abc import Generator
 from typing import Any
 
@@ -164,6 +165,16 @@ class ServerTest(Server):  # pragma: no cover
                     description="A tool that releases the lock",
                     inputSchema={"type": "object", "properties": {}},
                 ),
+                Tool(
+                    name="tool_with_stream_close",
+                    description="A tool that closes SSE stream mid-operation",
+                    inputSchema={"type": "object", "properties": {}},
+                ),
+                Tool(
+                    name="tool_with_multiple_notifications_and_close",
+                    description="Tool that sends notification1, closes stream, sends notification2, notification3",
+                    inputSchema={"type": "object", "properties": {}},
+                ),
             ]
 
         @self.call_tool()
@@ -255,17 +266,68 @@ class ServerTest(Server):  # pragma: no cover
                 self._lock.set()
                 return [TextContent(type="text", text="Lock released")]
 
+            elif name == "tool_with_stream_close":
+                # Send notification before closing
+                await ctx.session.send_log_message(
+                    level="info",
+                    data="Before close",
+                    logger="stream_close_tool",
+                    related_request_id=ctx.request_id,
+                )
+                # Close SSE stream (triggers client reconnect)
+                assert ctx.close_sse_stream is not None
+                await ctx.close_sse_stream()
+                # Continue processing (events stored in event_store)
+                await anyio.sleep(0.1)
+                await ctx.session.send_log_message(
+                    level="info",
+                    data="After close",
+                    logger="stream_close_tool",
+                    related_request_id=ctx.request_id,
+                )
+                return [TextContent(type="text", text="Done")]
+
+            elif name == "tool_with_multiple_notifications_and_close":
+                # Send notification1
+                await ctx.session.send_log_message(
+                    level="info",
+                    data="notification1",
+                    logger="multi_notif_tool",
+                    related_request_id=ctx.request_id,
+                )
+                # Close SSE stream
+                assert ctx.close_sse_stream is not None
+                await ctx.close_sse_stream()
+                # Send notification2, notification3 (stored in event_store)
+                await anyio.sleep(0.1)
+                await ctx.session.send_log_message(
+                    level="info",
+                    data="notification2",
+                    logger="multi_notif_tool",
+                    related_request_id=ctx.request_id,
+                )
+                await ctx.session.send_log_message(
+                    level="info",
+                    data="notification3",
+                    logger="multi_notif_tool",
+                    related_request_id=ctx.request_id,
+                )
+                return [TextContent(type="text", text="All notifications sent")]
+
             return [TextContent(type="text", text=f"Called {name}")]
 
 
 def create_app(
-    is_json_response_enabled: bool = False, event_store: EventStore | None = None
+    is_json_response_enabled: bool = False,
+    event_store: EventStore | None = None,
+    retry_interval: int | None = None,
 ) -> Starlette:  # pragma: no cover
     """Create a Starlette application for testing using the session manager.
 
     Args:
         is_json_response_enabled: If True, use JSON responses instead of SSE streams.
         event_store: Optional event store for testing resumability.
+        retry_interval: Retry interval in milliseconds for SSE polling.
     """
     # Create server instance
     server = ServerTest()
@@ -279,6 +341,7 @@ def create_app(
         event_store=event_store,
         json_response=is_json_response_enabled,
         security_settings=security_settings,
+        retry_interval=retry_interval,
     )
 
     # Create an ASGI application that uses the session manager
@@ -294,7 +357,10 @@ def create_app(
 
 
 def run_server(
-    port: int, is_json_response_enabled: bool = False, event_store: EventStore | None = None
+    port: int,
+    is_json_response_enabled: bool = False,
+    event_store: EventStore | None = None,
+    retry_interval: int | None = None,
 ) -> None:  # pragma: no cover
     """Run the test server.
 
@@ -302,9 +368,10 @@ def run_server(
         port: Port to listen on.
         is_json_response_enabled: If True, use JSON responses instead of SSE streams.
         event_store: Optional event store for testing resumability.
+        retry_interval: Retry interval in milliseconds for SSE polling.
     """
 
-    app = create_app(is_json_response_enabled, event_store)
+    app = create_app(is_json_response_enabled, event_store, retry_interval)
     # Configure server
     config = uvicorn.Config(
         app=app,
@@ -379,10 +446,10 @@ def event_server_port() -> int:
 def event_server(
     event_server_port: int, event_store: SimpleEventStore
 ) -> Generator[tuple[SimpleEventStore, str], None, None]:
-    """Start a server with event store enabled."""
+    """Start a server with event store and retry_interval enabled."""
     proc = multiprocessing.Process(
         target=run_server,
-        kwargs={"port": event_server_port, "event_store": event_store},
+        kwargs={"port": event_server_port, "event_store": event_store, "retry_interval": 500},
         daemon=True,
     )
     proc.start()
@@ -883,7 +950,7 @@ async def test_streamablehttp_client_tool_invocation(initialized_client_session:
     """Test client tool invocation."""
     # First list tools
     tools = await initialized_client_session.list_tools()
-    assert len(tools.tools) == 6
+    assert len(tools.tools) == 8
     assert tools.tools[0].name == "test_tool"
 
     # Call the tool
@@ -920,7 +987,7 @@ async def test_streamablehttp_client_session_persistence(basic_server: None, bas
 
             # Make multiple requests to verify session persistence
             tools = await session.list_tools()
-            assert len(tools.tools) == 6
+            assert len(tools.tools) == 8
 
             # Read a resource
             resource = await session.read_resource(uri=AnyUrl("foobar://test-persist"))
@@ -949,7 +1016,7 @@ async def test_streamablehttp_client_json_response(json_response_server: None, j
 
             # Check tool listing
             tools = await session.list_tools()
-            assert len(tools.tools) == 6
+            assert len(tools.tools) == 8
 
             # Call a tool and verify JSON response handling
             result = await session.call_tool("test_tool", {})
@@ -962,7 +1029,6 @@ async def test_streamablehttp_client_json_response(json_response_server: None, j
 async def test_streamablehttp_client_get_stream(basic_server: None, basic_server_url: str):
     """Test GET stream functionality for server-initiated messages."""
     import mcp.types as types
-    from mcp.shared.session import RequestResponder
 
     notifications_received: list[types.ServerNotification] = []
 
@@ -1020,7 +1086,7 @@ async def test_streamablehttp_client_session_termination(basic_server: None, bas
 
             # Make a request to confirm session is working
             tools = await session.list_tools()
-            assert len(tools.tools) == 6
+            assert len(tools.tools) == 8
 
     headers: dict[str, str] = {}  # pragma: no cover
     if captured_session_id:  # pragma: no cover
@@ -1086,7 +1152,7 @@ async def test_streamablehttp_client_session_termination_204(
 
             # Make a request to confirm session is working
             tools = await session.list_tools()
-            assert len(tools.tools) == 6
+            assert len(tools.tools) == 8
 
     headers: dict[str, str] = {}  # pragma: no cover
     if captured_session_id:  # pragma: no cover
@@ -1633,3 +1699,248 @@ async def test_handle_sse_event_skips_empty_data():
     finally:
         await write_stream.aclose()
         await read_stream.aclose()
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_client_receives_priming_event(
+    event_server: tuple[SimpleEventStore, str],
+) -> None:
+    """Client should receive priming event (resumption token update) on POST SSE stream."""
+    _, server_url = event_server
+
+    captured_resumption_tokens: list[str] = []
+
+    async def on_resumption_token_update(token: str) -> None:
+        captured_resumption_tokens.append(token)
+
+    async with streamablehttp_client(f"{server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+
+            # Call tool with resumption token callback via send_request
+            metadata = ClientMessageMetadata(
+                on_resumption_token_update=on_resumption_token_update,
+            )
+            result = await session.send_request(
+                types.ClientRequest(
+                    types.CallToolRequest(
+                        params=types.CallToolRequestParams(name="test_tool", arguments={}),
+                    )
+                ),
+                types.CallToolResult,
+                metadata=metadata,
+            )
+            assert result is not None
+
+            # Should have received priming event token BEFORE response data
+            # Priming event = 1 token (empty data, id only)
+            # Response = 1 token (actual JSON-RPC response)
+            # Total = 2 tokens minimum
+            assert len(captured_resumption_tokens) >= 2, (
+                f"Server must send priming event before response. "
+                f"Expected >= 2 tokens (priming + response), got {len(captured_resumption_tokens)}"
+            )
+            assert captured_resumption_tokens[0] is not None
+
+
+@pytest.mark.anyio
+async def test_server_close_sse_stream_via_context(
+    event_server: tuple[SimpleEventStore, str],
+) -> None:
+    """Server tool can call ctx.close_sse_stream() to close connection."""
+    _, server_url = event_server
+
+    async with streamablehttp_client(f"{server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+
+            # Call tool that closes stream mid-operation
+            # This should NOT raise NotImplementedError when fully implemented
+            result = await session.call_tool("tool_with_stream_close", {})
+
+            # Client should still receive complete response (via auto-reconnect)
+            assert result is not None
+            assert len(result.content) > 0
+            assert result.content[0].type == "text"
+            assert isinstance(result.content[0], TextContent)
+            assert result.content[0].text == "Done"
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_client_auto_reconnects(
+    event_server: tuple[SimpleEventStore, str],
+) -> None:
+    """Client should auto-reconnect with Last-Event-ID when server closes after priming event."""
+    _, server_url = event_server
+    captured_notifications: list[str] = []
+
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            return
+        if isinstance(message, types.ServerNotification):
+            if isinstance(message.root, types.LoggingMessageNotification):
+                captured_notifications.append(str(message.root.params.data))
+
+    async with streamablehttp_client(f"{server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(
+            read_stream,
+            write_stream,
+            message_handler=message_handler,
+        ) as session:
+            await session.initialize()
+
+            # Call tool that:
+            # 1. Sends notification
+            # 2. Closes SSE stream
+            # 3. Sends more notifications (stored in event_store)
+            # 4. Returns response
+            result = await session.call_tool("tool_with_stream_close", {})
+
+            # Client should have auto-reconnected and received ALL notifications
+            assert len(captured_notifications) >= 2, (
+                "Client should auto-reconnect and receive notifications sent both before and after stream close"
+            )
+            assert result.content[0].type == "text"
+            assert isinstance(result.content[0], TextContent)
+            assert result.content[0].text == "Done"
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_client_respects_retry_interval(
+    event_server: tuple[SimpleEventStore, str],
+) -> None:
+    """Client MUST respect retry field, waiting specified ms before reconnecting."""
+    _, server_url = event_server
+
+    async with streamablehttp_client(f"{server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+
+            start_time = time.monotonic()
+            result = await session.call_tool("tool_with_stream_close", {})
+            elapsed = time.monotonic() - start_time
+
+            # Verify result was received
+            assert result.content[0].type == "text"
+            assert isinstance(result.content[0], TextContent)
+            assert result.content[0].text == "Done"
+
+            # The elapsed time should include at least the retry interval
+            # if reconnection occurred. This test may be flaky depending on
+            # implementation details, but demonstrates the expected behavior.
+            # Note: This assertion may need adjustment based on actual implementation
+            assert elapsed >= 0.4, f"Client should wait ~500ms before reconnecting, but elapsed time was {elapsed:.3f}s"
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_sse_polling_full_cycle(
+    event_server: tuple[SimpleEventStore, str],
+) -> None:
+    """End-to-end test: server closes stream, client reconnects, receives all events."""
+    _, server_url = event_server
+    all_notifications: list[str] = []
+
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            return
+        if isinstance(message, types.ServerNotification):
+            if isinstance(message.root, types.LoggingMessageNotification):
+                all_notifications.append(str(message.root.params.data))
+
+    async with streamablehttp_client(f"{server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(
+            read_stream,
+            write_stream,
+            message_handler=message_handler,
+        ) as session:
+            await session.initialize()
+
+            # Call tool that simulates polling pattern:
+            # 1. Server sends priming event
+            # 2. Server sends "Before close" notification
+            # 3. Server closes stream (calls close_sse_stream)
+            # 4. (client reconnects automatically)
+            # 5. Server sends "After close" notification
+            # 6. Server sends final response
+            result = await session.call_tool("tool_with_stream_close", {})
+
+            # Verify all notifications received in order
+            assert "Before close" in all_notifications, "Should receive notification sent before stream close"
+            assert "After close" in all_notifications, (
+                "Should receive notification sent after stream close (via auto-reconnect)"
+            )
+            assert result.content[0].type == "text"
+            assert isinstance(result.content[0], TextContent)
+            assert result.content[0].text == "Done"
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_events_replayed_after_disconnect(
+    event_server: tuple[SimpleEventStore, str],
+) -> None:
+    """Events sent while client is disconnected should be replayed on reconnect."""
+    _, server_url = event_server
+    notification_data: list[str] = []
+
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            return
+        if isinstance(message, types.ServerNotification):
+            if isinstance(message.root, types.LoggingMessageNotification):
+                notification_data.append(str(message.root.params.data))
+
+    async with streamablehttp_client(f"{server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(
+            read_stream,
+            write_stream,
+            message_handler=message_handler,
+        ) as session:
+            await session.initialize()
+
+            # Tool sends: notification1, close_stream, notification2, notification3, response
+            # Client should receive all notifications even though 2&3 were sent during disconnect
+            result = await session.call_tool("tool_with_multiple_notifications_and_close", {})
+
+            assert "notification1" in notification_data, "Should receive notification1 (sent before close)"
+            assert "notification2" in notification_data, "Should receive notification2 (sent after close, replayed)"
+            assert "notification3" in notification_data, "Should receive notification3 (sent after close, replayed)"
+
+            # Verify order: notification1 should come before notification2 and notification3
+            idx1 = notification_data.index("notification1")
+            idx2 = notification_data.index("notification2")
+            idx3 = notification_data.index("notification3")
+            assert idx1 < idx2 < idx3, "Notifications should be received in order"
+
+            assert result.content[0].type == "text"
+            assert isinstance(result.content[0], TextContent)
+            assert result.content[0].text == "All notifications sent"

@@ -14,6 +14,9 @@ ResumptionToken = str
 
 ResumptionTokenUpdateCallback = Callable[[ResumptionToken], Awaitable[None]]
 
+# Callback type for closing SSE streams without terminating
+CloseSSEStreamCallback = Callable[[], Awaitable[None]]
+
 
 @dataclass
 class ClientMessageMetadata:
@@ -30,6 +33,8 @@ class ServerMessageMetadata:
     related_request_id: RequestId | None = None
     # Request-specific context (e.g., headers, auth info)
     request_context: object | None = None
+    # Callback to close SSE stream without terminating
+    close_sse_stream: CloseSSEStreamCallback | None = None
 
 
 MessageMetadata = ClientMessageMetadata | ServerMessageMetadata | None

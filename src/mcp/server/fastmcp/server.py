@@ -1282,6 +1282,25 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         """Access to the underlying session for advanced usage."""
         return self.request_context.session
 
+    async def close_sse_stream(self) -> None:
+        """Close the SSE stream to trigger client reconnection.
+
+        This method closes the HTTP connection for the current request, triggering
+        client reconnection. Events continue to be stored in the event store and will
+        be replayed when the client reconnects with Last-Event-ID.
+
+        Use this to implement polling behavior during long-running operations -
+        client will reconnect after the retry interval specified in the priming event.
+
+        Note:
+            This is a no-op if not using StreamableHTTP transport with event_store.
+            The callback is only available when event_store is configured.
+
+        Raises:
+            NotImplementedError: Feature not yet implemented.
+        """
+        raise NotImplementedError("close_sse_stream not yet implemented")
+
     # Convenience methods for common log levels
     async def debug(self, message: str, **extra: Any) -> None:
         """Send a debug log message."""
