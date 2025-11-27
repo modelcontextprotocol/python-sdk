@@ -1035,7 +1035,7 @@ async def test_exchange_token_with_client_info_but_no_client_id(
 
     # Verify client_id was not included (None), but client_secret was included
     call_args = mock_client.post.call_args
-    assert "client_id" not in call_args[1]["data"]
+    assert call_args[1]["data"]["client_id"] is None
     assert call_args[1]["data"]["client_secret"] == "test-secret"
 
 
@@ -1102,7 +1102,7 @@ async def test_exchange_id_jag_with_client_info_but_no_client_id(
 
     # Verify client_id was not included (None), but client_secret was included
     call_args = mock_client.post.call_args
-    assert "client_id" not in call_args[1]["data"]
+    assert call_args[1]["data"]["client_id"] is None
     assert call_args[1]["data"]["client_secret"] == "test-secret"
 
 
