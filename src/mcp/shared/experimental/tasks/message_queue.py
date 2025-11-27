@@ -171,12 +171,6 @@ class InMemoryTaskMessageQueue(TaskMessageQueue):
             self._queues[task_id] = []
         return self._queues[task_id]
 
-    def _get_event(self, task_id: str) -> anyio.Event:
-        """Get or create the wait event for a task."""
-        if task_id not in self._events:
-            self._events[task_id] = anyio.Event()
-        return self._events[task_id]
-
     async def enqueue(self, task_id: str, message: QueuedMessage) -> None:
         """Add a message to the queue."""
         queue = self._get_queue(task_id)

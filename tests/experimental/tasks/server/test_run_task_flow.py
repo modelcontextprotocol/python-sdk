@@ -234,6 +234,17 @@ async def test_run_task_without_enable_tasks_raises() -> None:
 
 
 @pytest.mark.anyio
+async def test_task_support_task_group_before_run_raises() -> None:
+    """Test that accessing task_group before run() raises RuntimeError."""
+    from mcp.server.experimental.task_support import TaskSupport
+
+    task_support = TaskSupport.in_memory()
+
+    with pytest.raises(RuntimeError, match="TaskSupport not running"):
+        _ = task_support.task_group
+
+
+@pytest.mark.anyio
 async def test_run_task_without_session_raises() -> None:
     """Test that run_task raises when session is not available."""
     from mcp.server.experimental.request_context import Experimental

@@ -247,3 +247,85 @@ class TestInMemoryTaskMessageQueue:
             tg.start_soon(notify_when_ready)
 
         assert notified is True
+
+    @pytest.mark.anyio
+    async def test_peek_empty_queue_returns_none(self, queue: InMemoryTaskMessageQueue) -> None:
+        """Peek on empty queue returns None."""
+        result = await queue.peek("nonexistent-task")
+        assert result is None
+
+    @pytest.mark.anyio
+    async def test_wait_for_message_double_check_race_condition(self, queue: InMemoryTaskMessageQueue) -> None:
+        """wait_for_message returns early if message arrives after event creation but before wait."""
+        task_id = "task-1"
+
+        # To test the double-check path (lines 223-225), we need a message to arrive
+        # after the event is created (line 220) but before event.wait() (line 228).
+        # We simulate this by injecting a message before is_empty is called the second time.
+
+        original_is_empty = queue.is_empty
+        call_count = 0
+
+        async def is_empty_with_injection(tid: str) -> bool:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2 and tid == task_id:
+                # Before second check, inject a message - this simulates a message
+                # arriving between event creation and the double-check
+                queue._queues[task_id] = [QueuedMessage(type="request", message=make_request())]
+            return await original_is_empty(tid)
+
+        queue.is_empty = is_empty_with_injection  # type: ignore[method-assign]
+
+        # Should return immediately due to double-check finding the message
+        with anyio.fail_after(1):
+            await queue.wait_for_message(task_id)
+
+
+class TestResolver:
+    @pytest.mark.anyio
+    async def test_set_result_and_wait(self) -> None:
+        """Test basic set_result and wait flow."""
+        resolver: Resolver[str] = Resolver()
+
+        resolver.set_result("hello")
+        result = await resolver.wait()
+
+        assert result == "hello"
+        assert resolver.done()
+
+    @pytest.mark.anyio
+    async def test_set_exception_and_wait(self) -> None:
+        """Test set_exception raises on wait."""
+        resolver: Resolver[str] = Resolver()
+
+        resolver.set_exception(ValueError("test error"))
+
+        with pytest.raises(ValueError, match="test error"):
+            await resolver.wait()
+
+        assert resolver.done()
+
+    @pytest.mark.anyio
+    async def test_set_result_when_already_completed_raises(self) -> None:
+        """Test that set_result raises if resolver already completed."""
+        resolver: Resolver[str] = Resolver()
+        resolver.set_result("first")
+
+        with pytest.raises(RuntimeError, match="already completed"):
+            resolver.set_result("second")
+
+    @pytest.mark.anyio
+    async def test_set_exception_when_already_completed_raises(self) -> None:
+        """Test that set_exception raises if resolver already completed."""
+        resolver: Resolver[str] = Resolver()
+        resolver.set_result("done")
+
+        with pytest.raises(RuntimeError, match="already completed"):
+            resolver.set_exception(ValueError("too late"))
+
+    @pytest.mark.anyio
+    async def test_done_returns_false_before_completion(self) -> None:
+        """Test done() returns False before any result is set."""
+        resolver: Resolver[str] = Resolver()
+        assert resolver.done() is False

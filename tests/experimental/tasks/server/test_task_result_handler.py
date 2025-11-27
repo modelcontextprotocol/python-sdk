@@ -253,3 +253,94 @@ async def test_deliver_registers_resolver_for_request_messages(
 
     assert "inner-req-1" in handler._pending_requests
     assert handler._pending_requests["inner-req-1"] is resolver
+
+
+@pytest.mark.anyio
+async def test_deliver_skips_resolver_registration_when_no_original_id(
+    store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
+) -> None:
+    """Test that _deliver_queued_messages skips resolver registration when original_request_id is None."""
+    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task")
+
+    resolver: Resolver[dict[str, Any]] = Resolver()
+    queued_msg = QueuedMessage(
+        type="request",
+        message=JSONRPCRequest(
+            jsonrpc="2.0",
+            id="inner-req-1",
+            method="elicitation/create",
+            params={},
+        ),
+        resolver=resolver,
+        original_request_id=None,  # No original request ID
+    )
+    await queue.enqueue(task.taskId, queued_msg)
+
+    mock_session = Mock()
+    mock_session.send_message = AsyncMock()
+
+    await handler._deliver_queued_messages(task.taskId, mock_session, "outer-req-1")
+
+    # Resolver should NOT be registered since original_request_id is None
+    assert len(handler._pending_requests) == 0
+    # But the message should still be sent
+    mock_session.send_message.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_wait_for_task_update_handles_store_exception(
+    store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
+) -> None:
+    """Test that _wait_for_task_update handles store exception gracefully."""
+    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task")
+
+    # Make wait_for_update raise an exception
+    async def failing_wait(task_id: str) -> None:
+        raise RuntimeError("Store error")
+
+    store.wait_for_update = failing_wait  # type: ignore[method-assign]
+
+    # Queue a message to unblock the race via the queue path
+    async def enqueue_later() -> None:
+        await anyio.sleep(0.01)
+        await queue.enqueue(
+            task.taskId,
+            QueuedMessage(
+                type="notification",
+                message=JSONRPCRequest(
+                    jsonrpc="2.0",
+                    id="notif-1",
+                    method="test/notification",
+                    params={},
+                ),
+            ),
+        )
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(enqueue_later)
+        # This should complete via the queue path even though store raises
+        await handler._wait_for_task_update(task.taskId)
+
+
+@pytest.mark.anyio
+async def test_wait_for_task_update_handles_queue_exception(
+    store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
+) -> None:
+    """Test that _wait_for_task_update handles queue exception gracefully."""
+    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task")
+
+    # Make wait_for_message raise an exception
+    async def failing_wait(task_id: str) -> None:
+        raise RuntimeError("Queue error")
+
+    queue.wait_for_message = failing_wait  # type: ignore[method-assign]
+
+    # Update the store to unblock the race via the store path
+    async def update_later() -> None:
+        await anyio.sleep(0.01)
+        await store.update_task(task.taskId, status="completed")
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(update_later)
+        # This should complete via the store path even though queue raises
+        await handler._wait_for_task_update(task.taskId)

@@ -321,9 +321,11 @@ async def test_terminal_status_allows_same_status(store: InMemoryTaskStore) -> N
     assert updated.statusMessage == "Updated message"
 
 
-# =============================================================================
-# cancel_task helper function tests
-# =============================================================================
+@pytest.mark.anyio
+async def test_wait_for_update_nonexistent_raises(store: InMemoryTaskStore) -> None:
+    """Test that wait_for_update raises for nonexistent task."""
+    with pytest.raises(ValueError, match="not found"):
+        await store.wait_for_update("nonexistent-task-id")
 
 
 @pytest.mark.anyio
