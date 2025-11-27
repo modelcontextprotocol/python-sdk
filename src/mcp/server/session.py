@@ -615,8 +615,9 @@ class ServerSession(
         This is primarily used by TaskResultHandler to deliver queued messages
         (elicitation/sampling requests) to the client during task execution.
 
-        WARNING: This is a low-level method. Prefer using higher-level methods
-        like send_notification() or send_request() for normal operations.
+        WARNING: This is a low-level experimental method that may change without
+        notice. Prefer using higher-level methods like send_notification() or
+        send_request() for normal operations.
 
         Args:
             message: The session message to send
