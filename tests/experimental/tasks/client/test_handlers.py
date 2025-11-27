@@ -35,6 +35,10 @@ from mcp.types import (
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateTaskResult,
+    ElicitRequest,
+    ElicitRequestFormParams,
+    ElicitRequestParams,
+    ElicitResult,
     ErrorData,
     GetTaskPayloadRequest,
     GetTaskPayloadRequestParams,
@@ -495,6 +499,150 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
 
             assert isinstance(result_response.result, dict)
             assert result_response.result["role"] == "assistant"
+
+            tg.cancel_scope.cancel()
+
+        store.cleanup()
+
+
+@pytest.mark.anyio
+async def test_client_task_augmented_elicitation(client_streams: ClientTestStreams) -> None:
+    """Test that client can handle task-augmented elicitation request from server."""
+    with anyio.fail_after(10):
+        store = InMemoryTaskStore()
+        elicitation_completed = Event()
+        created_task_id: list[str | None] = [None]
+        background_tg: list[TaskGroup | None] = [None]
+
+        async def task_augmented_elicitation_callback(
+            context: RequestContext[ClientSession, None],
+            params: ElicitRequestParams,
+            task_metadata: TaskMetadata,
+        ) -> CreateTaskResult | ErrorData:
+            task = await store.create_task(task_metadata)
+            created_task_id[0] = task.taskId
+
+            async def do_elicitation() -> None:
+                # Simulate user providing elicitation response
+                result = ElicitResult(action="accept", content={"name": "Test User"})
+                await store.store_result(task.taskId, result)
+                await store.update_task(task.taskId, status="completed")
+                elicitation_completed.set()
+
+            assert background_tg[0] is not None
+            background_tg[0].start_soon(do_elicitation)
+            return CreateTaskResult(task=task)
+
+        async def get_task_handler(
+            context: RequestContext[ClientSession, None],
+            params: GetTaskRequestParams,
+        ) -> GetTaskResult | ErrorData:
+            task = await store.get_task(params.taskId)
+            if task is None:
+                return ErrorData(code=types.INVALID_REQUEST, message="Task not found")
+            return GetTaskResult(
+                taskId=task.taskId,
+                status=task.status,
+                statusMessage=task.statusMessage,
+                createdAt=task.createdAt,
+                lastUpdatedAt=task.lastUpdatedAt,
+                ttl=task.ttl,
+                pollInterval=task.pollInterval,
+            )
+
+        async def get_task_result_handler(
+            context: RequestContext[ClientSession, None],
+            params: GetTaskPayloadRequestParams,
+        ) -> GetTaskPayloadResult | ErrorData:
+            result = await store.get_result(params.taskId)
+            if result is None:
+                return ErrorData(code=types.INVALID_REQUEST, message="Result not found")
+            assert isinstance(result, ElicitResult)
+            return GetTaskPayloadResult(**result.model_dump())
+
+        task_handlers = ExperimentalTaskHandlers(
+            augmented_elicitation=task_augmented_elicitation_callback,
+            get_task=get_task_handler,
+            get_task_result=get_task_result_handler,
+        )
+        client_ready = anyio.Event()
+
+        async with anyio.create_task_group() as tg:
+            background_tg[0] = tg
+
+            async def run_client() -> None:
+                async with ClientSession(
+                    client_streams.client_receive,
+                    client_streams.client_send,
+                    message_handler=_default_message_handler,
+                    experimental_task_handlers=task_handlers,
+                ):
+                    client_ready.set()
+                    await anyio.sleep_forever()
+
+            tg.start_soon(run_client)
+            await client_ready.wait()
+
+            # Step 1: Server sends task-augmented ElicitRequest
+            typed_request = ElicitRequest(
+                params=ElicitRequestFormParams(
+                    message="What is your name?",
+                    requestedSchema={"type": "object", "properties": {"name": {"type": "string"}}},
+                    task=TaskMetadata(ttl=60000),
+                )
+            )
+            request = types.JSONRPCRequest(
+                jsonrpc="2.0",
+                id="req-elicit",
+                **typed_request.model_dump(by_alias=True),
+            )
+            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+
+            # Step 2: Client responds with CreateTaskResult
+            response_msg = await client_streams.server_receive.receive()
+            response = response_msg.message.root
+            assert isinstance(response, types.JSONRPCResponse)
+
+            task_result = CreateTaskResult.model_validate(response.result)
+            task_id = task_result.task.taskId
+            assert task_id == created_task_id[0]
+
+            # Step 3: Wait for background elicitation
+            await elicitation_completed.wait()
+
+            # Step 4: Server polls task status
+            typed_poll = GetTaskRequest(params=GetTaskRequestParams(taskId=task_id))
+            poll_request = types.JSONRPCRequest(
+                jsonrpc="2.0",
+                id="req-poll",
+                **typed_poll.model_dump(by_alias=True),
+            )
+            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(poll_request)))
+
+            poll_response_msg = await client_streams.server_receive.receive()
+            poll_response = poll_response_msg.message.root
+            assert isinstance(poll_response, types.JSONRPCResponse)
+
+            status = GetTaskResult.model_validate(poll_response.result)
+            assert status.status == "completed"
+
+            # Step 5: Server gets result
+            typed_result_req = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId=task_id))
+            result_request = types.JSONRPCRequest(
+                jsonrpc="2.0",
+                id="req-result",
+                **typed_result_req.model_dump(by_alias=True),
+            )
+            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(result_request)))
+
+            result_response_msg = await client_streams.server_receive.receive()
+            result_response = result_response_msg.message.root
+            assert isinstance(result_response, types.JSONRPCResponse)
+
+            # Verify the elicitation result
+            assert isinstance(result_response.result, dict)
+            assert result_response.result["action"] == "accept"
+            assert result_response.result["content"] == {"name": "Test User"}
 
             tg.cancel_scope.cancel()
 
