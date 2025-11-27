@@ -27,18 +27,24 @@ from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
+    CancelTaskRequest,
     CancelTaskRequestParams,
     CancelTaskResult,
     ClientResult,
+    CreateMessageRequest,
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateTaskResult,
     ErrorData,
+    GetTaskPayloadRequest,
     GetTaskPayloadRequestParams,
     GetTaskPayloadResult,
+    GetTaskRequest,
     GetTaskRequestParams,
     GetTaskResult,
+    ListTasksRequest,
     ListTasksResult,
+    SamplingMessage,
     ServerNotification,
     ServerRequest,
     TaskMetadata,
@@ -142,11 +148,11 @@ async def test_client_handles_get_task_request(client_streams: ClientTestStreams
             tg.start_soon(run_client)
             await client_ready.wait()
 
+            typed_request = GetTaskRequest(params=GetTaskRequestParams(taskId="test-task-123"))
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-1",
-                method="tasks/get",
-                params={"taskId": "test-task-123"},
+                **typed_request.model_dump(by_alias=True),
             )
             await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
 
@@ -206,11 +212,11 @@ async def test_client_handles_get_task_result_request(client_streams: ClientTest
             tg.start_soon(run_client)
             await client_ready.wait()
 
+            typed_request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId="test-task-456"))
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-2",
-                method="tasks/result",
-                params={"taskId": "test-task-456"},
+                **typed_request.model_dump(by_alias=True),
             )
             await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
 
@@ -264,10 +270,11 @@ async def test_client_handles_list_tasks_request(client_streams: ClientTestStrea
             tg.start_soon(run_client)
             await client_ready.wait()
 
+            typed_request = ListTasksRequest()
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-3",
-                method="tasks/list",
+                **typed_request.model_dump(by_alias=True),
             )
             await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
 
@@ -327,11 +334,11 @@ async def test_client_handles_cancel_task_request(client_streams: ClientTestStre
             tg.start_soon(run_client)
             await client_ready.wait()
 
+            typed_request = CancelTaskRequest(params=CancelTaskRequestParams(taskId="task-to-cancel"))
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-4",
-                method="tasks/cancel",
-                params={"taskId": "task-to-cancel"},
+                **typed_request.model_dump(by_alias=True),
             )
             await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
 
@@ -431,15 +438,17 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
             await client_ready.wait()
 
             # Step 1: Server sends task-augmented CreateMessageRequest
+            typed_request = CreateMessageRequest(
+                params=CreateMessageRequestParams(
+                    messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Hello"))],
+                    maxTokens=100,
+                    task=TaskMetadata(ttl=60000),
+                )
+            )
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-sampling",
-                method="sampling/createMessage",
-                params={
-                    "messages": [{"role": "user", "content": {"type": "text", "text": "Hello"}}],
-                    "maxTokens": 100,
-                    "task": {"ttl": 60000},
-                },
+                **typed_request.model_dump(by_alias=True),
             )
             await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
 
@@ -456,11 +465,11 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
             await sampling_completed.wait()
 
             # Step 4: Server polls task status
+            typed_poll = GetTaskRequest(params=GetTaskRequestParams(taskId=task_id))
             poll_request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-poll",
-                method="tasks/get",
-                params={"taskId": task_id},
+                **typed_poll.model_dump(by_alias=True),
             )
             await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(poll_request)))
 
@@ -472,11 +481,11 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
             assert status.status == "completed"
 
             # Step 5: Server gets result
+            typed_result_req = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId=task_id))
             result_request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-result",
-                method="tasks/result",
-                params={"taskId": task_id},
+                **typed_result_req.model_dump(by_alias=True),
             )
             await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(result_request)))
 
@@ -512,11 +521,11 @@ async def test_client_returns_error_for_unhandled_task_request(client_streams: C
             tg.start_soon(run_client)
             await client_ready.wait()
 
+            typed_request = GetTaskRequest(params=GetTaskRequestParams(taskId="nonexistent"))
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-unhandled",
-                method="tasks/get",
-                params={"taskId": "nonexistent"},
+                **typed_request.model_dump(by_alias=True),
             )
             await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
 
