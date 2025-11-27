@@ -5,15 +5,7 @@ import asyncio
 import click
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
-from mcp.types import (
-    CallToolRequest,
-    CallToolRequestParams,
-    CallToolResult,
-    ClientRequest,
-    CreateTaskResult,
-    TaskMetadata,
-    TextContent,
-)
+from mcp.types import CallToolResult, TextContent
 
 
 async def run(url: str) -> None:
@@ -28,18 +20,10 @@ async def run(url: str) -> None:
             # Call the tool as a task
             print("\nCalling tool as a task...")
 
-            # TODO: make helper for this
-            result = await session.send_request(
-                ClientRequest(
-                    CallToolRequest(
-                        params=CallToolRequestParams(
-                            name="long_running_task",
-                            arguments={},
-                            task=TaskMetadata(ttl=60000),
-                        )
-                    )
-                ),
-                CreateTaskResult,
+            result = await session.experimental.call_tool_as_task(
+                "long_running_task",
+                arguments={},
+                ttl=60000,
             )
             task_id = result.task.taskId
             print(f"Task created: {task_id}")
