@@ -15,7 +15,6 @@ from mcp.server.experimental.task_result_handler import TaskResultHandler
 from mcp.server.session import ServerSession
 from mcp.shared.exceptions import McpError
 from mcp.shared.experimental.tasks.context import TaskContext
-from mcp.shared.experimental.tasks.helpers import create_task_state
 from mcp.shared.experimental.tasks.message_queue import QueuedMessage, TaskMessageQueue
 from mcp.shared.experimental.tasks.resolver import Resolver
 from mcp.shared.experimental.tasks.store import TaskStore
@@ -37,7 +36,6 @@ from mcp.types import (
     SamplingMessage,
     ServerNotification,
     Task,
-    TaskMetadata,
     TaskStatusNotification,
     TaskStatusNotificationParams,
 )
@@ -70,8 +68,7 @@ class ServerTaskContext:
     def __init__(
         self,
         *,
-        task: Task | None = None,
-        task_id: str | None = None,
+        task: Task,
         store: TaskStore,
         session: ServerSession,
         queue: TaskMessageQueue,
@@ -81,23 +78,12 @@ class ServerTaskContext:
         Create a ServerTaskContext.
 
         Args:
-            task: The Task object (provide either task or task_id)
-            task_id: The task ID to look up (provide either task or task_id)
+            task: The Task object
             store: The task store
             session: The server session
             queue: The message queue for elicitation/sampling
             handler: The result handler for response routing (required for elicit/create_message)
         """
-        if task is None and task_id is None:
-            raise ValueError("Must provide either task or task_id")
-        if task is not None and task_id is not None:
-            raise ValueError("Provide either task or task_id, not both")
-
-        # If task_id provided, create a minimal task object
-        # This is for backwards compatibility with tests that pass task_id
-        if task is None:
-            task = create_task_state(TaskMetadata(ttl=None), task_id=task_id)
-
         self._ctx = TaskContext(task=task, store=store)
         self._session = session
         self._queue = queue
@@ -264,7 +250,10 @@ class ServerTaskContext:
             response_data = await resolver.wait()
             await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
             return ElicitResult.model_validate(response_data)
-        except anyio.get_cancelled_exc_class():
+        except anyio.get_cancelled_exc_class():  # pragma: no cover
+            # Coverage can't track async exception handlers reliably.
+            # This path is tested in test_elicit_restores_status_on_cancellation
+            # which verifies status is restored to "working" after cancellation.
             await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
             raise
 
@@ -347,6 +336,9 @@ class ServerTaskContext:
             response_data = await resolver.wait()
             await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
             return CreateMessageResult.model_validate(response_data)
-        except anyio.get_cancelled_exc_class():
+        except anyio.get_cancelled_exc_class():  # pragma: no cover
+            # Coverage can't track async exception handlers reliably.
+            # This path is tested in test_create_message_restores_status_on_cancellation
+            # which verifies status is restored to "working" after cancellation.
             await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
             raise

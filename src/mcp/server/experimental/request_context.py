@@ -220,7 +220,7 @@ class Experimental:
             session=self._session,
             queue=support.queue,
             handler=support.handler,
-        )  # type: ignore[call-arg]
+        )
 
         # Spawn the work
         async def execute() -> None:

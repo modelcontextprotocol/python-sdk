@@ -686,3 +686,201 @@ async def test_client_returns_error_for_unhandled_task_request(client_streams: C
             )
 
             tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_client_returns_error_for_unhandled_task_result_request(client_streams: ClientTestStreams) -> None:
+    """Test that client returns error for unhandled tasks/result request."""
+    with anyio.fail_after(10):
+        client_ready = anyio.Event()
+
+        async with anyio.create_task_group() as tg:
+
+            async def run_client() -> None:
+                async with ClientSession(
+                    client_streams.client_receive,
+                    client_streams.client_send,
+                    message_handler=_default_message_handler,
+                ):
+                    client_ready.set()
+                    await anyio.sleep_forever()
+
+            tg.start_soon(run_client)
+            await client_ready.wait()
+
+            typed_request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId="nonexistent"))
+            request = types.JSONRPCRequest(
+                jsonrpc="2.0",
+                id="req-result",
+                **typed_request.model_dump(by_alias=True),
+            )
+            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+
+            response_msg = await client_streams.server_receive.receive()
+            response = response_msg.message.root
+            assert isinstance(response, types.JSONRPCError)
+            assert "not supported" in response.error.message.lower()
+
+            tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_client_returns_error_for_unhandled_list_tasks_request(client_streams: ClientTestStreams) -> None:
+    """Test that client returns error for unhandled tasks/list request."""
+    with anyio.fail_after(10):
+        client_ready = anyio.Event()
+
+        async with anyio.create_task_group() as tg:
+
+            async def run_client() -> None:
+                async with ClientSession(
+                    client_streams.client_receive,
+                    client_streams.client_send,
+                    message_handler=_default_message_handler,
+                ):
+                    client_ready.set()
+                    await anyio.sleep_forever()
+
+            tg.start_soon(run_client)
+            await client_ready.wait()
+
+            typed_request = ListTasksRequest()
+            request = types.JSONRPCRequest(
+                jsonrpc="2.0",
+                id="req-list",
+                **typed_request.model_dump(by_alias=True),
+            )
+            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+
+            response_msg = await client_streams.server_receive.receive()
+            response = response_msg.message.root
+            assert isinstance(response, types.JSONRPCError)
+            assert "not supported" in response.error.message.lower()
+
+            tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_client_returns_error_for_unhandled_cancel_task_request(client_streams: ClientTestStreams) -> None:
+    """Test that client returns error for unhandled tasks/cancel request."""
+    with anyio.fail_after(10):
+        client_ready = anyio.Event()
+
+        async with anyio.create_task_group() as tg:
+
+            async def run_client() -> None:
+                async with ClientSession(
+                    client_streams.client_receive,
+                    client_streams.client_send,
+                    message_handler=_default_message_handler,
+                ):
+                    client_ready.set()
+                    await anyio.sleep_forever()
+
+            tg.start_soon(run_client)
+            await client_ready.wait()
+
+            typed_request = CancelTaskRequest(params=CancelTaskRequestParams(taskId="nonexistent"))
+            request = types.JSONRPCRequest(
+                jsonrpc="2.0",
+                id="req-cancel",
+                **typed_request.model_dump(by_alias=True),
+            )
+            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+
+            response_msg = await client_streams.server_receive.receive()
+            response = response_msg.message.root
+            assert isinstance(response, types.JSONRPCError)
+            assert "not supported" in response.error.message.lower()
+
+            tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_client_returns_error_for_unhandled_task_augmented_sampling(client_streams: ClientTestStreams) -> None:
+    """Test that client returns error for task-augmented sampling without handler."""
+    with anyio.fail_after(10):
+        client_ready = anyio.Event()
+
+        async with anyio.create_task_group() as tg:
+
+            async def run_client() -> None:
+                # No task handlers provided - uses defaults
+                async with ClientSession(
+                    client_streams.client_receive,
+                    client_streams.client_send,
+                    message_handler=_default_message_handler,
+                ):
+                    client_ready.set()
+                    await anyio.sleep_forever()
+
+            tg.start_soon(run_client)
+            await client_ready.wait()
+
+            # Send task-augmented sampling request
+            typed_request = CreateMessageRequest(
+                params=CreateMessageRequestParams(
+                    messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Hello"))],
+                    maxTokens=100,
+                    task=TaskMetadata(ttl=60000),
+                )
+            )
+            request = types.JSONRPCRequest(
+                jsonrpc="2.0",
+                id="req-sampling",
+                **typed_request.model_dump(by_alias=True),
+            )
+            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+
+            response_msg = await client_streams.server_receive.receive()
+            response = response_msg.message.root
+            assert isinstance(response, types.JSONRPCError)
+            assert "not supported" in response.error.message.lower()
+
+            tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_client_returns_error_for_unhandled_task_augmented_elicitation(
+    client_streams: ClientTestStreams,
+) -> None:
+    """Test that client returns error for task-augmented elicitation without handler."""
+    with anyio.fail_after(10):
+        client_ready = anyio.Event()
+
+        async with anyio.create_task_group() as tg:
+
+            async def run_client() -> None:
+                # No task handlers provided - uses defaults
+                async with ClientSession(
+                    client_streams.client_receive,
+                    client_streams.client_send,
+                    message_handler=_default_message_handler,
+                ):
+                    client_ready.set()
+                    await anyio.sleep_forever()
+
+            tg.start_soon(run_client)
+            await client_ready.wait()
+
+            # Send task-augmented elicitation request
+            typed_request = ElicitRequest(
+                params=ElicitRequestFormParams(
+                    message="What is your name?",
+                    requestedSchema={"type": "object", "properties": {"name": {"type": "string"}}},
+                    task=TaskMetadata(ttl=60000),
+                )
+            )
+            request = types.JSONRPCRequest(
+                jsonrpc="2.0",
+                id="req-elicit",
+                **typed_request.model_dump(by_alias=True),
+            )
+            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+
+            response_msg = await client_streams.server_receive.receive()
+            response = response_msg.message.root
+            assert isinstance(response, types.JSONRPCError)
+            assert "not supported" in response.error.message.lower()
+
+            tg.cancel_scope.cancel()
