@@ -87,13 +87,13 @@ class EventStore(ABC):
     """
 
     @abstractmethod
-    async def store_event(self, stream_id: StreamId, message: JSONRPCMessage) -> EventId:
+    async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
         """
         Stores an event for later retrieval.
 
         Args:
             stream_id: ID of the stream the event belongs to
-            message: The JSON-RPC message to store
+            message: The JSON-RPC message to store, or None for priming events
 
         Returns:
             The generated event ID for the stored event
@@ -489,6 +489,17 @@ class StreamableHTTPServerTransport:
                     # Get the request ID from the incoming request message
                     try:
                         async with sse_stream_writer, request_stream_reader:
+                            # Send priming event if event_store is configured
+                            # This sends an event with ID but empty data, enabling
+                            # the client to reconnect with Last-Event-ID if needed
+                            if self._event_store:
+                                priming_event_id = await self._event_store.store_event(
+                                    request_id,
+                                    None,  # Priming event has no payload
+                                )
+                                priming_event = {"id": priming_event_id, "data": ""}
+                                await sse_stream_writer.send(priming_event)
+
                             # Process messages from the request-specific stream
                             async for event_message in request_stream_reader:
                                 # Build the event data

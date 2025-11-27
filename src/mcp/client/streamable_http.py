@@ -160,8 +160,11 @@ class StreamableHTTPTransport:
     ) -> bool:
         """Handle an SSE event, returning True if the response is complete."""
         if sse.event == "message":
-            # Skip empty data (keep-alive pings)
+            # Handle priming events (empty data with ID) for resumability
             if not sse.data:
+                # Call resumption callback for priming events that have an ID
+                if sse.id and resumption_callback:
+                    await resumption_callback(sse.id)
                 return False
             try:
                 message = JSONRPCMessage.model_validate_json(sse.data)
