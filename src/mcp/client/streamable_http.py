@@ -330,6 +330,7 @@ class StreamableHTTPTransport:
     ) -> None:
         """Handle SSE response from the server."""
         last_event_id: str | None = None
+        retry_interval_ms: int | None = None
 
         try:
             event_source = EventSource(response)
@@ -337,6 +338,10 @@ class StreamableHTTPTransport:
                 # Track last event ID for potential reconnection
                 if sse.id:
                     last_event_id = sse.id
+
+                # Track retry interval from server
+                if sse.retry is not None:
+                    retry_interval_ms = sse.retry
 
                 is_complete = await self._handle_sse_event(
                     sse,
@@ -352,16 +357,21 @@ class StreamableHTTPTransport:
         except Exception as e:
             logger.debug(f"SSE stream ended: {e}")
 
-        # Stream ended without response - reconnect if we have priming event
+        # Stream ended without response - reconnect if we received an event with ID
         if last_event_id is not None:
-            await self._handle_reconnection(ctx, last_event_id)
+            await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
 
     async def _handle_reconnection(
         self,
         ctx: RequestContext,
         last_event_id: str,
+        retry_interval_ms: int | None = None,
     ) -> None:
         """Reconnect with Last-Event-ID to resume stream after server disconnect."""
+        # Wait for retry interval if specified by server
+        if retry_interval_ms is not None:
+            await anyio.sleep(retry_interval_ms / 1000.0)
+
         headers = self._prepare_request_headers(ctx.headers)
         headers[LAST_EVENT_ID] = last_event_id
 
@@ -383,10 +393,13 @@ class StreamableHTTPTransport:
 
                 # Track for potential further reconnection
                 reconnect_last_event_id: str | None = last_event_id
+                reconnect_retry_ms = retry_interval_ms
 
                 async for sse in event_source.aiter_sse():
                     if sse.id:
                         reconnect_last_event_id = sse.id
+                    if sse.retry is not None:
+                        reconnect_retry_ms = sse.retry
 
                     is_complete = await self._handle_sse_event(
                         sse,
@@ -400,11 +413,11 @@ class StreamableHTTPTransport:
 
                 # Stream ended again without response - reconnect again
                 if reconnect_last_event_id is not None:
-                    await self._handle_reconnection(ctx, reconnect_last_event_id)
+                    await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms)
         except Exception as e:
             logger.debug(f"Reconnection failed: {e}")
             # Try to reconnect again if we still have an event ID
-            await self._handle_reconnection(ctx, last_event_id)
+            await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
 
     async def _handle_unexpected_content_type(
         self,
