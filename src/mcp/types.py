@@ -519,6 +519,13 @@ class ServerCapabilities(BaseModel):
 
 TaskStatus = Literal["working", "input_required", "completed", "failed", "cancelled"]
 
+# Task status constants
+TASK_STATUS_WORKING: Final[Literal["working"]] = "working"
+TASK_STATUS_INPUT_REQUIRED: Final[Literal["input_required"]] = "input_required"
+TASK_STATUS_COMPLETED: Final[Literal["completed"]] = "completed"
+TASK_STATUS_FAILED: Final[Literal["failed"]] = "failed"
+TASK_STATUS_CANCELLED: Final[Literal["cancelled"]] = "cancelled"
+
 
 class RelatedTaskMetadata(BaseModel):
     """

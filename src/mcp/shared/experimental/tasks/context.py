@@ -7,7 +7,7 @@ workers or wrapped by ServerTaskContext for full server integration.
 """
 
 from mcp.shared.experimental.tasks.store import TaskStore
-from mcp.types import Result, Task
+from mcp.types import TASK_STATUS_COMPLETED, TASK_STATUS_FAILED, Result, Task
 
 
 class TaskContext:
@@ -84,7 +84,7 @@ class TaskContext:
         await self._store.store_result(self.task_id, result)
         self._task = await self._store.update_task(
             self.task_id,
-            status="completed",
+            status=TASK_STATUS_COMPLETED,
         )
 
     async def fail(self, error: str) -> None:
@@ -96,6 +96,6 @@ class TaskContext:
         """
         self._task = await self._store.update_task(
             self.task_id,
-            status="failed",
+            status=TASK_STATUS_FAILED,
             status_message=error,
         )

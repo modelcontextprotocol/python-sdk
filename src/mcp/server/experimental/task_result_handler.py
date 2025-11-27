@@ -17,7 +17,7 @@ import anyio
 
 from mcp.server.session import ServerSession
 from mcp.shared.exceptions import McpError
-from mcp.shared.experimental.tasks.helpers import is_terminal
+from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY, is_terminal
 from mcp.shared.experimental.tasks.message_queue import TaskMessageQueue
 from mcp.shared.experimental.tasks.resolver import Resolver
 from mcp.shared.experimental.tasks.store import TaskStore
@@ -28,6 +28,7 @@ from mcp.types import (
     GetTaskPayloadRequest,
     GetTaskPayloadResult,
     JSONRPCMessage,
+    RelatedTaskMetadata,
     RequestId,
 )
 
@@ -126,9 +127,9 @@ class TaskResultHandler:
                 result = await self._store.get_result(task_id)
                 # GetTaskPayloadResult is a Result with extra="allow"
                 # The stored result contains the actual payload data
-                # Per spec: tasks/result MUST include _meta.io.modelcontextprotocol/related-task
-                # with taskId, as the result structure itself does not contain the task ID
-                related_task_meta: dict[str, Any] = {"io.modelcontextprotocol/related-task": {"taskId": task_id}}
+                # Per spec: tasks/result MUST include _meta with related-task metadata
+                related_task = RelatedTaskMetadata(taskId=task_id)
+                related_task_meta: dict[str, Any] = {RELATED_TASK_METADATA_KEY: related_task.model_dump(by_alias=True)}
                 if result is not None:
                     # Copy result fields and add required metadata
                     result_data = result.model_dump(by_alias=True)

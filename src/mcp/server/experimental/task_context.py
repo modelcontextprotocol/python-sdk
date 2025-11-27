@@ -19,6 +19,8 @@ from mcp.shared.experimental.tasks.message_queue import QueuedMessage, TaskMessa
 from mcp.shared.experimental.tasks.resolver import Resolver
 from mcp.shared.experimental.tasks.store import TaskStore
 from mcp.types import (
+    TASK_STATUS_INPUT_REQUIRED,
+    TASK_STATUS_WORKING,
     ClientCapabilities,
     CreateMessageResult,
     ElicitationCapability,
@@ -236,7 +238,7 @@ class ServerTaskContext:
             raise RuntimeError("handler is required for elicit(). Pass handler= to ServerTaskContext.")
 
         # Update status to input_required
-        await self._store.update_task(self.task_id, status="input_required")
+        await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED)
 
         # Build the request using session's helper
         request = self._session._build_elicit_request(  # pyright: ignore[reportPrivateUsage]
@@ -262,10 +264,10 @@ class ServerTaskContext:
         try:
             # Wait for response (routed back via TaskResultHandler)
             response_data = await resolver.wait()
-            await self._store.update_task(self.task_id, status="working")
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
             return ElicitResult.model_validate(response_data)
         except anyio.get_cancelled_exc_class():
-            await self._store.update_task(self.task_id, status="working")
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
             raise
 
     async def create_message(
@@ -313,7 +315,7 @@ class ServerTaskContext:
             raise RuntimeError("handler is required for create_message(). Pass handler= to ServerTaskContext.")
 
         # Update status to input_required
-        await self._store.update_task(self.task_id, status="input_required")
+        await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED)
 
         # Build the request using session's helper
         request = self._session._build_create_message_request(  # pyright: ignore[reportPrivateUsage]
@@ -345,8 +347,8 @@ class ServerTaskContext:
         try:
             # Wait for response (routed back via TaskResultHandler)
             response_data = await resolver.wait()
-            await self._store.update_task(self.task_id, status="working")
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
             return CreateMessageResult.model_validate(response_data)
         except anyio.get_cancelled_exc_class():
-            await self._store.update_task(self.task_id, status="working")
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
             raise

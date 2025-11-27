@@ -15,6 +15,10 @@ from mcp.shared.experimental.tasks.context import TaskContext
 from mcp.shared.experimental.tasks.store import TaskStore
 from mcp.types import (
     INVALID_PARAMS,
+    TASK_STATUS_CANCELLED,
+    TASK_STATUS_COMPLETED,
+    TASK_STATUS_FAILED,
+    TASK_STATUS_WORKING,
     CancelTaskResult,
     ErrorData,
     Task,
@@ -43,7 +47,7 @@ def is_terminal(status: TaskStatus) -> bool:
     Returns:
         True if the status is terminal (completed, failed, or cancelled)
     """
-    return status in ("completed", "failed", "cancelled")
+    return status in (TASK_STATUS_COMPLETED, TASK_STATUS_FAILED, TASK_STATUS_CANCELLED)
 
 
 async def cancel_task(
@@ -94,7 +98,7 @@ async def cancel_task(
         )
 
     # Update task to cancelled status
-    cancelled_task = await store.update_task(task_id, status="cancelled")
+    cancelled_task = await store.update_task(task_id, status=TASK_STATUS_CANCELLED)
     return CancelTaskResult(**cancelled_task.model_dump())
 
 
@@ -122,7 +126,7 @@ def create_task_state(
     now = datetime.now(timezone.utc)
     return Task(
         taskId=task_id or generate_task_id(),
-        status="working",
+        status=TASK_STATUS_WORKING,
         createdAt=now,
         lastUpdatedAt=now,
         ttl=metadata.ttl,
