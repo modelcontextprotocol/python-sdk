@@ -2475,17 +2475,6 @@ The SDK includes support for Enterprise Managed Authorization (SEP-990), which e
 
 The `EnterpriseAuthOAuthClientProvider` class extends the standard OAuth provider to implement the enterprise authorization flow:
 
-```python
-from mcp.client.auth.extensions import (
-    EnterpriseAuthOAuthClientProvider,
-    TokenExchangeParameters,
-    IDJAGClaims,
-    decode_id_jag,
-)
-from mcp.shared.auth import OAuthClientMetadata, OAuthToken
-from mcp.client.auth import TokenStorage
-```
-
 **Token Exchange Flow:**
 
 1. **Obtain ID Token** from your enterprise IdP (e.g., Okta, Azure AD)
@@ -2504,7 +2493,7 @@ from mcp.client.auth.extensions import (
     EnterpriseAuthOAuthClientProvider,
     TokenExchangeParameters,
 )
-from mcp.shared.auth import OAuthClientMetadata, OAuthToken
+from mcp.shared.auth import OAuthClientMetadata
 from mcp.client.auth import TokenStorage
 
 # Define token storage implementation
