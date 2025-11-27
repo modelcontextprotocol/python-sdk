@@ -6,7 +6,7 @@ enterprise SSO integration.
 """
 
 import logging
-from collections.abc import Awaitable, Callable
+from typing import Any
 
 import httpx
 from pydantic import BaseModel, Field
@@ -166,8 +166,8 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         storage: TokenStorage,
         idp_token_endpoint: str,
         token_exchange_params: TokenExchangeParameters,
-        redirect_handler: Callable[[str], Awaitable[None]] | None = None,
-        callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None = None,
+        redirect_handler: Any = None,
+        callback_handler: Any = None,
         timeout: float = 300.0,
     ) -> None:
         """
@@ -241,11 +241,11 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
             )
 
             if response.status_code != 200:
-                error_data: dict[str, object] = (
+                error_data: dict[str, str] = (
                     response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
                 )
-                error = str(error_data.get("error", "unknown_error"))
-                error_description = str(error_data.get("error_description", "Token exchange failed"))
+                error: str = error_data.get("error", "unknown_error")
+                error_description: str = error_data.get("error_description", "Token exchange failed")
                 raise OAuthTokenError(f"Token exchange failed: {error} - {error_description}")
 
             # Parse response
@@ -312,11 +312,11 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
             )
 
             if response.status_code != 200:
-                error_data: dict[str, object] = (
+                error_data: dict[str, str] = (
                     response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
                 )
-                error = str(error_data.get("error", "unknown_error"))
-                error_description = str(error_data.get("error_description", "JWT bearer grant failed"))
+                error: str = error_data.get("error", "unknown_error")
+                error_description: str = error_data.get("error_description", "JWT bearer grant failed")
                 raise OAuthTokenError(f"JWT bearer grant failed: {error} - {error_description}")
 
             # Parse OAuth token response
