@@ -1,11 +1,13 @@
 """Tests for Enterprise Managed Authorization client-side implementation."""
 
 import time
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import jwt
 import pytest
+from pydantic import AnyUrl, AnyHttpUrl
 
 from mcp.client.auth import OAuthTokenError
 from mcp.client.auth.extensions.enterprise_managed_auth import (
@@ -24,7 +26,7 @@ from mcp.shared.auth import OAuthClientMetadata
 
 
 @pytest.fixture
-def sample_id_token():
+def sample_id_token() -> str:
     """Generate a sample ID token for testing."""
     payload = {
         "iss": "https://idp.example.com",
@@ -38,7 +40,7 @@ def sample_id_token():
 
 
 @pytest.fixture
-def sample_id_jag():
+def sample_id_jag() -> str:
     """Generate a sample ID-JAG token for testing."""
     payload = {
         "jti": "unique-jwt-id-12345",
@@ -61,7 +63,7 @@ def sample_id_jag():
 
 
 @pytest.fixture
-def mock_token_storage():
+def mock_token_storage() -> Any:
     """Create a mock token storage."""
     storage = Mock()
     storage.get_tokens = AsyncMock(return_value=None)
@@ -188,7 +190,7 @@ def test_token_exchange_response_id_jag_property():
 # ============================================================================
 
 
-def test_decode_id_jag(sample_id_jag):
+def test_decode_id_jag(sample_id_jag: str):
     """Test decoding ID-JAG token."""
     claims = decode_id_jag(sample_id_jag)
 
@@ -220,7 +222,7 @@ def test_id_jag_claims_with_extra_fields():
     claims = IDJAGClaims.model_validate(claims_data)
     assert claims.email == "user@example.com"
     # Extra field should be preserved
-    assert claims.model_extra.get("custom_claim") == "custom_value"
+    assert claims.model_extra is not None and claims.model_extra.get("custom_claim") == "custom_value"
 
 
 # ============================================================================
@@ -229,7 +231,7 @@ def test_id_jag_claims_with_extra_fields():
 
 
 @pytest.mark.anyio
-async def test_exchange_token_for_id_jag_success(sample_id_token, sample_id_jag, mock_token_storage):
+async def test_exchange_token_for_id_jag_success(sample_id_token: str, sample_id_jag: str, mock_token_storage: Any):
     """Test successful token exchange for ID-JAG."""
     # Create provider
     token_exchange_params = TokenExchangeParameters.from_id_token(
@@ -242,7 +244,7 @@ async def test_exchange_token_for_id_jag_success(sample_id_token, sample_id_jag,
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
             client_name="Test Client",
         ),
         storage=mock_token_storage,
@@ -283,7 +285,7 @@ async def test_exchange_token_for_id_jag_success(sample_id_token, sample_id_jag,
 
 
 @pytest.mark.anyio
-async def test_exchange_token_for_id_jag_error(sample_id_token, mock_token_storage):
+async def test_exchange_token_for_id_jag_error(sample_id_token: str, mock_token_storage: Any):
     """Test token exchange failure handling."""
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token=sample_id_token,
@@ -294,7 +296,7 @@ async def test_exchange_token_for_id_jag_error(sample_id_token, mock_token_stora
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
         ),
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
@@ -319,7 +321,7 @@ async def test_exchange_token_for_id_jag_error(sample_id_token, mock_token_stora
 
 
 @pytest.mark.anyio
-async def test_exchange_token_for_id_jag_unexpected_token_type(sample_id_token, mock_token_storage):
+async def test_exchange_token_for_id_jag_unexpected_token_type(sample_id_token: str, mock_token_storage: Any):
     """Test token exchange with unexpected token type."""
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token=sample_id_token,
@@ -330,7 +332,7 @@ async def test_exchange_token_for_id_jag_unexpected_token_type(sample_id_token, 
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
         ),
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
@@ -356,7 +358,7 @@ async def test_exchange_token_for_id_jag_unexpected_token_type(sample_id_token, 
 
 
 @pytest.mark.anyio
-async def test_exchange_id_jag_for_access_token_success(sample_id_jag, mock_token_storage):
+async def test_exchange_id_jag_for_access_token_success(sample_id_jag: str, mock_token_storage: Any):
     """Test successful JWT bearer grant to get access token."""
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token="dummy-token",
@@ -367,7 +369,7 @@ async def test_exchange_id_jag_for_access_token_success(sample_id_jag, mock_toke
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
         ),
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
@@ -375,14 +377,12 @@ async def test_exchange_id_jag_for_access_token_success(sample_id_jag, mock_toke
     )
 
     # Set up OAuth metadata
-    from pydantic import HttpUrl
-
     from mcp.shared.auth import OAuthMetadata
 
     provider.context.oauth_metadata = OAuthMetadata(
-        issuer=HttpUrl("https://auth.mcp-server.example/"),
-        authorization_endpoint=HttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
-        token_endpoint=HttpUrl("https://auth.mcp-server.example/oauth2/token"),
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
     )
 
     # Mock HTTP response
@@ -418,7 +418,7 @@ async def test_exchange_id_jag_for_access_token_success(sample_id_jag, mock_toke
 
 
 @pytest.mark.anyio
-async def test_exchange_id_jag_for_access_token_no_metadata(sample_id_jag, mock_token_storage):
+async def test_exchange_id_jag_for_access_token_no_metadata(sample_id_jag: str, mock_token_storage: Any):
     """Test JWT bearer grant fails without OAuth metadata."""
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token="dummy-token",
@@ -429,7 +429,7 @@ async def test_exchange_id_jag_for_access_token_no_metadata(sample_id_jag, mock_
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
         ),
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
@@ -447,7 +447,7 @@ async def test_exchange_id_jag_for_access_token_no_metadata(sample_id_jag, mock_
 
 
 @pytest.mark.anyio
-async def test_perform_authorization_not_implemented(mock_token_storage):
+async def test_perform_authorization_not_implemented(mock_token_storage: Any):
     """Test that _perform_authorization raises NotImplementedError."""
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token="dummy-token",
@@ -458,7 +458,7 @@ async def test_perform_authorization_not_implemented(mock_token_storage):
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
         ),
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
@@ -471,7 +471,7 @@ async def test_perform_authorization_not_implemented(mock_token_storage):
 
 
 @pytest.mark.anyio
-async def test_perform_authorization_with_valid_tokens(mock_token_storage):
+async def test_perform_authorization_with_valid_tokens(mock_token_storage: Any):
     """Test that _perform_authorization returns dummy request when tokens are valid."""
     from mcp.shared.auth import OAuthToken
 
@@ -484,7 +484,7 @@ async def test_perform_authorization_with_valid_tokens(mock_token_storage):
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
         ),
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
@@ -497,7 +497,7 @@ async def test_perform_authorization_with_valid_tokens(mock_token_storage):
         access_token="valid-token",
         expires_in=3600,
     )
-    provider.context.token_expiry = time.time() + 3600
+    provider.context.token_expiry_time = time.time() + 3600
 
     # Should return a dummy request
     request = await provider._perform_authorization()
@@ -506,7 +506,7 @@ async def test_perform_authorization_with_valid_tokens(mock_token_storage):
 
 
 @pytest.mark.anyio
-async def test_exchange_token_with_client_authentication(sample_id_token, sample_id_jag, mock_token_storage):
+async def test_exchange_token_with_client_authentication(sample_id_token: str, sample_id_jag: str, mock_token_storage: Any):
     """Test token exchange with client authentication."""
     from mcp.shared.auth import OAuthClientInformationFull
 
@@ -520,7 +520,7 @@ async def test_exchange_token_with_client_authentication(sample_id_token, sample
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
             client_name="Test Client",
         ),
         storage=mock_token_storage,
@@ -532,7 +532,7 @@ async def test_exchange_token_with_client_authentication(sample_id_token, sample
     provider.context.client_info = OAuthClientInformationFull(
         client_id="test-client-id",
         client_secret="test-client-secret",
-        redirect_uris=["http://localhost:8080/callback"],
+        redirect_uris=[AnyUrl("http://localhost:8080/callback")],
     )
 
     # Mock HTTP response
@@ -563,7 +563,7 @@ async def test_exchange_token_with_client_authentication(sample_id_token, sample
 
 
 @pytest.mark.anyio
-async def test_exchange_token_with_client_id_only(sample_id_token, sample_id_jag, mock_token_storage):
+async def test_exchange_token_with_client_id_only(sample_id_token: str, sample_id_jag: str, mock_token_storage: Any):
     """Test token exchange with client_id but no client_secret (covers branch 232->235)."""
     from mcp.shared.auth import OAuthClientInformationFull
 
@@ -577,7 +577,7 @@ async def test_exchange_token_with_client_id_only(sample_id_token, sample_id_jag
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
             client_name="Test Client",
         ),
         storage=mock_token_storage,
@@ -589,7 +589,7 @@ async def test_exchange_token_with_client_id_only(sample_id_token, sample_id_jag
     provider.context.client_info = OAuthClientInformationFull(
         client_id="test-client-id",
         client_secret=None,  # No secret
-        redirect_uris=["http://localhost:8080/callback"],
+        redirect_uris=[AnyUrl("http://localhost:8080/callback")],
     )
 
     # Mock HTTP response
@@ -620,7 +620,7 @@ async def test_exchange_token_with_client_id_only(sample_id_token, sample_id_jag
 
 
 @pytest.mark.anyio
-async def test_exchange_token_http_error(sample_id_token, mock_token_storage):
+async def test_exchange_token_http_error(sample_id_token: str, mock_token_storage: Any):
     """Test token exchange with HTTP error."""
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token=sample_id_token,
@@ -631,7 +631,7 @@ async def test_exchange_token_http_error(sample_id_token, mock_token_storage):
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
         ),
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
@@ -647,7 +647,7 @@ async def test_exchange_token_http_error(sample_id_token, mock_token_storage):
 
 
 @pytest.mark.anyio
-async def test_exchange_token_non_json_error_response(sample_id_token, mock_token_storage):
+async def test_exchange_token_non_json_error_response(sample_id_token: str, mock_token_storage: Any):
     """Test token exchange with non-JSON error response."""
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token=sample_id_token,
@@ -658,7 +658,7 @@ async def test_exchange_token_non_json_error_response(sample_id_token, mock_toke
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
         ),
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
@@ -681,7 +681,7 @@ async def test_exchange_token_non_json_error_response(sample_id_token, mock_toke
 
 
 @pytest.mark.anyio
-async def test_exchange_token_warning_for_non_na_token_type(sample_id_token, sample_id_jag, mock_token_storage):
+async def test_exchange_token_warning_for_non_na_token_type(sample_id_token: str, sample_id_jag: str, mock_token_storage: Any):
     """Test token exchange logs warning for non-N_A token type."""
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token=sample_id_token,
@@ -692,7 +692,7 @@ async def test_exchange_token_warning_for_non_na_token_type(sample_id_token, sam
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
         ),
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
@@ -726,10 +726,8 @@ async def test_exchange_token_warning_for_non_na_token_type(sample_id_token, sam
 
 
 @pytest.mark.anyio
-async def test_exchange_id_jag_with_client_authentication(sample_id_jag, mock_token_storage):
+async def test_exchange_id_jag_with_client_authentication(sample_id_jag: str, mock_token_storage: Any):
     """Test JWT bearer grant with client authentication."""
-    from pydantic import HttpUrl
-
     from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
 
     token_exchange_params = TokenExchangeParameters.from_id_token(
@@ -741,7 +739,7 @@ async def test_exchange_id_jag_with_client_authentication(sample_id_jag, mock_to
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
         ),
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
@@ -752,14 +750,14 @@ async def test_exchange_id_jag_with_client_authentication(sample_id_jag, mock_to
     provider.context.client_info = OAuthClientInformationFull(
         client_id="test-client-id",
         client_secret="test-client-secret",
-        redirect_uris=["http://localhost:8080/callback"],
+        redirect_uris=[AnyUrl("http://localhost:8080/callback")],
     )
 
     # Set up OAuth metadata
     provider.context.oauth_metadata = OAuthMetadata(
-        issuer=HttpUrl("https://auth.mcp-server.example/"),
-        authorization_endpoint=HttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
-        token_endpoint=HttpUrl("https://auth.mcp-server.example/oauth2/token"),
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
     )
 
     # Mock HTTP response
@@ -789,10 +787,8 @@ async def test_exchange_id_jag_with_client_authentication(sample_id_jag, mock_to
 
 
 @pytest.mark.anyio
-async def test_exchange_id_jag_with_client_id_only(sample_id_jag, mock_token_storage):
+async def test_exchange_id_jag_with_client_id_only(sample_id_jag: str, mock_token_storage: Any):
     """Test JWT bearer grant with client_id but no client_secret (covers branch 304->307)."""
-    from pydantic import HttpUrl
-
     from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
 
     token_exchange_params = TokenExchangeParameters.from_id_token(
@@ -804,7 +800,7 @@ async def test_exchange_id_jag_with_client_id_only(sample_id_jag, mock_token_sto
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
         ),
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
@@ -815,14 +811,14 @@ async def test_exchange_id_jag_with_client_id_only(sample_id_jag, mock_token_sto
     provider.context.client_info = OAuthClientInformationFull(
         client_id="test-client-id",
         client_secret=None,  # No secret
-        redirect_uris=["http://localhost:8080/callback"],
+        redirect_uris=[AnyUrl("http://localhost:8080/callback")],
     )
 
     # Set up OAuth metadata
     provider.context.oauth_metadata = OAuthMetadata(
-        issuer=HttpUrl("https://auth.mcp-server.example/"),
-        authorization_endpoint=HttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
-        token_endpoint=HttpUrl("https://auth.mcp-server.example/oauth2/token"),
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
     )
 
     # Mock HTTP response
@@ -853,10 +849,8 @@ async def test_exchange_id_jag_with_client_id_only(sample_id_jag, mock_token_sto
 
 
 @pytest.mark.anyio
-async def test_exchange_id_jag_error_response(sample_id_jag, mock_token_storage):
+async def test_exchange_id_jag_error_response(sample_id_jag: str, mock_token_storage: Any):
     """Test JWT bearer grant with error response."""
-    from pydantic import HttpUrl
-
     from mcp.shared.auth import OAuthMetadata
 
     token_exchange_params = TokenExchangeParameters.from_id_token(
@@ -868,7 +862,7 @@ async def test_exchange_id_jag_error_response(sample_id_jag, mock_token_storage)
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
         ),
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
@@ -877,9 +871,9 @@ async def test_exchange_id_jag_error_response(sample_id_jag, mock_token_storage)
 
     # Set up OAuth metadata
     provider.context.oauth_metadata = OAuthMetadata(
-        issuer=HttpUrl("https://auth.mcp-server.example/"),
-        authorization_endpoint=HttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
-        token_endpoint=HttpUrl("https://auth.mcp-server.example/oauth2/token"),
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
     )
 
     # Mock error response
@@ -900,10 +894,8 @@ async def test_exchange_id_jag_error_response(sample_id_jag, mock_token_storage)
 
 
 @pytest.mark.anyio
-async def test_exchange_id_jag_non_json_error(sample_id_jag, mock_token_storage):
+async def test_exchange_id_jag_non_json_error(sample_id_jag: str, mock_token_storage: Any):
     """Test JWT bearer grant with non-JSON error response."""
-    from pydantic import HttpUrl
-
     from mcp.shared.auth import OAuthMetadata
 
     token_exchange_params = TokenExchangeParameters.from_id_token(
@@ -915,7 +907,7 @@ async def test_exchange_id_jag_non_json_error(sample_id_jag, mock_token_storage)
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
         ),
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
@@ -924,9 +916,9 @@ async def test_exchange_id_jag_non_json_error(sample_id_jag, mock_token_storage)
 
     # Set up OAuth metadata
     provider.context.oauth_metadata = OAuthMetadata(
-        issuer=HttpUrl("https://auth.mcp-server.example/"),
-        authorization_endpoint=HttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
-        token_endpoint=HttpUrl("https://auth.mcp-server.example/oauth2/token"),
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
     )
 
     # Mock error response with non-JSON content
@@ -945,10 +937,8 @@ async def test_exchange_id_jag_non_json_error(sample_id_jag, mock_token_storage)
 
 
 @pytest.mark.anyio
-async def test_exchange_id_jag_http_error(sample_id_jag, mock_token_storage):
+async def test_exchange_id_jag_http_error(sample_id_jag: str, mock_token_storage: Any):
     """Test JWT bearer grant with HTTP error."""
-    from pydantic import HttpUrl
-
     from mcp.shared.auth import OAuthMetadata
 
     token_exchange_params = TokenExchangeParameters.from_id_token(
@@ -960,7 +950,7 @@ async def test_exchange_id_jag_http_error(sample_id_jag, mock_token_storage):
     provider = EnterpriseAuthOAuthClientProvider(
         server_url="https://mcp-server.example/",
         client_metadata=OAuthClientMetadata(
-            redirect_uris=["http://localhost:8080/callback"],
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
         ),
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
@@ -969,9 +959,9 @@ async def test_exchange_id_jag_http_error(sample_id_jag, mock_token_storage):
 
     # Set up OAuth metadata
     provider.context.oauth_metadata = OAuthMetadata(
-        issuer=HttpUrl("https://auth.mcp-server.example/"),
-        authorization_endpoint=HttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
-        token_endpoint=HttpUrl("https://auth.mcp-server.example/oauth2/token"),
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
     )
 
     mock_client = Mock(spec=httpx.AsyncClient)
