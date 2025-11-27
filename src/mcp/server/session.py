@@ -536,7 +536,9 @@ class ServerSession(
 
         # Add related-task metadata if in task mode
         if task_id is not None:
-            if "_meta" not in params_data:
+            # Defensive check: _meta can't exist currently since ElicitRequestFormParams
+            # doesn't pass meta to model_dump, but guard against future changes.
+            if "_meta" not in params_data:  # pragma: no cover
                 params_data["_meta"] = {}
             params_data["_meta"]["io.modelcontextprotocol/related-task"] = {"taskId": task_id}
 
@@ -594,7 +596,9 @@ class ServerSession(
 
         # Add related-task metadata if in task mode
         if task_id is not None:
-            if "_meta" not in params_data:
+            # Defensive check: _meta can't exist currently since CreateMessageRequestParams
+            # doesn't pass meta to model_dump, but guard against future changes.
+            if "_meta" not in params_data:  # pragma: no cover
                 params_data["_meta"] = {}
             params_data["_meta"]["io.modelcontextprotocol/related-task"] = {"taskId": task_id}
 

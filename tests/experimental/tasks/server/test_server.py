@@ -864,3 +864,129 @@ async def test_response_routing_error() -> None:
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
         await client_to_server_receive.aclose()
+
+
+@pytest.mark.anyio
+async def test_response_routing_skips_non_matching_routers() -> None:
+    """Test that routing continues to next router when first doesn't match."""
+    from mcp.shared.session import ResponseRouter
+
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    # Track which routers were called
+    router_calls: list[str] = []
+    response_received = anyio.Event()
+
+    class NonMatchingRouter(ResponseRouter):
+        def route_response(self, request_id: str | int, response: dict[str, Any]) -> bool:
+            router_calls.append("non_matching_response")
+            return False  # Doesn't handle it
+
+        def route_error(self, request_id: str | int, error: ErrorData) -> bool:
+            router_calls.append("non_matching_error")
+            return False  # Doesn't handle it
+
+    class MatchingRouter(ResponseRouter):
+        def route_response(self, request_id: str | int, response: dict[str, Any]) -> bool:
+            router_calls.append("matching_response")
+            response_received.set()
+            return True  # Handles it
+
+        def route_error(self, request_id: str | int, error: ErrorData) -> bool:
+            router_calls.append("matching_error")
+            response_received.set()
+            return True  # Handles it
+
+    try:
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="test-server",
+                server_version="1.0.0",
+                capabilities=ServerCapabilities(),
+            ),
+        ) as server_session:
+            # Add non-matching router first, then matching router
+            server_session.add_response_router(NonMatchingRouter())
+            server_session.add_response_router(MatchingRouter())
+
+            # Send a response - should skip first router and be handled by second
+            response = JSONRPCResponse(jsonrpc="2.0", id="test-req-1", result={"status": "ok"})
+            message = SessionMessage(message=JSONRPCMessage(response))
+            await client_to_server_send.send(message)
+
+            with anyio.fail_after(5):
+                await response_received.wait()
+
+            # Verify both routers were called (first returned False, second returned True)
+            assert router_calls == ["non_matching_response", "matching_response"]
+    finally:
+        await server_to_client_send.aclose()
+        await server_to_client_receive.aclose()
+        await client_to_server_send.aclose()
+        await client_to_server_receive.aclose()
+
+
+@pytest.mark.anyio
+async def test_error_routing_skips_non_matching_routers() -> None:
+    """Test that error routing continues to next router when first doesn't match."""
+    from mcp.shared.session import ResponseRouter
+
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    # Track which routers were called
+    router_calls: list[str] = []
+    error_received = anyio.Event()
+
+    class NonMatchingRouter(ResponseRouter):
+        def route_response(self, request_id: str | int, response: dict[str, Any]) -> bool:
+            router_calls.append("non_matching_response")
+            return False
+
+        def route_error(self, request_id: str | int, error: ErrorData) -> bool:
+            router_calls.append("non_matching_error")
+            return False  # Doesn't handle it
+
+    class MatchingRouter(ResponseRouter):
+        def route_response(self, request_id: str | int, response: dict[str, Any]) -> bool:
+            router_calls.append("matching_response")
+            return True
+
+        def route_error(self, request_id: str | int, error: ErrorData) -> bool:
+            router_calls.append("matching_error")
+            error_received.set()
+            return True  # Handles it
+
+    try:
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="test-server",
+                server_version="1.0.0",
+                capabilities=ServerCapabilities(),
+            ),
+        ) as server_session:
+            # Add non-matching router first, then matching router
+            server_session.add_response_router(NonMatchingRouter())
+            server_session.add_response_router(MatchingRouter())
+
+            # Send an error - should skip first router and be handled by second
+            error_data = ErrorData(code=-32600, message="Test error")
+            error_response = JSONRPCError(jsonrpc="2.0", id="test-req-2", error=error_data)
+            message = SessionMessage(message=JSONRPCMessage(error_response))
+            await client_to_server_send.send(message)
+
+            with anyio.fail_after(5):
+                await error_received.wait()
+
+            # Verify both routers were called (first returned False, second returned True)
+            assert router_calls == ["non_matching_error", "matching_error"]
+    finally:
+        await server_to_client_send.aclose()
+        await server_to_client_receive.aclose()
+        await client_to_server_send.aclose()
+        await client_to_server_receive.aclose()

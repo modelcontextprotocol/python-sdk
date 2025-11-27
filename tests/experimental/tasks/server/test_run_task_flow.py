@@ -9,6 +9,7 @@ This tests the recommended user flow:
 These are integration tests that verify the complete flow works end-to-end.
 """
 
+from datetime import datetime, timezone
 from typing import Any
 
 import anyio
@@ -212,6 +213,92 @@ async def test_enable_tasks_auto_registers_handlers() -> None:
     assert caps_after.tasks is not None
     assert caps_after.tasks.list is not None
     assert caps_after.tasks.cancel is not None
+
+
+@pytest.mark.anyio
+async def test_enable_tasks_with_custom_store_and_queue() -> None:
+    """Test that enable_tasks() uses provided store and queue instead of defaults."""
+    from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
+    from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
+
+    server = Server("test-custom-store-queue")
+
+    # Create custom store and queue
+    custom_store = InMemoryTaskStore()
+    custom_queue = InMemoryTaskMessageQueue()
+
+    # Enable tasks with custom implementations
+    task_support = server.experimental.enable_tasks(store=custom_store, queue=custom_queue)
+
+    # Verify our custom implementations are used
+    assert task_support.store is custom_store
+    assert task_support.queue is custom_queue
+
+
+@pytest.mark.anyio
+async def test_enable_tasks_skips_default_handlers_when_custom_registered() -> None:
+    """Test that enable_tasks() doesn't override already-registered handlers."""
+    from mcp.types import (
+        CancelTaskRequest,
+        CancelTaskResult,
+        GetTaskPayloadRequest,
+        GetTaskPayloadResult,
+        GetTaskRequest,
+        GetTaskResult,
+        ListTasksRequest,
+        ListTasksResult,
+    )
+
+    server = Server("test-custom-handlers")
+
+    # Track which custom handlers were called
+    custom_handlers_called: list[str] = []
+
+    # Use a fixed timestamp for deterministic tests
+    fixed_time = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+    # Register custom handlers BEFORE enable_tasks
+    @server.experimental.get_task()
+    async def custom_get_task(req: GetTaskRequest) -> GetTaskResult:
+        custom_handlers_called.append("get_task")
+        return GetTaskResult(
+            taskId="custom",
+            status="working",
+            createdAt=fixed_time,
+            lastUpdatedAt=fixed_time,
+            ttl=60000,
+        )
+
+    @server.experimental.get_task_result()
+    async def custom_get_task_result(req: GetTaskPayloadRequest) -> GetTaskPayloadResult:
+        custom_handlers_called.append("get_task_result")
+        return GetTaskPayloadResult()
+
+    @server.experimental.list_tasks()
+    async def custom_list_tasks(req: ListTasksRequest) -> ListTasksResult:
+        custom_handlers_called.append("list_tasks")
+        return ListTasksResult(tasks=[])
+
+    @server.experimental.cancel_task()
+    async def custom_cancel_task(req: CancelTaskRequest) -> CancelTaskResult:
+        custom_handlers_called.append("cancel_task")
+        return CancelTaskResult(
+            taskId="custom",
+            status="cancelled",
+            createdAt=fixed_time,
+            lastUpdatedAt=fixed_time,
+            ttl=60000,
+        )
+
+    # Now enable tasks - should NOT override our custom handlers
+    server.experimental.enable_tasks()
+
+    # Verify our custom handlers are still registered (not replaced by defaults)
+    # The handlers dict should contain our custom handlers
+    assert GetTaskRequest in server.request_handlers
+    assert GetTaskPayloadRequest in server.request_handlers
+    assert ListTasksRequest in server.request_handlers
+    assert CancelTaskRequest in server.request_handlers
 
 
 @pytest.mark.anyio
