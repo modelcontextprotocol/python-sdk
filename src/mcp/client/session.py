@@ -175,6 +175,9 @@ class ClientSession(
         if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
             raise RuntimeError(f"Unsupported protocol version from the server: {result.protocolVersion}")
 
+        if self._client_info is DEFAULT_CLIENT_INFO:
+            self._client_info = result.serverInfo
+
         self._server_capabilities = result.capabilities
 
         await self.send_notification(types.ClientNotification(types.InitializedNotification()))
