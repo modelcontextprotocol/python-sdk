@@ -10,12 +10,14 @@ This is the inverse of the existing tests in test_tasks.py, which test
 client -> server task requests.
 """
 
-from dataclasses import dataclass, field
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
 
 import anyio
 import pytest
 from anyio import Event
 from anyio.abc import TaskGroup
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 import mcp.types as types
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
@@ -43,14 +45,47 @@ from mcp.types import (
     TextContent,
 )
 
+# Buffer size for test streams
+STREAM_BUFFER_SIZE = 10
+
 
 @dataclass
-class ClientTaskContext:
-    """Context for managing client-side tasks during tests."""
+class ClientTestStreams:
+    """Bidirectional message streams for client/server communication in tests."""
 
-    task_group: TaskGroup
-    store: InMemoryTaskStore
-    task_done_events: dict[str, Event] = field(default_factory=lambda: {})
+    server_send: MemoryObjectSendStream[SessionMessage]
+    server_receive: MemoryObjectReceiveStream[SessionMessage]
+    client_send: MemoryObjectSendStream[SessionMessage]
+    client_receive: MemoryObjectReceiveStream[SessionMessage]
+
+
+@pytest.fixture
+async def client_streams() -> AsyncIterator[ClientTestStreams]:
+    """Create bidirectional message streams for client tests.
+
+    Automatically closes all streams after the test completes.
+    """
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](
+        STREAM_BUFFER_SIZE
+    )
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](
+        STREAM_BUFFER_SIZE
+    )
+
+    streams = ClientTestStreams(
+        server_send=server_to_client_send,
+        server_receive=client_to_server_receive,
+        client_send=client_to_server_send,
+        client_receive=server_to_client_receive,
+    )
+
+    yield streams
+
+    # Cleanup
+    await server_to_client_send.aclose()
+    await server_to_client_receive.aclose()
+    await client_to_server_send.aclose()
+    await client_to_server_receive.aclose()
 
 
 @pytest.mark.anyio

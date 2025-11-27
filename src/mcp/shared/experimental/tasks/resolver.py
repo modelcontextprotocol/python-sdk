@@ -5,7 +5,7 @@ This provides a simple way to pass a result (or exception) from one coroutine
 to another without depending on asyncio.Future.
 """
 
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
 
 import anyio
 
@@ -52,7 +52,8 @@ class Resolver(Generic[T]):
         await self._event.wait()
         if self._exception is not None:
             raise self._exception
-        return self._value  # type: ignore[return-value]
+        # If we reach here, set_result() was called, so _value is set
+        return cast(T, self._value)
 
     def done(self) -> bool:
         """Return True if the resolver has been completed."""

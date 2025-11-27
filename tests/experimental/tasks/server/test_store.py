@@ -1,5 +1,6 @@
 """Tests for InMemoryTaskStore."""
 
+from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -10,11 +11,17 @@ from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.types import INVALID_PARAMS, CallToolResult, TaskMetadata, TextContent
 
 
-@pytest.mark.anyio
-async def test_create_and_get() -> None:
-    """Test InMemoryTaskStore create and get operations."""
+@pytest.fixture
+async def store() -> AsyncIterator[InMemoryTaskStore]:
+    """Provide a clean InMemoryTaskStore for each test with automatic cleanup."""
     store = InMemoryTaskStore()
+    yield store
+    store.cleanup()
 
+
+@pytest.mark.anyio
+async def test_create_and_get(store: InMemoryTaskStore) -> None:
+    """Test InMemoryTaskStore create and get operations."""
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
 
     assert task.taskId is not None
@@ -26,14 +33,10 @@ async def test_create_and_get() -> None:
     assert retrieved.taskId == task.taskId
     assert retrieved.status == "working"
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_create_with_custom_id() -> None:
+async def test_create_with_custom_id(store: InMemoryTaskStore) -> None:
     """Test InMemoryTaskStore create with custom task ID."""
-    store = InMemoryTaskStore()
-
     task = await store.create_task(
         metadata=TaskMetadata(ttl=60000),
         task_id="my-custom-id",
@@ -46,38 +49,26 @@ async def test_create_with_custom_id() -> None:
     assert retrieved is not None
     assert retrieved.taskId == "my-custom-id"
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_create_duplicate_id_raises() -> None:
+async def test_create_duplicate_id_raises(store: InMemoryTaskStore) -> None:
     """Test that creating a task with duplicate ID raises."""
-    store = InMemoryTaskStore()
-
     await store.create_task(metadata=TaskMetadata(ttl=60000), task_id="duplicate")
 
     with pytest.raises(ValueError, match="already exists"):
         await store.create_task(metadata=TaskMetadata(ttl=60000), task_id="duplicate")
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_get_nonexistent_returns_none() -> None:
+async def test_get_nonexistent_returns_none(store: InMemoryTaskStore) -> None:
     """Test that getting a nonexistent task returns None."""
-    store = InMemoryTaskStore()
-
     retrieved = await store.get_task("nonexistent")
     assert retrieved is None
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_update_status() -> None:
+async def test_update_status(store: InMemoryTaskStore) -> None:
     """Test InMemoryTaskStore status updates."""
-    store = InMemoryTaskStore()
-
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
 
     updated = await store.update_task(task.taskId, status="completed", status_message="All done!")
@@ -90,25 +81,17 @@ async def test_update_status() -> None:
     assert retrieved.status == "completed"
     assert retrieved.statusMessage == "All done!"
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_update_nonexistent_raises() -> None:
+async def test_update_nonexistent_raises(store: InMemoryTaskStore) -> None:
     """Test that updating a nonexistent task raises."""
-    store = InMemoryTaskStore()
-
     with pytest.raises(ValueError, match="not found"):
         await store.update_task("nonexistent", status="completed")
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_store_and_get_result() -> None:
+async def test_store_and_get_result(store: InMemoryTaskStore) -> None:
     """Test InMemoryTaskStore result storage and retrieval."""
-    store = InMemoryTaskStore()
-
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
 
     # Store result
@@ -119,37 +102,25 @@ async def test_store_and_get_result() -> None:
     retrieved_result = await store.get_result(task.taskId)
     assert retrieved_result == result
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_get_result_nonexistent_returns_none() -> None:
+async def test_get_result_nonexistent_returns_none(store: InMemoryTaskStore) -> None:
     """Test that getting result for nonexistent task returns None."""
-    store = InMemoryTaskStore()
-
     result = await store.get_result("nonexistent")
     assert result is None
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_get_result_no_result_returns_none() -> None:
+async def test_get_result_no_result_returns_none(store: InMemoryTaskStore) -> None:
     """Test that getting result when none stored returns None."""
-    store = InMemoryTaskStore()
-
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
     result = await store.get_result(task.taskId)
     assert result is None
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_list_tasks() -> None:
+async def test_list_tasks(store: InMemoryTaskStore) -> None:
     """Test InMemoryTaskStore list operation."""
-    store = InMemoryTaskStore()
-
     # Create multiple tasks
     for _ in range(3):
         await store.create_task(metadata=TaskMetadata(ttl=60000))
@@ -158,12 +129,11 @@ async def test_list_tasks() -> None:
     assert len(tasks) == 3
     assert next_cursor is None  # Less than page size
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
 async def test_list_tasks_pagination() -> None:
     """Test InMemoryTaskStore pagination."""
+    # Needs custom page_size, can't use fixture
     store = InMemoryTaskStore(page_size=2)
 
     # Create 5 tasks
@@ -189,23 +159,17 @@ async def test_list_tasks_pagination() -> None:
 
 
 @pytest.mark.anyio
-async def test_list_tasks_invalid_cursor() -> None:
+async def test_list_tasks_invalid_cursor(store: InMemoryTaskStore) -> None:
     """Test that invalid cursor raises."""
-    store = InMemoryTaskStore()
-
     await store.create_task(metadata=TaskMetadata(ttl=60000))
 
     with pytest.raises(ValueError, match="Invalid cursor"):
         await store.list_tasks(cursor="invalid-cursor")
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_delete_task() -> None:
+async def test_delete_task(store: InMemoryTaskStore) -> None:
     """Test InMemoryTaskStore delete operation."""
-    store = InMemoryTaskStore()
-
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
 
     deleted = await store.delete_task(task.taskId)
@@ -218,41 +182,29 @@ async def test_delete_task() -> None:
     deleted = await store.delete_task(task.taskId)
     assert deleted is False
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_get_all_tasks_helper() -> None:
+async def test_get_all_tasks_helper(store: InMemoryTaskStore) -> None:
     """Test the get_all_tasks debugging helper."""
-    store = InMemoryTaskStore()
-
     await store.create_task(metadata=TaskMetadata(ttl=60000))
     await store.create_task(metadata=TaskMetadata(ttl=60000))
 
     all_tasks = store.get_all_tasks()
     assert len(all_tasks) == 2
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_store_result_nonexistent_raises() -> None:
+async def test_store_result_nonexistent_raises(store: InMemoryTaskStore) -> None:
     """Test that storing result for nonexistent task raises ValueError."""
-    store = InMemoryTaskStore()
-
     result = CallToolResult(content=[TextContent(type="text", text="Result")])
 
     with pytest.raises(ValueError, match="not found"):
         await store.store_result("nonexistent-id", result)
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_create_task_with_null_ttl() -> None:
+async def test_create_task_with_null_ttl(store: InMemoryTaskStore) -> None:
     """Test creating task with null TTL (never expires)."""
-    store = InMemoryTaskStore()
-
     task = await store.create_task(metadata=TaskMetadata(ttl=None))
 
     assert task.ttl is None
@@ -261,14 +213,10 @@ async def test_create_task_with_null_ttl() -> None:
     retrieved = await store.get_task(task.taskId)
     assert retrieved is not None
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_task_expiration_cleanup() -> None:
+async def test_task_expiration_cleanup(store: InMemoryTaskStore) -> None:
     """Test that expired tasks are cleaned up lazily."""
-    store = InMemoryTaskStore()
-
     # Create a task with very short TTL
     task = await store.create_task(metadata=TaskMetadata(ttl=1))  # 1ms TTL
 
@@ -288,15 +236,10 @@ async def test_task_expiration_cleanup() -> None:
     assert task.taskId not in store._tasks
     assert len(tasks) == 0
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_task_with_null_ttl_never_expires() -> None:
+async def test_task_with_null_ttl_never_expires(store: InMemoryTaskStore) -> None:
     """Test that tasks with null TTL never expire during cleanup."""
-
-    store = InMemoryTaskStore()
-
     # Create task with null TTL
     task = await store.create_task(metadata=TaskMetadata(ttl=None))
 
@@ -314,15 +257,10 @@ async def test_task_with_null_ttl_never_expires() -> None:
     retrieved = await store.get_task(task.taskId)
     assert retrieved is not None
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_terminal_task_ttl_reset() -> None:
+async def test_terminal_task_ttl_reset(store: InMemoryTaskStore) -> None:
     """Test that TTL is reset when task enters terminal state."""
-
-    store = InMemoryTaskStore()
-
     # Create task with short TTL
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))  # 60s
 
@@ -340,18 +278,14 @@ async def test_terminal_task_ttl_reset() -> None:
     assert new_expiry is not None
     assert new_expiry >= initial_expiry
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_terminal_status_transition_rejected() -> None:
+async def test_terminal_status_transition_rejected(store: InMemoryTaskStore) -> None:
     """Test that transitions from terminal states are rejected.
 
     Per spec: Terminal states (completed, failed, cancelled) MUST NOT
     transition to any other status.
     """
-    store = InMemoryTaskStore()
-
     # Test each terminal status
     for terminal_status in ("completed", "failed", "cancelled"):
         task = await store.create_task(metadata=TaskMetadata(ttl=60000))
@@ -368,17 +302,13 @@ async def test_terminal_status_transition_rejected() -> None:
         with pytest.raises(ValueError, match="Cannot transition from terminal status"):
             await store.update_task(task.taskId, status=other_terminal)
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_terminal_status_allows_same_status() -> None:
+async def test_terminal_status_allows_same_status(store: InMemoryTaskStore) -> None:
     """Test that setting the same terminal status doesn't raise.
 
     This is not a transition, so it should be allowed (no-op).
     """
-    store = InMemoryTaskStore()
-
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
     await store.update_task(task.taskId, status="completed")
 
@@ -390,8 +320,6 @@ async def test_terminal_status_allows_same_status() -> None:
     updated = await store.update_task(task.taskId, status_message="Updated message")
     assert updated.statusMessage == "Updated message"
 
-    store.cleanup()
-
 
 # =============================================================================
 # cancel_task helper function tests
@@ -399,10 +327,8 @@ async def test_terminal_status_allows_same_status() -> None:
 
 
 @pytest.mark.anyio
-async def test_cancel_task_succeeds_for_working_task() -> None:
+async def test_cancel_task_succeeds_for_working_task(store: InMemoryTaskStore) -> None:
     """Test cancel_task helper succeeds for a working task."""
-    store = InMemoryTaskStore()
-
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
     assert task.status == "working"
 
@@ -416,28 +342,20 @@ async def test_cancel_task_succeeds_for_working_task() -> None:
     assert retrieved is not None
     assert retrieved.status == "cancelled"
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_cancel_task_rejects_nonexistent_task() -> None:
+async def test_cancel_task_rejects_nonexistent_task(store: InMemoryTaskStore) -> None:
     """Test cancel_task raises McpError with INVALID_PARAMS for nonexistent task."""
-    store = InMemoryTaskStore()
-
     with pytest.raises(McpError) as exc_info:
         await cancel_task(store, "nonexistent-task-id")
 
     assert exc_info.value.error.code == INVALID_PARAMS
     assert "not found" in exc_info.value.error.message
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_cancel_task_rejects_completed_task() -> None:
+async def test_cancel_task_rejects_completed_task(store: InMemoryTaskStore) -> None:
     """Test cancel_task raises McpError with INVALID_PARAMS for completed task."""
-    store = InMemoryTaskStore()
-
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
     await store.update_task(task.taskId, status="completed")
 
@@ -447,14 +365,10 @@ async def test_cancel_task_rejects_completed_task() -> None:
     assert exc_info.value.error.code == INVALID_PARAMS
     assert "terminal state 'completed'" in exc_info.value.error.message
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_cancel_task_rejects_failed_task() -> None:
+async def test_cancel_task_rejects_failed_task(store: InMemoryTaskStore) -> None:
     """Test cancel_task raises McpError with INVALID_PARAMS for failed task."""
-    store = InMemoryTaskStore()
-
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
     await store.update_task(task.taskId, status="failed")
 
@@ -464,14 +378,10 @@ async def test_cancel_task_rejects_failed_task() -> None:
     assert exc_info.value.error.code == INVALID_PARAMS
     assert "terminal state 'failed'" in exc_info.value.error.message
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_cancel_task_rejects_already_cancelled_task() -> None:
+async def test_cancel_task_rejects_already_cancelled_task(store: InMemoryTaskStore) -> None:
     """Test cancel_task raises McpError with INVALID_PARAMS for already cancelled task."""
-    store = InMemoryTaskStore()
-
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
     await store.update_task(task.taskId, status="cancelled")
 
@@ -481,14 +391,10 @@ async def test_cancel_task_rejects_already_cancelled_task() -> None:
     assert exc_info.value.error.code == INVALID_PARAMS
     assert "terminal state 'cancelled'" in exc_info.value.error.message
 
-    store.cleanup()
-
 
 @pytest.mark.anyio
-async def test_cancel_task_succeeds_for_input_required_task() -> None:
+async def test_cancel_task_succeeds_for_input_required_task(store: InMemoryTaskStore) -> None:
     """Test cancel_task helper succeeds for a task in input_required status."""
-    store = InMemoryTaskStore()
-
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
     await store.update_task(task.taskId, status="input_required")
 
@@ -496,5 +402,3 @@ async def test_cancel_task_succeeds_for_input_required_task() -> None:
 
     assert result.taskId == task.taskId
     assert result.status == "cancelled"
-
-    store.cleanup()

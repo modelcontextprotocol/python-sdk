@@ -15,10 +15,12 @@ from mcp.server.experimental.task_result_handler import TaskResultHandler
 from mcp.server.session import ServerSession
 from mcp.shared.exceptions import McpError
 from mcp.shared.experimental.tasks.context import TaskContext
+from mcp.shared.experimental.tasks.helpers import create_task_state
 from mcp.shared.experimental.tasks.message_queue import QueuedMessage, TaskMessageQueue
 from mcp.shared.experimental.tasks.resolver import Resolver
 from mcp.shared.experimental.tasks.store import TaskStore
 from mcp.types import (
+    INVALID_REQUEST,
     TASK_STATUS_INPUT_REQUIRED,
     TASK_STATUS_WORKING,
     ClientCapabilities,
@@ -35,6 +37,7 @@ from mcp.types import (
     SamplingMessage,
     ServerNotification,
     Task,
+    TaskMetadata,
     TaskStatusNotification,
     TaskStatusNotificationParams,
 )
@@ -90,14 +93,9 @@ class ServerTaskContext:
         if task is not None and task_id is not None:
             raise ValueError("Provide either task or task_id, not both")
 
-        # If task_id provided, we need to get the task from the store synchronously
-        # This is a limitation - for async task lookup, use task= parameter
+        # If task_id provided, create a minimal task object
+        # This is for backwards compatibility with tests that pass task_id
         if task is None:
-            # Create a minimal task object - the real task state comes from the store
-            # This is for backwards compatibility with tests that pass task_id
-            from mcp.shared.experimental.tasks.helpers import create_task_state
-            from mcp.types import TaskMetadata
-
             task = create_task_state(TaskMetadata(ttl=None), task_id=task_id)
 
         self._ctx = TaskContext(task=task, store=store)
@@ -191,7 +189,7 @@ class ServerTaskContext:
         if not self._session.check_client_capability(ClientCapabilities(elicitation=ElicitationCapability())):
             raise McpError(
                 ErrorData(
-                    code=-32600,  # INVALID_REQUEST
+                    code=INVALID_REQUEST,
                     message="Client does not support elicitation capability",
                 )
             )
@@ -201,7 +199,7 @@ class ServerTaskContext:
         if not self._session.check_client_capability(ClientCapabilities(sampling=SamplingCapability())):
             raise McpError(
                 ErrorData(
-                    code=-32600,  # INVALID_REQUEST
+                    code=INVALID_REQUEST,
                     message="Client does not support sampling capability",
                 )
             )
