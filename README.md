@@ -1438,7 +1438,7 @@ def calculate(a: int, b: int, operation: str) -> int:
 
 ##### Deployment Patterns
 
-**Pattern 1: Pure Stateless (Recommended)**
+###### Pattern 1: Pure Stateless (Recommended)
 
 ```python
 # Best for: Serverless, auto-scaling environments
@@ -1448,7 +1448,7 @@ mcp = FastMCP("MyServer", stateless_http=True, json_response=True)
 # Load balancer doesn't need session affinity
 ```
 
-**Pattern 2: Stateful with Sticky Sessions**
+###### Pattern 2: Stateful with Sticky Sessions
 
 ```python
 # Best for: When you need notifications but have load balancing
@@ -1458,7 +1458,7 @@ mcp = FastMCP("MyServer", stateless_http=False)  # Default
 # ALB/NGINX can route by header value to maintain session affinity
 ```
 
-**Pattern 3: Hybrid Approach**
+###### Pattern 3: Hybrid Approach
 
 ```python
 # Deploy both modes side-by-side
