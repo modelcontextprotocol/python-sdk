@@ -4,47 +4,19 @@
 
     Tasks are an experimental feature. The API may change without notice.
 
-This guide shows how to add task support to an MCP server, starting with the
-simplest case and building up to more advanced patterns.
+This guide covers implementing task support in MCP servers, from basic setup to advanced patterns like elicitation and sampling within tasks.
 
-## Prerequisites
+## Quick Start
 
-You'll need:
-
-- A low-level MCP server
-- A task store for state management
-- A task group for spawning background work
-
-## Step 1: Basic Setup
-
-First, set up the task store and server. The `InMemoryTaskStore` is suitable
-for development and testing:
+The simplest way to add task support:
 
 ```python
-from dataclasses import dataclass
-from anyio.abc import TaskGroup
-
 from mcp.server import Server
-from mcp.shared.experimental.tasks import InMemoryTaskStore
+from mcp.server.experimental.task_context import ServerTaskContext
+from mcp.types import CallToolResult, CreateTaskResult, TextContent, Tool, ToolExecution, TASK_REQUIRED
 
-
-@dataclass
-class AppContext:
-    """Application context available during request handling."""
-    task_group: TaskGroup
-    store: InMemoryTaskStore
-
-
-server: Server[AppContext, None] = Server("my-task-server")
-store = InMemoryTaskStore()
-```
-
-## Step 2: Declare Task-Supporting Tools
-
-Tools that support tasks should declare this in their execution metadata:
-
-```python
-from mcp.types import Tool, ToolExecution, TASK_REQUIRED, TASK_OPTIONAL
+server = Server("my-server")
+server.experimental.enable_tasks()  # Registers all task handlers automatically
 
 @server.list_tools()
 async def list_tools():
@@ -52,390 +24,574 @@ async def list_tools():
         Tool(
             name="process_data",
             description="Process data asynchronously",
-            inputSchema={
-                "type": "object",
-                "properties": {"input": {"type": "string"}},
-            },
-            # TASK_REQUIRED means this tool MUST be called as a task
+            inputSchema={"type": "object", "properties": {"input": {"type": "string"}}},
             execution=ToolExecution(taskSupport=TASK_REQUIRED),
-        ),
+        )
     ]
-```
-
-The `taskSupport` field can be:
-
-- `TASK_REQUIRED` ("required") - Tool must be called as a task
-- `TASK_OPTIONAL` ("optional") - Tool supports both sync and task execution
-- `TASK_FORBIDDEN` ("forbidden") - Tool cannot be called as a task (default)
-
-## Step 3: Handle Tool Calls
-
-When a client calls a tool as a task, the request context contains task metadata.
-Check for this and create a task:
-
-```python
-from mcp.shared.experimental.tasks import task_execution
-from mcp.types import (
-    CallToolResult,
-    CreateTaskResult,
-    TextContent,
-)
-
 
 @server.call_tool()
-async def handle_call_tool(name: str, arguments: dict) -> list[TextContent] | CreateTaskResult:
+async def handle_tool(name: str, arguments: dict) -> CallToolResult | CreateTaskResult:
+    if name == "process_data":
+        return await handle_process_data(arguments)
+    return CallToolResult(content=[TextContent(type="text", text=f"Unknown: {name}")], isError=True)
+
+async def handle_process_data(arguments: dict) -> CreateTaskResult:
     ctx = server.request_context
-    app = ctx.lifespan_context
+    ctx.experimental.validate_task_mode(TASK_REQUIRED)
 
-    if name == "process_data" and ctx.experimental.is_task:
-        # Get task metadata from the request
-        task_metadata = ctx.experimental.task_metadata
+    async def work(task: ServerTaskContext) -> CallToolResult:
+        await task.update_status("Processing...")
+        result = arguments.get("input", "").upper()
+        return CallToolResult(content=[TextContent(type="text", text=result)])
 
-        # Create the task in our store
-        task = await app.store.create_task(task_metadata)
-
-        # Define the work to do in the background
-        async def do_work():
-            async with task_execution(task.taskId, app.store) as task_ctx:
-                # Update status to show progress
-                await task_ctx.update_status("Processing input...", notify=False)
-
-                # Do the actual work
-                input_value = arguments.get("input", "")
-                result_text = f"Processed: {input_value.upper()}"
-
-                # Complete the task with the result
-                await task_ctx.complete(
-                    CallToolResult(
-                        content=[TextContent(type="text", text=result_text)]
-                    ),
-                    notify=False,
-                )
-
-        # Spawn work in the background task group
-        app.task_group.start_soon(do_work)
-
-        # Return immediately with the task reference
-        return CreateTaskResult(task=task)
-
-    # Non-task execution path
-    return [TextContent(type="text", text="Use task mode for this tool")]
+    return await ctx.experimental.run_task(work)
 ```
 
-Key points:
+That's it. `enable_tasks()` automatically:
 
-- `ctx.experimental.is_task` checks if this is a task-augmented request
-- `ctx.experimental.task_metadata` contains the task configuration
-- `task_execution` is a context manager that handles errors gracefully
-- Work runs in a separate coroutine via the task group
-- The handler returns `CreateTaskResult` immediately
+- Creates an in-memory task store
+- Registers handlers for `tasks/get`, `tasks/result`, `tasks/list`, `tasks/cancel`
+- Updates server capabilities
 
-## Step 4: Register Task Handlers
+## Tool Declaration
 
-Clients need endpoints to query task status and retrieve results. Register these
-using the experimental decorators:
+Tools declare task support via the `execution.taskSupport` field:
 
 ```python
-from mcp.types import (
-    GetTaskRequest,
-    GetTaskResult,
-    GetTaskPayloadRequest,
-    GetTaskPayloadResult,
-    ListTasksRequest,
-    ListTasksResult,
+from mcp.types import Tool, ToolExecution, TASK_REQUIRED, TASK_OPTIONAL, TASK_FORBIDDEN
+
+Tool(
+    name="my_tool",
+    inputSchema={"type": "object"},
+    execution=ToolExecution(taskSupport=TASK_REQUIRED),  # or TASK_OPTIONAL, TASK_FORBIDDEN
 )
-
-
-@server.experimental.get_task()
-async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
-    """Handle tasks/get requests - return current task status."""
-    app = server.request_context.lifespan_context
-    task = await app.store.get_task(request.params.taskId)
-
-    if task is None:
-        raise ValueError(f"Task {request.params.taskId} not found")
-
-    return GetTaskResult(
-        taskId=task.taskId,
-        status=task.status,
-        statusMessage=task.statusMessage,
-        createdAt=task.createdAt,
-        lastUpdatedAt=task.lastUpdatedAt,
-        ttl=task.ttl,
-        pollInterval=task.pollInterval,
-    )
-
-
-@server.experimental.get_task_result()
-async def handle_get_task_result(request: GetTaskPayloadRequest) -> GetTaskPayloadResult:
-    """Handle tasks/result requests - return the completed task's result."""
-    app = server.request_context.lifespan_context
-    result = await app.store.get_result(request.params.taskId)
-
-    if result is None:
-        raise ValueError(f"Result for task {request.params.taskId} not found")
-
-    # Return the stored result
-    assert isinstance(result, CallToolResult)
-    return GetTaskPayloadResult(**result.model_dump())
-
-
-@server.experimental.list_tasks()
-async def handle_list_tasks(request: ListTasksRequest) -> ListTasksResult:
-    """Handle tasks/list requests - return all tasks with pagination."""
-    app = server.request_context.lifespan_context
-    cursor = request.params.cursor if request.params else None
-    tasks, next_cursor = await app.store.list_tasks(cursor=cursor)
-
-    return ListTasksResult(tasks=tasks, nextCursor=next_cursor)
 ```
 
-## Step 5: Run the Server
+| Value | Meaning |
+|-------|---------|
+| `TASK_REQUIRED` | Tool **must** be called as a task |
+| `TASK_OPTIONAL` | Tool supports both sync and task execution |
+| `TASK_FORBIDDEN` | Tool **cannot** be called as a task (default) |
 
-Wire everything together with a task group for background work:
+Validate the request matches your tool's requirements:
 
 ```python
-import anyio
-from mcp.server.stdio import stdio_server
+@server.call_tool()
+async def handle_tool(name: str, arguments: dict):
+    ctx = server.request_context
 
+    if name == "required_task_tool":
+        ctx.experimental.validate_task_mode(TASK_REQUIRED)  # Raises if not task mode
+        return await handle_as_task(arguments)
 
-async def main():
-    async with anyio.create_task_group() as tg:
-        app = AppContext(task_group=tg, store=store)
+    elif name == "optional_task_tool":
+        if ctx.experimental.is_task:
+            return await handle_as_task(arguments)
+        else:
+            return handle_sync(arguments)
+```
 
-        async with stdio_server() as (read, write):
-            await server.run(
-                read,
-                write,
-                server.create_initialization_options(),
-                lifespan_context=app,
+## The run_task Pattern
+
+`run_task()` is the recommended way to execute task work:
+
+```python
+async def handle_my_tool(arguments: dict) -> CreateTaskResult:
+    ctx = server.request_context
+    ctx.experimental.validate_task_mode(TASK_REQUIRED)
+
+    async def work(task: ServerTaskContext) -> CallToolResult:
+        # Your work here
+        return CallToolResult(content=[TextContent(type="text", text="Done")])
+
+    return await ctx.experimental.run_task(work)
+```
+
+**What `run_task()` does:**
+
+1. Creates a task in the store
+2. Spawns your work function in the background
+3. Returns `CreateTaskResult` immediately
+4. Auto-completes the task when your function returns
+5. Auto-fails the task if your function raises
+
+**The `ServerTaskContext` provides:**
+
+- `task.task_id` - The task identifier
+- `task.update_status(message)` - Update progress
+- `task.complete(result)` - Explicitly complete (usually automatic)
+- `task.fail(error)` - Explicitly fail
+- `task.is_cancelled` - Check if cancellation requested
+
+## Status Updates
+
+Keep clients informed of progress:
+
+```python
+async def work(task: ServerTaskContext) -> CallToolResult:
+    await task.update_status("Starting...")
+
+    for i, item in enumerate(items):
+        await task.update_status(f"Processing {i+1}/{len(items)}")
+        await process_item(item)
+
+    await task.update_status("Finalizing...")
+    return CallToolResult(content=[TextContent(type="text", text="Complete")])
+```
+
+Status messages appear in `tasks/get` responses, letting clients show progress to users.
+
+## Elicitation Within Tasks
+
+Tasks can request user input via elicitation. This transitions the task to `input_required` status.
+
+### Form Elicitation
+
+Collect structured data from the user:
+
+```python
+async def work(task: ServerTaskContext) -> CallToolResult:
+    await task.update_status("Waiting for confirmation...")
+
+    result = await task.elicit(
+        message="Delete these files?",
+        requestedSchema={
+            "type": "object",
+            "properties": {
+                "confirm": {"type": "boolean"},
+                "reason": {"type": "string"},
+            },
+            "required": ["confirm"],
+        },
+    )
+
+    if result.action == "accept" and result.content.get("confirm"):
+        # User confirmed
+        return CallToolResult(content=[TextContent(type="text", text="Files deleted")])
+    else:
+        # User declined or cancelled
+        return CallToolResult(content=[TextContent(type="text", text="Cancelled")])
+```
+
+### URL Elicitation
+
+Direct users to external URLs for OAuth, payments, or other out-of-band flows:
+
+```python
+async def work(task: ServerTaskContext) -> CallToolResult:
+    await task.update_status("Waiting for OAuth...")
+
+    result = await task.elicit_url(
+        message="Please authorize with GitHub",
+        url="https://github.com/login/oauth/authorize?client_id=...",
+        elicitation_id="oauth-github-123",
+    )
+
+    if result.action == "accept":
+        # User completed OAuth flow
+        return CallToolResult(content=[TextContent(type="text", text="Connected to GitHub")])
+    else:
+        return CallToolResult(content=[TextContent(type="text", text="OAuth cancelled")])
+```
+
+## Sampling Within Tasks
+
+Tasks can request LLM completions from the client:
+
+```python
+from mcp.types import SamplingMessage, TextContent
+
+async def work(task: ServerTaskContext) -> CallToolResult:
+    await task.update_status("Generating response...")
+
+    result = await task.create_message(
+        messages=[
+            SamplingMessage(
+                role="user",
+                content=TextContent(type="text", text="Write a haiku about coding"),
             )
-
-
-if __name__ == "__main__":
-    anyio.run(main)
-```
-
-## The task_execution Context Manager
-
-The `task_execution` helper provides safe task execution:
-
-```python
-async with task_execution(task_id, store) as ctx:
-    await ctx.update_status("Working...")
-    result = await do_work()
-    await ctx.complete(result)
-```
-
-If an exception occurs inside the context, the task is automatically marked
-as failed with the exception message. This prevents tasks from getting stuck
-in the "working" state.
-
-The context provides:
-
-- `ctx.task_id` - The task identifier
-- `ctx.task` - Current task state
-- `ctx.is_cancelled` - Check if cancellation was requested
-- `ctx.update_status(msg)` - Update the status message
-- `ctx.complete(result)` - Mark task as completed
-- `ctx.fail(error)` - Mark task as failed
-
-## Handling Cancellation
-
-To support task cancellation, register a cancel handler and check for
-cancellation in your work:
-
-```python
-from mcp.types import CancelTaskRequest, CancelTaskResult
-
-# Track running tasks so we can cancel them
-running_tasks: dict[str, TaskContext] = {}
-
-
-@server.experimental.cancel_task()
-async def handle_cancel_task(request: CancelTaskRequest) -> CancelTaskResult:
-    task_id = request.params.taskId
-    app = server.request_context.lifespan_context
-
-    # Signal cancellation to the running work
-    if task_id in running_tasks:
-        running_tasks[task_id].request_cancellation()
-
-    # Update task status
-    task = await app.store.update_task(task_id, status="cancelled")
-
-    return CancelTaskResult(
-        taskId=task.taskId,
-        status=task.status,
+        ],
+        max_tokens=100,
     )
+
+    haiku = result.content.text if isinstance(result.content, TextContent) else "Error"
+    return CallToolResult(content=[TextContent(type="text", text=haiku)])
 ```
 
-Then check for cancellation in your work:
+Sampling supports additional parameters:
 
 ```python
-async def do_work():
-    async with task_execution(task.taskId, app.store) as ctx:
-        running_tasks[task.taskId] = ctx
-        try:
-            for i in range(100):
-                if ctx.is_cancelled:
-                    return  # Exit gracefully
+result = await task.create_message(
+    messages=[...],
+    max_tokens=500,
+    system_prompt="You are a helpful assistant",
+    temperature=0.7,
+    stop_sequences=["\n\n"],
+    model_preferences=ModelPreferences(hints=[ModelHint(name="claude-3")]),
+)
+```
 
-                await ctx.update_status(f"Processing step {i}/100")
-                await process_step(i)
+## Cancellation Support
 
-            await ctx.complete(result)
-        finally:
-            running_tasks.pop(task.taskId, None)
+Check for cancellation in long-running work:
+
+```python
+async def work(task: ServerTaskContext) -> CallToolResult:
+    for i in range(1000):
+        if task.is_cancelled:
+            # Clean up and exit
+            return CallToolResult(content=[TextContent(type="text", text="Cancelled")])
+
+        await task.update_status(f"Step {i}/1000")
+        await process_step(i)
+
+    return CallToolResult(content=[TextContent(type="text", text="Complete")])
+```
+
+The SDK's default cancel handler updates the task status. Your work function should check `is_cancelled` periodically.
+
+## Custom Task Store
+
+For production, implement `TaskStore` with persistent storage:
+
+```python
+from mcp.shared.experimental.tasks.store import TaskStore
+from mcp.types import Task, TaskMetadata, Result
+
+class RedisTaskStore(TaskStore):
+    def __init__(self, redis_client):
+        self.redis = redis_client
+
+    async def create_task(self, metadata: TaskMetadata, task_id: str | None = None) -> Task:
+        # Create and persist task
+        ...
+
+    async def get_task(self, task_id: str) -> Task | None:
+        # Retrieve task from Redis
+        ...
+
+    async def update_task(self, task_id: str, status: str | None = None, ...) -> Task:
+        # Update and persist
+        ...
+
+    async def store_result(self, task_id: str, result: Result) -> None:
+        # Store result in Redis
+        ...
+
+    async def get_result(self, task_id: str) -> Result | None:
+        # Retrieve result
+        ...
+
+    # ... implement remaining methods
+```
+
+Use your custom store:
+
+```python
+store = RedisTaskStore(redis_client)
+server.experimental.enable_tasks(store=store)
 ```
 
 ## Complete Example
 
-Here's a full working server with task support:
+A server with multiple task-supporting tools:
 
 ```python
-from dataclasses import dataclass
-from typing import Any
-
-import anyio
-from anyio.abc import TaskGroup
-
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.shared.experimental.tasks import InMemoryTaskStore, task_execution
+from mcp.server.experimental.task_context import ServerTaskContext
 from mcp.types import (
-    TASK_REQUIRED,
-    CallToolResult,
-    CreateTaskResult,
-    GetTaskPayloadRequest,
-    GetTaskPayloadResult,
-    GetTaskRequest,
-    GetTaskResult,
-    ListTasksRequest,
-    ListTasksResult,
-    TextContent,
-    Tool,
-    ToolExecution,
+    CallToolResult, CreateTaskResult, TextContent, Tool, ToolExecution,
+    SamplingMessage, TASK_REQUIRED,
 )
 
-
-@dataclass
-class AppContext:
-    task_group: TaskGroup
-    store: InMemoryTaskStore
-
-
-server: Server[AppContext, Any] = Server("task-example")
-store = InMemoryTaskStore()
+server = Server("task-demo")
+server.experimental.enable_tasks()
 
 
 @server.list_tools()
 async def list_tools():
     return [
         Tool(
-            name="slow_echo",
-            description="Echo input after a delay (demonstrates tasks)",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "message": {"type": "string"},
-                    "delay_seconds": {"type": "number", "default": 2},
-                },
-                "required": ["message"],
-            },
+            name="confirm_action",
+            description="Requires user confirmation",
+            inputSchema={"type": "object", "properties": {"action": {"type": "string"}}},
+            execution=ToolExecution(taskSupport=TASK_REQUIRED),
+        ),
+        Tool(
+            name="generate_text",
+            description="Generate text via LLM",
+            inputSchema={"type": "object", "properties": {"prompt": {"type": "string"}}},
             execution=ToolExecution(taskSupport=TASK_REQUIRED),
         ),
     ]
 
 
-@server.call_tool()
-async def handle_call_tool(
-    name: str, arguments: dict[str, Any]
-) -> list[TextContent] | CreateTaskResult:
+async def handle_confirm_action(arguments: dict) -> CreateTaskResult:
     ctx = server.request_context
-    app = ctx.lifespan_context
+    ctx.experimental.validate_task_mode(TASK_REQUIRED)
 
-    if name == "slow_echo" and ctx.experimental.is_task:
-        task = await app.store.create_task(ctx.experimental.task_metadata)
+    action = arguments.get("action", "unknown action")
 
-        async def do_work():
-            async with task_execution(task.taskId, app.store) as task_ctx:
-                message = arguments.get("message", "")
-                delay = arguments.get("delay_seconds", 2)
+    async def work(task: ServerTaskContext) -> CallToolResult:
+        result = await task.elicit(
+            message=f"Confirm: {action}?",
+            requestedSchema={
+                "type": "object",
+                "properties": {"confirm": {"type": "boolean"}},
+                "required": ["confirm"],
+            },
+        )
 
-                await task_ctx.update_status("Starting...", notify=False)
-                await anyio.sleep(delay / 2)
+        if result.action == "accept" and result.content.get("confirm"):
+            return CallToolResult(content=[TextContent(type="text", text=f"Executed: {action}")])
+        return CallToolResult(content=[TextContent(type="text", text="Cancelled")])
 
-                await task_ctx.update_status("Almost done...", notify=False)
-                await anyio.sleep(delay / 2)
-
-                await task_ctx.complete(
-                    CallToolResult(
-                        content=[TextContent(type="text", text=f"Echo: {message}")]
-                    ),
-                    notify=False,
-                )
-
-        app.task_group.start_soon(do_work)
-        return CreateTaskResult(task=task)
-
-    return [TextContent(type="text", text="This tool requires task mode")]
+    return await ctx.experimental.run_task(work)
 
 
-@server.experimental.get_task()
-async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
-    app = server.request_context.lifespan_context
-    task = await app.store.get_task(request.params.taskId)
-    if task is None:
-        raise ValueError(f"Task not found: {request.params.taskId}")
-    return GetTaskResult(
-        taskId=task.taskId,
-        status=task.status,
-        statusMessage=task.statusMessage,
-        createdAt=task.createdAt,
-        lastUpdatedAt=task.lastUpdatedAt,
-        ttl=task.ttl,
-        pollInterval=task.pollInterval,
+async def handle_generate_text(arguments: dict) -> CreateTaskResult:
+    ctx = server.request_context
+    ctx.experimental.validate_task_mode(TASK_REQUIRED)
+
+    prompt = arguments.get("prompt", "Hello")
+
+    async def work(task: ServerTaskContext) -> CallToolResult:
+        await task.update_status("Generating...")
+
+        result = await task.create_message(
+            messages=[SamplingMessage(role="user", content=TextContent(type="text", text=prompt))],
+            max_tokens=200,
+        )
+
+        text = result.content.text if isinstance(result.content, TextContent) else "Error"
+        return CallToolResult(content=[TextContent(type="text", text=text)])
+
+    return await ctx.experimental.run_task(work)
+
+
+@server.call_tool()
+async def handle_tool(name: str, arguments: dict) -> CallToolResult | CreateTaskResult:
+    if name == "confirm_action":
+        return await handle_confirm_action(arguments)
+    elif name == "generate_text":
+        return await handle_generate_text(arguments)
+    return CallToolResult(content=[TextContent(type="text", text=f"Unknown: {name}")], isError=True)
+```
+
+## Error Handling in Tasks
+
+Tasks handle errors automatically, but you can also fail explicitly:
+
+```python
+async def work(task: ServerTaskContext) -> CallToolResult:
+    try:
+        result = await risky_operation()
+        return CallToolResult(content=[TextContent(type="text", text=result)])
+    except PermissionError:
+        await task.fail("Access denied - insufficient permissions")
+        raise
+    except TimeoutError:
+        await task.fail("Operation timed out after 30 seconds")
+        raise
+```
+
+When `run_task()` catches an exception, it automatically:
+
+1. Marks the task as `failed`
+2. Sets `statusMessage` to the exception message
+3. Propagates the exception (which is caught by the task group)
+
+For custom error messages, call `task.fail()` before raising.
+
+## HTTP Transport Example
+
+For web applications, use the Streamable HTTP transport:
+
+```python
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import uvicorn
+from starlette.applications import Starlette
+from starlette.routing import Mount
+
+from mcp.server import Server
+from mcp.server.experimental.task_context import ServerTaskContext
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.types import (
+    CallToolResult, CreateTaskResult, TextContent, Tool, ToolExecution, TASK_REQUIRED,
+)
+
+
+server = Server("http-task-server")
+server.experimental.enable_tasks()
+
+
+@server.list_tools()
+async def list_tools():
+    return [
+        Tool(
+            name="long_operation",
+            description="A long-running operation",
+            inputSchema={"type": "object", "properties": {"duration": {"type": "number"}}},
+            execution=ToolExecution(taskSupport=TASK_REQUIRED),
+        )
+    ]
+
+
+async def handle_long_operation(arguments: dict) -> CreateTaskResult:
+    ctx = server.request_context
+    ctx.experimental.validate_task_mode(TASK_REQUIRED)
+
+    duration = arguments.get("duration", 5)
+
+    async def work(task: ServerTaskContext) -> CallToolResult:
+        import anyio
+        for i in range(int(duration)):
+            await task.update_status(f"Step {i+1}/{int(duration)}")
+            await anyio.sleep(1)
+        return CallToolResult(content=[TextContent(type="text", text=f"Completed after {duration}s")])
+
+    return await ctx.experimental.run_task(work)
+
+
+@server.call_tool()
+async def handle_tool(name: str, arguments: dict) -> CallToolResult | CreateTaskResult:
+    if name == "long_operation":
+        return await handle_long_operation(arguments)
+    return CallToolResult(content=[TextContent(type="text", text=f"Unknown: {name}")], isError=True)
+
+
+def create_app():
+    session_manager = StreamableHTTPSessionManager(app=server)
+
+    @asynccontextmanager
+    async def lifespan(app: Starlette) -> AsyncIterator[None]:
+        async with session_manager.run():
+            yield
+
+    return Starlette(
+        routes=[Mount("/mcp", app=session_manager.handle_request)],
+        lifespan=lifespan,
     )
 
 
-@server.experimental.get_task_result()
-async def handle_get_task_result(
-    request: GetTaskPayloadRequest,
-) -> GetTaskPayloadResult:
-    app = server.request_context.lifespan_context
-    result = await app.store.get_result(request.params.taskId)
-    if result is None:
-        raise ValueError(f"Result not found: {request.params.taskId}")
-    assert isinstance(result, CallToolResult)
-    return GetTaskPayloadResult(**result.model_dump())
-
-
-@server.experimental.list_tasks()
-async def handle_list_tasks(request: ListTasksRequest) -> ListTasksResult:
-    app = server.request_context.lifespan_context
-    cursor = request.params.cursor if request.params else None
-    tasks, next_cursor = await app.store.list_tasks(cursor=cursor)
-    return ListTasksResult(tasks=tasks, nextCursor=next_cursor)
-
-
-async def main():
-    async with anyio.create_task_group() as tg:
-        app = AppContext(task_group=tg, store=store)
-        async with stdio_server() as (read, write):
-            await server.run(
-                read,
-                write,
-                server.create_initialization_options(),
-                lifespan_context=app,
-            )
-
-
 if __name__ == "__main__":
-    anyio.run(main)
+    uvicorn.run(create_app(), host="127.0.0.1", port=8000)
+```
+
+## Testing Task Servers
+
+Test task functionality with the SDK's testing utilities:
+
+```python
+import pytest
+import anyio
+from mcp.client.session import ClientSession
+from mcp.types import CallToolResult
+
+
+@pytest.mark.anyio
+async def test_task_tool():
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream(10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream(10)
+
+    async def run_server():
+        await server.run(
+            client_to_server_receive,
+            server_to_client_send,
+            server.create_initialization_options(),
+        )
+
+    async def run_client():
+        async with ClientSession(server_to_client_receive, client_to_server_send) as session:
+            await session.initialize()
+
+            # Call the tool as a task
+            result = await session.experimental.call_tool_as_task("my_tool", {"arg": "value"})
+            task_id = result.task.taskId
+            assert result.task.status == "working"
+
+            # Poll until complete
+            async for status in session.experimental.poll_task(task_id):
+                if status.status in ("completed", "failed"):
+                    break
+
+            # Get result
+            final = await session.experimental.get_task_result(task_id, CallToolResult)
+            assert len(final.content) > 0
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(run_server)
+        tg.start_soon(run_client)
+```
+
+## Best Practices
+
+### Keep Work Functions Focused
+
+```python
+# Good: focused work function
+async def work(task: ServerTaskContext) -> CallToolResult:
+    await task.update_status("Validating...")
+    validate_input(arguments)
+
+    await task.update_status("Processing...")
+    result = await process_data(arguments)
+
+    return CallToolResult(content=[TextContent(type="text", text=result)])
+```
+
+### Check Cancellation in Loops
+
+```python
+async def work(task: ServerTaskContext) -> CallToolResult:
+    results = []
+    for item in large_dataset:
+        if task.is_cancelled:
+            return CallToolResult(content=[TextContent(type="text", text="Cancelled")])
+
+        results.append(await process(item))
+
+    return CallToolResult(content=[TextContent(type="text", text=str(results))])
+```
+
+### Use Meaningful Status Messages
+
+```python
+async def work(task: ServerTaskContext) -> CallToolResult:
+    await task.update_status("Connecting to database...")
+    db = await connect()
+
+    await task.update_status("Fetching records (0/1000)...")
+    for i, record in enumerate(records):
+        if i % 100 == 0:
+            await task.update_status(f"Processing records ({i}/1000)...")
+        await process(record)
+
+    await task.update_status("Finalizing results...")
+    return CallToolResult(content=[TextContent(type="text", text="Done")])
+```
+
+### Handle Elicitation Responses
+
+```python
+async def work(task: ServerTaskContext) -> CallToolResult:
+    result = await task.elicit(message="Continue?", requestedSchema={...})
+
+    match result.action:
+        case "accept":
+            # User accepted, process content
+            return await process_accepted(result.content)
+        case "decline":
+            # User explicitly declined
+            return CallToolResult(content=[TextContent(type="text", text="User declined")])
+        case "cancel":
+            # User cancelled the elicitation
+            return CallToolResult(content=[TextContent(type="text", text="Cancelled")])
 ```
 
 ## Next Steps
 
-- [Client Usage](tasks-client.md) - Learn how to call tasks from a client
-- [Tasks Overview](tasks.md) - Review the task lifecycle and concepts
+- [Client Usage](tasks-client.md) - Learn how clients interact with task servers
+- [Tasks Overview](tasks.md) - Review lifecycle and concepts
