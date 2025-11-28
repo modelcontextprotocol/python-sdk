@@ -5,7 +5,7 @@ import pytest
 from mcp.shared.instrumentation import NoOpInstrumenter, get_default_instrumenter
 
 
-class TestInstrumenter:
+class MockInstrumenter:
     """Track calls to instrumentation hooks for testing."""
 
     def __init__(self):
@@ -75,8 +75,8 @@ def test_get_default_instrumenter():
 
 
 def test_instrumenter_protocol():
-    """Test that TestInstrumenter implements the Instrumenter protocol."""
-    instrumenter = TestInstrumenter()
+    """Test that MockInstrumenter implements the Instrumenter protocol."""
+    instrumenter = MockInstrumenter()
 
     # Call all methods to ensure they exist
     token = instrumenter.on_request_start(request_id=1, request_type="TestRequest", method="test_method")
@@ -94,7 +94,7 @@ def test_instrumenter_protocol():
 
 def test_instrumenter_tracks_request_id():
     """Test that request_id is tracked consistently across hooks."""
-    instrumenter = TestInstrumenter()
+    instrumenter = MockInstrumenter()
     test_request_id = 42
 
     token = instrumenter.on_request_start(request_id=test_request_id, request_type="TestRequest")
@@ -108,7 +108,7 @@ def test_instrumenter_tracks_request_id():
 
 def test_instrumenter_metadata():
     """Test that metadata is passed through correctly."""
-    instrumenter = TestInstrumenter()
+    instrumenter = MockInstrumenter()
 
     instrumenter.on_request_start(
         request_id=1, request_type="TestRequest", method="test_tool", session_type="server", custom_field="custom_value"
@@ -122,7 +122,7 @@ def test_instrumenter_metadata():
 
 def test_instrumenter_duration_tracking():
     """Test that duration is passed to on_request_end."""
-    instrumenter = TestInstrumenter()
+    instrumenter = MockInstrumenter()
 
     token = {"test": "token"}
     instrumenter.on_request_end(
@@ -136,7 +136,7 @@ def test_instrumenter_duration_tracking():
 
 def test_instrumenter_error_info():
     """Test that error information is captured correctly."""
-    instrumenter = TestInstrumenter()
+    instrumenter = MockInstrumenter()
     test_error = ValueError("test error message")
 
     token = {"test": "token"}
@@ -153,7 +153,7 @@ def test_instrumenter_error_info():
 
 def test_instrumenter_token_flow():
     """Test that token is passed correctly from start to end/error."""
-    instrumenter = TestInstrumenter()
+    instrumenter = MockInstrumenter()
 
     # Start request and get token
     token = instrumenter.on_request_start(request_id=1, request_type="TestRequest", method="test_tool")
