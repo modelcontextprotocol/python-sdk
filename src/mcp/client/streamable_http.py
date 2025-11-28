@@ -64,6 +64,7 @@ class RequestContext:
 
     client: httpx.AsyncClient
     headers: dict[str, str]
+    extensions: dict[str, str] | None
     session_id: str | None
     session_message: SessionMessage
     metadata: ClientMessageMetadata | None
@@ -78,6 +79,7 @@ class StreamableHTTPTransport:
         self,
         url: str,
         headers: dict[str, str] | None = None,
+        extensions: dict[str, str] | None = None,
         timeout: float | timedelta = 30,
         sse_read_timeout: float | timedelta = 60 * 5,
         auth: httpx.Auth | None = None,
@@ -87,12 +89,14 @@ class StreamableHTTPTransport:
         Args:
             url: The endpoint URL.
             headers: Optional headers to include in requests.
+            extensions: Optional extensions to include in requests.
             timeout: HTTP timeout for regular operations.
             sse_read_timeout: Timeout for SSE read operations.
             auth: Optional HTTPX authentication handler.
         """
         self.url = url
         self.headers = headers or {}
+        self.extensions = extensions.copy() if extensions else {}
         self.timeout = timeout.total_seconds() if isinstance(timeout, timedelta) else timeout
         self.sse_read_timeout = (
             sse_read_timeout.total_seconds() if isinstance(sse_read_timeout, timedelta) else sse_read_timeout
@@ -114,6 +118,12 @@ class StreamableHTTPTransport:
         if self.protocol_version:
             headers[MCP_PROTOCOL_VERSION] = self.protocol_version
         return headers
+
+    def _prepare_request_extensions(self, base_extensions: dict[str, str] | None) -> dict[str, str]:
+        """Update extensions with session-specific data if available."""
+        extensions = base_extensions.copy() if base_extensions else {}
+        # Add any session-specific extensions here if needed
+        return extensions
 
     def _is_initialization_request(self, message: JSONRPCMessage) -> bool:
         """Check if the message is an initialization request."""
@@ -138,16 +148,14 @@ class StreamableHTTPTransport:
         message: JSONRPCMessage,
     ) -> None:
         """Extract protocol version from initialization response message."""
-        if isinstance(message.root, JSONRPCResponse) and message.root.result:  # pragma: no branch
+        if isinstance(message.root, JSONRPCResponse) and message.root.result:
             try:
                 # Parse the result as InitializeResult for type safety
                 init_result = InitializeResult.model_validate(message.root.result)
                 self.protocol_version = str(init_result.protocolVersion)
                 logger.info(f"Negotiated protocol version: {self.protocol_version}")
-            except Exception as exc:  # pragma: no cover
-                logger.warning(
-                    f"Failed to parse initialization response as InitializeResult: {exc}"
-                )  # pragma: no cover
+            except Exception as exc:
+                logger.warning(f"Failed to parse initialization response as InitializeResult: {exc}")
                 logger.warning(f"Raw result: {message.root.result}")
 
     async def _handle_sse_event(
@@ -160,9 +168,6 @@ class StreamableHTTPTransport:
     ) -> bool:
         """Handle an SSE event, returning True if the response is complete."""
         if sse.event == "message":
-            # Skip empty data (keep-alive pings)
-            if not sse.data:
-                return False
             try:
                 message = JSONRPCMessage.model_validate_json(sse.data)
                 logger.debug(f"SSE message: {message}")
@@ -186,11 +191,11 @@ class StreamableHTTPTransport:
                 # Otherwise, return False to continue listening
                 return isinstance(message.root, JSONRPCResponse | JSONRPCError)
 
-            except Exception as exc:  # pragma: no cover
+            except Exception as exc:
                 logger.exception("Error parsing SSE message")
                 await read_stream_writer.send(exc)
                 return False
-        else:  # pragma: no cover
+        else:
             logger.warning(f"Unknown SSE event: {sse.event}")
             return False
 
@@ -220,7 +225,7 @@ class StreamableHTTPTransport:
                     await self._handle_sse_event(sse, read_stream_writer)
 
         except Exception as exc:
-            logger.debug(f"GET stream error (non-fatal): {exc}")  # pragma: no cover
+            logger.debug(f"GET stream error (non-fatal): {exc}")
 
     async def _handle_resumption_request(self, ctx: RequestContext) -> None:
         """Handle a resumption request using GET with SSE."""
@@ -228,11 +233,11 @@ class StreamableHTTPTransport:
         if ctx.metadata and ctx.metadata.resumption_token:
             headers[LAST_EVENT_ID] = ctx.metadata.resumption_token
         else:
-            raise ResumptionError("Resumption request requires a resumption token")  # pragma: no cover
+            raise ResumptionError("Resumption request requires a resumption token")
 
         # Extract original request ID to map responses
         original_request_id = None
-        if isinstance(ctx.session_message.message.root, JSONRPCRequest):  # pragma: no branch
+        if isinstance(ctx.session_message.message.root, JSONRPCRequest):
             original_request_id = ctx.session_message.message.root.id
 
         async with aconnect_sse(
@@ -245,7 +250,7 @@ class StreamableHTTPTransport:
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
 
-            async for sse in event_source.aiter_sse():  # pragma: no branch
+            async for sse in event_source.aiter_sse():
                 is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
@@ -259,6 +264,7 @@ class StreamableHTTPTransport:
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
         headers = self._prepare_request_headers(ctx.headers)
+        extensions = self._prepare_request_extensions(ctx.extensions)
         message = ctx.session_message.message
         is_initialization = self._is_initialization_request(message)
 
@@ -267,18 +273,19 @@ class StreamableHTTPTransport:
             self.url,
             json=message.model_dump(by_alias=True, mode="json", exclude_none=True),
             headers=headers,
+            extensions=extensions,
         ) as response:
             if response.status_code == 202:
                 logger.debug("Received 202 Accepted")
                 return
 
-            if response.status_code == 404:  # pragma: no branch
+            if response.status_code == 404:
                 if isinstance(message.root, JSONRPCRequest):
-                    await self._send_session_terminated_error(  # pragma: no cover
-                        ctx.read_stream_writer,  # pragma: no cover
-                        message.root.id,  # pragma: no cover
-                    )  # pragma: no cover
-                return  # pragma: no cover
+                    await self._send_session_terminated_error(
+                        ctx.read_stream_writer,
+                        message.root.id,
+                    )
+                return
 
             response.raise_for_status()
             if is_initialization:
@@ -293,10 +300,10 @@ class StreamableHTTPTransport:
                 elif content_type.startswith(SSE):
                     await self._handle_sse_response(response, ctx, is_initialization)
                 else:
-                    await self._handle_unexpected_content_type(  # pragma: no cover
-                        content_type,  # pragma: no cover
-                        ctx.read_stream_writer,  # pragma: no cover
-                    )  # pragma: no cover
+                    await self._handle_unexpected_content_type(
+                        content_type,
+                        ctx.read_stream_writer,
+                    )
 
     async def _handle_json_response(
         self,
@@ -315,7 +322,7 @@ class StreamableHTTPTransport:
 
             session_message = SessionMessage(message)
             await read_stream_writer.send(session_message)
-        except Exception as exc:  # pragma: no cover
+        except Exception as exc:
             logger.exception("Error parsing JSON response")
             await read_stream_writer.send(exc)
 
@@ -328,7 +335,7 @@ class StreamableHTTPTransport:
         """Handle SSE response from the server."""
         try:
             event_source = EventSource(response)
-            async for sse in event_source.aiter_sse():  # pragma: no branch
+            async for sse in event_source.aiter_sse():
                 is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
@@ -341,18 +348,18 @@ class StreamableHTTPTransport:
                     await response.aclose()
                     break
         except Exception as e:
-            logger.exception("Error reading SSE stream:")  # pragma: no cover
-            await ctx.read_stream_writer.send(e)  # pragma: no cover
+            logger.exception("Error reading SSE stream:")
+            await ctx.read_stream_writer.send(e)
 
     async def _handle_unexpected_content_type(
         self,
         content_type: str,
         read_stream_writer: StreamWriter,
-    ) -> None:  # pragma: no cover
+    ) -> None:
         """Handle unexpected content type in response."""
-        error_msg = f"Unexpected content type: {content_type}"  # pragma: no cover
-        logger.error(error_msg)  # pragma: no cover
-        await read_stream_writer.send(ValueError(error_msg))  # pragma: no cover
+        error_msg = f"Unexpected content type: {content_type}"
+        logger.error(error_msg)
+        await read_stream_writer.send(ValueError(error_msg))
 
     async def _send_session_terminated_error(
         self,
@@ -400,6 +407,7 @@ class StreamableHTTPTransport:
                     ctx = RequestContext(
                         client=client,
                         headers=self.request_headers,
+                        extensions=self.extensions,
                         session_id=self.session_id,
                         session_message=session_message,
                         metadata=metadata,
@@ -420,12 +428,12 @@ class StreamableHTTPTransport:
                         await handle_request_async()
 
         except Exception:
-            logger.exception("Error in post_writer")  # pragma: no cover
+            logger.exception("Error in post_writer")
         finally:
             await read_stream_writer.aclose()
             await write_stream.aclose()
 
-    async def terminate_session(self, client: httpx.AsyncClient) -> None:  # pragma: no cover
+    async def terminate_session(self, client: httpx.AsyncClient) -> None:
         """Terminate the session by sending a DELETE request."""
         if not self.session_id:
             return
@@ -450,6 +458,7 @@ class StreamableHTTPTransport:
 async def streamablehttp_client(
     url: str,
     headers: dict[str, str] | None = None,
+    extensions: dict[str, str] | None = None,
     timeout: float | timedelta = 30,
     sse_read_timeout: float | timedelta = 60 * 5,
     terminate_on_close: bool = True,
@@ -475,7 +484,14 @@ async def streamablehttp_client(
             - write_stream: Stream for sending messages to the server
             - get_session_id_callback: Function to retrieve the current session ID
     """
-    transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout, auth)
+    transport = StreamableHTTPTransport(
+        url=url,
+        headers=headers,
+        extensions=extensions,
+        timeout=timeout,
+        sse_read_timeout=sse_read_timeout,
+        auth=auth,
+    )
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
