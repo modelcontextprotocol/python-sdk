@@ -517,7 +517,8 @@ class ServerSession(
 
         # Add related-task metadata if associated with a parent task
         if related_task_id is not None:
-            if "_meta" not in params_data:
+            # Defensive: model_dump() never includes _meta, but guard against future changes
+            if "_meta" not in params_data:  # pragma: no cover
                 params_data["_meta"] = {}
             params_data["_meta"]["io.modelcontextprotocol/related-task"] = {"taskId": related_task_id}
 
@@ -559,7 +560,8 @@ class ServerSession(
 
         # Add related-task metadata if associated with a parent task
         if related_task_id is not None:
-            if "_meta" not in params_data:
+            # Defensive: model_dump() never includes _meta, but guard against future changes
+            if "_meta" not in params_data:  # pragma: no cover
                 params_data["_meta"] = {}
             params_data["_meta"]["io.modelcontextprotocol/related-task"] = {"taskId": related_task_id}
 
@@ -626,7 +628,8 @@ class ServerSession(
 
         # Add related-task metadata if associated with a parent task
         if related_task_id is not None:
-            if "_meta" not in params_data:
+            # Defensive: model_dump() never includes _meta, but guard against future changes
+            if "_meta" not in params_data:  # pragma: no cover
                 params_data["_meta"] = {}
             params_data["_meta"]["io.modelcontextprotocol/related-task"] = {"taskId": related_task_id}
 

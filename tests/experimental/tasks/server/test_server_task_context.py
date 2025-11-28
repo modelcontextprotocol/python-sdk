@@ -371,6 +371,78 @@ async def test_elicit_queues_request_and_waits_for_response() -> None:
 
 
 @pytest.mark.anyio
+async def test_elicit_url_queues_request_and_waits_for_response() -> None:
+    """Test that elicit_url() queues request and waits for response."""
+    import anyio
+
+    from mcp.types import JSONRPCRequest
+
+    store = InMemoryTaskStore()
+    queue = InMemoryTaskMessageQueue()
+    handler = TaskResultHandler(store, queue)
+    task = await store.create_task(TaskMetadata(ttl=60000))
+
+    mock_session = Mock()
+    mock_session.check_client_capability = Mock(return_value=True)
+    mock_session._build_elicit_url_request = Mock(
+        return_value=JSONRPCRequest(
+            jsonrpc="2.0",
+            id="test-url-req-1",
+            method="elicitation/create",
+            params={"message": "Authorize", "url": "https://example.com", "elicitationId": "123", "mode": "url"},
+        )
+    )
+
+    ctx = ServerTaskContext(
+        task=task,
+        store=store,
+        session=mock_session,
+        queue=queue,
+        handler=handler,
+    )
+
+    elicit_result = None
+
+    async def run_elicit_url() -> None:
+        nonlocal elicit_result
+        elicit_result = await ctx.elicit_url(
+            message="Authorize",
+            url="https://example.com/oauth",
+            elicitation_id="oauth-123",
+        )
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(run_elicit_url)
+
+        # Wait for request to be queued
+        await queue.wait_for_message(task.taskId)
+
+        # Verify task is in input_required status
+        updated_task = await store.get_task(task.taskId)
+        assert updated_task is not None
+        assert updated_task.status == "input_required"
+
+        # Dequeue and simulate response
+        msg = await queue.dequeue(task.taskId)
+        assert msg is not None
+        assert msg.resolver is not None
+
+        # Resolve with mock elicitation response (URL mode just returns action)
+        msg.resolver.set_result({"action": "accept"})
+
+    # Verify result
+    assert elicit_result is not None
+    assert elicit_result.action == "accept"
+
+    # Verify task is back to working
+    final_task = await store.get_task(task.taskId)
+    assert final_task is not None
+    assert final_task.status == "working"
+
+    store.cleanup()
+
+
+@pytest.mark.anyio
 async def test_create_message_queues_request_and_waits_for_response() -> None:
     """Test that create_message() queues request and waits for response."""
     import anyio

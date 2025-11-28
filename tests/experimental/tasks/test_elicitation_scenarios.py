@@ -95,8 +95,8 @@ def create_client_task_handlers(
     ) -> GetTaskPayloadResult | ErrorData:
         """Handle tasks/result from server."""
         event = task_complete_events.get(params.taskId)
-        if event:
-            await event.wait()
+        assert event is not None, f"No completion event for task: {params.taskId}"
+        await event.wait()
         result = await client_task_store.get_result(params.taskId)
         assert result is not None, f"Result not found for task: {params.taskId}"
         return GetTaskPayloadResult.model_validate(result.model_dump(by_alias=True))
@@ -163,8 +163,8 @@ def create_sampling_task_handlers(
     ) -> GetTaskPayloadResult | ErrorData:
         """Handle tasks/result from server."""
         event = task_complete_events.get(params.taskId)
-        if event:
-            await event.wait()
+        assert event is not None, f"No completion event for task: {params.taskId}"
+        await event.wait()
         result = await client_task_store.get_result(params.taskId)
         assert result is not None, f"Result not found for task: {params.taskId}"
         return GetTaskPayloadResult.model_validate(result.model_dump(by_alias=True))
@@ -417,9 +417,12 @@ async def test_scenario3_task_augmented_tool_normal_elicitation() -> None:
             assert create_result.task.status == "working"
 
             # Poll until input_required, then call tasks/result
-            async for status in client_session.experimental.poll_task(task_id):
-                if status.status == "input_required":
+            found_input_required = False
+            async for status in client_session.experimental.poll_task(task_id):  # pragma: no branch
+                if status.status == "input_required":  # pragma: no branch
+                    found_input_required = True
                     break
+            assert found_input_required, "Expected to see input_required status"
 
             # This will deliver the elicitation and get the response
             final_result = await client_session.experimental.get_task_result(task_id, CallToolResult)
@@ -523,9 +526,12 @@ async def test_scenario4_task_augmented_tool_task_augmented_elicitation() -> Non
             assert create_result.task.status == "working"
 
             # Poll until input_required or terminal, then call tasks/result
-            async for status in client_session.experimental.poll_task(task_id):
-                if status.status == "input_required" or is_terminal(status.status):
+            found_expected_status = False
+            async for status in client_session.experimental.poll_task(task_id):  # pragma: no branch
+                if status.status == "input_required" or is_terminal(status.status):  # pragma: no branch
+                    found_expected_status = True
                     break
+            assert found_expected_status, "Expected to see input_required or terminal status"
 
             # This will deliver the task-augmented elicitation,
             # server will poll client, and eventually return the tool result
@@ -581,9 +587,8 @@ async def test_scenario2_sampling_normal_tool_task_augmented_sampling() -> None:
             ttl=60000,
         )
 
-        response_text = ""
-        if isinstance(result.content, TextContent):
-            response_text = result.content.text
+        assert isinstance(result.content, TextContent), "Expected TextContent response"
+        response_text = result.content.text
 
         tool_result.append(response_text)
         return CallToolResult(content=[TextContent(type="text", text=response_text)])
@@ -671,9 +676,8 @@ async def test_scenario4_sampling_task_augmented_tool_task_augmented_sampling() 
                 ttl=60000,
             )
 
-            response_text = ""
-            if isinstance(result.content, TextContent):
-                response_text = result.content.text
+            assert isinstance(result.content, TextContent), "Expected TextContent response"
+            response_text = result.content.text
 
             work_completed.set()
             return CallToolResult(content=[TextContent(type="text", text=response_text)])
@@ -710,9 +714,12 @@ async def test_scenario4_sampling_task_augmented_tool_task_augmented_sampling() 
             assert create_result.task.status == "working"
 
             # Poll until input_required or terminal
-            async for status in client_session.experimental.poll_task(task_id):
-                if status.status == "input_required" or is_terminal(status.status):
+            found_expected_status = False
+            async for status in client_session.experimental.poll_task(task_id):  # pragma: no branch
+                if status.status == "input_required" or is_terminal(status.status):  # pragma: no branch
+                    found_expected_status = True
                     break
+            assert found_expected_status, "Expected to see input_required or terminal status"
 
             final_result = await client_session.experimental.get_task_result(task_id, CallToolResult)
 
