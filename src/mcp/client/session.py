@@ -9,6 +9,7 @@ from typing_extensions import deprecated
 
 import mcp.types as types
 from mcp.shared.context import RequestContext
+from mcp.shared.instrumentation import Instrumenter, get_default_instrumenter
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
@@ -118,6 +119,7 @@ class ClientSession(
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
+        instrumenter: Instrumenter | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -127,6 +129,7 @@ class ClientSession(
             read_timeout_seconds=read_timeout_seconds,
         )
         self._client_info = client_info or DEFAULT_CLIENT_INFO
+        self._instrumenter = instrumenter or get_default_instrumenter()
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
@@ -134,6 +137,11 @@ class ClientSession(
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._server_capabilities: types.ServerCapabilities | None = None
+
+    @property
+    def instrumenter(self) -> Instrumenter:
+        """Get the instrumenter for this session."""
+        return self._instrumenter
 
     async def initialize(self) -> types.InitializeResult:
         sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None

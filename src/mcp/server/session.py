@@ -48,6 +48,7 @@ from pydantic import AnyUrl
 import mcp.types as types
 from mcp.server.models import InitializationOptions
 from mcp.shared.exceptions import McpError
+from mcp.shared.instrumentation import Instrumenter, get_default_instrumenter
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (
     BaseSession,
@@ -87,6 +88,7 @@ class ServerSession(
         write_stream: MemoryObjectSendStream[SessionMessage],
         init_options: InitializationOptions,
         stateless: bool = False,
+        instrumenter: Instrumenter | None = None,
     ) -> None:
         super().__init__(read_stream, write_stream, types.ClientRequest, types.ClientNotification)
         self._initialization_state = (
@@ -94,6 +96,7 @@ class ServerSession(
         )
 
         self._init_options = init_options
+        self._instrumenter = instrumenter or get_default_instrumenter()
         self._incoming_message_stream_writer, self._incoming_message_stream_reader = anyio.create_memory_object_stream[
             ServerRequestResponder
         ](0)
@@ -102,6 +105,11 @@ class ServerSession(
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
         return self._client_params  # pragma: no cover
+
+    @property
+    def instrumenter(self) -> Instrumenter:
+        """Get the instrumenter for this session."""
+        return self._instrumenter
 
     def check_client_capability(self, capability: types.ClientCapabilities) -> bool:  # pragma: no cover
         """Check if the client supports a specific capability."""
