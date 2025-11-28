@@ -160,6 +160,9 @@ class StreamableHTTPTransport:
     ) -> bool:
         """Handle an SSE event, returning True if the response is complete."""
         if sse.event == "message":
+            # Skip empty data (keep-alive pings)
+            if not sse.data:
+                return False
             try:
                 message = JSONRPCMessage.model_validate_json(sse.data)
                 logger.debug(f"SSE message: {message}")
