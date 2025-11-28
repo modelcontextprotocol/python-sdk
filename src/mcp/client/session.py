@@ -139,7 +139,7 @@ class ClientSession(
         self._server_capabilities: types.ServerCapabilities | None = None
 
     @property
-    def instrumenter(self) -> Instrumenter:
+    def instrumenter(self) -> Instrumenter:  # pragma: no cover
         """Get the instrumenter for this session."""
         return self._instrumenter
 

@@ -373,4 +373,3 @@ Note: For this simple metrics case, the token isn't strictly necessary, so we ju
 - Semantic conventions for MCP traces and metrics (see [open-telemetry/semantic-conventions#2083](https://github.com/open-telemetry/semantic-conventions/pull/2083))
 - Client-side request instrumentation
 - Async hook support for long-running instrumentation operations
-

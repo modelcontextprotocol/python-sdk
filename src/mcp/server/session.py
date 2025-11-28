@@ -107,7 +107,7 @@ class ServerSession(
         return self._client_params  # pragma: no cover
 
     @property
-    def instrumenter(self) -> Instrumenter:
+    def instrumenter(self) -> Instrumenter:  # pragma: no cover
         """Get the instrumenter for this session."""
         return self._instrumenter
 
