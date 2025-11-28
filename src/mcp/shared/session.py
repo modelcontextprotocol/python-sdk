@@ -462,9 +462,12 @@ class BaseSession(
         """
         root = message.message.root
 
-        # Type guard: this method is only called for responses/errors
-        if not isinstance(root, JSONRPCResponse | JSONRPCError):  # pragma: no cover
-            return
+        # This check is always true at runtime: the caller (_receive_loop) only invokes
+        # this method in the else branch after checking for JSONRPCRequest and
+        # JSONRPCNotification. However, the type checker can't infer this from the
+        # method signature, so we need this guard for type narrowing.
+        if not isinstance(root, JSONRPCResponse | JSONRPCError):
+            return  # pragma: no cover
 
         response_id: RequestId = root.id
 
