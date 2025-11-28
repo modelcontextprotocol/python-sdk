@@ -8,12 +8,18 @@ import pytest
 
 from mcp.client.session import ClientSession
 from mcp.server import Server
+from mcp.server.experimental.task_result_handler import TaskResultHandler
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared.message import SessionMessage
+from mcp.shared.exceptions import McpError
+from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
+from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.response_router import ResponseRouter
 from mcp.shared.session import RequestResponder
 from mcp.types import (
+    INVALID_REQUEST,
     TASK_FORBIDDEN,
     TASK_OPTIONAL,
     TASK_REQUIRED,
@@ -51,8 +57,6 @@ from mcp.types import (
     Tool,
     ToolExecution,
 )
-
-# --- Experimental handler tests ---
 
 
 @pytest.mark.anyio
@@ -174,9 +178,6 @@ async def test_cancel_task_handler() -> None:
     assert result.root.status == "cancelled"
 
 
-# --- Server capabilities tests ---
-
-
 @pytest.mark.anyio
 async def test_server_capabilities_include_tasks() -> None:
     """Test that server capabilities include tasks when handlers are registered."""
@@ -223,9 +224,6 @@ async def test_server_capabilities_partial_tasks() -> None:
     assert capabilities.tasks.cancel is None  # Not registered
 
 
-# --- Tool annotation tests ---
-
-
 @pytest.mark.anyio
 async def test_tool_with_task_execution_metadata() -> None:
     """Test that tools can declare task execution mode."""
@@ -268,9 +266,6 @@ async def test_tool_with_task_execution_metadata() -> None:
     assert tools[1].execution.taskSupport == TASK_REQUIRED
     assert tools[2].execution is not None
     assert tools[2].execution.taskSupport == TASK_OPTIONAL
-
-
-# --- Integration tests ---
 
 
 @pytest.mark.anyio
@@ -471,8 +466,6 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
     - _default_list_tasks
     - _default_cancel_task
     """
-    from mcp.shared.exceptions import McpError
-
     server = Server("test-default-handlers")
     # Enable tasks with default handlers (no custom handlers registered)
     task_support = server.experimental.enable_tasks()
@@ -569,10 +562,6 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
 @pytest.mark.anyio
 async def test_set_task_result_handler() -> None:
     """Test that set_task_result_handler adds the handler as a response router."""
-    from mcp.server.experimental.task_result_handler import TaskResultHandler
-    from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
-    from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
-
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
 
@@ -751,8 +740,6 @@ async def test_build_create_message_request() -> None:
 @pytest.mark.anyio
 async def test_send_message() -> None:
     """Test that send_message sends a raw session message."""
-    from mcp.shared.message import ServerMessageMetadata
-
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
 
@@ -790,8 +777,6 @@ async def test_send_message() -> None:
 @pytest.mark.anyio
 async def test_response_routing_success() -> None:
     """Test that response routing works for success responses."""
-    from mcp.shared.session import ResponseRouter
-
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
 
@@ -846,8 +831,6 @@ async def test_response_routing_success() -> None:
 @pytest.mark.anyio
 async def test_response_routing_error() -> None:
     """Test that error routing works for error responses."""
-    from mcp.shared.session import ResponseRouter
-
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
 
@@ -878,7 +861,7 @@ async def test_response_routing_error() -> None:
             server_session.add_response_router(router)
 
             # Simulate receiving an error response from client
-            error_data = ErrorData(code=-32600, message="Test error")
+            error_data = ErrorData(code=INVALID_REQUEST, message="Test error")
             error_response = JSONRPCError(jsonrpc="2.0", id="test-req-2", error=error_data)
             message = SessionMessage(message=JSONRPCMessage(error_response))
 
@@ -903,8 +886,6 @@ async def test_response_routing_error() -> None:
 @pytest.mark.anyio
 async def test_response_routing_skips_non_matching_routers() -> None:
     """Test that routing continues to next router when first doesn't match."""
-    from mcp.shared.session import ResponseRouter
-
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
 
@@ -963,8 +944,6 @@ async def test_response_routing_skips_non_matching_routers() -> None:
 @pytest.mark.anyio
 async def test_error_routing_skips_non_matching_routers() -> None:
     """Test that error routing continues to next router when first doesn't match."""
-    from mcp.shared.session import ResponseRouter
-
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
 
@@ -1004,7 +983,7 @@ async def test_error_routing_skips_non_matching_routers() -> None:
             server_session.add_response_router(MatchingRouter())
 
             # Send an error - should skip first router and be handled by second
-            error_data = ErrorData(code=-32600, message="Test error")
+            error_data = ErrorData(code=INVALID_REQUEST, message="Test error")
             error_response = JSONRPCError(jsonrpc="2.0", id="test-req-2", error=error_data)
             message = SessionMessage(message=JSONRPCMessage(error_response))
             await client_to_server_send.send(message)

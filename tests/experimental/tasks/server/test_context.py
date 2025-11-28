@@ -7,8 +7,6 @@ from mcp.shared.experimental.tasks.helpers import create_task_state, task_execut
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.types import CallToolResult, TaskMetadata, TextContent
 
-# --- TaskContext tests ---
-
 
 @pytest.mark.anyio
 async def test_task_context_properties() -> None:
@@ -98,9 +96,6 @@ async def test_task_context_cancellation() -> None:
     store.cleanup()
 
 
-# --- create_task_state tests ---
-
-
 def test_create_task_state_generates_id() -> None:
     """create_task_state generates a unique task ID when none provided."""
     task1 = create_task_state(TaskMetadata(ttl=60000))
@@ -125,9 +120,6 @@ def test_create_task_state_has_created_at() -> None:
     """create_task_state sets createdAt timestamp."""
     task = create_task_state(TaskMetadata(ttl=60000))
     assert task.createdAt is not None
-
-
-# --- task_execution context manager tests ---
 
 
 @pytest.mark.anyio

@@ -1,7 +1,9 @@
 """Tests for ServerTaskContext."""
 
+import asyncio
 from unittest.mock import AsyncMock, Mock
 
+import anyio
 import pytest
 
 from mcp.server.experimental.task_context import ServerTaskContext
@@ -11,13 +13,20 @@ from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
 from mcp.types import (
     CallToolResult,
+    ClientCapabilities,
+    ClientTasksCapability,
+    ClientTasksRequestsCapability,
+    Implementation,
+    InitializeRequestParams,
+    JSONRPCRequest,
+    SamplingMessage,
     TaskMetadata,
+    TasksCreateElicitationCapability,
+    TasksCreateMessageCapability,
+    TasksElicitationCapability,
+    TasksSamplingCapability,
     TextContent,
 )
-
-# =============================================================================
-# Property tests
-# =============================================================================
 
 
 @pytest.mark.anyio
@@ -62,11 +71,6 @@ async def test_server_task_context_request_cancellation() -> None:
     assert ctx.is_cancelled is True
 
     store.cleanup()
-
-
-# =============================================================================
-# Notification tests
-# =============================================================================
 
 
 @pytest.mark.anyio
@@ -158,11 +162,6 @@ async def test_server_task_context_fail_with_notify() -> None:
     store.cleanup()
 
 
-# =============================================================================
-# Capability check tests
-# =============================================================================
-
-
 @pytest.mark.anyio
 async def test_elicit_raises_when_client_lacks_capability() -> None:
     """Test that elicit() raises McpError when client doesn't support elicitation."""
@@ -213,11 +212,6 @@ async def test_create_message_raises_when_client_lacks_capability() -> None:
     assert "sampling capability" in exc_info.value.error.message
     mock_session.check_client_capability.assert_called_once()
     store.cleanup()
-
-
-# =============================================================================
-# Handler requirement tests
-# =============================================================================
 
 
 @pytest.mark.anyio
@@ -293,18 +287,9 @@ async def test_create_message_raises_without_handler() -> None:
     store.cleanup()
 
 
-# =============================================================================
-# Elicit and create_message flow tests
-# =============================================================================
-
-
 @pytest.mark.anyio
 async def test_elicit_queues_request_and_waits_for_response() -> None:
     """Test that elicit() queues request and waits for response."""
-    import anyio
-
-    from mcp.types import JSONRPCRequest
-
     store = InMemoryTaskStore()
     queue = InMemoryTaskMessageQueue()
     handler = TaskResultHandler(store, queue)
@@ -373,10 +358,6 @@ async def test_elicit_queues_request_and_waits_for_response() -> None:
 @pytest.mark.anyio
 async def test_elicit_url_queues_request_and_waits_for_response() -> None:
     """Test that elicit_url() queues request and waits for response."""
-    import anyio
-
-    from mcp.types import JSONRPCRequest
-
     store = InMemoryTaskStore()
     queue = InMemoryTaskMessageQueue()
     handler = TaskResultHandler(store, queue)
@@ -445,10 +426,6 @@ async def test_elicit_url_queues_request_and_waits_for_response() -> None:
 @pytest.mark.anyio
 async def test_create_message_queues_request_and_waits_for_response() -> None:
     """Test that create_message() queues request and waits for response."""
-    import anyio
-
-    from mcp.types import JSONRPCRequest, SamplingMessage, TextContent
-
     store = InMemoryTaskStore()
     queue = InMemoryTaskMessageQueue()
     handler = TaskResultHandler(store, queue)
@@ -524,10 +501,6 @@ async def test_create_message_queues_request_and_waits_for_response() -> None:
 @pytest.mark.anyio
 async def test_elicit_restores_status_on_cancellation() -> None:
     """Test that elicit() restores task status to working when cancelled."""
-    import anyio
-
-    from mcp.types import JSONRPCRequest
-
     store = InMemoryTaskStore()
     queue = InMemoryTaskMessageQueue()
     handler = TaskResultHandler(store, queue)
@@ -583,8 +556,6 @@ async def test_elicit_restores_status_on_cancellation() -> None:
         assert msg.resolver is not None
 
         # Trigger cancellation by setting exception (use asyncio.CancelledError directly)
-        import asyncio
-
         msg.resolver.set_exception(asyncio.CancelledError())
 
     # Verify task is back to working after cancellation
@@ -599,10 +570,6 @@ async def test_elicit_restores_status_on_cancellation() -> None:
 @pytest.mark.anyio
 async def test_create_message_restores_status_on_cancellation() -> None:
     """Test that create_message() restores task status to working when cancelled."""
-    import anyio
-
-    from mcp.types import JSONRPCRequest, SamplingMessage
-
     store = InMemoryTaskStore()
     queue = InMemoryTaskMessageQueue()
     handler = TaskResultHandler(store, queue)
@@ -658,8 +625,6 @@ async def test_create_message_restores_status_on_cancellation() -> None:
         assert msg.resolver is not None
 
         # Trigger cancellation by setting exception (use asyncio.CancelledError directly)
-        import asyncio
-
         msg.resolver.set_exception(asyncio.CancelledError())
 
     # Verify task is back to working after cancellation
@@ -674,16 +639,6 @@ async def test_create_message_restores_status_on_cancellation() -> None:
 @pytest.mark.anyio
 async def test_elicit_as_task_raises_without_handler() -> None:
     """Test that elicit_as_task() raises when handler is not provided."""
-    from mcp.types import (
-        ClientCapabilities,
-        ClientTasksCapability,
-        ClientTasksRequestsCapability,
-        Implementation,
-        InitializeRequestParams,
-        TasksCreateElicitationCapability,
-        TasksElicitationCapability,
-    )
-
     store = InMemoryTaskStore()
     queue = InMemoryTaskMessageQueue()
     task = await store.create_task(TaskMetadata(ttl=60000))
@@ -719,18 +674,6 @@ async def test_elicit_as_task_raises_without_handler() -> None:
 @pytest.mark.anyio
 async def test_create_message_as_task_raises_without_handler() -> None:
     """Test that create_message_as_task() raises when handler is not provided."""
-    from mcp.types import (
-        ClientCapabilities,
-        ClientTasksCapability,
-        ClientTasksRequestsCapability,
-        Implementation,
-        InitializeRequestParams,
-        SamplingMessage,
-        TasksCreateMessageCapability,
-        TasksSamplingCapability,
-        TextContent,
-    )
-
     store = InMemoryTaskStore()
     queue = InMemoryTaskMessageQueue()
     task = await store.create_task(TaskMetadata(ttl=60000))

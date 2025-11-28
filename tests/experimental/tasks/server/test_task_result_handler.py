@@ -14,6 +14,7 @@ from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
 from mcp.shared.experimental.tasks.resolver import Resolver
 from mcp.shared.message import SessionMessage
 from mcp.types import (
+    INVALID_REQUEST,
     CallToolResult,
     ErrorData,
     GetTaskPayloadRequest,
@@ -204,7 +205,7 @@ async def test_route_error_resolves_pending_request_with_exception(
     resolver: Resolver[dict[str, Any]] = Resolver()
     handler._pending_requests["req-123"] = resolver
 
-    error = ErrorData(code=-32600, message="Something went wrong")
+    error = ErrorData(code=INVALID_REQUEST, message="Something went wrong")
     result = handler.route_error("req-123", error)
 
     assert result is True
@@ -220,7 +221,7 @@ async def test_route_error_returns_false_for_unknown_request(
     store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
 ) -> None:
     """Test that route_error() returns False for unknown request ID."""
-    error = ErrorData(code=-32600, message="Error")
+    error = ErrorData(code=INVALID_REQUEST, message="Error")
     result = handler.route_error("unknown-req", error)
     assert result is False
 

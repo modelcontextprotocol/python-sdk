@@ -10,6 +10,7 @@ These are integration tests that verify the complete flow works end-to-end.
 """
 
 from typing import Any
+from unittest.mock import Mock
 
 import anyio
 import pytest
@@ -17,13 +18,25 @@ from anyio import Event
 
 from mcp.client.session import ClientSession
 from mcp.server import Server
+from mcp.server.experimental.request_context import Experimental
 from mcp.server.experimental.task_context import ServerTaskContext
+from mcp.server.experimental.task_support import TaskSupport
 from mcp.server.lowlevel import NotificationOptions
+from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
+from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
 from mcp.shared.message import SessionMessage
 from mcp.types import (
     TASK_REQUIRED,
     CallToolResult,
+    CancelTaskRequest,
+    CancelTaskResult,
     CreateTaskResult,
+    GetTaskPayloadRequest,
+    GetTaskPayloadResult,
+    GetTaskRequest,
+    GetTaskResult,
+    ListTasksRequest,
+    ListTasksResult,
     TextContent,
     Tool,
     ToolExecution,
@@ -113,12 +126,12 @@ async def test_run_task_basic_flow() -> None:
             with anyio.fail_after(5):
                 await work_completed.wait()
 
-            # Small delay to let task state update
-            await anyio.sleep(0.1)
-
-            # Poll task status
-            task_status = await client_session.experimental.get_task(task_id)
-            assert task_status.status == "completed"
+            # Poll until task status is completed
+            with anyio.fail_after(5):
+                while True:
+                    task_status = await client_session.experimental.get_task(task_id)
+                    if task_status.status == "completed":  # pragma: no branch
+                        break
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(run_server)
@@ -181,11 +194,13 @@ async def test_run_task_auto_fails_on_exception() -> None:
             with anyio.fail_after(5):
                 await work_failed.wait()
 
-            await anyio.sleep(0.1)
+            # Poll until task status is failed
+            with anyio.fail_after(5):
+                while True:
+                    task_status = await client_session.experimental.get_task(task_id)
+                    if task_status.status == "failed":  # pragma: no branch
+                        break
 
-            # Task should be failed
-            task_status = await client_session.experimental.get_task(task_id)
-            assert task_status.status == "failed"
             assert "Something went wrong" in (task_status.statusMessage or "")
 
     async with anyio.create_task_group() as tg:
@@ -217,9 +232,6 @@ async def test_enable_tasks_auto_registers_handlers() -> None:
 @pytest.mark.anyio
 async def test_enable_tasks_with_custom_store_and_queue() -> None:
     """Test that enable_tasks() uses provided store and queue instead of defaults."""
-    from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
-    from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
-
     server = Server("test-custom-store-queue")
 
     # Create custom store and queue
@@ -237,17 +249,6 @@ async def test_enable_tasks_with_custom_store_and_queue() -> None:
 @pytest.mark.anyio
 async def test_enable_tasks_skips_default_handlers_when_custom_registered() -> None:
     """Test that enable_tasks() doesn't override already-registered handlers."""
-    from mcp.types import (
-        CancelTaskRequest,
-        CancelTaskResult,
-        GetTaskPayloadRequest,
-        GetTaskPayloadResult,
-        GetTaskRequest,
-        GetTaskResult,
-        ListTasksRequest,
-        ListTasksResult,
-    )
-
     server = Server("test-custom-handlers")
 
     # Register custom handlers BEFORE enable_tasks (never called, just for registration)
@@ -281,8 +282,6 @@ async def test_enable_tasks_skips_default_handlers_when_custom_registered() -> N
 @pytest.mark.anyio
 async def test_run_task_without_enable_tasks_raises() -> None:
     """Test that run_task raises when enable_tasks() wasn't called."""
-    from mcp.server.experimental.request_context import Experimental
-
     experimental = Experimental(
         task_metadata=None,
         _client_capabilities=None,
@@ -300,8 +299,6 @@ async def test_run_task_without_enable_tasks_raises() -> None:
 @pytest.mark.anyio
 async def test_task_support_task_group_before_run_raises() -> None:
     """Test that accessing task_group before run() raises RuntimeError."""
-    from mcp.server.experimental.task_support import TaskSupport
-
     task_support = TaskSupport.in_memory()
 
     with pytest.raises(RuntimeError, match="TaskSupport not running"):
@@ -311,9 +308,6 @@ async def test_task_support_task_group_before_run_raises() -> None:
 @pytest.mark.anyio
 async def test_run_task_without_session_raises() -> None:
     """Test that run_task raises when session is not available."""
-    from mcp.server.experimental.request_context import Experimental
-    from mcp.server.experimental.task_support import TaskSupport
-
     task_support = TaskSupport.in_memory()
 
     experimental = Experimental(
@@ -333,11 +327,6 @@ async def test_run_task_without_session_raises() -> None:
 @pytest.mark.anyio
 async def test_run_task_without_task_metadata_raises() -> None:
     """Test that run_task raises when request is not task-augmented."""
-    from unittest.mock import Mock
-
-    from mcp.server.experimental.request_context import Experimental
-    from mcp.server.experimental.task_support import TaskSupport
-
     task_support = TaskSupport.in_memory()
     mock_session = Mock()
 
@@ -469,11 +458,12 @@ async def test_run_task_doesnt_complete_if_already_terminal() -> None:
             with anyio.fail_after(5):
                 await work_completed.wait()
 
-            await anyio.sleep(0.1)
-
-            # Task should be completed (from manual complete, not auto-complete)
-            status = await client_session.experimental.get_task(task_id)
-            assert status.status == "completed"
+            # Poll until task status is completed
+            with anyio.fail_after(5):
+                while True:
+                    status = await client_session.experimental.get_task(task_id)
+                    if status.status == "completed":  # pragma: no branch
+                        break
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(run_server)
@@ -533,11 +523,14 @@ async def test_run_task_doesnt_fail_if_already_terminal() -> None:
             with anyio.fail_after(5):
                 await work_completed.wait()
 
-            await anyio.sleep(0.1)
+            # Poll until task status is failed
+            with anyio.fail_after(5):
+                while True:
+                    status = await client_session.experimental.get_task(task_id)
+                    if status.status == "failed":  # pragma: no branch
+                        break
 
             # Task should still be failed (from manual fail, not auto-fail from exception)
-            status = await client_session.experimental.get_task(task_id)
-            assert status.status == "failed"
             assert status.statusMessage == "Manually failed"  # Not "This error should not change status"
 
     async with anyio.create_task_group() as tg:
