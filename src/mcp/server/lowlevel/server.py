@@ -70,6 +70,7 @@ from __future__ import annotations as _annotations
 import contextvars
 import json
 import logging
+import time
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
@@ -88,6 +89,7 @@ from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
+from mcp.shared.instrumentation import Instrumenter
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
@@ -615,6 +617,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         # the initialization lifecycle, but can do so with any available node
         # rather than requiring initialization for each connection.
         stateless: bool = False,
+        instrumenter: Instrumenter | None = None,
     ):
         async with AsyncExitStack() as stack:
             lifespan_context = await stack.enter_async_context(self.lifespan(self))
@@ -624,6 +627,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     write_stream,
                     initialization_options,
                     stateless=stateless,
+                    instrumenter=instrumenter,
                 )
             )
 
@@ -674,11 +678,28 @@ class Server(Generic[LifespanResultT, RequestT]):
         lifespan_context: LifespanResultT,
         raise_exceptions: bool,
     ):
-        logger.info("Processing request of type %s", type(req).__name__)
-        if handler := self.request_handlers.get(type(req)):  # type: ignore
-            logger.debug("Dispatching request of type %s", type(req).__name__)
+        request_type = type(req).__name__
+        log_extra = {"request_id": str(message.request_id)}
+        logger.info("Processing request of type %s", request_type, extra=log_extra)
 
-            token = None
+        # Start instrumentation and capture token
+        start_time = time.monotonic()
+        instrumentation_token = None
+        try:
+            instrumentation_token = session.instrumenter.on_request_start(
+                request_id=message.request_id,
+                request_type=request_type,
+                session_type="server",
+            )
+        except Exception:  # pragma: no cover
+            logger.exception("Error in instrumentation on_request_start")
+
+        if handler := self.request_handlers.get(type(req)):  # type: ignore
+            logger.debug("Dispatching request of type %s", request_type, extra=log_extra)
+
+            context_token = None
+            response = None
+            success = False
             try:
                 # Extract request context from message metadata
                 request_data = None
@@ -689,7 +710,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
                 # Set our global state that can be retrieved via
                 # app.get_request_context()
-                token = request_ctx.set(
+                context_token = request_ctx.set(
                     RequestContext(
                         message.request_id,
                         message.request_meta,
@@ -699,22 +720,65 @@ class Server(Generic[LifespanResultT, RequestT]):
                     )
                 )
                 response = await handler(req)
+                success = not isinstance(response, types.ErrorData)
             except McpError as err:  # pragma: no cover
                 response = err.error
+                try:
+                    session.instrumenter.on_error(
+                        token=instrumentation_token,
+                        request_id=message.request_id,
+                        error=err,
+                        error_type=type(err).__name__,
+                    )
+                except Exception:  # pragma: no cover
+                    logger.exception("Error in instrumentation on_error")
             except anyio.get_cancelled_exc_class():  # pragma: no cover
                 logger.info(
                     "Request %s cancelled - duplicate response suppressed",
                     message.request_id,
+                    extra=log_extra,
                 )
+                try:
+                    session.instrumenter.on_request_end(
+                        token=instrumentation_token,
+                        request_id=message.request_id,
+                        request_type=request_type,
+                        success=False,
+                        duration_seconds=time.monotonic() - start_time,
+                        cancelled=True,
+                    )
+                except Exception:  # pragma: no cover
+                    logger.exception("Error in instrumentation on_request_end")
                 return
             except Exception as err:  # pragma: no cover
+                try:
+                    session.instrumenter.on_error(
+                        token=instrumentation_token,
+                        request_id=message.request_id,
+                        error=err,
+                        error_type=type(err).__name__,
+                    )
+                except Exception:  # pragma: no cover
+                    logger.exception("Error in instrumentation on_error")
                 if raise_exceptions:
                     raise err
                 response = types.ErrorData(code=0, message=str(err), data=None)
             finally:
                 # Reset the global state after we are done
-                if token is not None:  # pragma: no branch
-                    request_ctx.reset(token)
+                if context_token is not None:  # pragma: no branch
+                    request_ctx.reset(context_token)
+
+                # End instrumentation
+                try:
+                    session.instrumenter.on_request_end(
+                        token=instrumentation_token,
+                        request_id=message.request_id,
+                        request_type=request_type,
+                        success=success,
+                        duration_seconds=time.monotonic() - start_time,
+                    )
+                except Exception:  # pragma: no cover
+                    logger.exception("Error in instrumentation on_request_end")
 
             await message.respond(response)
         else:  # pragma: no cover
@@ -724,8 +788,19 @@ class Server(Generic[LifespanResultT, RequestT]):
                     message="Method not found",
                 )
             )
+            try:
+                session.instrumenter.on_request_end(
+                    token=instrumentation_token,
+                    request_id=message.request_id,
+                    request_type=request_type,
+                    success=False,
+                    duration_seconds=time.monotonic() - start_time,
+                    error="Method not found",
+                )
+            except Exception:  # pragma: no cover
+                logger.exception("Error in instrumentation on_request_end")
 
-        logger.debug("Response sent")
+        logger.debug("Response sent", extra=log_extra)
 
     async def _handle_notification(self, notify: Any):
         if handler := self.notification_handlers.get(type(notify)):  # type: ignore

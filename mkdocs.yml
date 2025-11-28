@@ -18,6 +18,7 @@ nav:
       - Low-Level Server: low-level-server.md
       - Authorization: authorization.md
       - Testing: testing.md
+      - Instrumentation: instrumentation.md
   - API Reference: api.md
 
 theme:
