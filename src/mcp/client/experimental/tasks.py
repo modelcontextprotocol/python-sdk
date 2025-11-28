@@ -24,9 +24,13 @@ Example:
     await session.experimental.cancel_task(task_id)
 """
 
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, TypeVar
 
+import anyio
+
 import mcp.types as types
+from mcp.shared.experimental.tasks.helpers import is_terminal
 
 if TYPE_CHECKING:
     from mcp.client.session import ClientSession
@@ -191,3 +195,40 @@ class ExperimentalClientFeatures:
             ),
             types.CancelTaskResult,
         )
+
+    async def poll_task(self, task_id: str) -> AsyncIterator[types.GetTaskResult]:
+        """
+        Poll a task until it reaches a terminal status.
+
+        Yields GetTaskResult for each poll, allowing the caller to react to
+        status changes (e.g., handle input_required). Exits when task reaches
+        a terminal status (completed, failed, cancelled).
+
+        Respects the pollInterval hint from the server.
+
+        Args:
+            task_id: The task identifier
+
+        Yields:
+            GetTaskResult for each poll
+
+        Example:
+            async for status in session.experimental.poll_task(task_id):
+                print(f"Status: {status.status}")
+                if status.status == "input_required":
+                    # Handle elicitation request via tasks/result
+                    pass
+
+            # Task is now terminal, get the result
+            result = await session.experimental.get_task_result(task_id, CallToolResult)
+        """
+        while True:
+            status = await self.get_task(task_id)
+            yield status
+
+            if is_terminal(status.status):
+                break
+
+            # Respect server's pollInterval hint, default to 500ms if not specified
+            interval_ms = status.pollInterval if status.pollInterval is not None else 500
+            await anyio.sleep(interval_ms / 1000)

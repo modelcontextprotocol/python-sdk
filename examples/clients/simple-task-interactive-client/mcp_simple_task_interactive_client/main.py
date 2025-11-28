@@ -1,4 +1,10 @@
-"""Simple interactive task client demonstrating elicitation and sampling responses."""
+"""Simple interactive task client demonstrating elicitation and sampling responses.
+
+This example demonstrates the spec-compliant polling pattern:
+1. Poll tasks/get watching for status changes
+2. On input_required, call tasks/result to receive elicitation/sampling requests
+3. Continue until terminal status, then retrieve final result
+"""
 
 import asyncio
 from typing import Any
@@ -88,8 +94,17 @@ async def run(url: str) -> None:
             task_id = result.task.taskId
             print(f"Task created: {task_id}")
 
-            # get_task_result() delivers elicitation requests and blocks until complete
-            final = await session.experimental.get_task_result(task_id, CallToolResult)
+            # Poll until terminal, calling tasks/result on input_required
+            async for status in session.experimental.poll_task(task_id):
+                print(f"[Poll] Status: {status.status}")
+                if status.status == "input_required":
+                    # Server needs input - tasks/result delivers the elicitation request
+                    final = await session.experimental.get_task_result(task_id, CallToolResult)
+                    break
+            else:
+                # poll_task exited due to terminal status
+                final = await session.experimental.get_task_result(task_id, CallToolResult)
+
             print(f"Result: {get_text(final)}")
 
             # Demo 2: Sampling (write_haiku)
@@ -100,8 +115,15 @@ async def run(url: str) -> None:
             task_id = result.task.taskId
             print(f"Task created: {task_id}")
 
-            # get_task_result() delivers sampling requests and blocks until complete
-            final = await session.experimental.get_task_result(task_id, CallToolResult)
+            # Poll until terminal, calling tasks/result on input_required
+            async for status in session.experimental.poll_task(task_id):
+                print(f"[Poll] Status: {status.status}")
+                if status.status == "input_required":
+                    final = await session.experimental.get_task_result(task_id, CallToolResult)
+                    break
+            else:
+                final = await session.experimental.get_task_result(task_id, CallToolResult)
+
             print(f"Result:\n{get_text(final)}")
 
 

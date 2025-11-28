@@ -28,18 +28,14 @@ async def run(url: str) -> None:
             task_id = result.task.taskId
             print(f"Task created: {task_id}")
 
-            # Poll until done
-            while True:
-                status = await session.experimental.get_task(task_id)
+            # Poll until done (respects server's pollInterval hint)
+            async for status in session.experimental.poll_task(task_id):
                 print(f"  Status: {status.status} - {status.statusMessage or ''}")
 
-                if status.status == "completed":
-                    break
-                elif status.status in ("failed", "cancelled"):
-                    print(f"Task ended with status: {status.status}")
-                    return
-
-                await asyncio.sleep(0.5)
+            # Check final status
+            if status.status != "completed":
+                print(f"Task ended with status: {status.status}")
+                return
 
             # Get the result
             task_result = await session.experimental.get_task_result(task_id, CallToolResult)
