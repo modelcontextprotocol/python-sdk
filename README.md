@@ -395,11 +395,12 @@ async def slow_operation(data: str) -> str:
     return result
 
 # Clients can catch timeout errors
-try:
-    result = await session.call_tool("slow_operation", {"data": "..."})
-except McpError as e:
-    if e.error.code == REQUEST_TIMEOUT:
-        print("Tool execution timed out")
+async def call_tool_with_timeout():
+    try:
+        result = await session.call_tool("slow_operation", {"data": "..."})
+    except McpError as e:
+        if e.error.code == REQUEST_TIMEOUT:
+            print("Tool execution timed out")
 ```
 
 **Configuration via environment variables:**
@@ -410,6 +411,7 @@ FASTMCP_TOOL_TIMEOUT_SECONDS=120 python server.py
 ```
 
 **Best practices:**
+
 - Choose timeouts based on expected tool execution time
 - Consider client-side timeouts as well for end-to-end timeout control
 - Log or monitor timeout occurrences to identify problematic tools
