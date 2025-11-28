@@ -350,62 +350,73 @@ def _try_create_model_and_schema(
     model = None
     wrap_output = False
 
-    # First handle special case: None
-    if type_expr is None:
-        model = _create_wrapped_model(func_name, original_annotation)
-        wrap_output = True
+    try:
+        # First handle special case: None
+        if type_expr is None:
+            model = _create_wrapped_model(func_name, original_annotation)
+            wrap_output = True
 
-    # Handle GenericAlias types (list[str], dict[str, int], Union[str, int], etc.)
-    elif isinstance(type_expr, GenericAlias):
-        origin = get_origin(type_expr)
+        # Handle GenericAlias types (list[str], dict[str, int], Union[str, int], etc.)
+        elif isinstance(type_expr, GenericAlias):
+            origin = get_origin(type_expr)
 
-        # Special case: dict with string keys can use RootModel
-        if origin is dict:
-            args = get_args(type_expr)
-            if len(args) == 2 and args[0] is str:
-                # TODO: should we use the original annotation? We are loosing any potential `Annotated`
-                # metadata for Pydantic here:
-                model = _create_dict_model(func_name, original_annotation)
+            # Special case: dict with string keys can use RootModel
+            if origin is dict:
+                args = get_args(type_expr)
+                if len(args) == 2 and args[0] is str:
+                    # TODO: should we use the original annotation? We are loosing any potential `Annotated`
+                    # metadata for Pydantic here:
+                    model = _create_dict_model(func_name, original_annotation)
+                else:
+                    # dict with non-str keys needs wrapping
+                    model = _create_wrapped_model(func_name, original_annotation)
+                    wrap_output = True
             else:
-                # dict with non-str keys needs wrapping
+                # All other generic types need wrapping (list, tuple, Union, Optional, etc.)
                 model = _create_wrapped_model(func_name, original_annotation)
                 wrap_output = True
+
+        # Handle regular type objects
+        elif isinstance(type_expr, type):
+            type_annotation = cast(type[Any], type_expr)
+
+            # Case 1: BaseModel subclasses (can be used directly)
+            if issubclass(type_annotation, BaseModel):
+                model = type_annotation
+
+            # Case 2: TypedDicts:
+            elif is_typeddict(type_annotation):
+                model = _create_model_from_typeddict(type_annotation)
+
+            # Case 3: Primitive types that need wrapping
+            elif type_annotation in (str, int, float, bool, bytes, type(None)):
+                model = _create_wrapped_model(func_name, original_annotation)
+                wrap_output = True
+
+            # Case 4: Other class types (dataclasses, regular classes with annotations)
+            else:
+                type_hints = get_type_hints(type_annotation)
+                if type_hints:
+                    # Classes with type hints can be converted to Pydantic models
+                    model = _create_model_from_class(type_annotation, type_hints)
+                # Classes without type hints are not serializable - model remains None
+
+        # Handle any other types not covered above
         else:
-            # All other generic types need wrapping (list, tuple, Union, Optional, etc.)
+            # This includes typing constructs that aren't GenericAlias in Python 3.10
+            # (e.g., Union, Optional in some Python versions)
             model = _create_wrapped_model(func_name, original_annotation)
             wrap_output = True
 
-    # Handle regular type objects
-    elif isinstance(type_expr, type):
-        type_annotation = cast(type[Any], type_expr)
-
-        # Case 1: BaseModel subclasses (can be used directly)
-        if issubclass(type_annotation, BaseModel):
-            model = type_annotation
-
-        # Case 2: TypedDicts:
-        elif is_typeddict(type_annotation):
-            model = _create_model_from_typeddict(type_annotation)
-
-        # Case 3: Primitive types that need wrapping
-        elif type_annotation in (str, int, float, bool, bytes, type(None)):
-            model = _create_wrapped_model(func_name, original_annotation)
-            wrap_output = True
-
-        # Case 4: Other class types (dataclasses, regular classes with annotations)
-        else:
-            type_hints = get_type_hints(type_annotation)
-            if type_hints:
-                # Classes with type hints can be converted to Pydantic models
-                model = _create_model_from_class(type_annotation, type_hints)
-            # Classes without type hints are not serializable - model remains None
-
-    # Handle any other types not covered above
-    else:
-        # This includes typing constructs that aren't GenericAlias in Python 3.10
-        # (e.g., Union, Optional in some Python versions)
-        model = _create_wrapped_model(func_name, original_annotation)
-        wrap_output = True
+    except (
+        TypeError,
+        ValueError,
+        pydantic_core.SchemaError,
+        pydantic_core.ValidationError,
+        PydanticSchemaGenerationError,
+    ) as e:
+        logger.info(f"Cannot create model for type {type_expr} in {func_name}: {type(e).__name__}: {e}")
+        return None, None, False
 
     if model:
         # If we successfully created a model, try to get its schema
