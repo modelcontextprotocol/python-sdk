@@ -2,10 +2,7 @@
 
 import pytest
 
-import mcp.types as types
-from mcp.server.lowlevel import Server
-from mcp.shared.instrumentation import Instrumenter, NoOpInstrumenter, get_default_instrumenter
-from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.shared.instrumentation import NoOpInstrumenter, get_default_instrumenter
 
 
 class TestInstrumenter:
@@ -15,20 +12,22 @@ class TestInstrumenter:
         self.calls = []
 
     def on_request_start(self, request_id, request_type, method=None, **metadata):
-        self.calls.append(
-            {
-                "hook": "on_request_start",
-                "request_id": request_id,
-                "request_type": request_type,
-                "method": method,
-                "metadata": metadata,
-            }
-        )
+        call = {
+            "hook": "on_request_start",
+            "request_id": request_id,
+            "request_type": request_type,
+            "method": method,
+            "metadata": metadata,
+        }
+        self.calls.append(call)
+        # Return the call itself as a token for testing
+        return call
 
-    def on_request_end(self, request_id, request_type, success, duration_seconds=None, **metadata):
+    def on_request_end(self, token, request_id, request_type, success, duration_seconds=None, **metadata):
         self.calls.append(
             {
                 "hook": "on_request_end",
+                "token": token,
                 "request_id": request_id,
                 "request_type": request_type,
                 "success": success,
@@ -37,10 +36,11 @@ class TestInstrumenter:
             }
         )
 
-    def on_error(self, request_id, error, error_type, **metadata):
+    def on_error(self, token, request_id, error, error_type, **metadata):
         self.calls.append(
             {
                 "hook": "on_error",
+                "token": token,
                 "request_id": request_id,
                 "error": error,
                 "error_type": error_type,
@@ -58,39 +58,14 @@ class TestInstrumenter:
 
 
 @pytest.mark.anyio
-async def test_instrumenter_called_on_successful_request():
-    """Test that instrumentation hooks are called for a successful request."""
-    instrumenter = TestInstrumenter()
-
-    server = Server("test-server")
-
-    @server.list_tools()
-    async def handle_list_tools() -> list[types.Tool]:
-        return [types.Tool(name="test_tool", description="A test tool", inputSchema={})]
-
-    async with create_connected_server_and_client_session(
-        server,
-        raise_exceptions=True,
-    ) as client:
-        # Override the server session's instrumenter after connection is established
-        # We need to access the server session through the memory streams setup
-        # For this test, we'll inject the instrumenter via server.run() call
-        pass
-
-    # Since we can't easily inject instrumenter in create_connected_server_and_client_session,
-    # we'll test via the Server.run() method directly
-    # Let's create a simpler test that focuses on the ServerSession directly
-
-
-@pytest.mark.anyio
 async def test_noop_instrumenter():
     """Test that NoOpInstrumenter does nothing and doesn't raise errors."""
     instrumenter = NoOpInstrumenter()
 
     # Should not raise any errors
-    instrumenter.on_request_start(request_id=1, request_type="TestRequest")
-    instrumenter.on_request_end(request_id=1, request_type="TestRequest", success=True)
-    instrumenter.on_error(request_id=1, error=Exception("test"), error_type="Exception")
+    token = instrumenter.on_request_start(request_id=1, request_type="TestRequest")
+    instrumenter.on_request_end(token=token, request_id=1, request_type="TestRequest", success=True)
+    instrumenter.on_error(token=token, request_id=1, error=Exception("test"), error_type="Exception")
 
 
 def test_get_default_instrumenter():
@@ -104,9 +79,11 @@ def test_instrumenter_protocol():
     instrumenter = TestInstrumenter()
 
     # Call all methods to ensure they exist
-    instrumenter.on_request_start(request_id=1, request_type="TestRequest", method="test_method")
-    instrumenter.on_request_end(request_id=1, request_type="TestRequest", success=True, duration_seconds=1.5)
-    instrumenter.on_error(request_id=1, error=Exception("test"), error_type="Exception")
+    token = instrumenter.on_request_start(request_id=1, request_type="TestRequest", method="test_method")
+    instrumenter.on_request_end(
+        token=token, request_id=1, request_type="TestRequest", success=True, duration_seconds=1.5
+    )
+    instrumenter.on_error(token=token, request_id=1, error=Exception("test"), error_type="Exception")
 
     # Verify calls were tracked
     assert len(instrumenter.calls) == 3
@@ -120,8 +97,8 @@ def test_instrumenter_tracks_request_id():
     instrumenter = TestInstrumenter()
     test_request_id = 42
 
-    instrumenter.on_request_start(request_id=test_request_id, request_type="TestRequest")
-    instrumenter.on_request_end(request_id=test_request_id, request_type="TestRequest", success=True)
+    token = instrumenter.on_request_start(request_id=test_request_id, request_type="TestRequest")
+    instrumenter.on_request_end(token=token, request_id=test_request_id, request_type="TestRequest", success=True)
 
     # Verify request_id is consistent
     calls = instrumenter.get_calls_by_request_id(test_request_id)
@@ -147,10 +124,14 @@ def test_instrumenter_duration_tracking():
     """Test that duration is passed to on_request_end."""
     instrumenter = TestInstrumenter()
 
-    instrumenter.on_request_end(request_id=1, request_type="TestRequest", success=True, duration_seconds=2.5)
+    token = {"test": "token"}
+    instrumenter.on_request_end(
+        token=token, request_id=1, request_type="TestRequest", success=True, duration_seconds=2.5
+    )
 
     call = instrumenter.get_calls_by_hook("on_request_end")[0]
     assert call["duration_seconds"] == 2.5
+    assert call["token"] == token
 
 
 def test_instrumenter_error_info():
@@ -158,9 +139,41 @@ def test_instrumenter_error_info():
     instrumenter = TestInstrumenter()
     test_error = ValueError("test error message")
 
-    instrumenter.on_error(request_id=1, error=test_error, error_type="ValueError", extra_info="additional context")
+    token = {"test": "token"}
+    instrumenter.on_error(
+        token=token, request_id=1, error=test_error, error_type="ValueError", extra_info="additional context"
+    )
 
     call = instrumenter.get_calls_by_hook("on_error")[0]
     assert call["error"] is test_error
     assert call["error_type"] == "ValueError"
     assert call["metadata"]["extra_info"] == "additional context"
+    assert call["token"] == token
+
+
+def test_instrumenter_token_flow():
+    """Test that token is passed correctly from start to end/error."""
+    instrumenter = TestInstrumenter()
+
+    # Start request and get token
+    token = instrumenter.on_request_start(request_id=1, request_type="TestRequest", method="test_tool")
+    assert token is not None
+    assert isinstance(token, dict)
+    assert token["request_id"] == 1
+
+    # End request with the token
+    instrumenter.on_request_end(
+        token=token, request_id=1, request_type="TestRequest", success=True, duration_seconds=1.5
+    )
+
+    # Verify token is the same
+    start_call = instrumenter.get_calls_by_hook("on_request_start")[0]
+    end_call = instrumenter.get_calls_by_hook("on_request_end")[0]
+    assert end_call["token"] is start_call  # Token should be the start call itself
+
+    # Test error path
+    token2 = instrumenter.on_request_start(request_id=2, request_type="TestRequest2")
+    instrumenter.on_error(token=token2, request_id=2, error=Exception("test"), error_type="Exception")
+
+    error_call = instrumenter.get_calls_by_hook("on_error")[0]
+    assert error_call["token"]["request_id"] == 2

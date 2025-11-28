@@ -2,13 +2,17 @@
 
 The MCP Python SDK provides a pluggable instrumentation interface for monitoring request/response lifecycle. This enables integration with OpenTelemetry, custom metrics, logging frameworks, and other observability tools.
 
+**Related issue**: [#421 - Adding OpenTelemetry to MCP SDK](https://github.com/modelcontextprotocol/python-sdk/issues/421)
+
 ## Overview
 
 The `Instrumenter` protocol defines three hooks:
 
-- `on_request_start`: Called when a request starts processing
-- `on_request_end`: Called when a request completes (successfully or not)
-- `on_error`: Called when an error occurs during request processing
+- `on_request_start`: Called when a request starts processing, **returns a token**
+- `on_request_end`: Called when a request completes, **receives the token**
+- `on_error`: Called when an error occurs, **receives the token**
+
+The token-based design allows instrumenters to maintain state (like OpenTelemetry spans) between `on_request_start` and `on_request_end` without needing external storage or side-channels.
 
 All methods are optional (no-op implementations are valid). Exceptions raised by instrumentation hooks are logged but do not affect request processing.
 
@@ -17,6 +21,7 @@ All methods are optional (no-op implementations are valid). Exceptions raised by
 ### Server-Side Instrumentation
 
 ```python
+from typing import Any
 from mcp.server.lowlevel import Server
 from mcp.shared.instrumentation import Instrumenter
 from mcp.types import RequestId
@@ -30,27 +35,35 @@ class MyInstrumenter:
         request_type: str,
         method: str | None = None,
         **metadata,
-    ) -> None:
+    ) -> Any:
+        """Return a token (any value) to track this request."""
         print(f"Request {request_id} started: {request_type}")
+        # Return a token - can be anything (dict, object, etc.)
+        return {"request_id": request_id, "start_time": time.time()}
     
     def on_request_end(
         self,
+        token: Any,  # Receives the token from on_request_start
         request_id: RequestId,
         request_type: str,
         success: bool,
         duration_seconds: float | None = None,
         **metadata,
     ) -> None:
+        """Process the completed request using the token."""
         status = "succeeded" if success else "failed"
         print(f"Request {request_id} {status} in {duration_seconds:.3f}s")
+        print(f"Token data: {token}")
     
     def on_error(
         self,
+        token: Any,  # Receives the token from on_request_start
         request_id: RequestId | None,
         error: Exception,
         error_type: str,
         **metadata,
     ) -> None:
+        """Handle errors using the token."""
         print(f"Error in request {request_id}: {error_type} - {error}")
 
 # Create server with custom instrumenter
@@ -83,6 +96,43 @@ async with ClientSession(
     # Use session...
 ```
 
+### Why Tokens?
+
+The token-based design solves a key problem: **how do you maintain state between `on_request_start` and `on_request_end`?**
+
+Without tokens, instrumenters would need to use external storage (like a dictionary keyed by `request_id`) to track state:
+
+```python
+# ❌ Old approach - requires external storage
+class OldInstrumenter:
+    def __init__(self):
+        self.spans = {}  # Need to manage this dict
+    
+    def on_request_start(self, request_id, ...):
+        span = create_span(...)
+        self.spans[request_id] = span  # Store externally
+    
+    def on_request_end(self, request_id, ...):
+        span = self.spans.pop(request_id)  # Retrieve from storage
+        span.end()
+```
+
+With tokens, state passes directly through the SDK:
+
+```python
+# ✅ New approach - token is returned and passed back
+class NewInstrumenter:
+    def on_request_start(self, request_id, ...):
+        span = create_span(...)
+        return span  # Return directly
+    
+    def on_request_end(self, token, request_id, ...):
+        span = token  # Receive directly
+        span.end()
+```
+
+This is especially important for OpenTelemetry, where spans need to be kept alive.
+
 ## Metadata
 
 Instrumentation hooks receive metadata via `**metadata` keyword arguments:
@@ -105,41 +155,129 @@ The `request_id` parameter is consistent across all hooks for a given request, a
 
 ## OpenTelemetry Integration
 
-A full OpenTelemetry instrumenter will be provided in a future release or as a separate package. Here's a basic example to get started:
+The token-based instrumentation interface is designed specifically to work well with OpenTelemetry. Here's a complete example:
 
 ```python
+from typing import Any
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
-
-tracer = trace.get_tracer(__name__)
+from mcp.types import RequestId
 
 class OpenTelemetryInstrumenter:
-    def __init__(self):
-        self.spans = {}
+    """OpenTelemetry implementation of the MCP Instrumenter protocol."""
     
-    def on_request_start(self, request_id, request_type, **metadata):
-        span = tracer.start_span(
-            f"mcp.request.{request_type}",
-            attributes={
-                "mcp.request_id": str(request_id),
-                "mcp.request_type": request_type,
-                **metadata,
-            }
-        )
-        self.spans[request_id] = span
+    def __init__(self, tracer_provider=None):
+        if tracer_provider is None:
+            tracer_provider = trace.get_tracer_provider()
+        self.tracer = tracer_provider.get_tracer("mcp.sdk", version="1.0.0")
     
-    def on_request_end(self, request_id, request_type, success, duration_seconds=None, **metadata):
-        if span := self.spans.pop(request_id, None):
-            if duration_seconds:
-                span.set_attribute("mcp.duration_seconds", duration_seconds)
-            span.set_status(Status(StatusCode.OK if success else StatusCode.ERROR))
-            span.end()
+    def on_request_start(
+        self,
+        request_id: RequestId,
+        request_type: str,
+        method: str | None = None,
+        **metadata: Any,
+    ) -> Any:
+        """Start a new span and return it as the token."""
+        span_name = f"mcp.{request_type}"
+        if method:
+            span_name = f"{span_name}.{method}"
+        
+        # Start the span
+        span = self.tracer.start_span(span_name)
+        
+        # Set attributes
+        span.set_attribute("mcp.request_id", str(request_id))
+        span.set_attribute("mcp.request_type", request_type)
+        if method:
+            span.set_attribute("mcp.method", method)
+        
+        # Add metadata
+        session_type = metadata.get("session_type")
+        if session_type:
+            span.set_attribute("mcp.session_type", session_type)
+        
+        # Return span as token
+        return span
     
-    def on_error(self, request_id, error, error_type, **metadata):
-        if span := self.spans.get(request_id):
-            span.record_exception(error)
-            span.set_status(Status(StatusCode.ERROR, str(error)))
+    def on_request_end(
+        self,
+        token: Any,  # This is the span from on_request_start
+        request_id: RequestId,
+        request_type: str,
+        success: bool,
+        duration_seconds: float | None = None,
+        **metadata: Any,
+    ) -> None:
+        """End the span."""
+        if token is None:
+            return
+        
+        span = token
+        
+        # Set success attributes
+        span.set_attribute("mcp.success", success)
+        if duration_seconds is not None:
+            span.set_attribute("mcp.duration_seconds", duration_seconds)
+        
+        # Set status
+        if success:
+            span.set_status(Status(StatusCode.OK))
+        else:
+            span.set_status(Status(StatusCode.ERROR))
+            error_msg = metadata.get("error")
+            if error_msg:
+                span.set_attribute("mcp.error", str(error_msg))
+        
+        # End the span
+        span.end()
+    
+    def on_error(
+        self,
+        token: Any,  # This is the span from on_request_start
+        request_id: RequestId | None,
+        error: Exception,
+        error_type: str,
+        **metadata: Any,
+    ) -> None:
+        """Record error in the span."""
+        if token is None:
+            return
+        
+        span = token
+        
+        # Record exception
+        span.record_exception(error)
+        span.set_attribute("mcp.error_type", error_type)
+        span.set_attribute("mcp.error_message", str(error))
+        
+        # Set error status
+        span.set_status(Status(StatusCode.ERROR, str(error)))
 ```
+
+### Full Working Example
+
+A complete working example with OpenTelemetry setup is available in `examples/opentelemetry_instrumentation.py`.
+
+To use it:
+
+```bash
+# Install OpenTelemetry
+pip install opentelemetry-api opentelemetry-sdk
+
+# Run the example
+python examples/opentelemetry_instrumentation.py
+```
+
+### Key Benefits
+
+The token-based design provides several advantages for OpenTelemetry:
+
+1. **No external storage**: No need to maintain a `spans` dictionary
+2. **Automatic cleanup**: Spans are garbage collected when done
+3. **Thread-safe**: Each request gets its own token
+4. **Context propagation**: Easy to integrate with OpenTelemetry context
+5. **Distributed tracing**: Can be extended to propagate trace context in `_meta`
 
 ## Default Behavior
 
@@ -166,7 +304,8 @@ instrumenter = get_default_instrumenter()
 
 ```python
 from collections import defaultdict
-from typing import Dict
+from typing import Any, Dict
+from mcp.types import RequestId
 
 class MetricsInstrumenter:
     """Track request counts and durations."""
@@ -176,14 +315,39 @@ class MetricsInstrumenter:
         self.request_durations: Dict[str, list[float]] = defaultdict(list)
         self.error_counts: Dict[str, int] = defaultdict(int)
     
-    def on_request_start(self, request_id, request_type, **metadata):
+    def on_request_start(
+        self,
+        request_id: RequestId,
+        request_type: str,
+        method: str | None = None,
+        **metadata: Any,
+    ) -> Any:
+        """Track request start, return request_type as token."""
         self.request_counts[request_type] += 1
+        return request_type  # Simple token - just the request type
     
-    def on_request_end(self, request_id, request_type, success, duration_seconds=None, **metadata):
+    def on_request_end(
+        self,
+        token: Any,
+        request_id: RequestId,
+        request_type: str,
+        success: bool,
+        duration_seconds: float | None = None,
+        **metadata: Any,
+    ) -> None:
+        """Track request completion."""
         if duration_seconds is not None:
             self.request_durations[request_type].append(duration_seconds)
     
-    def on_error(self, request_id, error, error_type, **metadata):
+    def on_error(
+        self,
+        token: Any,
+        request_id: RequestId | None,
+        error: Exception,
+        error_type: str,
+        **metadata: Any,
+    ) -> None:
+        """Track errors."""
         self.error_counts[error_type] += 1
     
     def get_stats(self):
@@ -199,10 +363,14 @@ class MetricsInstrumenter:
         return stats
 ```
 
+Note: For this simple metrics case, the token isn't strictly necessary, so we just return the `request_type`. For more complex instrumenters (like OpenTelemetry), the token is essential for maintaining state.
+
 ## Future Work
 
-- Full OpenTelemetry integration as a separate module
-- Additional built-in instrumenters (Prometheus, StatsD, etc.)
+- Package OpenTelemetry instrumenter as a separate installable extra (`pip install mcp[opentelemetry]`)
+- Additional built-in instrumenters (Prometheus, StatsD, Datadog, etc.)
+- Support for distributed tracing via `params._meta.traceparent` propagation (see [modelcontextprotocol/spec#414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414))
+- Semantic conventions for MCP traces and metrics (see [open-telemetry/semantic-conventions#2083](https://github.com/open-telemetry/semantic-conventions/pull/2083))
 - Client-side request instrumentation
 - Async hook support for long-running instrumentation operations
 

@@ -3,6 +3,8 @@
 This module provides a pluggable instrumentation interface for monitoring
 MCP request/response lifecycle. It's designed to support integration with
 OpenTelemetry and other observability tools.
+
+See: https://github.com/modelcontextprotocol/python-sdk/issues/421
 """
 
 from __future__ import annotations
@@ -18,6 +20,9 @@ class Instrumenter(Protocol):
     Implementers can use this to integrate with OpenTelemetry, custom metrics,
     logging frameworks, or other observability tools.
 
+    The token-based design allows instrumenters to maintain state (like OpenTelemetry
+    spans) between on_request_start and on_request_end without side-channels.
+
     All methods are optional (no-op implementations are valid). Exceptions
     raised by instrumentation hooks are logged but do not affect request processing.
     """
@@ -28,7 +33,7 @@ class Instrumenter(Protocol):
         request_type: str,
         method: str | None = None,
         **metadata: Any,
-    ) -> None:
+    ) -> Any:
         """Called when a request starts processing.
 
         Args:
@@ -36,11 +41,17 @@ class Instrumenter(Protocol):
             request_type: Type name of the request (e.g., "CallToolRequest")
             method: Optional method name being called (e.g., tool/resource name)
             **metadata: Additional context (session_type, client_info, etc.)
+
+        Returns:
+            A token (any value) that will be passed to on_request_end/on_error.
+            This allows instrumenters to maintain state (e.g., OpenTelemetry spans)
+            without needing external storage.
         """
         ...
 
     def on_request_end(
         self,
+        token: Any,
         request_id: RequestId,
         request_type: str,
         success: bool,
@@ -50,6 +61,7 @@ class Instrumenter(Protocol):
         """Called when a request completes (successfully or not).
 
         Args:
+            token: The value returned from on_request_start
             request_id: Unique identifier for this request
             request_type: Type name of the request
             success: Whether the request completed successfully
@@ -60,6 +72,7 @@ class Instrumenter(Protocol):
 
     def on_error(
         self,
+        token: Any,
         request_id: RequestId | None,
         error: Exception,
         error_type: str,
@@ -68,6 +81,7 @@ class Instrumenter(Protocol):
         """Called when an error occurs during request processing.
 
         Args:
+            token: The value returned from on_request_start (may be None)
             request_id: Request ID if available, None for session-level errors
             error: The exception that occurred
             error_type: Type name of the error
@@ -90,11 +104,12 @@ class NoOpInstrumenter:
         method: str | None = None,
         **metadata: Any,
     ) -> None:
-        """No-op implementation."""
-        pass
+        """No-op implementation that returns None as token."""
+        return None
 
     def on_request_end(
         self,
+        token: Any,
         request_id: RequestId,
         request_type: str,
         success: bool,
@@ -106,6 +121,7 @@ class NoOpInstrumenter:
 
     def on_error(
         self,
+        token: Any,
         request_id: RequestId | None,
         error: Exception,
         error_type: str,

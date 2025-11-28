@@ -682,10 +682,11 @@ class Server(Generic[LifespanResultT, RequestT]):
         log_extra = {"request_id": str(message.request_id)}
         logger.info("Processing request of type %s", request_type, extra=log_extra)
 
-        # Start instrumentation
+        # Start instrumentation and capture token
         start_time = time.monotonic()
+        instrumentation_token = None
         try:
-            session.instrumenter.on_request_start(
+            instrumentation_token = session.instrumenter.on_request_start(
                 request_id=message.request_id,
                 request_type=request_type,
                 session_type="server",
@@ -696,7 +697,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         if handler := self.request_handlers.get(type(req)):  # type: ignore
             logger.debug("Dispatching request of type %s", request_type, extra=log_extra)
 
-            token = None
+            context_token = None
             response = None
             success = False
             try:
@@ -709,7 +710,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
                 # Set our global state that can be retrieved via
                 # app.get_request_context()
-                token = request_ctx.set(
+                context_token = request_ctx.set(
                     RequestContext(
                         message.request_id,
                         message.request_meta,
@@ -724,6 +725,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                 response = err.error
                 try:
                     session.instrumenter.on_error(
+                        token=instrumentation_token,
                         request_id=message.request_id,
                         error=err,
                         error_type=type(err).__name__,
@@ -738,6 +740,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                 )
                 try:
                     session.instrumenter.on_request_end(
+                        token=instrumentation_token,
                         request_id=message.request_id,
                         request_type=request_type,
                         success=False,
@@ -750,6 +753,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             except Exception as err:  # pragma: no cover
                 try:
                     session.instrumenter.on_error(
+                        token=instrumentation_token,
                         request_id=message.request_id,
                         error=err,
                         error_type=type(err).__name__,
@@ -761,12 +765,13 @@ class Server(Generic[LifespanResultT, RequestT]):
                 response = types.ErrorData(code=0, message=str(err), data=None)
             finally:
                 # Reset the global state after we are done
-                if token is not None:  # pragma: no branch
-                    request_ctx.reset(token)
+                if context_token is not None:  # pragma: no branch
+                    request_ctx.reset(context_token)
 
                 # End instrumentation
                 try:
                     session.instrumenter.on_request_end(
+                        token=instrumentation_token,
                         request_id=message.request_id,
                         request_type=request_type,
                         success=success,
@@ -785,6 +790,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             )
             try:
                 session.instrumenter.on_request_end(
+                    token=instrumentation_token,
                     request_id=message.request_id,
                     request_type=request_type,
                     success=False,
